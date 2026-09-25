@@ -35,6 +35,7 @@ class ProductLine(BaseModel):
     description: str = ""
     template: str
     verify_command: str = "make verify"
+    scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
     service_port: int = 8000
     node_ports: list[int] = Field(default_factory=lambda: [30080])

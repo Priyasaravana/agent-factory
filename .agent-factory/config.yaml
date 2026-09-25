@@ -32,6 +32,12 @@ product_lines:
     description: Python FastAPI REST service with Postgres, Helm chart, NodePort
     template: templates/fastapi-service
     verify_command: make verify
+    # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
+    # factory image. {image} is filled in by the Package station. Pin a digest
+    # (aquasec/trivy@sha256:...) once you have verified one you trust.
+    scan_command: >-
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
+      aquasec/trivy:latest image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}
     chart_path: deploy/chart
     service_port: 8000
     node_ports: [30080, 30081, 30082, 30083, 30084]   # mapped to host 8081-8085

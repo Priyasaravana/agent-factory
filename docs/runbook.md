@@ -37,7 +37,12 @@ Submit an order and watch all 8 stations pass. The generated repo is real: see
   `make reset-cluster` recreates the cluster.
 - **`docker info` fails in the factory container.** The dind certs may not be
   ready yet. Run `docker compose restart factory`.
-- **trivy is slow the first time.** It downloads its vulnerability DB into the
-  factory container on the first package step.
+- **The scan step is slow the first time.** The Package station runs the scanner
+  (`scan_command` in `config.yaml`) as a container inside dind. The first run
+  pulls the image and downloads its vulnerability DB into the `trivy-cache`
+  volume. Pin the image to a digest you have verified.
+- **Image build fails downloading a tool.** Each tool has its own `RUN` line in
+  `images/factory/Dockerfile`, so the failing layer names the tool. Bump that
+  tool's `ARG` version.
 - **Agent sessions fail immediately.** Check the auth pill. Look in
   `docker compose logs factory` for the CLI's error.

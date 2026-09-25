@@ -6,7 +6,6 @@ FROM python:3.12-slim-bookworm
 ARG KIND_VERSION=v0.27.0
 ARG KUBECTL_VERSION=v1.32.3
 ARG HELM_VERSION=v3.17.2
-ARG TRIVY_VERSION=0.60.0
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,15 +20,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin gh \
     && rm -rf /var/lib/apt/lists/*
 
+# One tool per layer so a failed download names itself in the build log.
 RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
  && curl -fsSLo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH} \
+ && chmod +x /usr/local/bin/kind && kind version
+RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
  && curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl \
- && chmod +x /usr/local/bin/kind /usr/local/bin/kubectl \
+ && chmod +x /usr/local/bin/kubectl && kubectl version --client
+RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
  && curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | tar -xz -C /tmp \
- && mv /tmp/linux-${ARCH}/helm /usr/local/bin/helm \
- && T_ARCH=$([ "$ARCH" = "arm64" ] && echo ARM64 || echo 64bit) \
- && curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${T_ARCH}.tar.gz \
-    | tar -xz -C /usr/local/bin trivy
+ && mv /tmp/linux-${ARCH}/helm /usr/local/bin/helm && helm version --short
+# No vulnerability-scanner binary here: the Package station runs the scanner as a
+# container inside dind (see product_lines.*.scan_command in .agent-factory/config.yaml).
 
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
 

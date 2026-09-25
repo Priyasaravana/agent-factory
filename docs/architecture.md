@@ -8,7 +8,7 @@ flowchart LR
     browser["Browser<br/>localhost:8080 UI<br/>localhost:8081+ apps"]
     subgraph compose["docker compose: agent-factory"]
       web["web<br/>nginx + React/TS UI"]
-      factory["factory<br/>Python engine + API<br/>Claude Agent SDK<br/>git, docker CLI, kind, kubectl, helm, trivy, gh"]
+      factory["factory<br/>Python engine + API<br/>Claude Agent SDK<br/>git, docker CLI, kind, kubectl, helm, gh"]
       subgraph dind["dind (Docker-in-Docker, privileged)"]
         kind["kind cluster 'factory'<br/>app namespaces + Postgres"]
         images["built images"]

@@ -64,7 +64,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 | `prompts/` | One system prompt per agent role, plus the shared station contract. |
 | `plugin/` | Skills loaded into agents: vendored from BuilderIO/skills, plus our own. |
 | `cluster/` | kind-in-dind config, bootstrap and container entrypoint. |
-| `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, trivy, gh, uv. |
+| `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, gh, uv. The vulnerability scanner runs as a container in dind. |
 | `docs/` | Architecture, ADRs, scaling path, runbook. |
 
 ## Design docs

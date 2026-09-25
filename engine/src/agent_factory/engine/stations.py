@@ -246,17 +246,18 @@ async def verify(ctx: StationContext) -> StationResult:
 async def package(ctx: StationContext) -> StationResult:
     sha = await ctx.ws.head_sha(ctx.worktree)
     image = f"{ctx.order.product_slug}:{sha}"
-    steps = [
-        f"docker build -t {image} .",
-        f"trivy image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}",
-        f"kind load docker-image {image} --name {ctx.settings.cluster_name}",
-    ]
+    steps = [f"docker build -t {image} ."]
+    if ctx.line.scan_command:
+        steps.append(ctx.line.scan_command.format(image=image))
+    else:
+        await ctx.emit(EventKind.decision, "security scan NOT run: no scan_command configured")
+    steps.append(f"kind load docker-image {image} --name {ctx.settings.cluster_name}")
     for step in steps:
         res = await ctx.cmd(step, timeout=1500)
         if not res.ok:
             return StationResult(
                 StationOutcome.failed,
-                f"packaging failed at: {step.split()[0]}",
+                f"packaging failed at: {' '.join(step.split()[:2])}",
                 f"`{step}` exited {res.returncode}:\n{res.output[-4000:]}",
             )
     await ctx.emit(EventKind.decision, f"image built and loaded: {image}", {"image": image})

@@ -17,7 +17,8 @@ def _finished(f, run_id):
 
 
 async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
-    f = make_factory()
+    ex = FakeExecutor()
+    f = make_factory(ex)
     order = f.manager.create_order(ORDER)
     run = f.manager.start_run(order)
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
@@ -36,6 +37,8 @@ async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
     assert hold.exists() and not str(hold).startswith(str(wt)), "holdout lives outside the worktree"
     tags = await f.manager.ws.git("tag", repo)
     assert "v1" in tags.output
+    scan = [c for c in ex.calls if "aquasec/trivy" in c]
+    assert scan and "bookmarks-service:" in scan[0], "image scan runs as a container in dind"
 
 
 async def test_verify_failure_routes_back_to_build_with_evidence(make_factory):
