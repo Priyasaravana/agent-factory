@@ -1,0 +1,181 @@
+"""AgentRunner seam + the Claude Agent SDK implementation.
+
+Each station agent is a fresh, narrowly-scoped Claude session:
+  * role system prompt from prompts/<role>.md (+ skill_prompts overlay)
+  * only the tools that role needs; PreToolUse hooks enforce guardrails
+  * skills loaded from the factory plugin (plugin/), filtered per role
+  * factory actions exposed as in-process MCP tools (shared actions pattern)
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol
+
+from agent_factory.agents.hooks import build_hooks
+
+EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+ROLE_TOOLS: dict[str, list[str]] = {
+    "intake": ["Read", "Glob", "Grep"],
+    "architect": ["Read", "Write", "Edit", "Glob", "Grep"],
+    "developer": ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"],
+    "devops": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+    "verifier": ["Read", "Glob", "Grep", "Bash"],
+}
+
+PLUGIN_NAME = "agent-factory"
+
+
+@dataclass
+class AgentRequest:
+    run_id: str
+    station: str
+    role: str
+    prompt: str
+    cwd: Path
+    model: str
+    max_turns: int = 50
+    skills: list[str] = field(default_factory=list)
+    skill_overlay: str = ""
+    output_schema: dict[str, Any] | None = None
+    protected_paths: list[str] = field(default_factory=list)  # e.g. holdout dir
+    readable_extra_dirs: list[Path] = field(default_factory=list)
+    subagent_model: str = "haiku"  # efficient-frontier: cheap model for mechanical work
+
+
+@dataclass
+class AgentResult:
+    ok: bool
+    text: str = ""
+    structured: Any = None
+    cost_usd: float = 0.0
+    turns: int = 0
+    error: str | None = None
+    rate_limited: bool = False
+    limit_utilization: float | None = None
+    limit_resets_at: int | None = None
+
+
+class AgentRunner(Protocol):
+    async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult: ...
+
+
+class ClaudeAgentRunner:
+    def __init__(self, factory_home: Path, tools_server: Any | None = None) -> None:
+        self.factory_home = factory_home
+        self.tools_server = tools_server  # in-process MCP server with factory actions
+
+    def _system_prompt(self, req: AgentRequest) -> str:
+        role_md = (self.factory_home / "prompts" / f"{req.role}.md").read_text()
+        contract = (self.factory_home / "prompts" / "_contract.md").read_text()
+        parts = [role_md, contract]
+        if req.skill_overlay:
+            parts.append(req.skill_overlay)
+        parts.append(f"Run id: {req.run_id}. Station: {req.station}. Working dir: {req.cwd}.")
+        return "\n\n".join(parts)
+
+    async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
+        from claude_agent_sdk import (
+            AgentDefinition,
+            AssistantMessage,
+            ClaudeAgentOptions,
+            RateLimitEvent,
+            ResultMessage,
+            TextBlock,
+            ToolUseBlock,
+            query,
+        )
+
+        tools = list(ROLE_TOOLS[req.role])
+        allowed = list(tools)
+        mcp_servers: dict[str, Any] = {}
+        if self.tools_server is not None:
+            mcp_servers["factory"] = self.tools_server
+            allowed.append("mcp__factory__log_decision")
+
+        subagents = {}
+        if "Task" in tools:
+            subagents["mechanic"] = AgentDefinition(
+                description="Cheap helper for mechanical, well-specified edits: boilerplate tests, "
+                "renames, formatting and lint fixes. Give it exact files and the expected result.",
+                prompt="Make exactly the requested mechanical change inside the current directory, "
+                "run the named check, and report the files changed and the check result.",
+                tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+                model=req.subagent_model,
+            )
+
+        options = ClaudeAgentOptions(
+            system_prompt=self._system_prompt(req),
+            model=req.model,
+            cwd=str(req.cwd),
+            tools=tools,
+            allowed_tools=allowed,
+            permission_mode="acceptEdits",
+            max_turns=req.max_turns,
+            agents=subagents or None,
+            mcp_servers=mcp_servers,
+            hooks=build_hooks(req.role, req.cwd, req.protected_paths),
+            plugins=[{"type": "local", "path": str(self.factory_home / "plugin")}],
+            skills=[f"{PLUGIN_NAME}:{s}" for s in req.skills],
+            setting_sources=["project"],  # product CLAUDE.md -> AGENTS.md conventions
+            add_dirs=[str(d) for d in req.readable_extra_dirs],
+            output_format=({"type": "json_schema", "schema": req.output_schema} if req.output_schema else None),
+        )
+
+        result = AgentResult(ok=False)
+        try:
+            async for msg in query(prompt=req.prompt, options=options):
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock) and block.text.strip():
+                            await sink("agent", {"text": block.text[:2000]})
+                        elif isinstance(block, ToolUseBlock):
+                            await sink("tool", {"tool": block.name, "input": _brief(block.input)})
+                elif isinstance(msg, RateLimitEvent):
+                    info = msg.rate_limit_info
+                    result.limit_utilization = info.utilization
+                    result.limit_resets_at = info.resets_at
+                    if info.status == "rejected":
+                        result.rate_limited = True
+                    await sink(
+                        "rate_limit",
+                        {"status": info.status, "utilization": info.utilization, "resets_at": info.resets_at},
+                    )
+                elif isinstance(msg, ResultMessage):
+                    result.cost_usd = msg.total_cost_usd or 0.0
+                    result.turns = msg.num_turns
+                    result.text = msg.result or ""
+                    result.structured = msg.structured_output
+                    result.ok = not msg.is_error
+                    if msg.is_error:
+                        result.error = f"{msg.subtype}: {'; '.join(msg.errors or [])}"
+        except Exception as exc:  # noqa: BLE001 - surfaced as a HOLD, never success
+            result.ok = False
+            result.error = f"{type(exc).__name__}: {exc}"
+        if req.output_schema and result.ok and result.structured is None:
+            result.structured = _try_json(result.text)
+            if result.structured is None:
+                result.ok = False
+                result.error = "agent returned no structured output (missing evidence)"
+        return result
+
+
+def _brief(tool_input: dict[str, Any]) -> str:
+    for key in ("command", "file_path", "pattern", "path", "description"):
+        if key in tool_input:
+            return str(tool_input[key])[:300]
+    return json.dumps(tool_input)[:300]
+
+
+def _try_json(text: str) -> Any:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`").split("\n", 1)[-1]
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return None

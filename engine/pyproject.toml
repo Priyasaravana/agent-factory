@@ -1,0 +1,42 @@
+[project]
+name = "agent-factory"
+version = "0.1.0"
+description = "Agent software factory: requirements in, deployed and verified software out"
+requires-python = ">=3.12"
+dependencies = [
+  "claude-agent-sdk>=0.2.159,<0.3",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sse-starlette>=2.1",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11", "types-PyYAML"]
+
+[project.scripts]
+agent-factory = "agent_factory.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_factory"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "BLE", "ASYNC"]
+ignore = ["S101", "S602", "S603", "S607", "ASYNC109"]  # executor runs shell commands by design; timeouts are explicit
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S"]
