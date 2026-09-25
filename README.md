@@ -1,0 +1,90 @@
+# Agent Factory
+
+A local **software factory**. You give it requirements, and later feedback.
+AI agents do everything in between: they specify, design, build, test,
+package, deploy to Kubernetes and independently verify the result.
+
+Everything runs in containers. Your laptop only needs Docker.
+
+```
+requirements ──► intake ► design ► build ► verify ► package ► deploy ► acceptance ► deliver ──► running app
+   (you)          agent    agent   agent    check    check     check     agent        check       + your feedback
+                                     ▲        │         │        │  ▲       │
+                                     └────────┴─────────┘        ▼  │       │
+                                        evidence of failure   deploy_fix    │
+                                                               (agent)      │
+                                     ◄──────────── observed behaviour ──────┘
+```
+
+- **Hybrid orchestration.** A deterministic pipeline (the *line*) moves work
+  between stations. Agents built on the Claude Agent SDK do the judgment work
+  *inside* the stations. An LLM never picks the route.
+- **Two human touchpoints.** You give requirements (and answer questions only
+  when intake has no safe assumption). After deploy, you give feedback.
+- **Evidence over claims.** Checks are deterministic. Acceptance is done by an
+  independent verifier agent. It runs **holdout scenarios** that the builder
+  never sees against the live app.
+- **API-first.** A Python engine (FastAPI) exposes an OpenAPI contract. The
+  TypeScript UI (React + Vite) uses types generated from that contract.
+
+## Quick start
+
+```bash
+cp .env.example .env        # FACTORY_MODE=dry-run by default
+make up                     # builds and starts dind + factory + web
+open http://localhost:8080  # submit an order and watch the line run
+```
+
+**Dry-run** simulates the agents and commands. Git is still real. Use it to
+try the UI, gates, fix loops and resume without spending any model usage.
+
+### Going live
+
+1. Choose one model auth in `.env`. See [ADR-0005](docs/adr/0005-model-access.md).
+   - **Subscription:** run `claude setup-token` on your Mac and paste the
+     token into `CLAUDE_CODE_OAUTH_TOKEN`.
+   - **API key:** set `ANTHROPIC_API_KEY`.
+2. To publish generated apps to GitHub, set `GITHUB_TOKEN`, `GIT_AUTHOR_NAME`
+   and `GIT_AUTHOR_EMAIL`.
+3. Set `FACTORY_MODE=live`, then `make up`. The first start creates the kind
+   cluster inside the dind container, which takes about 2 minutes.
+4. Submit an order. The delivered app is served on `http://localhost:8081`
+   (the second product on `:8082`, and so on).
+
+See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshooting.
+
+## What's where
+
+| Path | What it is |
+|---|---|
+| `.agent-factory/config.yaml` | **The line.** Stations, routes, policies, budgets, gates, skills per role. |
+| `engine/` | Python engine and API: state machine, stations, agent runner, guardrail hooks. |
+| `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
+| `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |
+| `prompts/` | One system prompt per agent role, plus the shared station contract. |
+| `plugin/` | Skills loaded into agents: vendored from BuilderIO/skills, plus our own. |
+| `cluster/` | kind-in-dind config, bootstrap and container entrypoint. |
+| `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, trivy, gh, uv. |
+| `docs/` | Architecture, ADRs, scaling path, runbook. |
+
+## Design docs
+
+- [Architecture](docs/architecture.md)
+- [ADRs](docs/adr/): the factory model, stack, isolation, reuse of Builder
+  practices, model access, holdout verification
+- [Scaling path](docs/scaling.md): seams already in the code, and what changes for team use
+
+## Development
+
+```bash
+make test        # engine tests: full line in dry-run, hooks, API (no model usage)
+make lint
+make openapi     # after changing engine models/actions: regenerate contract + UI types
+cd web && npm run dev   # UI dev server on :5173, proxied to the engine on :8000
+```
+
+Credits: the Factory conventions and several skills come from
+[BuilderIO/skills](https://github.com/BuilderIO/skills) (MIT). The
+shared-actions pattern comes from
+[BuilderIO/agent-native](https://github.com/BuilderIO/agent-native). See
+[plugin/skills/VENDORED.md](plugin/skills/VENDORED.md).
