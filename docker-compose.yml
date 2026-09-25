@@ -8,6 +8,11 @@ services:
     privileged: true                     # required by Docker-in-Docker; scoped to this container
     environment:
       DOCKER_TLS_CERTDIR: /certs
+    networks:
+      default:
+        # dind's generated TLS server cert is valid for "docker" (not the service name),
+        # so the factory must connect as tcp://docker:2376 or TLS verification fails.
+        aliases: [docker]
     volumes:
       - dind-certs:/certs
       - dind-data:/var/lib/docker        # images + kind cluster survive restarts
@@ -24,7 +29,7 @@ services:
       dockerfile: images/factory/Dockerfile
     env_file: .env
     environment:
-      DOCKER_HOST: tcp://dind:2376
+      DOCKER_HOST: tcp://docker:2376     # must match the dind cert SAN (see alias above)
       DOCKER_TLS_VERIFY: "1"
       DIND_HOST: dind
     volumes:
