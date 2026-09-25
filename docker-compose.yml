@@ -35,11 +35,19 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"            # API + OpenAPI docs at /api/docs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60                        # live mode: first start creates the kind cluster
+      start_period: 10s
     restart: unless-stopped
 
   web:
     build: ./web
-    depends_on: [factory]
+    depends_on:
+      factory:
+        condition: service_started     # nginx no longer needs the engine up to serve the UI
     ports:
       - "127.0.0.1:8080:80"              # the factory UI
     restart: unless-stopped

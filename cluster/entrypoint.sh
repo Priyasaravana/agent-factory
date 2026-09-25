@@ -10,7 +10,10 @@ if [ "$(id -u)" = "0" ]; then
     chmod 600 /home/factory/.docker/certs/key.pem 2>/dev/null || true
   fi
   mkdir -p /data && chown -R factory:factory /data
-  exec setpriv --reuid=10001 --regid=10001 --init-groups "$0" "$@"
+  # setpriv does not reset the environment: set HOME/USER explicitly, otherwise
+  # git/claude would try to write to /root and the container would exit.
+  exec env HOME=/home/factory USER=factory LOGNAME=factory \
+    setpriv --reuid=10001 --regid=10001 --init-groups "$0" "$@"
 fi
 
 # Phase 2 (factory user)
