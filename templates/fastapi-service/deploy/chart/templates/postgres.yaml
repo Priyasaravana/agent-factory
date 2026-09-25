@@ -1,0 +1,50 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.name" . }}-postgres
+  labels: {{- include "app.labels" . | nindent 4 }}
+spec:
+  ports: [{port: 5432, targetPort: 5432}]
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "app.name" . }}-postgres
+  labels: {{- include "app.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "app.name" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports: [{containerPort: 5432}]
+          env:
+            - {name: POSTGRES_DB, value: {{ .Values.postgres.database | quote }}}
+            - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "app.dbSecret" . }}, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}]}
+            periodSeconds: 5
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: {{ .Values.postgres.storage }}}}
+{{- end }}

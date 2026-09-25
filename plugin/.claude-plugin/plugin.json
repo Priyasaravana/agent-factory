@@ -1,0 +1,5 @@
+{
+  "name": "agent-factory",
+  "version": "0.1.0",
+  "description": "Skills loaded into every factory station agent (filtered per role by .agent-factory/config.yaml)."
+}
