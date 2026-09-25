@@ -1,0 +1,21 @@
+# kind cluster created INSIDE the dind sidecar (never on your Mac's Docker).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: factory
+networking:
+  apiServerAddress: "0.0.0.0"   # reachable from the factory container as dind:6443
+  apiServerPort: 6443
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      certSANs: ["dind", "localhost", "127.0.0.1"]
+nodes:
+  - role: control-plane
+    # App NodePorts -> dind host ports -> (compose) your Mac's localhost:8081-8085
+    extraPortMappings:
+      - {containerPort: 30080, hostPort: 8081, listenAddress: "0.0.0.0"}
+      - {containerPort: 30081, hostPort: 8082, listenAddress: "0.0.0.0"}
+      - {containerPort: 30082, hostPort: 8083, listenAddress: "0.0.0.0"}
+      - {containerPort: 30083, hostPort: 8084, listenAddress: "0.0.0.0"}
+      - {containerPort: 30084, hostPort: 8085, listenAddress: "0.0.0.0"}
