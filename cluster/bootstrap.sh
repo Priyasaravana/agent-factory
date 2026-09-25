@@ -8,7 +8,11 @@ mkdir -p "$(dirname "$KCFG")"
 
 echo "[bootstrap] waiting for docker (dind)..."
 for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
-docker info >/dev/null 2>&1 || { echo "[bootstrap] docker not reachable at $DOCKER_HOST"; exit 1; }
+if ! docker info >/dev/null 2>&1; then
+  echo "[bootstrap] docker not reachable at $DOCKER_HOST — last error:"
+  docker info 2>&1 | tail -5
+  exit 1
+fi
 
 if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
   echo "[bootstrap] creating kind cluster '$CLUSTER'"
