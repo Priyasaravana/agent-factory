@@ -123,12 +123,22 @@ export default function AgentEditor({ initial, catalog, docs, saving, error, onS
       </fieldset>
 
       <fieldset>
-        <legend>Skills</legend>
+        <legend>
+          Skills{" "}
+          <a href="/skills" target="_blank" rel="noreferrer" className="small">
+            import from GitHub ↗
+          </a>
+        </legend>
         <div className="checks">
           {catalog.skills.map((sk) => (
             <label key={sk.name} className="check" title={sk.description}>
               <input type="checkbox" checked={(s.skills ?? []).includes(sk.name)} onChange={() => toggle("skills", sk.name)} />
               {sk.name} {sk.vendored && <span className="muted small">(vendored)</span>}
+              {sk.source === "github" && (
+                <span className="pill info" title={`${sk.repo}/${sk.path} @ ${sk.sha}`}>
+                  github @{sk.sha?.slice(0, 7)}
+                </span>
+              )}
             </label>
           ))}
         </div>

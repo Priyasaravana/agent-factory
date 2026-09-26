@@ -92,3 +92,7 @@ button.icon:hover { color: var(--bad); }
 .lane-end.over, .lane-card.over { border-color: var(--accent); }
 .route.fail { color: var(--warn); font-weight: 700; }
 .new-station { border-color: var(--accent); margin-top: 12px; display: grid; gap: 10px; }
+/* skills */
+.preview { border-color: var(--accent); display: grid; gap: 8px; }
+.diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
+label.check { display: flex; gap: 8px; align-items: flex-start; }

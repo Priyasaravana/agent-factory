@@ -19,6 +19,8 @@ export type AgentSpec = components["schemas"]["AgentSpec"];
 export type RefDoc = components["schemas"]["RefDoc"];
 export type DraftView = components["schemas"]["DraftView"];
 export type CatalogView = components["schemas"]["CatalogView"];
+export type SkillInfo = components["schemas"]["SkillInfo"];
+export type SkillPreview = components["schemas"]["SkillPreview"];
 
 export const api = createClient<paths>({ baseUrl: "" });
 

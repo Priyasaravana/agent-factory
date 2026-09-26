@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from agent_factory.engine.pipeline import FactoryError
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.github import GitHubError, fetch_dir
+from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.models import (
     AddStationInput,
     AgentView,
@@ -37,13 +37,17 @@ from agent_factory.models import (
     FromGitHubInput,
     FromTemplateInput,
     HealthView,
+    InstallSkillInput,
     Order,
     OrderDetail,
     PublishInput,
     ReorderStationsInput,
     Run,
     RunDetail,
+    SkillDetail,
     SkillInfo,
+    SkillSourceInput,
+    SkillVersionInfo,
     StationAgentInput,
     StationView,
     TemplateInfo,
@@ -51,6 +55,7 @@ from agent_factory.models import (
     WorkflowSummary,
     WorkflowView,
 )
+from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRecord
 from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
@@ -389,7 +394,7 @@ def get_catalog(f: Factory) -> CatalogView:
         observe_only_presets=sorted(OBSERVE_ONLY_PRESETS),
         extra_tools=sorted(SAFE_EXTRA_TOOLS),
         model_tiers={t: f.cfg.models.resolve(t) for t in ("judgment", "default", "fast")},
-        skills=_installed_skills(f.workflows.skills_dir),
+        skills=list_skills(f),
         handlers={"agent": sorted(AGENT_HANDLERS), "check": sorted(CHECK_HANDLERS)},
         requirements={k: dict(v) for k, v in HANDLER_REQUIREMENTS.items()},
         max_previous_iterations=5,
@@ -418,6 +423,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         template=doc.template,
         problems=w.draft.problems(),
         warnings=w.draft.warnings(),
+        skill_updates=w.draft.skill_updates(),
         stations=_station_views_for(doc),
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
@@ -552,6 +558,112 @@ def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> WorkflowV
 def discard_draft(f: Factory, workflow_id: str) -> DraftView:
     f.workflows[workflow_id].draft.discard()
     return get_draft(f, workflow_id)
+
+
+# ------------------------------------------------------------------ skills --
+@action("list_skills", "Skills agents can use: built-in and imported from GitHub", "GET", "/api/skills")
+def list_skills(f: Factory) -> list[SkillInfo]:
+    lib = f.workflows.library
+    imported = [_skill_info(r) for r in lib.imported()] if lib else []
+    return _installed_skills(f.workflows.skills_dir) + imported
+
+
+def _skill_info(r: SkillRecord) -> SkillInfo:
+    return SkillInfo(
+        name=r.name,
+        description=r.description[:300],
+        vendored=False,
+        source="github",
+        repo=r.repo,
+        path=r.path,
+        ref=r.ref,
+        sha=r.sha,
+        scripts=r.scripts,
+        installed_at=r.installed_at,
+    )
+
+
+def _library(f: Factory) -> SkillLibrary:
+    if f.workflows.library is None:
+        raise SkillError("skill imports are not enabled")
+    return f.workflows.library
+
+
+def _fetch_skill(f: Factory, repo: str, path: str, ref: str) -> Fetched:
+    try:
+        return fetch_dir(repo, path, ref, f.settings.skills_github_token)
+    except GitHubError as exc:
+        raise SkillError(str(exc)) from exc
+
+
+@action(
+    "preview_skill",
+    "Fetch a skill folder from GitHub for review: files, scripts, diff to the installed commit",
+    "POST",
+    "/api/skills/preview",
+)
+def preview_skill(f: Factory, body: SkillSourceInput) -> SkillPreview:
+    fetched = _fetch_skill(f, body.repo, body.path, body.ref)
+    try:
+        return _library(f).preview(fetched)
+    finally:
+        fetched.cleanup()
+
+
+@action(
+    "install_skill",
+    "Install (or update to) the reviewed commit of a GitHub skill",
+    "POST",
+    "/api/skills/install",
+)
+def install_skill(f: Factory, body: InstallSkillInput) -> SkillInfo:
+    fetched = _fetch_skill(f, body.repo, body.path, body.sha)  # exactly the reviewed commit
+    try:
+        fetched.ref = body.ref  # remember what to follow for update checks
+        rec = _library(f).install(fetched, body.accept_scripts)
+    finally:
+        fetched.cleanup()
+    return _skill_info(rec)
+
+
+@action("get_skill", "An imported skill: files, installed commits and users", "GET", "/api/skills/{name}")
+def get_skill(f: Factory, name: str) -> SkillDetail:
+    lib = _library(f)
+    rec = lib.get(name)
+    return SkillDetail(
+        skill=_skill_info(rec),
+        files=rec.files,
+        versions=[
+            SkillVersionInfo(sha=v.sha, ref=v.ref, installed_at=v.installed_at, current=v.sha == rec.sha)
+            for v in lib.versions(name)
+        ],
+        used_by=f.workflows.skill_users(name),
+    )
+
+
+@action(
+    "check_skill_update",
+    "Fetch the latest commit of the skill's ref and diff it against the installed one",
+    "POST",
+    "/api/skills/{name}/check-update",
+)
+def check_skill_update(f: Factory, name: str) -> SkillPreview:
+    rec = _library(f).get(name)
+    return preview_skill(f, SkillSourceInput(repo=rec.repo, path=rec.path, ref=rec.ref))
+
+
+@action(
+    "remove_skill",
+    "Remove an imported skill from the picker (blocked while a workflow uses it)",
+    "DELETE",
+    "/api/skills/{name}",
+)
+def remove_skill(f: Factory, name: str) -> list[SkillInfo]:
+    users = f.workflows.skill_users(name)
+    if users:
+        raise SkillError(f"skill '{name}' is used by workflows {users}; remove it from their agents and publish first")
+    _library(f).remove(name)
+    return list_skills(f)
 
 
 def _installed_skills(skills_dir: Path) -> list[SkillInfo]:

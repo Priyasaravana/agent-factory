@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus
+from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
 
 _SCHEMA = """
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS workflow_versions (
 CREATE TABLE IF NOT EXISTS workflow_active (workflow_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS workflow_drafts (
   workflow_id TEXT PRIMARY KEY, base_version INTEGER NOT NULL, doc TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS skill_versions (
+  name TEXT NOT NULL, sha TEXT NOT NULL, doc TEXT NOT NULL, installed_at TEXT NOT NULL, PRIMARY KEY (name, sha));
+CREATE TABLE IF NOT EXISTS skill_current (name TEXT PRIMARY KEY, sha TEXT NOT NULL);
 """
 
 
@@ -258,3 +262,38 @@ class SqliteStateStore:
         with self._lock:
             for table in ("workflow_versions", "workflow_active", "workflow_drafts"):
                 self._db.execute(f"UPDATE {table} SET workflow_id=? WHERE workflow_id=?", (new_id, old_id))  # noqa: S608
+
+    # ------------------------------------------------------ imported skills --
+    def save_skill_version(self, rec: SkillRecord) -> None:
+        self._exec(
+            "INSERT INTO skill_versions(name, sha, doc, installed_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(name, sha) DO UPDATE SET doc=excluded.doc, installed_at=excluded.installed_at",
+            (rec.name, rec.sha, rec.model_dump_json(), rec.installed_at),
+        )
+
+    def get_skill_version(self, name: str, sha: str) -> SkillRecord | None:
+        row = self._exec("SELECT doc FROM skill_versions WHERE name=? AND sha=?", (name, sha)).fetchone()
+        return SkillRecord.model_validate_json(row[0]) if row else None
+
+    def skill_versions(self, name: str) -> list[SkillRecord]:
+        rows = self._exec("SELECT doc FROM skill_versions WHERE name=? ORDER BY installed_at DESC", (name,))
+        return [SkillRecord.model_validate_json(r[0]) for r in rows.fetchall()]
+
+    def set_current_skill(self, name: str, sha: str | None) -> None:
+        if sha is None:
+            self._exec("DELETE FROM skill_current WHERE name=?", (name,))
+        else:
+            self._exec(
+                "INSERT INTO skill_current(name, sha) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET sha=excluded.sha",
+                (name, sha),
+            )
+
+    def current_skill(self, name: str) -> SkillRecord | None:
+        row = self._exec("SELECT sha FROM skill_current WHERE name=?", (name,)).fetchone()
+        return self.get_skill_version(name, row[0]) if row else None
+
+    def current_skills(self) -> list[SkillRecord]:
+        rows = self._exec(
+            "SELECT v.doc FROM skill_current c JOIN skill_versions v ON v.name=c.name AND v.sha=c.sha ORDER BY c.name"
+        ).fetchall()
+        return [SkillRecord.model_validate_json(r[0]) for r in rows]

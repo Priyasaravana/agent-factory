@@ -63,7 +63,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |
 | `prompts/` | The shared station contract every agent receives. |
-| `plugin/` | Skills loaded into agents: vendored from BuilderIO/skills, plus our own. |
+| `plugin/` | Built-in skills loaded into agents: vendored from BuilderIO/skills, plus our own. More can be imported from GitHub in the UI; see [docs/skills.md](docs/skills.md). |
 | `cluster/` | kind-in-dind config, bootstrap and container entrypoint. |
 | `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, gh, uv. The vulnerability scanner runs as a container in dind. |
 | `docs/` | Architecture, ADRs, scaling path, runbook. |

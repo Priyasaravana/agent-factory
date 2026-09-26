@@ -90,6 +90,16 @@ export default function WorkflowEditPage() {
             {d.active_version}.
           </p>
         )}
+        {Object.keys(d.skill_updates ?? {}).length > 0 && (
+          <p className="note">
+            Updated imported skills will be pinned when you publish:{" "}
+            {Object.entries(d.skill_updates!).map(([n, sha]) => (
+              <code key={n}>
+                {n}@{sha.slice(0, 7)}{" "}
+              </code>
+            ))}
+          </p>
+        )}
         {d.problems.length > 0 && (
           <div className="problems">
             <strong>Fix before publishing:</strong>
@@ -110,7 +120,7 @@ export default function WorkflowEditPage() {
             onChange={(e) => setNote(e.target.value)}
           />
           <button
-            disabled={!d.dirty || d.problems.length > 0 || note.trim().length < 3 || publish.isPending}
+            disabled={(!d.dirty && Object.keys(d.skill_updates ?? {}).length === 0) || d.problems.length > 0 || note.trim().length < 3 || publish.isPending}
             onClick={() => publish.mutate()}
           >
             Publish as v{Math.max(d.active_version, d.base_version) + 1}
