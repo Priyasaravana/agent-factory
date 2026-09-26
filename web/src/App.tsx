@@ -6,6 +6,7 @@ import OrderPage from "./pages/OrderPage";
 import WorkflowPage from "./pages/WorkflowPage";
 import WorkflowEditPage from "./pages/WorkflowEditPage";
 import WorkflowsPage from "./pages/WorkflowsPage";
+import SkillsPage from "./pages/SkillsPage";
 
 export default function App() {
   const health = useQuery({
@@ -21,6 +22,7 @@ export default function App() {
         <nav>
           <Link to="/">Orders</Link>
           <Link to="/workflows">Workflows</Link>
+          <Link to="/skills">Skills</Link>
           <a href="/api/docs" target="_blank" rel="noreferrer">API</a>
         </nav>
         <div className="health">
@@ -43,6 +45,7 @@ export default function App() {
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/workflows/:workflowId" element={<WorkflowPage />} />
           <Route path="/workflows/:workflowId/edit" element={<WorkflowEditPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
           <Route path="/line" element={<Navigate to="/workflows" replace />} />
         </Routes>
       </main>

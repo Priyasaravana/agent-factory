@@ -82,7 +82,7 @@ Publishing is **blocked** when an agent can't do its station's job safely:
 | `context_docs` | Team standards from the workflow's **reference docs**. Max 20,000 chars each and 40,000 per agent. |
 | `learnings` | Human-approved lessons, used instead of free-form memory: versioned and reproducible. |
 | `previous_iterations` | For each earlier iteration of the same product: what was asked, the outcome, and the decisions. |
-| skills | Loaded on demand from the skills library. |
+| skills | Loaded on demand: built-in skills, or skills imported from GitHub and pinned per version (see [skills.md](skills.md)). |
 
 ## Workflow file (`workflow.yaml`)
 

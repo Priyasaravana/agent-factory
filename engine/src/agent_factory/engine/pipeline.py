@@ -276,6 +276,8 @@ class RunManager:
             ctx = StationContext(
                 self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, order, run, worktree, sid, flow
             )
+            if flow.skill_pins and self.workflows.library:
+                ctx.imported_plugin = self.workflows.library.materialise(flow.skill_pins)
             try:
                 result = await STATIONS[station.resolved_handler()](ctx)
             except asyncio.CancelledError:

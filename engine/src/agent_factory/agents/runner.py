@@ -21,6 +21,7 @@ from agent_factory.agents.hooks import build_hooks
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 PLUGIN_NAME = "agent-factory"
+IMPORTED_PLUGIN = "imported-skills"  # see agent_factory.skills
 
 
 @dataclass
@@ -36,7 +37,9 @@ class AgentRequest:
     observe_only: bool = False
     produces: list[str] = field(default_factory=list)  # files the spec promises (checked by the engine)
     max_turns: int = 50
-    skills: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)  # vendored skills (factory plugin)
+    imported_skills: list[str] = field(default_factory=list)  # pinned imports, loaded from imported_plugin
+    imported_plugin: Path | None = None
     skill_overlay: str = ""
     output_schema: dict[str, Any] | None = None
     protected_paths: list[str] = field(default_factory=list)  # e.g. holdout dir
@@ -55,6 +58,20 @@ class AgentResult:
     rate_limited: bool = False
     limit_utilization: float | None = None
     limit_resets_at: int | None = None
+
+
+def plugins_for(factory_home: Path, req: AgentRequest) -> list[dict[str, str]]:
+    plugins = [{"type": "local", "path": str(factory_home / "plugin")}]
+    if req.imported_skills and req.imported_plugin:
+        plugins.append({"type": "local", "path": str(req.imported_plugin)})
+    return plugins
+
+
+def skill_refs(req: AgentRequest) -> list[str]:
+    refs = [f"{PLUGIN_NAME}:{s}" for s in req.skills]
+    if req.imported_plugin:
+        refs += [f"{IMPORTED_PLUGIN}:{s}" for s in req.imported_skills]
+    return refs
 
 
 class AgentRunner(Protocol):
@@ -115,8 +132,8 @@ class ClaudeAgentRunner:
             agents=subagents or None,
             mcp_servers=mcp_servers,
             hooks=build_hooks(req.role, req.cwd, req.protected_paths, req.observe_only),
-            plugins=[{"type": "local", "path": str(self.factory_home / "plugin")}],
-            skills=[f"{PLUGIN_NAME}:{s}" for s in req.skills],
+            plugins=plugins_for(self.factory_home, req),
+            skills=skill_refs(req),
             setting_sources=["project"],  # product CLAUDE.md -> AGENTS.md conventions
             add_dirs=[str(d) for d in req.readable_extra_dirs],
             output_format=({"type": "json_schema", "schema": req.output_schema} if req.output_schema else None),

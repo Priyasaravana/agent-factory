@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Collection
 from pathlib import Path
 from typing import Literal
 
@@ -147,6 +148,8 @@ class WorkflowDoc(BaseModel):
     stations: list[WorkflowStation]
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
     docs: dict[str, RefDoc] = Field(default_factory=dict)
+    # imported skill -> commit sha, fixed when the version is published
+    skill_pins: dict[str, str] = Field(default_factory=dict)
 
     def stations_using(self, agent_id: str) -> list[str]:
         return [s.id for s in self.stations if s.agent == agent_id]
@@ -189,7 +192,9 @@ class WorkflowVersionInfo(BaseModel):
 
 
 # ------------------------------------------------------------ validate ----
-def validate_workflow(doc: WorkflowDoc, skills_dir: Path | None = None) -> list[str]:
+def validate_workflow(
+    doc: WorkflowDoc, skills_dir: Path | None = None, imported_skills: Collection[str] = ()
+) -> list[str]:
     """Return blocking problems; an empty list means the workflow is runnable.
     Non-blocking advice comes from `workflow_warnings`."""
     errors: list[str] = []
@@ -237,7 +242,7 @@ def validate_workflow(doc: WorkflowDoc, skills_dir: Path | None = None) -> list[
             errors.append(f"agent '{aid}' has an empty prompt")
         if skills_dir is not None:
             for sk in spec.skills:
-                if not (skills_dir / sk / "SKILL.md").exists():
+                if sk not in imported_skills and not (skills_dir / sk / "SKILL.md").exists():
                     errors.append(f"agent '{aid}' uses unknown skill '{sk}'")
     return errors
 
@@ -395,6 +400,8 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
             s.model_dump(exclude_none=True, exclude_defaults=True) | {"id": s.id, "kind": s.kind} for s in doc.stations
         ],
     }
+    if doc.skill_pins:
+        data["skill_pins"] = dict(doc.skill_pins)  # imported skills this version was published with
     (path / "workflow.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     for spec in doc.agents.values():
         (path / "agents" / f"{spec.id}.md").write_text(render_agent_md(spec))

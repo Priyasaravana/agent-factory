@@ -24,6 +24,7 @@ from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.models import TERMINAL, RunStatus
 from agent_factory.settings import Settings
+from agent_factory.skills import SkillError, SkillLibrary
 from agent_factory.state import SqliteStateStore, StateStore
 
 
@@ -52,11 +53,13 @@ def build_factory(
     executor = executor or (LocalExecutor() if live else FakeExecutor())
     ws = Workspace(data_dir, home, settings.git_author_name, settings.git_author_email)
 
+    library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
     workflows = WorkflowRegistry(
         store,
         {pl: home / line.workflow_template for pl, line in cfg.product_lines.items()},
         home / "workflow-templates",
         home / "plugin" / "skills",
+        library,
     )
     workflows.ensure_seeded()  # first start: template -> workflow v1 per product line (never overwrites)
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
@@ -104,6 +107,11 @@ def create_app(factory: Factory | None = None) -> FastAPI:
     async def workflow_error(_: Request, exc: WorkflowError) -> JSONResponse:
         code = 404 if "not found" in str(exc) else 409
         return JSONResponse(status_code=code, content={"detail": str(exc), "problems": exc.problems})
+
+    @app.exception_handler(SkillError)
+    async def skill_error(_: Request, exc: SkillError) -> JSONResponse:
+        code = 404 if "not found" in str(exc) else 409
+        return JSONResponse(status_code=code, content={"detail": str(exc)})
 
     @app.exception_handler(FactoryError)
     async def factory_error(_: Request, exc: FactoryError) -> JSONResponse:

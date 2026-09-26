@@ -201,6 +201,7 @@ class DraftView(BaseModel):
     template: str | None = None
     problems: list[str]  # publishing is blocked while this is non-empty
     warnings: list[str] = Field(default_factory=list)  # advice; does not block publishing
+    skill_updates: dict[str, str] = Field(default_factory=dict)  # imported skill -> newer commit, applied on publish
     stations: list[StationView]
     agents: list[AgentView]
     docs: list[RefDoc]
@@ -209,7 +210,39 @@ class DraftView(BaseModel):
 class SkillInfo(BaseModel):
     name: str
     description: str
-    vendored: bool
+    vendored: bool  # copied from BuilderIO/skills (see plugin/skills/VENDORED.md)
+    source: Literal["builtin", "github"] = "builtin"
+    repo: str | None = None  # github imports: owner/repo, folder, ref and the pinned commit
+    path: str | None = None
+    ref: str | None = None
+    sha: str | None = None
+    scripts: list[str] = Field(default_factory=list)
+    installed_at: str | None = None
+
+
+class SkillSourceInput(BaseModel):
+    repo: str = Field(min_length=3, max_length=200)  # owner/repo or https://github.com/owner/repo
+    path: str = Field(default="", max_length=300)  # folder that contains SKILL.md
+    ref: str = Field(default="main", min_length=1, max_length=200)
+
+
+class InstallSkillInput(SkillSourceInput):
+    sha: str = Field(pattern=r"^[0-9a-f]{40}$")  # the commit that was reviewed in the preview
+    accept_scripts: bool = False
+
+
+class SkillVersionInfo(BaseModel):
+    sha: str
+    ref: str
+    installed_at: str
+    current: bool
+
+
+class SkillDetail(BaseModel):
+    skill: SkillInfo
+    files: dict[str, str]
+    versions: list[SkillVersionInfo]
+    used_by: list[str]  # workflows whose active version or draft uses it
 
 
 class CatalogView(BaseModel):

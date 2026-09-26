@@ -604,6 +604,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Skills agents can use: built-in and imported from GitHub
+         * @description Skills agents can use: built-in and imported from GitHub
+         */
+        get: operations["list_skills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch a skill folder from GitHub for review: files, scripts, diff to the installed commit
+         * @description Fetch a skill folder from GitHub for review: files, scripts, diff to the installed commit
+         */
+        post: operations["preview_skill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install (or update to) the reviewed commit of a GitHub skill
+         * @description Install (or update to) the reviewed commit of a GitHub skill
+         */
+        post: operations["install_skill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An imported skill: files, installed commits and users
+         * @description An imported skill: files, installed commits and users
+         */
+        get: operations["get_skill"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove an imported skill from the picker (blocked while a workflow uses it)
+         * @description Remove an imported skill from the picker (blocked while a workflow uses it)
+         */
+        delete: operations["remove_skill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{name}/check-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch the latest commit of the skill's ref and diff it against the installed one
+         * @description Fetch the latest commit of the skill's ref and diff it against the installed one
+         */
+        post: operations["check_skill_update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/stream": {
         parameters: {
             query?: never;
@@ -818,6 +922,10 @@ export interface components {
             problems: string[];
             /** Warnings */
             warnings?: string[];
+            /** Skill Updates */
+            skill_updates?: {
+                [key: string]: string;
+            };
             /** Stations */
             stations: components["schemas"]["StationView"][];
             /** Agents */
@@ -919,6 +1027,28 @@ export interface components {
             github: boolean;
             /** Active Runs */
             active_runs: number;
+        };
+        /** InstallSkillInput */
+        InstallSkillInput: {
+            /** Repo */
+            repo: string;
+            /**
+             * Path
+             * @default
+             */
+            path: string;
+            /**
+             * Ref
+             * @default main
+             */
+            ref: string;
+            /** Sha */
+            sha: string;
+            /**
+             * Accept Scripts
+             * @default false
+             */
+            accept_scripts: boolean;
         };
         /** Order */
         Order: {
@@ -1046,6 +1176,29 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "cancelled" | "failed";
+        /** SkillDetail */
+        SkillDetail: {
+            skill: components["schemas"]["SkillInfo"];
+            /** Files */
+            files: {
+                [key: string]: string;
+            };
+            /** Versions */
+            versions: components["schemas"]["SkillVersionInfo"][];
+            /** Used By */
+            used_by: string[];
+        };
+        /** SkillFile */
+        SkillFile: {
+            /** Path */
+            path: string;
+            /** Size */
+            size: number;
+            /** Script */
+            script: boolean;
+            /** Content */
+            content: string;
+        };
         /** SkillInfo */
         SkillInfo: {
             /** Name */
@@ -1054,6 +1207,80 @@ export interface components {
             description: string;
             /** Vendored */
             vendored: boolean;
+            /**
+             * Source
+             * @default builtin
+             * @enum {string}
+             */
+            source: "builtin" | "github";
+            /** Repo */
+            repo?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Ref */
+            ref?: string | null;
+            /** Sha */
+            sha?: string | null;
+            /** Scripts */
+            scripts?: string[];
+            /** Installed At */
+            installed_at?: string | null;
+        };
+        /** SkillPreview */
+        SkillPreview: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Repo */
+            repo: string;
+            /** Path */
+            path: string;
+            /** Ref */
+            ref: string;
+            /** Sha */
+            sha: string;
+            /** Files */
+            files: components["schemas"]["SkillFile"][];
+            /** Scripts */
+            scripts: string[];
+            /** Problems */
+            problems: string[];
+            /** Installed Sha */
+            installed_sha?: string | null;
+            /** Diff */
+            diff?: string | null;
+            /**
+             * Up To Date
+             * @default false
+             */
+            up_to_date: boolean;
+        };
+        /** SkillSourceInput */
+        SkillSourceInput: {
+            /** Repo */
+            repo: string;
+            /**
+             * Path
+             * @default
+             */
+            path: string;
+            /**
+             * Ref
+             * @default main
+             */
+            ref: string;
+        };
+        /** SkillVersionInfo */
+        SkillVersionInfo: {
+            /** Sha */
+            sha: string;
+            /** Ref */
+            ref: string;
+            /** Installed At */
+            installed_at: string;
+            /** Current */
+            current: boolean;
         };
         /** StationAgentInput */
         StationAgentInput: {
@@ -2243,6 +2470,185 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowVersionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillInfo"][];
+                };
+            };
+        };
+    };
+    preview_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillSourceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    install_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallSkillInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_skill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillInfo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_skill_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillPreview"];
                 };
             };
             /** @description Validation Error */

@@ -1570,6 +1570,247 @@
         }
       }
     },
+    "/api/skills": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Skills agents can use: built-in and imported from GitHub",
+        "description": "Skills agents can use: built-in and imported from GitHub",
+        "operationId": "list_skills",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SkillInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Skills"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/preview": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Fetch a skill folder from GitHub for review: files, scripts, diff to the installed commit",
+        "description": "Fetch a skill folder from GitHub for review: files, scripts, diff to the installed commit",
+        "operationId": "preview_skill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillSourceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/install": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Install (or update to) the reviewed commit of a GitHub skill",
+        "description": "Install (or update to) the reviewed commit of a GitHub skill",
+        "operationId": "install_skill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallSkillInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "An imported skill: files, installed commits and users",
+        "description": "An imported skill: files, installed commits and users",
+        "operationId": "get_skill",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Remove an imported skill from the picker (blocked while a workflow uses it)",
+        "description": "Remove an imported skill from the picker (blocked while a workflow uses it)",
+        "operationId": "remove_skill",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkillInfo"
+                  },
+                  "title": "Response Remove Skill"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/skills/{name}/check-update": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Fetch the latest commit of the skill's ref and diff it against the installed one",
+        "description": "Fetch the latest commit of the skill's ref and diff it against the installed one",
+        "operationId": "check_skill_update",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/stream": {
       "get": {
         "tags": [
@@ -2107,6 +2348,13 @@
             "type": "array",
             "title": "Warnings"
           },
+          "skill_updates": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Skill Updates"
+          },
           "stations": {
             "items": {
               "$ref": "#/components/schemas/StationView"
@@ -2360,6 +2608,45 @@
           "active_runs"
         ],
         "title": "HealthView"
+      },
+      "InstallSkillInput": {
+        "properties": {
+          "repo": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Repo"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Path",
+            "default": ""
+          },
+          "ref": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ref",
+            "default": "main"
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Sha"
+          },
+          "accept_scripts": {
+            "type": "boolean",
+            "title": "Accept Scripts",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo",
+          "sha"
+        ],
+        "title": "InstallSkillInput"
       },
       "Order": {
         "properties": {
@@ -2730,6 +3017,70 @@
         ],
         "title": "RunStatus"
       },
+      "SkillDetail": {
+        "properties": {
+          "skill": {
+            "$ref": "#/components/schemas/SkillInfo"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Files"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/SkillVersionInfo"
+            },
+            "type": "array",
+            "title": "Versions"
+          },
+          "used_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Used By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "skill",
+          "files",
+          "versions",
+          "used_by"
+        ],
+        "title": "SkillDetail"
+      },
+      "SkillFile": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "script": {
+            "type": "boolean",
+            "title": "Script"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "size",
+          "script",
+          "content"
+        ],
+        "title": "SkillFile"
+      },
       "SkillInfo": {
         "properties": {
           "name": {
@@ -2743,6 +3094,77 @@
           "vendored": {
             "type": "boolean",
             "title": "Vendored"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "github"
+            ],
+            "title": "Source",
+            "default": "builtin"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha"
+          },
+          "scripts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scripts"
+          },
+          "installed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed At"
           }
         },
         "type": "object",
@@ -2752,6 +3174,151 @@
           "vendored"
         ],
         "title": "SkillInfo"
+      },
+      "SkillPreview": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "repo": {
+            "type": "string",
+            "title": "Repo"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "sha": {
+            "type": "string",
+            "title": "Sha"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/SkillFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "scripts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scripts"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "installed_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed Sha"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "up_to_date": {
+            "type": "boolean",
+            "title": "Up To Date",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "repo",
+          "path",
+          "ref",
+          "sha",
+          "files",
+          "scripts",
+          "problems"
+        ],
+        "title": "SkillPreview"
+      },
+      "SkillSourceInput": {
+        "properties": {
+          "repo": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Repo"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Path",
+            "default": ""
+          },
+          "ref": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ref",
+            "default": "main"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo"
+        ],
+        "title": "SkillSourceInput"
+      },
+      "SkillVersionInfo": {
+        "properties": {
+          "sha": {
+            "type": "string",
+            "title": "Sha"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "installed_at": {
+            "type": "string",
+            "title": "Installed At"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha",
+          "ref",
+          "installed_at",
+          "current"
+        ],
+        "title": "SkillVersionInfo"
       },
       "StationAgentInput": {
         "properties": {

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
     AGENT_HANDLERS,
@@ -31,11 +32,19 @@ class WorkflowError(Exception):
 
 
 class WorkflowService:
-    def __init__(self, store: StateStore, workflow_id: str, template_dir: Path, skills_dir: Path) -> None:
+    def __init__(
+        self,
+        store: StateStore,
+        workflow_id: str,
+        template_dir: Path,
+        skills_dir: Path,
+        library: SkillLibrary | None = None,
+    ) -> None:
         self.store = store
         self.workflow_id = workflow_id
         self.template_dir = template_dir
         self.skills_dir = skills_dir
+        self.library = library
         self._cache: dict[int, WorkflowDoc] = {}
         self.draft = Draft(self)
 
@@ -76,10 +85,18 @@ class WorkflowService:
     def import_dir(self, path: Path, note: str, activate: bool = True) -> int:
         return self.create_version(load_workflow_dir(path), note, activate)
 
+    def imported_skills(self) -> set[str]:
+        return self.library.imported_names() if self.library else set()
+
+    def validate(self, doc: WorkflowDoc) -> list[str]:
+        return validate_workflow(doc, self.skills_dir, self.imported_skills())
+
     def create_version(self, doc: WorkflowDoc, note: str, activate: bool = True) -> int:
-        problems = validate_workflow(doc, self.skills_dir)
+        problems = self.validate(doc)
         if problems:
             raise WorkflowError("workflow is not valid", problems)
+        if self.library:  # fix the commit of every imported skill this version uses
+            doc = doc.model_copy(update={"skill_pins": self.library.pins_for(doc)})
         version = self.store.create_workflow_version(self.workflow_id, doc, note)
         if activate:
             self.store.set_active_workflow_version(self.workflow_id, version)
@@ -95,14 +112,29 @@ class WorkflowRegistry:
     """One WorkflowService per product line. The workflow id is the product line id."""
 
     def __init__(
-        self, store: StateStore, product_lines: dict[str, Path], templates_dir: Path, skills_dir: Path
+        self,
+        store: StateStore,
+        product_lines: dict[str, Path],
+        templates_dir: Path,
+        skills_dir: Path,
+        library: SkillLibrary | None = None,
     ) -> None:
         self.store = store
         self.templates_dir = templates_dir
         self.skills_dir = skills_dir
+        self.library = library
         self._services = {
-            pl: WorkflowService(store, pl, template, skills_dir) for pl, template in product_lines.items()
+            pl: WorkflowService(store, pl, template, skills_dir, library) for pl, template in product_lines.items()
         }
+
+    def skill_users(self, name: str) -> list[str]:
+        """Workflows whose active version or draft uses a skill."""
+        users = []
+        for svc in self:
+            docs = [svc.get(), svc.draft.get()[1]]
+            if any(name in a.skills for d in docs for a in d.agents.values()):
+                users.append(svc.workflow_id)
+        return users
 
     def __getitem__(self, workflow_id: str) -> WorkflowService:
         try:
@@ -182,7 +214,11 @@ class Draft:
         return stamp is not None and doc.model_dump() != self.s.get(base).model_dump()
 
     def problems(self) -> list[str]:
-        return validate_workflow(self.get()[1], self.s.skills_dir)
+        return self.s.validate(self.get()[1])
+
+    def skill_updates(self) -> dict[str, str]:
+        """Imported skills with a newer installed commit than the draft's base pins."""
+        return self.s.library.pending_updates(self.get()[1]) if self.s.library else {}
 
     def warnings(self) -> list[str]:
         return workflow_warnings(self.get()[1])
@@ -195,7 +231,7 @@ class Draft:
 
     def publish(self, note: str) -> WorkflowVersionInfo:
         _, doc, stamp = self.get()
-        if stamp is None or not self.dirty():
+        if not self.dirty() and not self.skill_updates():
             raise WorkflowError("nothing to publish: the draft has no changes")
         version = self.s.create_version(doc, note, activate=True)  # raises with problems
         self.discard()
