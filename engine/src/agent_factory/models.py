@@ -7,9 +7,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
-from agent_factory.line import AgentSpec, RefDoc
+from agent_factory.workflow import AgentSpec, RefDoc
 
 
 class RunStatus(StrEnum):
@@ -69,7 +69,10 @@ class Run(BaseModel):
     iteration: int
     status: RunStatus
     current_station: str | None = None
-    line_version: int = 1  # the line version this run is pinned to
+    workflow_id: str | None = None  # the product line's workflow (None on runs from before workflows)
+    workflow_version: int = Field(  # the workflow version this run is pinned to
+        default=1, validation_alias=AliasChoices("workflow_version", "line_version")
+    )
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
     change_request: str | None = None  # feedback that started this iteration
@@ -129,6 +132,8 @@ class StationView(BaseModel):
     kind: str
     role: str | None  # agent spec id for agent stations
     handler: str
+    on_fail: str | None = None
+    next: str | None = None
     repair: bool
     state: str  # pending | running | passed | failed | held
     attempts: int
@@ -157,9 +162,8 @@ class HealthView(BaseModel):
 class ConfigView(BaseModel):
     name: str
     mode: str
-    line_version: int
+    workflows: dict[str, int]  # product line -> active workflow version
     product_lines: dict[str, str]
-    stations: list[StationView]
     policies: dict[str, str]
     gates: list[str]
 
@@ -172,27 +176,31 @@ class AgentView(BaseModel):
     used_by: list[str]  # station ids that run this agent
 
 
-class LineView(BaseModel):
-    line_id: str
+class WorkflowView(BaseModel):
+    workflow_id: str
     version: int
     active: bool
     note: str
     name: str
     description: str
-    blueprint: str | None
-    blueprint_update_available: bool
+    template: str | None
+    template_update_available: bool
     stations: list[StationView]
     agents: list[AgentView]
     docs: list[RefDoc] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DraftView(BaseModel):
+    workflow_id: str
     base_version: int
     active_version: int
     stale: bool  # the active version moved on since this draft was started
     dirty: bool  # the draft differs from its base version
     updated_at: str | None
+    template: str | None = None
     problems: list[str]  # publishing is blocked while this is non-empty
+    warnings: list[str] = Field(default_factory=list)  # advice; does not block publishing
     stations: list[StationView]
     agents: list[AgentView]
     docs: list[RefDoc]
@@ -210,6 +218,8 @@ class CatalogView(BaseModel):
     extra_tools: list[str]
     model_tiers: dict[str, str]
     skills: list[SkillInfo]
+    handlers: dict[str, list[str]]
+    requirements: dict[str, dict[str, bool]]  # handler -> {write, shell} needs
     max_previous_iterations: int
     max_doc_chars: int
     max_learnings_chars: int
@@ -225,3 +235,32 @@ class StationAgentInput(BaseModel):
 
 class PublishInput(BaseModel):
     note: str = Field(min_length=3, max_length=200)
+
+
+class WorkflowSummary(BaseModel):
+    workflow_id: str  # = product line id
+    product_line: str  # product line description
+    active_version: int
+    description: str
+    template: str | None
+    stations: int
+    agents: int
+    draft_dirty: bool
+
+
+class TemplateInfo(BaseModel):
+    name: str
+    description: str
+    stations: list[str]
+    agents: list[str]
+    docs: list[str]
+
+
+class FromTemplateInput(BaseModel):
+    template: str
+
+
+class FromGitHubInput(BaseModel):
+    repo: str = Field(description="owner/name or https://github.com/owner/name")
+    path: str = Field(default="", description="folder containing workflow.yaml")
+    ref: str = Field(default="main", description="branch, tag or commit sha (pinned to a commit on import)")

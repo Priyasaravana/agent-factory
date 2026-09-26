@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { api, unwrap } from "./api/client";
 import OrdersPage from "./pages/OrdersPage";
 import OrderPage from "./pages/OrderPage";
-import LinePage from "./pages/LinePage";
-import LineEditPage from "./pages/LineEditPage";
+import WorkflowPage from "./pages/WorkflowPage";
+import WorkflowEditPage from "./pages/WorkflowEditPage";
+import WorkflowsPage from "./pages/WorkflowsPage";
 
 export default function App() {
   const health = useQuery({
@@ -19,7 +20,7 @@ export default function App() {
         <Link to="/" className="brand">Agent Factory</Link>
         <nav>
           <Link to="/">Orders</Link>
-          <Link to="/line">The line</Link>
+          <Link to="/workflows">Workflows</Link>
           <a href="/api/docs" target="_blank" rel="noreferrer">API</a>
         </nav>
         <div className="health">
@@ -39,8 +40,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<OrdersPage />} />
           <Route path="/orders/:orderId" element={<OrderPage />} />
-          <Route path="/line" element={<LinePage />} />
-          <Route path="/line/edit" element={<LineEditPage />} />
+          <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/workflows/:workflowId" element={<WorkflowPage />} />
+          <Route path="/workflows/:workflowId/edit" element={<WorkflowEditPage />} />
+          <Route path="/line" element={<Navigate to="/workflows" replace />} />
         </Routes>
       </main>
     </div>

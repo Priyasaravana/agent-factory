@@ -17,7 +17,7 @@ so each change below replaces an implementation rather than rewriting the engine
 
 ## Adoption surface (what others change without touching Python)
 - `.agent-factory/config.yaml`: stations, routes, policies, budgets, models, skills per role
-- `templates/<line>/`: a new golden path (e.g. Next.js, Go service)
+- `templates/<product-line>/`: a new golden path (e.g. Next.js, Go service)
 - `prompts/<role>.md`: role behaviour
 - `plugin/skills/<name>/SKILL.md`: portable skills in the open skills format,
   usable in Claude Code or Codex too

@@ -1,0 +1,14 @@
+# Default workflow plus an independent security review after build.
+name: api-security-review
+description: Default API workflow with an OWASP-focused security review before packaging
+stations:
+  - {id: intake,          kind: agent, agent: intake}
+  - {id: design,          kind: agent, agent: architect}
+  - {id: build,           kind: agent, agent: developer}
+  - {id: security-review, kind: agent, agent: security-reviewer, on_fail: build}
+  - {id: verify,          kind: check, on_fail: build}
+  - {id: package,         kind: check, on_fail: build}
+  - {id: deploy,          kind: check, on_fail: deploy_fix}
+  - {id: deploy_fix,      kind: agent, agent: devops, next: deploy, only_on_fail: true}
+  - {id: acceptance,      kind: agent, agent: verifier, on_fail: build}
+  - {id: deliver,         kind: check}

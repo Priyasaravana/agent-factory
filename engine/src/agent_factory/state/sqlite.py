@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_factory.line import LineDoc, LineVersionInfo
 from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus
+from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT, doc TEXT NOT NULL);
@@ -26,12 +26,12 @@ CREATE INDEX IF NOT EXISTS events_run ON events(run_id, id);
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS line_versions (
-  line_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, note TEXT NOT NULL,
-  created_at TEXT NOT NULL, PRIMARY KEY (line_id, version));
-CREATE TABLE IF NOT EXISTS line_active (line_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS line_drafts (
-  line_id TEXT PRIMARY KEY, base_version INTEGER NOT NULL, doc TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS workflow_versions (
+  workflow_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, note TEXT NOT NULL,
+  created_at TEXT NOT NULL, PRIMARY KEY (workflow_id, version));
+CREATE TABLE IF NOT EXISTS workflow_active (workflow_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS workflow_drafts (
+  workflow_id TEXT PRIMARY KEY, base_version INTEGER NOT NULL, doc TEXT NOT NULL, updated_at TEXT NOT NULL);
 """
 
 
@@ -45,8 +45,21 @@ class SqliteStateStore:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
+        self._migrate_legacy_tables()
         self._db.executescript(_SCHEMA)
         self._lock = threading.Lock()
+
+    def _migrate_legacy_tables(self) -> None:
+        """'line_*' tables from before the rename become 'workflow_*' (data kept)."""
+        existing = {r[0] for r in self._db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        for old, new in (
+            ("line_versions", "workflow_versions"),
+            ("line_active", "workflow_active"),
+            ("line_drafts", "workflow_drafts"),
+        ):
+            if old in existing and new not in existing:
+                self._db.execute(f"ALTER TABLE {old} RENAME TO {new}")
+                self._db.execute(f"ALTER TABLE {new} RENAME COLUMN line_id TO workflow_id")
 
     def _exec(self, sql: str, args: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         with self._lock:
@@ -169,46 +182,48 @@ class SqliteStateStore:
             for r in rows
         ]
 
-    # -- versioned lines -----------------------------------------------------
-    def create_line_version(self, line_id: str, doc: LineDoc, note: str) -> int:
+    # -- versioned workflows--------------------------------------------------
+    def create_workflow_version(self, workflow_id: str, doc: WorkflowDoc, note: str) -> int:
         with self._lock:
             row = self._db.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM line_versions WHERE line_id=?", (line_id,)
+                "SELECT COALESCE(MAX(version), 0) FROM workflow_versions WHERE workflow_id=?", (workflow_id,)
             ).fetchone()
             version = int(row[0]) + 1
             self._db.execute(
-                "INSERT INTO line_versions(line_id, version, doc, note, created_at) VALUES (?,?,?,?,?)",
-                (line_id, version, doc.model_dump_json(), note, _now().isoformat()),
+                "INSERT INTO workflow_versions(workflow_id, version, doc, note, created_at) VALUES (?,?,?,?,?)",
+                (workflow_id, version, doc.model_dump_json(), note, _now().isoformat()),
             )
         return version
 
-    def get_line_version(self, line_id: str, version: int) -> LineDoc | None:
-        row = self._exec("SELECT doc FROM line_versions WHERE line_id=? AND version=?", (line_id, version)).fetchone()
-        return LineDoc.model_validate_json(row[0]) if row else None
+    def get_workflow_version(self, workflow_id: str, version: int) -> WorkflowDoc | None:
+        row = self._exec(
+            "SELECT doc FROM workflow_versions WHERE workflow_id=? AND version=?", (workflow_id, version)
+        ).fetchone()
+        return WorkflowDoc.model_validate_json(row[0]) if row else None
 
-    def active_line_version(self, line_id: str) -> int | None:
-        row = self._exec("SELECT version FROM line_active WHERE line_id=?", (line_id,)).fetchone()
+    def active_workflow_version(self, workflow_id: str) -> int | None:
+        row = self._exec("SELECT version FROM workflow_active WHERE workflow_id=?", (workflow_id,)).fetchone()
         return int(row[0]) if row else None
 
-    def set_active_line_version(self, line_id: str, version: int) -> None:
+    def set_active_workflow_version(self, workflow_id: str, version: int) -> None:
         self._exec(
-            "INSERT INTO line_active(line_id, version) VALUES (?,?) "
-            "ON CONFLICT(line_id) DO UPDATE SET version=excluded.version",
-            (line_id, version),
+            "INSERT INTO workflow_active(workflow_id, version) VALUES (?,?) "
+            "ON CONFLICT(workflow_id) DO UPDATE SET version=excluded.version",
+            (workflow_id, version),
         )
 
-    def list_line_versions(self, line_id: str) -> list[LineVersionInfo]:
-        active = self.active_line_version(line_id)
+    def list_workflow_versions(self, workflow_id: str) -> list[WorkflowVersionInfo]:
+        active = self.active_workflow_version(workflow_id)
         rows = self._exec(
-            "SELECT version, doc, note, created_at FROM line_versions WHERE line_id=? ORDER BY version DESC",
-            (line_id,),
+            "SELECT version, doc, note, created_at FROM workflow_versions WHERE workflow_id=? ORDER BY version DESC",
+            (workflow_id,),
         ).fetchall()
         out = []
         for version, doc, note, created in rows:
-            d = LineDoc.model_validate_json(doc)
+            d = WorkflowDoc.model_validate_json(doc)
             out.append(
-                LineVersionInfo(
-                    line_id=line_id,
+                WorkflowVersionInfo(
+                    workflow_id=workflow_id,
                     version=version,
                     note=note,
                     created_at=created,
@@ -219,20 +234,27 @@ class SqliteStateStore:
             )
         return out
 
-    # -- line drafts ---------------------------------------------------------
-    def get_line_draft(self, line_id: str) -> tuple[int, LineDoc, str] | None:
-        row = self._exec("SELECT base_version, doc, updated_at FROM line_drafts WHERE line_id=?", (line_id,)).fetchone()
-        return (int(row[0]), LineDoc.model_validate_json(row[1]), row[2]) if row else None
+    # -- workflow drafts------------------------------------------------------
+    def get_workflow_draft(self, workflow_id: str) -> tuple[int, WorkflowDoc, str] | None:
+        row = self._exec(
+            "SELECT base_version, doc, updated_at FROM workflow_drafts WHERE workflow_id=?", (workflow_id,)
+        ).fetchone()
+        return (int(row[0]), WorkflowDoc.model_validate_json(row[1]), row[2]) if row else None
 
-    def save_line_draft(self, line_id: str, base_version: int, doc: LineDoc) -> str:
+    def save_workflow_draft(self, workflow_id: str, base_version: int, doc: WorkflowDoc) -> str:
         ts = _now().isoformat()
         self._exec(
-            "INSERT INTO line_drafts(line_id, base_version, doc, updated_at) VALUES (?,?,?,?) "
-            "ON CONFLICT(line_id) DO UPDATE SET base_version=excluded.base_version, doc=excluded.doc, "
+            "INSERT INTO workflow_drafts(workflow_id, base_version, doc, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(workflow_id) DO UPDATE SET base_version=excluded.base_version, doc=excluded.doc, "
             "updated_at=excluded.updated_at",
-            (line_id, base_version, doc.model_dump_json(), ts),
+            (workflow_id, base_version, doc.model_dump_json(), ts),
         )
         return ts
 
-    def delete_line_draft(self, line_id: str) -> None:
-        self._exec("DELETE FROM line_drafts WHERE line_id=?", (line_id,))
+    def delete_workflow_draft(self, workflow_id: str) -> None:
+        self._exec("DELETE FROM workflow_drafts WHERE workflow_id=?", (workflow_id,))
+
+    def rename_workflow(self, old_id: str, new_id: str) -> None:
+        with self._lock:
+            for table in ("workflow_versions", "workflow_active", "workflow_drafts"):
+                self._db.execute(f"UPDATE {table} SET workflow_id=? WHERE workflow_id=?", (new_id, old_id))  # noqa: S608

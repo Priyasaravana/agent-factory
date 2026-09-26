@@ -66,3 +66,5 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 table.wide { width: 100%; }
 .doc { padding: 6px 0; border-bottom: 1px solid var(--line); }
 a > button { pointer-events: none; }
+.warnings { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 12px; color: var(--warn); margin: 8px 0; }
+.warnings li { color: var(--text); }

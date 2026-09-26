@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     # Publishing
     github_token: str | None = None
+    # Read-only token for importing templates/skills from private GitHub repos
+    skills_github_token: str | None = None
     git_author_name: str = "Agent Factory"
     git_author_email: str = "agent-factory@localhost"
 

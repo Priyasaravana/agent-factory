@@ -34,6 +34,7 @@ class Models(BaseModel):
 class ProductLine(BaseModel):
     description: str = ""
     template: str
+    workflow_template: str = "workflow-templates/default"  # seeds this product line's workflow
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
@@ -59,11 +60,6 @@ class Gate(BaseModel):
     kind: Literal["feedback", "approval"] = "feedback"
 
 
-class LineConfig(BaseModel):
-    id: str = "default"
-    blueprint: str = "blueprints/default"  # relative to FACTORY_HOME
-
-
 class Budgets(BaseModel):
     max_attempts_per_station: int = 3
     max_loops_per_run: int = 6
@@ -82,7 +78,6 @@ class FactoryConfig(BaseModel):
     product_lines: dict[str, ProductLine]
     policies: Policies = Policies()
     gates: list[Gate] = Field(default_factory=list)
-    line: LineConfig = LineConfig()
     budgets: Budgets = Budgets()
     limits: Limits = Limits()
     skill_prompts: dict[str, str] = Field(default_factory=dict)

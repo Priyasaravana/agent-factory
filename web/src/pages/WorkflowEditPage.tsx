@@ -1,23 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, unwrap, type AgentSpec, type DraftView, type RefDoc } from "../api/client";
 import AgentCard from "../components/AgentCard";
 import AgentEditor from "../components/AgentEditor";
 
 type Editing = { kind: "agent"; spec?: AgentSpec } | { kind: "doc"; doc?: RefDoc } | null;
 
-export default function LineEditPage() {
+export default function WorkflowEditPage() {
+  const { workflowId = "" } = useParams();
+  const wid = { workflow_id: workflowId };
   const qc = useQueryClient();
   const nav = useNavigate();
-  const draft = useQuery({ queryKey: ["draft"], queryFn: () => unwrap(api.GET("/api/line/draft")) });
+  const draft = useQuery({
+    queryKey: ["draft", workflowId],
+    queryFn: () => unwrap(api.GET("/api/workflows/{workflow_id}/draft", { params: { path: wid } })),
+  });
+  const templates = useQuery({ queryKey: ["templates"], queryFn: () => unwrap(api.GET("/api/workflow-templates")) });
+  const [template, setTemplate] = useState("");
+  const [gh, setGh] = useState({ repo: "", path: "", ref: "main" });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: () => unwrap(api.GET("/api/catalog")) });
   const [editing, setEditing] = useState<Editing>(null);
   const [note, setNote] = useState("");
   const [dupFrom, setDupFrom] = useState<string | null>(null);
   const [dupId, setDupId] = useState("");
 
-  const apply = (d: DraftView) => qc.setQueryData(["draft"], d);
+  const apply = (d: DraftView) => qc.setQueryData(["draft", workflowId], d);
   const m = useMutation({
     mutationFn: (fn: () => Promise<DraftView>) => fn(),
     onSuccess: (d) => {
@@ -27,10 +35,13 @@ export default function LineEditPage() {
     },
   });
   const publish = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/line/draft/publish", { body: { note } })),
+    mutationFn: () =>
+      unwrap(api.POST("/api/workflows/{workflow_id}/draft/publish", { params: { path: wid }, body: { note } })),
     onSuccess: () => {
-      ["draft", "line", "line-versions", "config"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-      nav("/line");
+      ["draft", "workflow", "wf-versions", "workflows", "config"].forEach((k) =>
+        qc.invalidateQueries({ queryKey: [k] }),
+      );
+      nav(`/workflows/${workflowId}`);
     },
   });
 
@@ -43,14 +54,14 @@ export default function LineEditPage() {
       <section className="card">
         <div className="row spread">
           <h2>
-            Edit line <span className="pill muted">draft from v{d.base_version}</span>{" "}
+            Edit workflow <code>{workflowId}</code> <span className="pill muted">draft from v{d.base_version}</span>{" "}
             {d.dirty ? <span className="pill warn">unpublished changes</span> : <span className="pill ok">no changes</span>}
           </h2>
-          <Link to="/line">← back to the line</Link>
+          <Link to={`/workflows/${workflowId}`}>← back to the workflow</Link>
         </div>
         {d.stale && (
           <p className="note">
-            The active line is now v{d.active_version}. Publishing this draft will replace it; discard to start from v
+            The active workflow is now v{d.active_version}. Publishing this draft will replace it; discard to start from v
             {d.active_version}.
           </p>
         )}
@@ -59,6 +70,12 @@ export default function LineEditPage() {
             <strong>Fix before publishing:</strong>
             <ul>{d.problems.map((p) => <li key={p}>{p}</li>)}</ul>
           </div>
+        )}
+        {(d.warnings ?? []).length > 0 && (
+          <details className="warnings">
+            <summary>{d.warnings!.length} suggestion(s) — publishing is allowed</summary>
+            <ul>{d.warnings!.map((w) => <li key={w}>{w}</li>)}</ul>
+          </details>
         )}
         <div className="row">
           <input
@@ -76,15 +93,76 @@ export default function LineEditPage() {
           <button
             className="secondary"
             disabled={!d.dirty}
-            onClick={() => m.mutate(() => unwrap(api.DELETE("/api/line/draft")))}
+            onClick={() => m.mutate(() => unwrap(api.DELETE("/api/workflows/{workflow_id}/draft", { params: { path: wid } })))}
           >
             Discard draft
           </button>
         </div>
         {publish.error && <p className="error">{publish.error.message}</p>}
         <p className="muted small">
-          Changes are saved to the draft as you go. Publishing validates the line and makes it the active version for new
-          runs; runs in flight keep their version.
+          Changes are saved to the draft as you go. Publishing validates the workflow (including each station's role and
+          tool needs) and makes it the active version for new runs; runs in flight keep their version.
+        </p>
+      </section>
+
+      <section className="card">
+        <h3>Start from a template</h3>
+        <p className="muted small">
+          Replaces this draft with a template. Nothing changes for orders until you publish. Current draft template:{" "}
+          <code>{d.template}</code>
+        </p>
+        <div className="row">
+          <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+            <option value="">built-in template…</option>
+            {templates.data?.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name} — {t.stations.length} stations
+              </option>
+            ))}
+          </select>
+          <button
+            className="secondary"
+            disabled={!template || m.isPending}
+            onClick={() =>
+              m.mutate(() =>
+                unwrap(
+                  api.POST("/api/workflows/{workflow_id}/draft/from-template", {
+                    params: { path: wid },
+                    body: { template },
+                  }),
+                ),
+              )
+            }
+          >
+            Use template
+          </button>
+        </div>
+        <div className="row">
+          <input placeholder="owner/repo" value={gh.repo} onChange={(e) => setGh({ ...gh, repo: e.target.value })} />
+          <input
+            className="grow"
+            placeholder="path/to/folder (contains workflow.yaml)"
+            value={gh.path}
+            onChange={(e) => setGh({ ...gh, path: e.target.value })}
+          />
+          <input placeholder="ref" value={gh.ref} onChange={(e) => setGh({ ...gh, ref: e.target.value })} />
+          <button
+            className="secondary"
+            disabled={!gh.repo || m.isPending}
+            onClick={() =>
+              m.mutate(() =>
+                unwrap(
+                  api.POST("/api/workflows/{workflow_id}/draft/from-github", { params: { path: wid }, body: gh }),
+                ),
+              )
+            }
+          >
+            Import from GitHub
+          </button>
+        </div>
+        <p className="muted small">
+          GitHub imports are pinned to the exact commit. Private repos use <code>SKILLS_GITHUB_TOKEN</code> from{" "}
+          <code>.env</code>.
         </p>
       </section>
 
@@ -106,8 +184,8 @@ export default function LineEditPage() {
                         const agent = e.target.value; // read now: the controlled select re-renders before the request runs
                         m.mutate(() =>
                           unwrap(
-                            api.PUT("/api/line/draft/stations/{station_id}/agent", {
-                              params: { path: { station_id: s.id } },
+                            api.PUT("/api/workflows/{workflow_id}/draft/stations/{station_id}/agent", {
+                              params: { path: { ...wid, station_id: s.id } },
                               body: { agent },
                             }),
                           ),
@@ -149,7 +227,10 @@ export default function LineEditPage() {
             onSave={(spec) =>
               m.mutate(() =>
                 unwrap(
-                  api.PUT("/api/line/draft/agents/{agent_id}", { params: { path: { agent_id: spec.id } }, body: spec }),
+                  api.PUT("/api/workflows/{workflow_id}/draft/agents/{agent_id}", {
+                    params: { path: { ...wid, agent_id: spec.id } },
+                    body: spec,
+                  }),
                 ),
               )
             }
@@ -172,8 +253,8 @@ export default function LineEditPage() {
                         onClick={() =>
                           m.mutate(() =>
                             unwrap(
-                              api.POST("/api/line/draft/agents/{agent_id}/duplicate", {
-                                params: { path: { agent_id: a.spec.id } },
+                              api.POST("/api/workflows/{workflow_id}/draft/agents/{agent_id}/duplicate", {
+                                params: { path: { ...wid, agent_id: a.spec.id } },
                                 body: { new_id: dupId },
                               }),
                             ),
@@ -200,7 +281,9 @@ export default function LineEditPage() {
                     title={a.used_by.length ? `Used by ${a.used_by.join(", ")} — assign another agent first` : "Delete"}
                     onClick={() =>
                       m.mutate(() =>
-                        unwrap(api.DELETE("/api/line/draft/agents/{agent_id}", { params: { path: { agent_id: a.spec.id } } })),
+                        unwrap(api.DELETE("/api/workflows/{workflow_id}/draft/agents/{agent_id}", {
+                            params: { path: { ...wid, agent_id: a.spec.id } },
+                          })),
                       )
                     }
                   >
@@ -230,7 +313,10 @@ export default function LineEditPage() {
             onCancel={() => setEditing(null)}
             onSave={(doc) =>
               m.mutate(() =>
-                unwrap(api.PUT("/api/line/draft/docs/{doc_id}", { params: { path: { doc_id: doc.id } }, body: doc })),
+                unwrap(api.PUT("/api/workflows/{workflow_id}/draft/docs/{doc_id}", {
+                    params: { path: { ...wid, doc_id: doc.id } },
+                    body: doc,
+                  })),
               )
             }
           />
@@ -250,7 +336,9 @@ export default function LineEditPage() {
                   className="secondary"
                   disabled={users.length > 0}
                   onClick={() =>
-                    m.mutate(() => unwrap(api.DELETE("/api/line/draft/docs/{doc_id}", { params: { path: { doc_id: doc.id } } })))
+                    m.mutate(() => unwrap(api.DELETE("/api/workflows/{workflow_id}/draft/docs/{doc_id}", {
+                      params: { path: { ...wid, doc_id: doc.id } },
+                    })))
                   }
                 >
                   Delete

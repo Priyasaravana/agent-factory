@@ -32,8 +32,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The factory line, policies and product lines
-         * @description The factory line, policies and product lines
+         * Factory settings: product lines, their workflow versions, policies, gates
+         * @description Factory settings: product lines, their workflow versions, policies, gates
          */
         get: operations["get_config"];
         put?: never;
@@ -228,7 +228,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line": {
+    "/api/workflows": {
         parameters: {
             query?: never;
             header?: never;
@@ -236,10 +236,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The active line: stations and agent specs
-         * @description The active line: stations and agent specs
+         * One workflow per product line
+         * @description One workflow per product line
          */
-        get: operations["get_line"];
+        get: operations["list_workflows"];
         put?: never;
         post?: never;
         delete?: never;
@@ -248,7 +248,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/versions/{version}": {
+    "/api/workflows/{workflow_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -256,10 +256,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A specific (immutable) line version
-         * @description A specific (immutable) line version
+         * The active version of a workflow
+         * @description The active version of a workflow
          */
-        get: operations["get_line_version"];
+        get: operations["get_workflow"];
         put?: never;
         post?: never;
         delete?: never;
@@ -268,7 +268,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/versions": {
+    "/api/workflows/{workflow_id}/versions/{version}": {
         parameters: {
             query?: never;
             header?: never;
@@ -276,10 +276,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * All line versions, newest first
-         * @description All line versions, newest first
+         * A specific (immutable) workflow version
+         * @description A specific (immutable) workflow version
          */
-        get: operations["list_line_versions"];
+        get: operations["get_workflow_version"];
         put?: never;
         post?: never;
         delete?: never;
@@ -288,7 +288,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/versions/{version}/activate": {
+    "/api/workflows/{workflow_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * All versions of a workflow, newest first
+         * @description All versions of a workflow, newest first
+         */
+        get: operations["list_workflow_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/versions/{version}/activate": {
         parameters: {
             query?: never;
             header?: never;
@@ -298,10 +318,70 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Make a version the active line for new runs (runs in flight keep their version)
-         * @description Make a version the active line for new runs (runs in flight keep their version)
+         * Make a version active for new runs (runs in flight keep theirs)
+         * @description Make a version active for new runs (runs in flight keep theirs)
          */
-        post: operations["activate_line_version"];
+        post: operations["activate_workflow_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Built-in workflow templates
+         * @description Built-in workflow templates
+         */
+        get: operations["list_workflow_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/from-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the draft from a built-in template (publish to apply)
+         * @description Start the draft from a built-in template (publish to apply)
+         */
+        post: operations["draft_from_template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/from-github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the draft from a workflow template in a GitHub repo, pinned to a commit
+         * @description Start the draft from a workflow template in a GitHub repo, pinned to a commit
+         */
+        post: operations["draft_from_github"];
         delete?: never;
         options?: never;
         head?: never;
@@ -328,7 +408,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft": {
+    "/api/workflows/{workflow_id}/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -336,8 +416,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The editable draft of the line (created from the active version on first edit)
-         * @description The editable draft of the line (created from the active version on first edit)
+         * The editable draft of a workflow (created from the active version on first edit)
+         * @description The editable draft of a workflow (created from the active version on first edit)
          */
         get: operations["get_draft"];
         put?: never;
@@ -352,7 +432,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft/agents/{agent_id}": {
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -376,7 +456,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft/agents/{agent_id}/duplicate": {
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}/duplicate": {
         parameters: {
             query?: never;
             header?: never;
@@ -396,7 +476,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft/stations/{station_id}/agent": {
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}/agent": {
         parameters: {
             query?: never;
             header?: never;
@@ -416,7 +496,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft/docs/{doc_id}": {
+    "/api/workflows/{workflow_id}/draft/docs/{doc_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -440,7 +520,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/line/draft/publish": {
+    "/api/workflows/{workflow_id}/draft/publish": {
         parameters: {
             query?: never;
             header?: never;
@@ -450,8 +530,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Validate the draft and publish it as the next active line version
-         * @description Validate the draft and publish it as the next active line version
+         * Validate the draft and publish it as the next active version
+         * @description Validate the draft and publish it as the next active version
          */
         post: operations["publish_draft"];
         delete?: never;
@@ -565,6 +645,16 @@ export interface components {
             };
             /** Skills */
             skills: components["schemas"]["SkillInfo"][];
+            /** Handlers */
+            handlers: {
+                [key: string]: string[];
+            };
+            /** Requirements */
+            requirements: {
+                [key: string]: {
+                    [key: string]: boolean;
+                };
+            };
             /** Max Previous Iterations */
             max_previous_iterations: number;
             /** Max Doc Chars */
@@ -578,14 +668,14 @@ export interface components {
             name: string;
             /** Mode */
             mode: string;
-            /** Line Version */
-            line_version: number;
+            /** Workflows */
+            workflows: {
+                [key: string]: number;
+            };
             /** Product Lines */
             product_lines: {
                 [key: string]: string;
             };
-            /** Stations */
-            stations: components["schemas"]["StationView"][];
             /** Policies */
             policies: {
                 [key: string]: string;
@@ -621,6 +711,8 @@ export interface components {
         };
         /** DraftView */
         DraftView: {
+            /** Workflow Id */
+            workflow_id: string;
             /** Base Version */
             base_version: number;
             /** Active Version */
@@ -631,8 +723,12 @@ export interface components {
             dirty: boolean;
             /** Updated At */
             updated_at: string | null;
+            /** Template */
+            template?: string | null;
             /** Problems */
             problems: string[];
+            /** Warnings */
+            warnings?: string[];
             /** Stations */
             stations: components["schemas"]["StationView"][];
             /** Agents */
@@ -692,6 +788,31 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** FromGitHubInput */
+        FromGitHubInput: {
+            /**
+             * Repo
+             * @description owner/name or https://github.com/owner/name
+             */
+            repo: string;
+            /**
+             * Path
+             * @description folder containing workflow.yaml
+             * @default
+             */
+            path: string;
+            /**
+             * Ref
+             * @description branch, tag or commit sha (pinned to a commit on import)
+             * @default main
+             */
+            ref: string;
+        };
+        /** FromTemplateInput */
+        FromTemplateInput: {
+            /** Template */
+            template: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -709,57 +830,6 @@ export interface components {
             github: boolean;
             /** Active Runs */
             active_runs: number;
-        };
-        /** LineVersionInfo */
-        LineVersionInfo: {
-            /** Line Id */
-            line_id: string;
-            /** Version */
-            version: number;
-            /** Note */
-            note: string;
-            /** Created At */
-            created_at: string;
-            /**
-             * Active
-             * @default false
-             */
-            active: boolean;
-            /**
-             * Stations
-             * @default 0
-             */
-            stations: number;
-            /**
-             * Agents
-             * @default 0
-             */
-            agents: number;
-        };
-        /** LineView */
-        LineView: {
-            /** Line Id */
-            line_id: string;
-            /** Version */
-            version: number;
-            /** Active */
-            active: boolean;
-            /** Note */
-            note: string;
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Blueprint */
-            blueprint: string | null;
-            /** Blueprint Update Available */
-            blueprint_update_available: boolean;
-            /** Stations */
-            stations: components["schemas"]["StationView"][];
-            /** Agents */
-            agents: components["schemas"]["AgentView"][];
-            /** Docs */
-            docs?: components["schemas"]["RefDoc"][];
         };
         /** Order */
         Order: {
@@ -826,11 +896,13 @@ export interface components {
             status: components["schemas"]["RunStatus"];
             /** Current Station */
             current_station?: string | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
             /**
-             * Line Version
+             * Workflow Version
              * @default 1
              */
-            line_version: number;
+            workflow_version: number;
             /** Attempts */
             attempts?: {
                 [key: string]: number;
@@ -904,12 +976,29 @@ export interface components {
             role: string | null;
             /** Handler */
             handler: string;
+            /** On Fail */
+            on_fail?: string | null;
+            /** Next */
+            next?: string | null;
             /** Repair */
             repair: boolean;
             /** State */
             state: string;
             /** Attempts */
             attempts: number;
+        };
+        /** TemplateInfo */
+        TemplateInfo: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Stations */
+            stations: string[];
+            /** Agents */
+            agents: string[];
+            /** Docs */
+            docs: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -923,6 +1012,78 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkflowSummary */
+        WorkflowSummary: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Product Line */
+            product_line: string;
+            /** Active Version */
+            active_version: number;
+            /** Description */
+            description: string;
+            /** Template */
+            template: string | null;
+            /** Stations */
+            stations: number;
+            /** Agents */
+            agents: number;
+            /** Draft Dirty */
+            draft_dirty: boolean;
+        };
+        /** WorkflowVersionInfo */
+        WorkflowVersionInfo: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Version */
+            version: number;
+            /** Note */
+            note: string;
+            /** Created At */
+            created_at: string;
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Stations
+             * @default 0
+             */
+            stations: number;
+            /**
+             * Agents
+             * @default 0
+             */
+            agents: number;
+        };
+        /** WorkflowView */
+        WorkflowView: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Version */
+            version: number;
+            /** Active */
+            active: boolean;
+            /** Note */
+            note: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Template */
+            template: string | null;
+            /** Template Update Available */
+            template_update_available: boolean;
+            /** Stations */
+            stations: components["schemas"]["StationView"][];
+            /** Agents */
+            agents: components["schemas"]["AgentView"][];
+            /** Docs */
+            docs?: components["schemas"]["RefDoc"][];
+            /** Warnings */
+            warnings?: string[];
         };
     };
     responses: never;
@@ -1286,7 +1447,7 @@ export interface operations {
             };
         };
     };
-    get_line: {
+    list_workflows: {
         parameters: {
             query?: never;
             header?: never;
@@ -1301,17 +1462,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineView"];
+                    "application/json": components["schemas"]["WorkflowSummary"][];
                 };
             };
         };
     };
-    get_line_version: {
+    get_workflow: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                version: number;
+                workflow_id: string;
             };
             cookie?: never;
         };
@@ -1323,7 +1484,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineView"];
+                    "application/json": components["schemas"]["WorkflowView"];
                 };
             };
             /** @description Validation Error */
@@ -1337,7 +1498,102 @@ export interface operations {
             };
         };
     };
-    list_line_versions: {
+    get_workflow_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflow_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersionInfo"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_workflow_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowVersionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflow_templates: {
         parameters: {
             query?: never;
             header?: never;
@@ -1352,21 +1608,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineVersionInfo"][];
+                    "application/json": components["schemas"]["TemplateInfo"][];
                 };
             };
         };
     };
-    activate_line_version: {
+    draft_from_template: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                version: number;
+                workflow_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FromTemplateInput"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1374,7 +1634,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineVersionInfo"];
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_from_github: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FromGitHubInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
                 };
             };
             /** @description Validation Error */
@@ -1412,7 +1707,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                workflow_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1426,13 +1723,24 @@ export interface operations {
                     "application/json": components["schemas"]["DraftView"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     discard_draft: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                workflow_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1444,6 +1752,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1453,6 +1770,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 agent_id: string;
             };
             cookie?: never;
@@ -1488,6 +1806,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 agent_id: string;
             };
             cookie?: never;
@@ -1519,6 +1838,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 agent_id: string;
             };
             cookie?: never;
@@ -1554,6 +1874,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 station_id: string;
             };
             cookie?: never;
@@ -1589,6 +1910,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 doc_id: string;
             };
             cookie?: never;
@@ -1624,6 +1946,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                workflow_id: string;
                 doc_id: string;
             };
             cookie?: never;
@@ -1654,7 +1977,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                workflow_id: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1669,7 +1994,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LineVersionInfo"];
+                    "application/json": components["schemas"]["WorkflowVersionInfo"];
                 };
             };
             /** @description Validation Error */

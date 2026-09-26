@@ -32,7 +32,7 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 ```bash
 cp .env.example .env        # FACTORY_MODE=dry-run by default
 make up                     # builds and starts dind + factory + web
-open http://localhost:8080  # submit an order and watch the line run
+open http://localhost:8080  # submit an order and watch the workflow run
 ```
 
 **Dry-run** simulates the agents and commands. Git is still real. Use it to
@@ -58,7 +58,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 | Path | What it is |
 |---|---|
 | `.agent-factory/config.yaml` | Factory settings: models, product lines, policies, budgets, gates, skill guidance. |
-| `blueprints/default/` | **The line.** `line.yaml` (stations, routes) + `agents/*.md` (one spec per agent). Seeded into the DB as line v1; see [docs/lines.md](docs/lines.md). |
+| `workflow-templates/` | **Workflow templates**: `workflow.yaml` (stations, routes), `agents/*.md` (one spec per agent), `docs/*.md` (reference docs). Each product line's workflow is seeded from one and then edited in the UI; see [docs/workflows.md](docs/workflows.md). |
 | `engine/` | Python engine and API: state machine, stations, agent runner, guardrail hooks. |
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |
@@ -78,7 +78,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 ## Development
 
 ```bash
-make test        # engine tests: full line in dry-run, hooks, API (no model usage)
+make test        # engine tests: full workflow in dry-run, hooks, API (no model usage)
 make lint
 make openapi     # after changing engine models/actions: regenerate contract + UI types
 cd web && npm run dev   # UI dev server on :5173, proxied to the engine on :8000

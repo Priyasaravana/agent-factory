@@ -1,4 +1,4 @@
-"""The line controller: a deterministic state machine that moves a run through
+"""The workflow controller: a deterministic state machine that moves a run through
 the configured stations. LLMs work *inside* stations; they never choose the
 route. Every transition is persisted, so any run can be resumed or audited.
 """
@@ -13,8 +13,8 @@ from datetime import UTC, datetime, timedelta
 
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import FactoryConfig
-from agent_factory.engine.lines import LineService
 from agent_factory.engine.stations import STATIONS, StationContext, StationResult
+from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
 from agent_factory.models import (
@@ -52,10 +52,10 @@ class RunManager:
         ws: Workspace,
         ex: Executor,
         agents: AgentRunner,
-        lines: LineService,
+        workflows: WorkflowRegistry,
     ) -> None:
         self.cfg, self.settings, self.store = cfg, settings, store
-        self.lines = lines
+        self.workflows = workflows
         self.ws, self.ex, self.agents = ws, ex, agents
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
@@ -113,8 +113,9 @@ class RunManager:
             order_id=order.id,
             iteration=len(runs) + 1,
             status=RunStatus.queued,
-            line_version=(version := self.lines.active_version()),
-            current_station=self.lines.get(version).forward_stations()[0].id,
+            workflow_id=order.product_line,
+            workflow_version=(version := self.workflows[order.product_line].active_version()),
+            current_station=self.workflows[order.product_line].get(version).forward_stations()[0].id,
             change_request=change_request,
             created_at=now,
             updated_at=now,
@@ -254,7 +255,8 @@ class RunManager:
         self._sync_order(run, order)
         product = self.cfg.product_lines[order.product_line]
         await self.ws.ensure_product_repo(order.product_slug, product.template)
-        flow = self.lines.get(run.line_version)  # pinned: later line edits never affect this run
+        # pinned: later workflow edits never affect this run
+        flow = self.workflows[run.workflow_id or order.product_line].get(run.workflow_version)
         worktree = await self.ws.create_worktree(order.product_slug, run.id)
         deadline = run.created_at + timedelta(minutes=self.cfg.budgets.run_wall_clock_minutes)
 

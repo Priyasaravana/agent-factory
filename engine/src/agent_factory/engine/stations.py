@@ -1,5 +1,5 @@
 """Station implementations. Agent stations do judgment work; check stations
-are deterministic and produce the evidence the line trusts.
+are deterministic and produce the evidence the workflow trusts.
 
 Contract (every station): return a StationResult. Missing or partial evidence
 is FAILED or HELD — never a plausible PASS.
@@ -19,10 +19,10 @@ from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
-from agent_factory.line import AgentSpec, LineDoc
 from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
+from agent_factory.workflow import AgentSpec, WorkflowDoc
 
 
 @dataclass
@@ -46,7 +46,7 @@ class StationContext:
     run: Run
     worktree: Path
     station_id: str
-    line_doc: LineDoc
+    workflow_doc: WorkflowDoc
 
     @property
     def product_line(self) -> ProductLine:
@@ -55,7 +55,7 @@ class StationContext:
     @property
     def spec(self) -> AgentSpec:
         """The agent spec bound to this station (agent stations only)."""
-        return self.line_doc.agent_for(self.station_id)
+        return self.workflow_doc.agent_for(self.station_id)
 
     async def emit(self, kind: EventKind, message: str, data: dict[str, Any] | None = None) -> None:
         self.store.add_event(self.run.id, kind, message, station=self.station_id, data=data)
@@ -113,9 +113,9 @@ class StationContext:
 
 def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
     """The spec's prompt plus the context it asked for. Everything here comes from
-    the pinned line version or this order's own history, so a run stays reproducible."""
+    the pinned workflow version or this order's own history, so a run stays reproducible."""
     parts = [spec.prompt.strip()]
-    docs = [ctx.line_doc.docs[d] for d in spec.context_docs if d in ctx.line_doc.docs]
+    docs = [ctx.workflow_doc.docs[d] for d in spec.context_docs if d in ctx.workflow_doc.docs]
     if docs:
         parts.append(
             "## Reference documents (team standards — follow them)\n\n"

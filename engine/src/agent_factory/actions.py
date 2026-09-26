@@ -18,19 +18,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from agent_factory.engine.lines import LineError
 from agent_factory.engine.pipeline import FactoryError
-from agent_factory.line import (
-    MAX_DOC_CHARS,
-    MAX_LEARNINGS_CHARS,
-    OBSERVE_ONLY_PRESETS,
-    SAFE_EXTRA_TOOLS,
-    TOOL_PRESETS,
-    AgentSpec,
-    LineDoc,
-    LineVersionInfo,
-    RefDoc,
-)
+from agent_factory.engine.workflows import WorkflowError
+from agent_factory.github import GitHubError, fetch_dir
 from agent_factory.models import (
     AgentView,
     AnswersInput,
@@ -43,8 +33,9 @@ from agent_factory.models import (
     Event,
     EventKind,
     FeedbackInput,
+    FromGitHubInput,
+    FromTemplateInput,
     HealthView,
-    LineView,
     Order,
     OrderDetail,
     PublishInput,
@@ -53,6 +44,24 @@ from agent_factory.models import (
     SkillInfo,
     StationAgentInput,
     StationView,
+    TemplateInfo,
+    WorkflowSummary,
+    WorkflowView,
+)
+from agent_factory.workflow import (
+    AGENT_HANDLERS,
+    CHECK_HANDLERS,
+    HANDLER_REQUIREMENTS,
+    MAX_DOC_CHARS,
+    MAX_LEARNINGS_CHARS,
+    OBSERVE_ONLY_PRESETS,
+    SAFE_EXTRA_TOOLS,
+    TOOL_PRESETS,
+    AgentSpec,
+    RefDoc,
+    WorkflowDoc,
+    WorkflowVersionInfo,
+    workflow_warnings,
 )
 
 if TYPE_CHECKING:
@@ -84,9 +93,9 @@ def action(
 
 
 # ------------------------------------------------------------------ views --
-def _station_views(f: Factory, run: Run | None, version: int | None = None) -> list[StationView]:
+def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
     views = []
-    flow = f.lines.get(run.line_version if run else version)
+    flow = f.workflows[run.workflow_id or workflow_id].get(run.workflow_version)
     for s in flow.stations:
         attempts = run.attempts.get(s.id, 0) if run else 0
         state = "pending"
@@ -130,15 +139,14 @@ def get_health(f: Factory) -> HealthView:
     )
 
 
-@action("get_config", "The factory line, policies and product lines", "GET", "/api/config")
+@action("get_config", "Factory settings: product lines, their workflow versions, policies, gates", "GET", "/api/config")
 def get_config(f: Factory) -> ConfigView:
     p = f.cfg.policies
     return ConfigView(
         name=f.cfg.factory.name,
         mode=f.settings.factory_mode,
-        line_version=f.lines.active_version(),
+        workflows={w.workflow_id: w.active_version() for w in f.workflows},
         product_lines={k: v.description for k, v in f.cfg.product_lines.items()},
-        stations=_station_views(f, None),
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
         gates=[f"{g.kind} after {g.after}" for g in f.cfg.gates],
     )
@@ -182,7 +190,7 @@ def get_run(f: Factory, run_id: str) -> RunDetail:
         raise FactoryError("run not found")
     order = f.store.get_order(run.order_id)
     assert order is not None
-    return RunDetail(run=run, order=order, stations=_station_views(f, run))
+    return RunDetail(run=run, order=order, stations=_station_views(f, run, order.product_line))
 
 
 @action("list_events", "Append-only event/decision log for a run", "GET", "/api/runs/{run_id}/events")
@@ -220,51 +228,80 @@ def log_decision(f: Factory, body: DecisionInput) -> Event:
     return f.store.add_event(body.run_id, EventKind.decision, msg, station=body.station)
 
 
-# ------------------------------------------------------------------ lines --
-@action("get_line", "The active line: stations and agent specs", "GET", "/api/line")
-def get_line(f: Factory) -> LineView:
-    return _line_view(f, f.lines.active_version())
+# -------------------------------------------------------------- workflows --
+@action("list_workflows", "One workflow per product line", "GET", "/api/workflows")
+def list_workflows(f: Factory) -> list[WorkflowSummary]:
+    out = []
+    for w in f.workflows:
+        doc = w.get()
+        out.append(
+            WorkflowSummary(
+                workflow_id=w.workflow_id,
+                product_line=f.cfg.product_lines[w.workflow_id].description,
+                active_version=w.active_version(),
+                description=doc.description,
+                template=doc.template,
+                stations=len(doc.stations),
+                agents=len(doc.agents),
+                draft_dirty=w.draft.dirty(),
+            )
+        )
+    return out
 
 
-@action("get_line_version", "A specific (immutable) line version", "GET", "/api/line/versions/{version}")
-def get_line_version(f: Factory, version: int) -> LineView:
-    return _line_view(f, version)
-
-
-@action("list_line_versions", "All line versions, newest first", "GET", "/api/line/versions")
-def list_line_versions(f: Factory) -> list[LineVersionInfo]:
-    return f.lines.versions()
+@action("get_workflow", "The active version of a workflow", "GET", "/api/workflows/{workflow_id}")
+def get_workflow(f: Factory, workflow_id: str) -> WorkflowView:
+    return _workflow_view(f, workflow_id, f.workflows[workflow_id].active_version())
 
 
 @action(
-    "activate_line_version",
-    "Make a version the active line for new runs (runs in flight keep their version)",
-    "POST",
-    "/api/line/versions/{version}/activate",
+    "get_workflow_version",
+    "A specific (immutable) workflow version",
+    "GET",
+    "/api/workflows/{workflow_id}/versions/{version}",
 )
-def activate_line_version(f: Factory, version: int) -> LineVersionInfo:
-    return f.lines.activate(version)
+def get_workflow_version(f: Factory, workflow_id: str, version: int) -> WorkflowView:
+    return _workflow_view(f, workflow_id, version)
 
 
-def _line_view(f: Factory, version: int) -> LineView:
-    doc = f.lines.get(version)
-    info = next(i for i in f.lines.versions() if i.version == version)
-    return LineView(
-        line_id=f.lines.line_id,
+@action(
+    "list_workflow_versions", "All versions of a workflow, newest first", "GET", "/api/workflows/{workflow_id}/versions"
+)
+def list_workflow_versions(f: Factory, workflow_id: str) -> list[WorkflowVersionInfo]:
+    return f.workflows[workflow_id].versions()
+
+
+@action(
+    "activate_workflow_version",
+    "Make a version active for new runs (runs in flight keep theirs)",
+    "POST",
+    "/api/workflows/{workflow_id}/versions/{version}/activate",
+)
+def activate_workflow_version(f: Factory, workflow_id: str, version: int) -> WorkflowVersionInfo:
+    return f.workflows[workflow_id].activate(version)
+
+
+def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
+    w = f.workflows[workflow_id]
+    doc = w.get(version)
+    info = next(i for i in w.versions() if i.version == version)
+    return WorkflowView(
+        workflow_id=workflow_id,
         version=version,
         active=info.active,
         note=info.note,
         name=doc.name,
         description=doc.description,
-        blueprint=doc.blueprint,
-        blueprint_update_available=f.lines.blueprint_update_available(),
-        stations=_station_views(f, None, version),
+        template=doc.template,
+        template_update_available=w.template_update_available(),
+        stations=_station_views_for(doc),
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
+        warnings=workflow_warnings(doc),
     )
 
 
-def _agent_views(f: Factory, doc: LineDoc) -> list[AgentView]:
+def _agent_views(f: Factory, doc: WorkflowDoc) -> list[AgentView]:
     return [
         AgentView(
             spec=a,
@@ -277,7 +314,7 @@ def _agent_views(f: Factory, doc: LineDoc) -> list[AgentView]:
     ]
 
 
-def _station_views_for(doc: LineDoc) -> list[StationView]:
+def _station_views_for(doc: WorkflowDoc) -> list[StationView]:
     return [
         StationView(
             id=s.id,
@@ -285,6 +322,8 @@ def _station_views_for(doc: LineDoc) -> list[StationView]:
             role=s.agent,
             handler=s.resolved_handler(),
             repair=s.only_on_fail,
+            on_fail=s.on_fail,
+            next=s.next,
             state="pending",
             attempts=0,
         )
@@ -292,7 +331,53 @@ def _station_views_for(doc: LineDoc) -> list[StationView]:
     ]
 
 
-# ------------------------------------------------------------ line editing --
+# -------------------------------------------------------------- templates --
+@action("list_workflow_templates", "Built-in workflow templates", "GET", "/api/workflow-templates")
+def list_workflow_templates(f: Factory) -> list[TemplateInfo]:
+    return [
+        TemplateInfo(
+            name=name,
+            description=doc.description,
+            stations=[s.id for s in doc.stations],
+            agents=sorted(doc.agents),
+            docs=sorted(doc.docs),
+        )
+        for name, doc in f.workflows.templates()
+    ]
+
+
+@action(
+    "draft_from_template",
+    "Start the draft from a built-in template (publish to apply)",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/from-template",
+)
+def draft_from_template(f: Factory, workflow_id: str, body: FromTemplateInput) -> DraftView:
+    f.workflows[workflow_id].draft.replace_with(f.workflows.template(body.template))
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "draft_from_github",
+    "Start the draft from a workflow template in a GitHub repo, pinned to a commit",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/from-github",
+)
+def draft_from_github(f: Factory, workflow_id: str, body: FromGitHubInput) -> DraftView:
+    try:
+        fetched = fetch_dir(body.repo, body.path, body.ref, f.settings.skills_github_token)
+    except GitHubError as exc:
+        raise WorkflowError(str(exc)) from exc
+    try:
+        label = f"github:{fetched.repo}/{fetched.path}@{fetched.sha[:12]}"
+        doc = f.workflows.load_fetched(fetched.root, label)
+    finally:
+        fetched.cleanup()
+    f.workflows[workflow_id].draft.replace_with(doc)
+    return get_draft(f, workflow_id)
+
+
+# ---------------------------------------------------------- workflow editing --
 @action("get_catalog", "Choices for the editor: tool presets, model tiers, installed skills", "GET", "/api/catalog")
 def get_catalog(f: Factory) -> CatalogView:
     return CatalogView(
@@ -300,7 +385,9 @@ def get_catalog(f: Factory) -> CatalogView:
         observe_only_presets=sorted(OBSERVE_ONLY_PRESETS),
         extra_tools=sorted(SAFE_EXTRA_TOOLS),
         model_tiers={t: f.cfg.models.resolve(t) for t in ("judgment", "default", "fast")},
-        skills=_installed_skills(f.lines.skills_dir),
+        skills=_installed_skills(f.workflows.skills_dir),
+        handlers={"agent": sorted(AGENT_HANDLERS), "check": sorted(CHECK_HANDLERS)},
+        requirements={k: dict(v) for k, v in HANDLER_REQUIREMENTS.items()},
         max_previous_iterations=5,
         max_doc_chars=MAX_DOC_CHARS,
         max_learnings_chars=MAX_LEARNINGS_CHARS,
@@ -309,86 +396,112 @@ def get_catalog(f: Factory) -> CatalogView:
 
 @action(
     "get_draft",
-    "The editable draft of the line (created from the active version on first edit)",
+    "The editable draft of a workflow (created from the active version on first edit)",
     "GET",
-    "/api/line/draft",
+    "/api/workflows/{workflow_id}/draft",
 )
-def get_draft(f: Factory) -> DraftView:
-    base, doc, stamp = f.lines.draft.get()
-    active = f.lines.active_version()
+def get_draft(f: Factory, workflow_id: str) -> DraftView:
+    w = f.workflows[workflow_id]
+    base, doc, stamp = w.draft.get()
+    active = w.active_version()
     return DraftView(
+        workflow_id=workflow_id,
         base_version=base,
         active_version=active,
         stale=base != active,
-        dirty=f.lines.draft.dirty(),
+        dirty=w.draft.dirty(),
         updated_at=stamp,
-        problems=f.lines.draft.problems(),
+        template=doc.template,
+        problems=w.draft.problems(),
+        warnings=w.draft.warnings(),
         stations=_station_views_for(doc),
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
     )
 
 
-@action("put_draft_agent", "Create or update an agent in the draft", "PUT", "/api/line/draft/agents/{agent_id}")
-def put_draft_agent(f: Factory, agent_id: str, body: AgentSpec) -> DraftView:
+@action(
+    "put_draft_agent",
+    "Create or update an agent in the draft",
+    "PUT",
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}",
+)
+def put_draft_agent(f: Factory, workflow_id: str, agent_id: str, body: AgentSpec) -> DraftView:
     if body.id != agent_id:
-        raise LineError("agent id in the path and body must match (ids cannot be renamed; duplicate instead)")
-    f.lines.draft.upsert_agent(body)
-    return get_draft(f)
+        raise WorkflowError("agent id in the path and body must match (ids cannot be renamed; duplicate instead)")
+    f.workflows[workflow_id].draft.upsert_agent(body)
+    return get_draft(f, workflow_id)
 
 
-@action("duplicate_draft_agent", "Copy an agent under a new id", "POST", "/api/line/draft/agents/{agent_id}/duplicate")
-def duplicate_draft_agent(f: Factory, agent_id: str, body: DuplicateAgentInput) -> DraftView:
-    f.lines.draft.duplicate_agent(agent_id, body.new_id)
-    return get_draft(f)
+@action(
+    "duplicate_draft_agent",
+    "Copy an agent under a new id",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}/duplicate",
+)
+def duplicate_draft_agent(f: Factory, workflow_id: str, agent_id: str, body: DuplicateAgentInput) -> DraftView:
+    f.workflows[workflow_id].draft.duplicate_agent(agent_id, body.new_id)
+    return get_draft(f, workflow_id)
 
 
-@action("delete_draft_agent", "Delete an agent that no station uses", "DELETE", "/api/line/draft/agents/{agent_id}")
-def delete_draft_agent(f: Factory, agent_id: str) -> DraftView:
-    f.lines.draft.delete_agent(agent_id)
-    return get_draft(f)
+@action(
+    "delete_draft_agent",
+    "Delete an agent that no station uses",
+    "DELETE",
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}",
+)
+def delete_draft_agent(f: Factory, workflow_id: str, agent_id: str) -> DraftView:
+    f.workflows[workflow_id].draft.delete_agent(agent_id)
+    return get_draft(f, workflow_id)
 
 
 @action(
     "set_station_agent",
     "Choose which agent runs an agent station",
     "PUT",
-    "/api/line/draft/stations/{station_id}/agent",
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}/agent",
 )
-def set_station_agent(f: Factory, station_id: str, body: StationAgentInput) -> DraftView:
-    f.lines.draft.set_station_agent(station_id, body.agent)
-    return get_draft(f)
+def set_station_agent(f: Factory, workflow_id: str, station_id: str, body: StationAgentInput) -> DraftView:
+    f.workflows[workflow_id].draft.set_station_agent(station_id, body.agent)
+    return get_draft(f, workflow_id)
 
 
-@action("put_draft_doc", "Create or update a reference document", "PUT", "/api/line/draft/docs/{doc_id}")
-def put_draft_doc(f: Factory, doc_id: str, body: RefDoc) -> DraftView:
+@action(
+    "put_draft_doc", "Create or update a reference document", "PUT", "/api/workflows/{workflow_id}/draft/docs/{doc_id}"
+)
+def put_draft_doc(f: Factory, workflow_id: str, doc_id: str, body: RefDoc) -> DraftView:
     if body.id != doc_id:
-        raise LineError("doc id in the path and body must match")
-    f.lines.draft.upsert_doc(body)
-    return get_draft(f)
+        raise WorkflowError("doc id in the path and body must match")
+    f.workflows[workflow_id].draft.upsert_doc(body)
+    return get_draft(f, workflow_id)
 
 
-@action("delete_draft_doc", "Delete a reference document no agent uses", "DELETE", "/api/line/draft/docs/{doc_id}")
-def delete_draft_doc(f: Factory, doc_id: str) -> DraftView:
-    f.lines.draft.delete_doc(doc_id)
-    return get_draft(f)
+@action(
+    "delete_draft_doc",
+    "Delete a reference document no agent uses",
+    "DELETE",
+    "/api/workflows/{workflow_id}/draft/docs/{doc_id}",
+)
+def delete_draft_doc(f: Factory, workflow_id: str, doc_id: str) -> DraftView:
+    f.workflows[workflow_id].draft.delete_doc(doc_id)
+    return get_draft(f, workflow_id)
 
 
 @action(
     "publish_draft",
-    "Validate the draft and publish it as the next active line version",
+    "Validate the draft and publish it as the next active version",
     "POST",
-    "/api/line/draft/publish",
+    "/api/workflows/{workflow_id}/draft/publish",
     status_code=201,
 )
-def publish_draft(f: Factory, body: PublishInput) -> LineVersionInfo:
-    return f.lines.draft.publish(body.note)
+def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> WorkflowVersionInfo:
+    return f.workflows[workflow_id].draft.publish(body.note)
 
 
-@action("discard_draft", "Throw the draft away", "DELETE", "/api/line/draft")
-def discard_draft(f: Factory) -> DraftView:
-    f.lines.draft.discard()
-    return get_draft(f)
+@action("discard_draft", "Throw the draft away", "DELETE", "/api/workflows/{workflow_id}/draft")
+def discard_draft(f: Factory, workflow_id: str) -> DraftView:
+    f.workflows[workflow_id].draft.discard()
+    return get_draft(f, workflow_id)
 
 
 def _installed_skills(skills_dir: Path) -> list[SkillInfo]:

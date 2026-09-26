@@ -8,10 +8,10 @@ import claude_agent_sdk
 from claude_agent_sdk import RateLimitEvent, RateLimitInfo, ResultMessage
 
 from agent_factory.agents.runner import AgentRequest, ClaudeAgentRunner
-from agent_factory.line import load_line_dir
+from agent_factory.workflow import load_workflow_dir
 
 REPO = Path(__file__).resolve().parents[2]
-LINE = load_line_dir(REPO / "blueprints" / "default")
+LINE = load_workflow_dir(REPO / "workflow-templates" / "default")
 
 
 def _req(tmp_path: Path, role: str = "developer", schema=None) -> AgentRequest:
