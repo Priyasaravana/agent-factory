@@ -19,7 +19,23 @@ if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
   kind create cluster --name "$CLUSTER" --config "$(dirname "$0")/kind-config.yaml" --wait 180s
 fi
 
+# After dind restarts (Docker Desktop restart, laptop reboot) kind's node
+# containers stay stopped: start them again.
+for node in $(docker ps -a --filter "label=io.x-k8s.kind.cluster=$CLUSTER" --format '{{.Names}}'); do
+  if [ "$(docker inspect -f '{{.State.Running}}' "$node")" != "true" ]; then
+    echo "[bootstrap] starting stopped kind node $node"
+    docker start "$node" >/dev/null
+  fi
+done
+
 # kind writes 0.0.0.0:6443 — point it at the dind service name instead.
 kind get kubeconfig --name "$CLUSTER" | sed -E "s#server: https://[^:]+:6443#server: https://${DIND_HOST:-dind}:6443#" > "$KCFG"
-kubectl get nodes -o wide
+
+echo "[bootstrap] waiting for the Kubernetes API..."
+for i in $(seq 1 90); do kubectl get nodes >/dev/null 2>&1 && break; sleep 2; done
+if ! kubectl get nodes -o wide; then
+  echo "[bootstrap] Kubernetes API not reachable. Recreate the cluster with: make reset-cluster"
+  exit 1
+fi
+kubectl wait --for=condition=Ready nodes --all --timeout=120s >/dev/null || true
 echo "[bootstrap] cluster ready"
