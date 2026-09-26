@@ -34,8 +34,18 @@ class FakeAgentRunner:
                 error="rate limited (simulated)",
             )
 
+        generic = bool(req.output_schema and "findings" in req.output_schema.get("properties", {}))
         if req.role in self.fail_once:
             self.fail_once.remove(req.role)
+            if generic:
+                return AgentResult(
+                    ok=True,
+                    structured={
+                        "passed": False,
+                        "summary": "simulated review failure",
+                        "findings": [f"{req.role}: app/main.py:1 simulated finding"],
+                    },
+                )
             if req.role == "verifier":
                 return AgentResult(
                     ok=True,
@@ -59,11 +69,18 @@ class FakeAgentRunner:
             (docs / "design.md").write_text("# Design (dry-run)\n")
             (docs / "openapi.yaml").write_text("openapi: 3.1.0\ninfo: {title: dry-run, version: 0.1.0}\npaths: {}\n")
             (docs / "tasks.md").write_text("1. dry-run task\n")
-        elif req.role in ("developer", "devops"):
+        elif req.role not in ("intake", "verifier") and not req.observe_only:
+            for rel in req.produces:  # custom agents: honour the spec's promised outputs
+                out = req.cwd / rel
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(f"# {req.role} output (dry-run)\n")
+        if req.role in ("developer", "devops"):
             with (docs / "build-log.md").open("a") as fh:
                 fh.write(f"- {req.role} pass for {req.station}\n")
 
     def _structured(self, req: AgentRequest) -> Any:
+        if req.output_schema and "findings" in req.output_schema.get("properties", {}):
+            return {"passed": True, "summary": f"{req.role} checks passed", "findings": []}
         if req.role == "intake":
             asked = any(c.role == "intake" for c in self.calls[:-1])
             if self.intake_questions and not asked:

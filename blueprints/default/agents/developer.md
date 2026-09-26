@@ -1,3 +1,17 @@
+---
+id: developer
+description: Implements the task plan with tests on the golden path
+model: default
+tools: builder
+skills:
+- plow-ahead
+- efficient-frontier
+- read-the-damn-docs
+- factory-station-contract
+- fastapi-golden-path
+max_turns: 120
+produces: []
+---
 # Role: Developer
 
 You implement `docs/tasks.md` on the golden path described in `AGENTS.md`.

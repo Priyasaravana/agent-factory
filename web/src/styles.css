@@ -54,3 +54,4 @@ button.tab.active { color: var(--text); border-color: var(--accent); }
 .pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 8px; border-radius: 6px; max-height: 300px; overflow: auto; }
 table { border-collapse: collapse; } td { padding: 4px 12px 4px 0; }
 code { font-size: 13px; }
+.agent { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; }

@@ -1,3 +1,18 @@
+---
+id: architect
+description: 'Designs the implementation: design doc, OpenAPI contract and task plan'
+model: judgment
+tools: author
+skills:
+- read-the-damn-docs
+- factory-station-contract
+- fastapi-golden-path
+max_turns: 40
+produces:
+- docs/design.md
+- docs/openapi.yaml
+- docs/tasks.md
+---
 # Role: Architect
 
 You turn `docs/spec.md` into an implementable design on the repo's golden path.

@@ -70,53 +70,18 @@ gates:
     kind: feedback                # a feedback submission starts the next iteration
 
 # ---------------------------------------------------------------------------
-# The line. kind: agent | check (deterministic). on_fail routes to a station.
+# The line (stations + agent specs) is DATA, stored as versioned records in the
+# factory database. On first start it is seeded from this blueprint folder;
+# afterwards edit/import new versions (see docs/lines.md). Runs are pinned to
+# the line version they started with.
 # ---------------------------------------------------------------------------
-stations:
-  - id: intake
-    kind: agent
-    role: intake
-    model: judgment
-  - id: design
-    kind: agent
-    role: architect
-    model: judgment
-  - id: build
-    kind: agent
-    role: developer
-    model: default
-  - id: verify
-    kind: check
-    on_fail: build
-  - id: package
-    kind: check
-    on_fail: build
-  - id: deploy
-    kind: check
-    on_fail: deploy_fix
-  - id: deploy_fix
-    kind: agent
-    role: devops
-    model: default
-    next: deploy                  # repair station: loops back, not forward
-    only_on_fail: true
-  - id: acceptance
-    kind: agent
-    role: verifier
-    model: judgment
-    on_fail: build
-  - id: deliver
-    kind: check
+line:
+  id: default
+  blueprint: blueprints/default
 
 budgets:
   max_attempts_per_station: 3     # then HOLD for a human
   max_loops_per_run: 6            # total fail->retry transitions per run
-  agent_max_turns:
-    intake: 30
-    architect: 40
-    developer: 120
-    devops: 40
-    verifier: 60
   run_wall_clock_minutes: 120
 
 limits:
@@ -124,14 +89,7 @@ limits:
   # rate-limit events: pause new agent work at this utilisation.
   pause_at_utilization: 0.95
 
-# Skills available to each role (loaded from plugin/ as agent-factory:<name>).
-role_skills:
-  intake: [plow-ahead, read-the-damn-docs, factory-station-contract]
-  architect: [read-the-damn-docs, factory-station-contract, fastapi-golden-path]
-  developer: [plow-ahead, efficient-frontier, read-the-damn-docs, factory-station-contract, fastapi-golden-path]
-  devops: [read-the-damn-docs, factory-station-contract, helm-kind-deploy]
-  verifier: [agent-watchdog, factory-station-contract]
-
+# Per-skill project guidance, layered onto the skill wherever an agent uses it.
 skill_prompts:
   plow-ahead: |
     Humans only give requirements and post-deploy feedback. Turn routine

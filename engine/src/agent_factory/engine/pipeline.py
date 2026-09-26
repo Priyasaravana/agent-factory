@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import FactoryConfig
+from agent_factory.engine.lines import LineService
 from agent_factory.engine.stations import STATIONS, StationContext, StationResult
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
@@ -51,8 +52,10 @@ class RunManager:
         ws: Workspace,
         ex: Executor,
         agents: AgentRunner,
+        lines: LineService,
     ) -> None:
         self.cfg, self.settings, self.store = cfg, settings, store
+        self.lines = lines
         self.ws, self.ex, self.agents = ws, ex, agents
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
@@ -110,7 +113,8 @@ class RunManager:
             order_id=order.id,
             iteration=len(runs) + 1,
             status=RunStatus.queued,
-            current_station=self.cfg.forward_stations()[0].id,
+            line_version=(version := self.lines.active_version()),
+            current_station=self.lines.get(version).forward_stations()[0].id,
             change_request=change_request,
             created_at=now,
             updated_at=now,
@@ -248,14 +252,15 @@ class RunManager:
         run.status = RunStatus.running
         self.store.save_run(run)
         self._sync_order(run, order)
-        line = self.cfg.product_lines[order.product_line]
-        await self.ws.ensure_product_repo(order.product_slug, line.template)
+        product = self.cfg.product_lines[order.product_line]
+        await self.ws.ensure_product_repo(order.product_slug, product.template)
+        flow = self.lines.get(run.line_version)  # pinned: later line edits never affect this run
         worktree = await self.ws.create_worktree(order.product_slug, run.id)
         deadline = run.created_at + timedelta(minutes=self.cfg.budgets.run_wall_clock_minutes)
 
         while run.current_station:
             sid = run.current_station
-            station = self.cfg.station(sid)
+            station = flow.station(sid)
             if _now() > deadline and run.status != RunStatus.needs_input:
                 return self._hold(run, sid, "wall-clock budget exhausted")
             run.attempts[sid] = run.attempts.get(sid, 0) + 1
@@ -267,10 +272,10 @@ class RunManager:
             )
 
             ctx = StationContext(
-                self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, order, run, worktree, sid
+                self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, order, run, worktree, sid, flow
             )
             try:
-                result = await STATIONS[sid](ctx)
+                result = await STATIONS[station.resolved_handler()](ctx)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -284,9 +289,9 @@ class RunManager:
             )
 
             if result.outcome == StationOutcome.passed:
-                if sid in ("build", "deploy_fix"):
-                    run.last_failure = None
-                nxt = station.next or self.cfg.next_forward(sid)
+                if sid in flow.repair_targets() or station.only_on_fail:
+                    run.last_failure = None  # the station that consumed the evidence succeeded
+                nxt = station.next or flow.next_forward(sid)
                 run.current_station = nxt
                 if nxt is None:
                     run.status = RunStatus.awaiting_feedback

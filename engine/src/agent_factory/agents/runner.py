@@ -1,9 +1,10 @@
 """AgentRunner seam + the Claude Agent SDK implementation.
 
-Each station agent is a fresh, narrowly-scoped Claude session:
-  * role system prompt from prompts/<role>.md (+ skill_prompts overlay)
-  * only the tools that role needs; PreToolUse hooks enforce guardrails
-  * skills loaded from the factory plugin (plugin/), filtered per role
+Each station agent is a fresh, narrowly-scoped Claude session built from its
+AgentSpec (see line.py):
+  * the spec's prompt + the shared station contract (+ skill_prompts overlay)
+  * the tools of the spec's preset only; PreToolUse hooks enforce guardrails
+  * skills loaded from the factory plugin (plugin/), filtered per spec
   * factory actions exposed as in-process MCP tools (shared actions pattern)
 """
 
@@ -19,14 +20,6 @@ from agent_factory.agents.hooks import build_hooks
 
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 
-ROLE_TOOLS: dict[str, list[str]] = {
-    "intake": ["Read", "Glob", "Grep"],
-    "architect": ["Read", "Write", "Edit", "Glob", "Grep"],
-    "developer": ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"],
-    "devops": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
-    "verifier": ["Read", "Glob", "Grep", "Bash"],
-}
-
 PLUGIN_NAME = "agent-factory"
 
 
@@ -34,10 +27,14 @@ PLUGIN_NAME = "agent-factory"
 class AgentRequest:
     run_id: str
     station: str
-    role: str
+    role: str  # agent spec id
     prompt: str
     cwd: Path
     model: str
+    system_prompt: str = ""  # the spec's prompt body
+    tools: list[str] = field(default_factory=lambda: ["Read", "Glob", "Grep"])
+    observe_only: bool = False
+    produces: list[str] = field(default_factory=list)  # files the spec promises (checked by the engine)
     max_turns: int = 50
     skills: list[str] = field(default_factory=list)
     skill_overlay: str = ""
@@ -70,9 +67,8 @@ class ClaudeAgentRunner:
         self.tools_server = tools_server  # in-process MCP server with factory actions
 
     def _system_prompt(self, req: AgentRequest) -> str:
-        role_md = (self.factory_home / "prompts" / f"{req.role}.md").read_text()
         contract = (self.factory_home / "prompts" / "_contract.md").read_text()
-        parts = [role_md, contract]
+        parts = [req.system_prompt, contract]
         if req.skill_overlay:
             parts.append(req.skill_overlay)
         parts.append(f"Run id: {req.run_id}. Station: {req.station}. Working dir: {req.cwd}.")
@@ -90,7 +86,7 @@ class ClaudeAgentRunner:
             query,
         )
 
-        tools = list(ROLE_TOOLS[req.role])
+        tools = list(req.tools)
         allowed = list(tools)
         mcp_servers: dict[str, Any] = {}
         if self.tools_server is not None:
@@ -118,7 +114,7 @@ class ClaudeAgentRunner:
             max_turns=req.max_turns,
             agents=subagents or None,
             mcp_servers=mcp_servers,
-            hooks=build_hooks(req.role, req.cwd, req.protected_paths),
+            hooks=build_hooks(req.role, req.cwd, req.protected_paths, req.observe_only),
             plugins=[{"type": "local", "path": str(self.factory_home / "plugin")}],
             skills=[f"{PLUGIN_NAME}:{s}" for s in req.skills],
             setting_sources=["project"],  # product CLAUDE.md -> AGENTS.md conventions
