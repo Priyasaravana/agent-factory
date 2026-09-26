@@ -1,6 +1,6 @@
 # ADR-0007: Lines and agent specs are versioned data per instance
 
-**Status:** accepted · 2026-09-26
+**Status:** accepted · 2026-09-26 · terminology updated by ADR-0008 (line → workflow)
 
 ## Context
 Each factory instance (for example, one per client) needs its own line: its

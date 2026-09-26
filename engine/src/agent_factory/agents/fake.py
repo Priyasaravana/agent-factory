@@ -1,5 +1,5 @@
 """Deterministic AgentRunner for dry-run mode and tests: zero model usage.
-Lets you exercise the whole line (UI, gates, loops, resume) for free."""
+Lets you exercise a whole workflow (UI, gates, loops, resume) for free."""
 
 from __future__ import annotations
 

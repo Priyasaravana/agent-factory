@@ -62,16 +62,16 @@ async def test_errors_and_contract(make_factory):
     await ctx.__aexit__(None, None, None)
 
 
-async def test_line_endpoints(make_factory):
+async def test_workflow_endpoints(make_factory):
     app, ctx, c = await _client(make_factory())
     async with c:
-        line = (await c.get("/api/line")).json()
-        assert line["version"] == 1 and line["active"] and line["blueprint"] == "default"
+        line = (await c.get("/api/workflows/fastapi-service")).json()
+        assert line["version"] == 1 and line["active"] and line["template"] == "default"
         assert {a["spec"]["id"] for a in line["agents"]} == {"intake", "architect", "developer", "devops", "verifier"}
         verifier = next(a for a in line["agents"] if a["spec"]["id"] == "verifier")
         assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
-        assert (await c.get("/api/line/versions")).json()[0]["version"] == 1
-        assert (await c.get("/api/line/versions/9")).status_code == 404
+        assert (await c.get("/api/workflows/fastapi-service/versions")).json()[0]["version"] == 1
+        assert (await c.get("/api/workflows/fastapi-service/versions/9")).status_code == 404
         cfg = (await c.get("/api/config")).json()
-        assert cfg["line_version"] == 1 and cfg["stations"][0]["handler"] == "intake"
+        assert cfg["workflows"] == {"fastapi-service": 1}
     await ctx.__aexit__(None, None, None)

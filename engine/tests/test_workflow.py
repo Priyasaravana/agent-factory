@@ -9,26 +9,27 @@ import pytest
 from conftest import ORDER, wait_run
 
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.engine.lines import LineError
-from agent_factory.line import (
+from agent_factory.engine.workflows import WorkflowError
+from agent_factory.models import EventKind, RunStatus
+from agent_factory.workflow import (
     AgentSpec,
-    LineDoc,
-    export_line_dir,
-    load_line_dir,
+    WorkflowDoc,
+    export_workflow_dir,
+    load_workflow_dir,
     parse_agent_md,
     render_agent_md,
-    validate_line,
+    validate_workflow,
 )
-from agent_factory.models import EventKind, RunStatus
 
+WF = "fastapi-service"
 REPO = Path(__file__).resolve().parents[2]
-BLUEPRINT = REPO / "blueprints" / "default"
+BLUEPRINT = REPO / "workflow-templates" / "default"
 SKILLS = REPO / "plugin" / "skills"
 
 
 def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
-    doc = load_line_dir(BLUEPRINT)
-    assert validate_line(doc, SKILLS) == []
+    doc = load_workflow_dir(BLUEPRINT)
+    assert validate_workflow(doc, SKILLS) == []
     assert [s.id for s in doc.forward_stations()] == [
         "intake",
         "design",
@@ -47,7 +48,7 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
 
 
 def test_agent_md_roundtrip() -> None:
-    spec = load_line_dir(BLUEPRINT).agents["architect"]
+    spec = load_workflow_dir(BLUEPRINT).agents["architect"]
     assert parse_agent_md(render_agent_md(spec)) == spec
 
 
@@ -62,9 +63,9 @@ def test_agent_md_roundtrip() -> None:
     ],
 )
 def test_validation_catches_broken_lines(mutate, problem) -> None:
-    doc = load_line_dir(BLUEPRINT)
+    doc = load_workflow_dir(BLUEPRINT)
     mutate(doc)
-    assert any(problem in p for p in validate_line(doc, SKILLS))
+    assert any(problem in p for p in validate_workflow(doc, SKILLS))
 
 
 def test_presets_cannot_be_widened_to_dangerous_tools() -> None:
@@ -76,7 +77,7 @@ def test_presets_cannot_be_widened_to_dangerous_tools() -> None:
 
 def _custom_line(tmp_path: Path) -> Path:
     """The default blueprint plus a security-reviewer station after build."""
-    doc = load_line_dir(BLUEPRINT)
+    doc = load_workflow_dir(BLUEPRINT)
     doc.agents["security-reviewer"] = AgentSpec(
         id="security-reviewer",
         description="OWASP review",
@@ -89,40 +90,42 @@ def _custom_line(tmp_path: Path) -> Path:
     stations = doc.model_dump()["stations"]
     stations.insert(3, {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "build"})
     out = tmp_path / "custom"
-    export_line_dir(LineDoc.model_validate({**doc.model_dump(), "stations": stations}), out)
+    export_workflow_dir(WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations}), out)
     return out
 
 
 async def test_seeded_on_first_start_and_never_overwritten(make_factory) -> None:
     f = make_factory()
-    assert [v.version for v in f.lines.versions()] == [1]
-    assert f.lines.ensure_seeded() is None  # second start: no new version
-    assert f.lines.get().blueprint == "default"
-    assert not f.lines.blueprint_update_available()
+    assert [v.version for v in f.workflows[WF].versions()] == [1]
+    assert f.workflows[WF].ensure_seeded() is None  # second start: no new version
+    assert f.workflows[WF].get().template == "default"
+    assert not f.workflows[WF].template_update_available()
 
 
 async def test_invalid_import_is_rejected_and_nothing_stored(make_factory, tmp_path) -> None:
     f = make_factory()
     path = _custom_line(tmp_path)
-    (path / "line.yaml").write_text((path / "line.yaml").read_text().replace("on_fail: build", "on_fail: nope", 1))
-    with pytest.raises(LineError):
-        f.lines.import_dir(path, "broken")
-    assert len(f.lines.versions()) == 1
+    (path / "workflow.yaml").write_text(
+        (path / "workflow.yaml").read_text().replace("on_fail: build", "on_fail: nope", 1)
+    )
+    with pytest.raises(WorkflowError):
+        f.workflows[WF].import_dir(path, "broken")
+    assert len(f.workflows[WF].versions()) == 1
 
 
 async def test_runs_are_pinned_to_their_line_version(make_factory, tmp_path) -> None:
     f = make_factory()
     order = f.manager.create_order(ORDER)
     run1 = f.manager.start_run(order)
-    v2 = f.lines.import_dir(_custom_line(tmp_path), "add security-review after build")
-    assert v2 == 2 and f.lines.active_version() == 2
+    v2 = f.workflows[WF].import_dir(_custom_line(tmp_path), "add security-review after build")
+    assert v2 == 2 and f.workflows[WF].active_version() == 2
     assert await wait_run(f, run1.id) == RunStatus.awaiting_feedback
-    assert f.store.get_run(run1.id).line_version == 1
+    assert f.store.get_run(run1.id).workflow_version == 1
     stations1 = {e.station for e in f.store.list_events(run1.id) if e.kind == EventKind.station_finished}
     assert "security-review" not in stations1, "v1 run must not pick up the v2 station"
 
     run2 = f.manager.feedback(order.id, "tighten input validation")
-    assert run2.line_version == 2
+    assert run2.workflow_version == 2
     assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
     stations2 = [e.station for e in f.store.list_events(run2.id) if e.kind == EventKind.station_finished]
     assert stations2.index("security-review") == stations2.index("build") + 1
@@ -131,7 +134,7 @@ async def test_runs_are_pinned_to_their_line_version(make_factory, tmp_path) -> 
 async def test_generic_agent_failure_routes_findings_to_its_on_fail(make_factory, tmp_path) -> None:
     agents = FakeAgentRunner(fail_once=["security-reviewer"])
     f = make_factory(agents=agents)
-    f.lines.import_dir(_custom_line(tmp_path), "add security-review")
+    f.workflows[WF].import_dir(_custom_line(tmp_path), "add security-review")
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
     builds = [c for c in agents.calls if c.role == "developer"]
@@ -143,15 +146,15 @@ async def test_generic_agent_failure_routes_findings_to_its_on_fail(make_factory
 
 async def test_rollback_by_activating_an_old_version(make_factory, tmp_path) -> None:
     f = make_factory()
-    f.lines.import_dir(_custom_line(tmp_path), "v2")
-    f.lines.activate(1)
+    f.workflows[WF].import_dir(_custom_line(tmp_path), "v2")
+    f.workflows[WF].activate(1)
     run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert run.line_version == 1
+    assert run.workflow_version == 1
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
 
 
 def test_export_import_roundtrip(tmp_path) -> None:
-    doc = load_line_dir(BLUEPRINT)
-    export_line_dir(doc, tmp_path / "x")
-    again = load_line_dir(tmp_path / "x")
+    doc = load_workflow_dir(BLUEPRINT)
+    export_workflow_dir(doc, tmp_path / "x")
+    again = load_workflow_dir(tmp_path / "x")
     assert again.stations == doc.stations and again.agents == doc.agents

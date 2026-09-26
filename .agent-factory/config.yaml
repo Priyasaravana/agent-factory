@@ -31,6 +31,9 @@ product_lines:
   fastapi-service:
     description: Python FastAPI REST service with Postgres, Helm chart, NodePort
     template: templates/fastapi-service
+    # The product line's workflow (stations + agents) is seeded from this template
+    # on first start, then edited in the UI and stored as versions in the DB.
+    workflow_template: workflow-templates/default
     verify_command: make verify
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
     # factory image. {image} is filled in by the Package station. Pin a digest
@@ -68,16 +71,6 @@ gates:
   - id: feedback
     after: deliver
     kind: feedback                # a feedback submission starts the next iteration
-
-# ---------------------------------------------------------------------------
-# The line (stations + agent specs) is DATA, stored as versioned records in the
-# factory database. On first start it is seeded from this blueprint folder;
-# afterwards edit/import new versions (see docs/lines.md). Runs are pinned to
-# the line version they started with.
-# ---------------------------------------------------------------------------
-line:
-  id: default
-  blueprint: blueprints/default
 
 budgets:
   max_attempts_per_station: 3     # then HOLD for a human

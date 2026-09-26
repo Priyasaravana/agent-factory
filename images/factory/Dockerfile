@@ -45,7 +45,7 @@ RUN uv pip install --system --no-cache ./engine
 
 COPY .agent-factory .agent-factory
 COPY prompts prompts
-COPY blueprints blueprints
+COPY workflow-templates workflow-templates
 COPY plugin plugin
 COPY templates templates
 COPY cluster cluster

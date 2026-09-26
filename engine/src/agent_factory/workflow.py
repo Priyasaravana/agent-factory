@@ -1,14 +1,15 @@
-"""Agent specs and lines as data.
+"""Agent specs and workflows as data.
 
-A *blueprint* is a folder shipped in the repo (read-only):
+A *workflow template* is a folder (shipped in `workflow-templates/`, or imported
+from a GitHub repo):
 
-    blueprints/<name>/line.yaml          stations, routes
-    blueprints/<name>/agents/<id>.md     one agent spec: YAML frontmatter + system prompt
+    workflow.yaml          stations and routes
+    agents/<id>.md         one agent spec: YAML frontmatter + system prompt
+    docs/<id>.md           reference documents (team standards)
 
-An *instance line* is what a factory actually runs. It is seeded from a
-blueprint into the database as immutable, numbered versions; every run is
-pinned to the version it started with. Versions can be exported back to the
-same folder format and imported into another instance.
+Each product line has one *workflow*: seeded from a template into the database
+as immutable, numbered versions; every run is pinned to the version it started
+with. Versions export back to the same folder format.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 # --------------------------------------------------------------- tools ----
 # A preset is the ceiling of what an agent may do. Guardrail hooks still apply
@@ -40,6 +41,24 @@ AGENT_HANDLERS = {"intake", "design", "build", "deploy_fix", "acceptance", "agen
 CHECK_HANDLERS = {"verify", "package", "deploy", "deliver"}
 
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+
+# What each engine handler needs from the agent running it. Violations block
+# publishing: a design agent that cannot write would always fail, an intake
+# agent that can write could tamper with the repo before the spec exists, and
+# the acceptance agent sees the hidden scenarios so it must never write.
+HANDLER_REQUIREMENTS: dict[str, dict[str, bool]] = {
+    "intake": {"write": False},
+    "design": {"write": True},
+    "build": {"write": True, "shell": True},
+    "deploy_fix": {"write": True, "shell": True},
+    "acceptance": {"write": False, "shell": True},
+}
+# Advice (warnings, not errors).
+RECOMMENDED_SKILLS: dict[str, list[str]] = {
+    "acceptance": ["agent-watchdog"],
+    "deploy_fix": ["helm-kind-deploy"],
+}
+JUDGMENT_HANDLERS = {"intake", "design", "acceptance"}
 
 # Context budgets: reference material is useful, but unbounded context is
 # expensive and dilutes the agent's attention.
@@ -73,7 +92,7 @@ class AgentSpec(BaseModel):
     skills: list[str] = Field(default_factory=list)
     max_turns: int = Field(default=50, ge=1, le=500)
     produces: list[str] = Field(default_factory=list)  # files that must exist afterwards
-    context_docs: list[str] = Field(default_factory=list)  # RefDoc ids from the line's doc library
+    context_docs: list[str] = Field(default_factory=list)  # RefDoc ids from the workflow's doc library
     previous_iterations: int = Field(default=0, ge=0, le=5)  # earlier iterations of this product to recall
     learnings: str = Field(default="", max_length=MAX_LEARNINGS_CHARS)  # human-approved lessons
     prompt: str = ""
@@ -102,7 +121,7 @@ class AgentSpec(BaseModel):
         return base + [t for t in self.extra_tools if t not in base]
 
 
-class LineStation(BaseModel):
+class WorkflowStation(BaseModel):
     id: str
     kind: Literal["agent", "check"]
     agent: str | None = None  # AgentSpec id (agent stations)
@@ -118,25 +137,26 @@ class LineStation(BaseModel):
         return self.id if self.id in known else ("agent" if self.kind == "agent" else self.id)
 
 
-class LineDoc(BaseModel):
+class WorkflowDoc(BaseModel):
     name: str = "default"
     description: str = ""
-    blueprint: str | None = None
-    blueprint_hash: str | None = None
-    stations: list[LineStation]
+    # which template this workflow came from (older versions stored it as "blueprint")
+    template: str | None = Field(default=None, validation_alias=AliasChoices("template", "blueprint"))
+    template_hash: str | None = Field(default=None, validation_alias=AliasChoices("template_hash", "blueprint_hash"))
+    stations: list[WorkflowStation]
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
     docs: dict[str, RefDoc] = Field(default_factory=dict)
 
     def stations_using(self, agent_id: str) -> list[str]:
         return [s.id for s in self.stations if s.agent == agent_id]
 
-    def station(self, station_id: str) -> LineStation:
+    def station(self, station_id: str) -> WorkflowStation:
         for s in self.stations:
             if s.id == station_id:
                 return s
         raise KeyError(station_id)
 
-    def forward_stations(self) -> list[LineStation]:
+    def forward_stations(self) -> list[WorkflowStation]:
         return [s for s in self.stations if not s.only_on_fail]
 
     def next_forward(self, station_id: str) -> str | None:
@@ -157,8 +177,8 @@ class LineDoc(BaseModel):
         return {s.on_fail for s in self.stations if s.on_fail}
 
 
-class LineVersionInfo(BaseModel):
-    line_id: str
+class WorkflowVersionInfo(BaseModel):
+    workflow_id: str
     version: int
     note: str
     created_at: str
@@ -168,14 +188,15 @@ class LineVersionInfo(BaseModel):
 
 
 # ------------------------------------------------------------ validate ----
-def validate_line(doc: LineDoc, skills_dir: Path | None = None) -> list[str]:
-    """Return human-readable problems; empty list means the line is runnable."""
+def validate_workflow(doc: WorkflowDoc, skills_dir: Path | None = None) -> list[str]:
+    """Return blocking problems; an empty list means the workflow is runnable.
+    Non-blocking advice comes from `workflow_warnings`."""
     errors: list[str] = []
     ids = [s.id for s in doc.stations]
     if len(ids) != len(set(ids)):
         errors.append("station ids must be unique")
     if not doc.forward_stations():
-        errors.append("the line needs at least one forward station")
+        errors.append("the workflow needs at least one forward station")
     for s in doc.stations:
         for label, target in (("on_fail", s.on_fail), ("next", s.next)):
             if target and target not in ids:
@@ -188,8 +209,8 @@ def validate_line(doc: LineDoc, skills_dir: Path | None = None) -> list[str]:
                 errors.append(f"station '{s.id}' uses unknown agent '{s.agent}'")
             if handler not in AGENT_HANDLERS:
                 errors.append(f"station '{s.id}': unknown agent handler '{handler}'")
-            if handler == "acceptance" and s.agent in doc.agents and not doc.agents[s.agent].observe_only:
-                errors.append(f"acceptance agent '{s.agent}' must use an observe-only tool preset")
+            if s.agent in doc.agents:
+                errors += _role_errors(s.id, handler, doc.agents[s.agent])
         else:
             if handler not in CHECK_HANDLERS:
                 errors.append(f"check station '{s.id}': unknown handler '{handler}'")
@@ -217,7 +238,51 @@ def validate_line(doc: LineDoc, skills_dir: Path | None = None) -> list[str]:
     return errors
 
 
-def _reachability(doc: LineDoc) -> list[str]:
+def _role_errors(station_id: str, handler: str, spec: AgentSpec) -> list[str]:
+    need = HANDLER_REQUIREMENTS.get(handler, {})
+    tools = set(spec.effective_tools())
+    can_write = not spec.observe_only and bool(tools & {"Write", "Edit"})
+    can_shell = "Bash" in tools
+    errors = []
+    if need.get("write") is True and not can_write:
+        errors.append(
+            f"station '{station_id}' ({handler}) needs an agent that can write files; '{spec.id}' uses '{spec.tools}'"
+        )
+    if need.get("write") is False and can_write:
+        errors.append(
+            f"station '{station_id}' ({handler}) must use an observe-only agent; '{spec.id}' can modify files"
+        )
+    if need.get("shell") and not can_shell:
+        errors.append(f"station '{station_id}' ({handler}) needs shell access (Bash); '{spec.id}' has none")
+    return errors
+
+
+def workflow_warnings(doc: WorkflowDoc) -> list[str]:
+    """Non-blocking advice about roles, skills and models."""
+    warnings: list[str] = []
+    used = {s.agent for s in doc.stations if s.agent}
+    for s in doc.stations:
+        if s.kind != "agent" or s.agent not in doc.agents:
+            continue
+        spec, handler = doc.agents[s.agent], s.resolved_handler()
+        for skill in RECOMMENDED_SKILLS.get(handler, []):
+            if skill not in spec.skills:
+                warnings.append(f"station '{s.id}': agent '{spec.id}' would benefit from skill '{skill}'")
+        if "factory-station-contract" not in spec.skills:
+            warnings.append(f"agent '{spec.id}' lacks 'factory-station-contract' (how to report evidence)")
+        if handler in JUDGMENT_HANDLERS and spec.model == "fast":
+            warnings.append(f"station '{s.id}' does judgment work but agent '{spec.id}' uses the fast tier")
+        if handler == "agent" and "review" in s.id and not spec.observe_only:
+            warnings.append(f"station '{s.id}' looks like a review but agent '{spec.id}' can modify files")
+        if handler == "agent" and not s.on_fail:
+            warnings.append(f"station '{s.id}' has no on_fail route: a failed verdict will hold the run")
+    for aid in doc.agents:
+        if aid not in used:
+            warnings.append(f"agent '{aid}' is not used by any station")
+    return sorted(set(warnings))
+
+
+def _reachability(doc: WorkflowDoc) -> list[str]:
     """Every station must be reachable from the start, or it would never run."""
     forward = doc.forward_stations()
     if not forward:
@@ -264,8 +329,14 @@ def render_doc_md(d: RefDoc) -> str:
     return "---\n" + yaml.safe_dump({"id": d.id, "title": d.title}, sort_keys=False) + "---\n" + d.content
 
 
-def load_line_dir(path: Path) -> LineDoc:
-    raw = yaml.safe_load((path / "line.yaml").read_text()) or {}
+def workflow_file(path: Path) -> Path:
+    """`workflow.yaml` (current) or `line.yaml` (before the rename)."""
+    return path / "workflow.yaml" if (path / "workflow.yaml").exists() else path / "line.yaml"
+
+
+def load_workflow_dir(path: Path) -> WorkflowDoc:
+    wf_file = workflow_file(path)
+    raw = yaml.safe_load(wf_file.read_text()) or {}
     agents: dict[str, AgentSpec] = {}
     for f in sorted((path / "agents").glob("*.md")):
         spec = parse_agent_md(f.read_text())
@@ -275,30 +346,30 @@ def load_line_dir(path: Path) -> LineDoc:
         d = parse_doc_md(f.read_text())
         docs[d.id] = d
     digest = hashlib.sha256()
-    for f in [path / "line.yaml", *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md"))]:
+    for f in [wf_file, *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md"))]:
         digest.update(f.read_bytes())
-    return LineDoc.model_validate(
+    return WorkflowDoc.model_validate(
         {
             **raw,
             "agents": agents,
             "docs": docs,
-            "blueprint": raw.get("blueprint") or path.name,
-            "blueprint_hash": digest.hexdigest()[:16],
+            "template": raw.get("template") or raw.get("blueprint") or path.name,
+            "template_hash": digest.hexdigest()[:16],
         }
     )
 
 
-def export_line_dir(doc: LineDoc, path: Path) -> None:
+def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
     (path / "agents").mkdir(parents=True, exist_ok=True)
-    line = {
+    data = {
         "name": doc.name,
         "description": doc.description,
-        "blueprint": doc.blueprint,
+        "template": doc.template,
         "stations": [
             s.model_dump(exclude_none=True, exclude_defaults=True) | {"id": s.id, "kind": s.kind} for s in doc.stations
         ],
     }
-    (path / "line.yaml").write_text(yaml.safe_dump(line, sort_keys=False))
+    (path / "workflow.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     for spec in doc.agents.values():
         (path / "agents" / f"{spec.id}.md").write_text(render_agent_md(spec))
     if doc.docs:

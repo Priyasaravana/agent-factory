@@ -8,7 +8,8 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def test_config_points_at_a_blueprint(cfg: FactoryConfig) -> None:
-    assert (REPO / cfg.line.blueprint / "line.yaml").exists()
+    for line in cfg.product_lines.values():
+        assert (REPO / line.workflow_template / "workflow.yaml").exists()
     assert cfg.models.resolve("judgment") == "opus"
 
 

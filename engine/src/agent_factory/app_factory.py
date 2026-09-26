@@ -18,8 +18,8 @@ from sse_starlette.sse import EventSourceResponse
 from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
 from agent_factory.config import FactoryConfig, load_config
-from agent_factory.engine.lines import LineError, LineService
 from agent_factory.engine.pipeline import FactoryError, RunManager
+from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.models import TERMINAL, RunStatus
@@ -33,7 +33,7 @@ class Factory:
     settings: Settings
     store: StateStore
     manager: RunManager
-    lines: LineService
+    workflows: WorkflowRegistry
 
 
 def build_factory(
@@ -52,15 +52,20 @@ def build_factory(
     executor = executor or (LocalExecutor() if live else FakeExecutor())
     ws = Workspace(data_dir, home, settings.git_author_name, settings.git_author_email)
 
-    lines = LineService(store, cfg.line.id, home / cfg.line.blueprint, home / "plugin" / "skills")
-    lines.ensure_seeded()  # first start: blueprint -> line v1 in the DB (never overwrites)
-    factory = Factory(cfg, settings, store, manager=None, lines=lines)  # type: ignore[arg-type]
+    workflows = WorkflowRegistry(
+        store,
+        {pl: home / line.workflow_template for pl, line in cfg.product_lines.items()},
+        home / "workflow-templates",
+        home / "plugin" / "skills",
+    )
+    workflows.ensure_seeded()  # first start: template -> workflow v1 per product line (never overwrites)
+    factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
     if agents is None:
         if live:
             agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory))
         else:
             agents = FakeAgentRunner()
-    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, lines)
+    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows)
     return factory
 
 
@@ -95,8 +100,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.exception_handler(LineError)
-    async def line_error(_: Request, exc: LineError) -> JSONResponse:
+    @app.exception_handler(WorkflowError)
+    async def workflow_error(_: Request, exc: WorkflowError) -> JSONResponse:
         code = 404 if "not found" in str(exc) else 409
         return JSONResponse(status_code=code, content={"detail": str(exc), "problems": exc.problems})
 

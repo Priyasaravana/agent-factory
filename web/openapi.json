@@ -33,8 +33,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "The factory line, policies and product lines",
-        "description": "The factory line, policies and product lines",
+        "summary": "Factory settings: product lines, their workflow versions, policies, gates",
+        "description": "Factory settings: product lines, their workflow versions, policies, gates",
         "operationId": "get_config",
         "responses": {
           "200": {
@@ -493,21 +493,25 @@
         }
       }
     },
-    "/api/line": {
+    "/api/workflows": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "The active line: stations and agent specs",
-        "description": "The active line: stations and agent specs",
-        "operationId": "get_line",
+        "summary": "One workflow per product line",
+        "description": "One workflow per product line",
+        "operationId": "list_workflows",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineView"
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Workflows"
                 }
               }
             }
@@ -515,22 +519,22 @@
         }
       }
     },
-    "/api/line/versions/{version}": {
+    "/api/workflows/{workflow_id}": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "A specific (immutable) line version",
-        "description": "A specific (immutable) line version",
-        "operationId": "get_line_version",
+        "summary": "The active version of a workflow",
+        "description": "The active version of a workflow",
+        "operationId": "get_workflow",
         "parameters": [
           {
-            "name": "version",
+            "name": "workflow_id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
-              "title": "Version"
+              "type": "string",
+              "title": "Workflow Id"
             }
           }
         ],
@@ -540,7 +544,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineView"
+                  "$ref": "#/components/schemas/WorkflowView"
                 }
               }
             }
@@ -558,41 +562,24 @@
         }
       }
     },
-    "/api/line/versions": {
+    "/api/workflows/{workflow_id}/versions/{version}": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "All line versions, newest first",
-        "description": "All line versions, newest first",
-        "operationId": "list_line_versions",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/LineVersionInfo"
-                  },
-                  "type": "array",
-                  "title": "Response List Line Versions"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/line/versions/{version}/activate": {
-      "post": {
-        "tags": [
-          "factory"
-        ],
-        "summary": "Make a version the active line for new runs (runs in flight keep their version)",
-        "description": "Make a version the active line for new runs (runs in flight keep their version)",
-        "operationId": "activate_line_version",
+        "summary": "A specific (immutable) workflow version",
+        "description": "A specific (immutable) workflow version",
+        "operationId": "get_workflow_version",
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
           {
             "name": "version",
             "in": "path",
@@ -609,7 +596,238 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineVersionInfo"
+                  "$ref": "#/components/schemas/WorkflowView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/versions": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "All versions of a workflow, newest first",
+        "description": "All versions of a workflow, newest first",
+        "operationId": "list_workflow_versions",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowVersionInfo"
+                  },
+                  "title": "Response List Workflow Versions"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/versions/{version}/activate": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Make a version active for new runs (runs in flight keep theirs)",
+        "description": "Make a version active for new runs (runs in flight keep theirs)",
+        "operationId": "activate_workflow_version",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowVersionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflow-templates": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Built-in workflow templates",
+        "description": "Built-in workflow templates",
+        "operationId": "list_workflow_templates",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Workflow Templates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/from-template": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Start the draft from a built-in template (publish to apply)",
+        "description": "Start the draft from a built-in template (publish to apply)",
+        "operationId": "draft_from_template",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromTemplateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/from-github": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Start the draft from a workflow template in a GitHub repo, pinned to a commit",
+        "description": "Start the draft from a workflow template in a GitHub repo, pinned to a commit",
+        "operationId": "draft_from_github",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FromGitHubInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
                 }
               }
             }
@@ -649,14 +867,25 @@
         }
       }
     },
-    "/api/line/draft": {
+    "/api/workflows/{workflow_id}/draft": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "The editable draft of the line (created from the active version on first edit)",
-        "description": "The editable draft of the line (created from the active version on first edit)",
+        "summary": "The editable draft of a workflow (created from the active version on first edit)",
+        "description": "The editable draft of a workflow (created from the active version on first edit)",
         "operationId": "get_draft",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -664,6 +893,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -677,6 +916,17 @@
         "summary": "Throw the draft away",
         "description": "Throw the draft away",
         "operationId": "discard_draft",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -687,11 +937,21 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/line/draft/agents/{agent_id}": {
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}": {
       "put": {
         "tags": [
           "factory"
@@ -700,6 +960,15 @@
         "description": "Create or update an agent in the draft",
         "operationId": "put_draft_agent",
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
           {
             "name": "agent_id",
             "in": "path",
@@ -752,6 +1021,15 @@
         "operationId": "delete_draft_agent",
         "parameters": [
           {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
             "name": "agent_id",
             "in": "path",
             "required": true,
@@ -785,7 +1063,7 @@
         }
       }
     },
-    "/api/line/draft/agents/{agent_id}/duplicate": {
+    "/api/workflows/{workflow_id}/draft/agents/{agent_id}/duplicate": {
       "post": {
         "tags": [
           "factory"
@@ -794,6 +1072,15 @@
         "description": "Copy an agent under a new id",
         "operationId": "duplicate_draft_agent",
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
           {
             "name": "agent_id",
             "in": "path",
@@ -838,7 +1125,7 @@
         }
       }
     },
-    "/api/line/draft/stations/{station_id}/agent": {
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}/agent": {
       "put": {
         "tags": [
           "factory"
@@ -847,6 +1134,15 @@
         "description": "Choose which agent runs an agent station",
         "operationId": "set_station_agent",
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
           {
             "name": "station_id",
             "in": "path",
@@ -891,7 +1187,7 @@
         }
       }
     },
-    "/api/line/draft/docs/{doc_id}": {
+    "/api/workflows/{workflow_id}/draft/docs/{doc_id}": {
       "put": {
         "tags": [
           "factory"
@@ -900,6 +1196,15 @@
         "description": "Create or update a reference document",
         "operationId": "put_draft_doc",
         "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
           {
             "name": "doc_id",
             "in": "path",
@@ -952,6 +1257,15 @@
         "operationId": "delete_draft_doc",
         "parameters": [
           {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
             "name": "doc_id",
             "in": "path",
             "required": true,
@@ -985,23 +1299,34 @@
         }
       }
     },
-    "/api/line/draft/publish": {
+    "/api/workflows/{workflow_id}/draft/publish": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Validate the draft and publish it as the next active line version",
-        "description": "Validate the draft and publish it as the next active line version",
+        "summary": "Validate the draft and publish it as the next active version",
+        "description": "Validate the draft and publish it as the next active version",
         "operationId": "publish_draft",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PublishInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -1009,7 +1334,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LineVersionInfo"
+                  "$ref": "#/components/schemas/WorkflowVersionInfo"
                 }
               }
             }
@@ -1270,6 +1595,26 @@
             "type": "array",
             "title": "Skills"
           },
+          "handlers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Handlers"
+          },
+          "requirements": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Requirements"
+          },
           "max_previous_iterations": {
             "type": "integer",
             "title": "Max Previous Iterations"
@@ -1290,6 +1635,8 @@
           "extra_tools",
           "model_tiers",
           "skills",
+          "handlers",
+          "requirements",
           "max_previous_iterations",
           "max_doc_chars",
           "max_learnings_chars"
@@ -1306,9 +1653,12 @@
             "type": "string",
             "title": "Mode"
           },
-          "line_version": {
-            "type": "integer",
-            "title": "Line Version"
+          "workflows": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Workflows"
           },
           "product_lines": {
             "additionalProperties": {
@@ -1316,13 +1666,6 @@
             },
             "type": "object",
             "title": "Product Lines"
-          },
-          "stations": {
-            "items": {
-              "$ref": "#/components/schemas/StationView"
-            },
-            "type": "array",
-            "title": "Stations"
           },
           "policies": {
             "additionalProperties": {
@@ -1343,9 +1686,8 @@
         "required": [
           "name",
           "mode",
-          "line_version",
+          "workflows",
           "product_lines",
-          "stations",
           "policies",
           "gates"
         ],
@@ -1409,6 +1751,10 @@
       },
       "DraftView": {
         "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
           "base_version": {
             "type": "integer",
             "title": "Base Version"
@@ -1436,12 +1782,30 @@
             ],
             "title": "Updated At"
           },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          },
           "problems": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Problems"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           },
           "stations": {
             "items": {
@@ -1467,6 +1831,7 @@
         },
         "type": "object",
         "required": [
+          "workflow_id",
           "base_version",
           "active_version",
           "stale",
@@ -1611,6 +1976,45 @@
         ],
         "title": "FeedbackInput"
       },
+      "FromGitHubInput": {
+        "properties": {
+          "repo": {
+            "type": "string",
+            "title": "Repo",
+            "description": "owner/name or https://github.com/owner/name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "folder containing workflow.yaml",
+            "default": ""
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref",
+            "description": "branch, tag or commit sha (pinned to a commit on import)",
+            "default": "main"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo"
+        ],
+        "title": "FromGitHubInput"
+      },
+      "FromTemplateInput": {
+        "properties": {
+          "template": {
+            "type": "string",
+            "title": "Template"
+          }
+        },
+        "type": "object",
+        "required": [
+          "template"
+        ],
+        "title": "FromTemplateInput"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1656,127 +2060,6 @@
           "active_runs"
         ],
         "title": "HealthView"
-      },
-      "LineVersionInfo": {
-        "properties": {
-          "line_id": {
-            "type": "string",
-            "title": "Line Id"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
-          },
-          "created_at": {
-            "type": "string",
-            "title": "Created At"
-          },
-          "active": {
-            "type": "boolean",
-            "title": "Active",
-            "default": false
-          },
-          "stations": {
-            "type": "integer",
-            "title": "Stations",
-            "default": 0
-          },
-          "agents": {
-            "type": "integer",
-            "title": "Agents",
-            "default": 0
-          }
-        },
-        "type": "object",
-        "required": [
-          "line_id",
-          "version",
-          "note",
-          "created_at"
-        ],
-        "title": "LineVersionInfo"
-      },
-      "LineView": {
-        "properties": {
-          "line_id": {
-            "type": "string",
-            "title": "Line Id"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "active": {
-            "type": "boolean",
-            "title": "Active"
-          },
-          "note": {
-            "type": "string",
-            "title": "Note"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description"
-          },
-          "blueprint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Blueprint"
-          },
-          "blueprint_update_available": {
-            "type": "boolean",
-            "title": "Blueprint Update Available"
-          },
-          "stations": {
-            "items": {
-              "$ref": "#/components/schemas/StationView"
-            },
-            "type": "array",
-            "title": "Stations"
-          },
-          "agents": {
-            "items": {
-              "$ref": "#/components/schemas/AgentView"
-            },
-            "type": "array",
-            "title": "Agents"
-          },
-          "docs": {
-            "items": {
-              "$ref": "#/components/schemas/RefDoc"
-            },
-            "type": "array",
-            "title": "Docs"
-          }
-        },
-        "type": "object",
-        "required": [
-          "line_id",
-          "version",
-          "active",
-          "note",
-          "name",
-          "description",
-          "blueprint",
-          "blueprint_update_available",
-          "stations",
-          "agents"
-        ],
-        "title": "LineView"
       },
       "Order": {
         "properties": {
@@ -1978,9 +2261,20 @@
             ],
             "title": "Current Station"
           },
-          "line_version": {
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_version": {
             "type": "integer",
-            "title": "Line Version",
+            "title": "Workflow Version",
             "default": 1
           },
           "attempts": {
@@ -2181,6 +2475,28 @@
             "type": "string",
             "title": "Handler"
           },
+          "on_fail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Fail"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          },
           "repair": {
             "type": "boolean",
             "title": "Repair"
@@ -2205,6 +2521,48 @@
           "attempts"
         ],
         "title": "StationView"
+      },
+      "TemplateInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "stations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stations"
+          },
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Agents"
+          },
+          "docs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Docs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "stations",
+          "agents",
+          "docs"
+        ],
+        "title": "TemplateInfo"
       },
       "ValidationError": {
         "properties": {
@@ -2245,6 +2603,189 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkflowSummary": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "product_line": {
+            "type": "string",
+            "title": "Product Line"
+          },
+          "active_version": {
+            "type": "integer",
+            "title": "Active Version"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          },
+          "stations": {
+            "type": "integer",
+            "title": "Stations"
+          },
+          "agents": {
+            "type": "integer",
+            "title": "Agents"
+          },
+          "draft_dirty": {
+            "type": "boolean",
+            "title": "Draft Dirty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "product_line",
+          "active_version",
+          "description",
+          "template",
+          "stations",
+          "agents",
+          "draft_dirty"
+        ],
+        "title": "WorkflowSummary"
+      },
+      "WorkflowVersionInfo": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": false
+          },
+          "stations": {
+            "type": "integer",
+            "title": "Stations",
+            "default": 0
+          },
+          "agents": {
+            "type": "integer",
+            "title": "Agents",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "version",
+          "note",
+          "created_at"
+        ],
+        "title": "WorkflowVersionInfo"
+      },
+      "WorkflowView": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          },
+          "template_update_available": {
+            "type": "boolean",
+            "title": "Template Update Available"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationView"
+            },
+            "type": "array",
+            "title": "Stations"
+          },
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentView"
+            },
+            "type": "array",
+            "title": "Agents"
+          },
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/RefDoc"
+            },
+            "type": "array",
+            "title": "Docs"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "version",
+          "active",
+          "note",
+          "name",
+          "description",
+          "template",
+          "template_update_available",
+          "stations",
+          "agents"
+        ],
+        "title": "WorkflowView"
       }
     }
   }

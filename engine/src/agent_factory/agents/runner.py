@@ -1,7 +1,7 @@
 """AgentRunner seam + the Claude Agent SDK implementation.
 
 Each station agent is a fresh, narrowly-scoped Claude session built from its
-AgentSpec (see line.py):
+AgentSpec (see workflow.py):
   * the spec's prompt + the shared station contract (+ skill_prompts overlay)
   * the tools of the spec's preset only; PreToolUse hooks enforce guardrails
   * skills loaded from the factory plugin (plugin/), filtered per spec

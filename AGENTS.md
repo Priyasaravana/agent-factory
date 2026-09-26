@@ -4,10 +4,10 @@
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
-- The line (stations + agent specs) is data: shipped as blueprints in
-  `blueprints/<name>/` (`line.yaml` + `agents/*.md`), stored per instance as
-  immutable versions in the DB. Runs are pinned to a version. Prefer blueprint,
-  spec, template and skill changes over engine changes (see docs/lines.md).
+- Workflows (stations + agent specs + reference docs) are data: one per product
+  line, seeded from `workflow-templates/<name>/`, stored as immutable versions in
+  the DB. Runs are pinned to (workflow, version). Prefer template, spec and skill
+  changes over engine changes (see docs/workflows.md).
 - Vendored skills in `plugin/skills/` are unmodified upstream copies. Layer
   guidance through `skill_prompts` instead of editing them.
 - Stations must never report success without evidence. Missing evidence means

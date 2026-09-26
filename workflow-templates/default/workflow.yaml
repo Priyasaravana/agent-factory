@@ -1,4 +1,4 @@
-# Default line for the fastapi-service product line.
+# Default workflow for a FastAPI service product line.
 # Stations run top to bottom. kind: agent (judgment work by an agent spec) or
 # check (deterministic, engine-implemented). on_fail routes failure evidence;
 # repair stations (only_on_fail) are reached only through on_fail and go to `next`.
