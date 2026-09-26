@@ -7,9 +7,13 @@ from pathlib import Path
 
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
+    AGENT_HANDLERS,
+    CHECK_HANDLERS,
+    STATION_ID,
     AgentSpec,
     RefDoc,
     WorkflowDoc,
+    WorkflowStation,
     WorkflowVersionInfo,
     load_workflow_dir,
     validate_workflow,
@@ -236,6 +240,90 @@ class Draft:
         if agent_id not in doc.agents:
             raise WorkflowError(f"agent '{agent_id}' not found")
         st.agent = agent_id
+        self._save(doc)
+
+    # ------------------------------------------------------------ stations --
+    def _station(self, doc: WorkflowDoc, station_id: str) -> WorkflowStation:
+        try:
+            return doc.station(station_id)
+        except KeyError as exc:
+            raise WorkflowError(f"station '{station_id}' not found") from exc
+
+    def add_station(self, station: WorkflowStation, position: int | None = None) -> None:
+        """Insert a station (at the end when `position` is None). Routes are not
+        changed; the forward order is the list order."""
+        _, doc, _ = self.get()
+        if not STATION_ID.match(station.id):
+            raise WorkflowError(f"station id '{station.id}' must be 2-41 chars: lowercase letters, digits, '-' or '_'")
+        if any(s.id == station.id for s in doc.stations):
+            raise WorkflowError(f"station '{station.id}' already exists")
+        if station.kind == "check" and station.resolved_handler() not in CHECK_HANDLERS:
+            raise WorkflowError(f"check stations need a handler from {sorted(CHECK_HANDLERS)}")
+        if station.kind == "agent" and station.agent and station.agent not in doc.agents:
+            raise WorkflowError(f"agent '{station.agent}' not found")
+        pos = len(doc.stations) if position is None else max(0, min(position, len(doc.stations)))
+        doc.stations.insert(pos, station)
+        self._save(doc)
+
+    def remove_station(self, station_id: str) -> list[str]:
+        """Remove a station and clear routes that pointed at it. Returns the
+        routes that were cleared, so the UI can say what changed."""
+        _, doc, _ = self.get()
+        self._station(doc, station_id)
+        if len(doc.stations) == 1:
+            raise WorkflowError("a workflow needs at least one station")
+        doc.stations = [s for s in doc.stations if s.id != station_id]
+        cleared = []
+        for s in doc.stations:
+            if s.on_fail == station_id:
+                s.on_fail = None
+                cleared.append(f"{s.id}.on_fail")
+            if s.next == station_id:
+                s.next = None
+                cleared.append(f"{s.id}.next")
+        self._save(doc)
+        return cleared
+
+    def reorder_stations(self, order: list[str]) -> None:
+        _, doc, _ = self.get()
+        if sorted(order) != sorted(s.id for s in doc.stations):
+            raise WorkflowError("the new order must list every station exactly once")
+        by_id = {s.id: s for s in doc.stations}
+        doc.stations = [by_id[i] for i in order]
+        self._save(doc)
+
+    def update_station(self, station_id: str, patch: dict[str, object]) -> None:
+        """Change routes, the repair flag, the handler or the agent. Ids and kinds
+        are fixed; remove and add instead."""
+        _, doc, _ = self.get()
+        st = self._station(doc, station_id)
+        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent"}
+        unknown = set(patch) - allowed
+        if unknown:
+            raise WorkflowError(f"cannot change {sorted(unknown)} (allowed: {sorted(allowed)})")
+        ids = {s.id for s in doc.stations}
+        for key in ("on_fail", "next"):
+            if key in patch:
+                target = patch[key] or None
+                if target is not None and target not in ids:
+                    raise WorkflowError(f"{key} must name an existing station, not '{target}'")
+                if target == station_id:
+                    raise WorkflowError(f"a station cannot route to itself ({key})")
+                setattr(st, key, target)
+        if "only_on_fail" in patch:
+            st.only_on_fail = bool(patch["only_on_fail"])
+        if "handler" in patch:
+            h = patch["handler"] or None
+            known = AGENT_HANDLERS if st.kind == "agent" else CHECK_HANDLERS
+            if h is not None and h not in known:
+                raise WorkflowError(f"unknown {st.kind} handler '{h}' (choose from {sorted(known)})")
+            st.handler = h
+        if "agent" in patch:
+            if st.kind != "agent":
+                raise WorkflowError(f"station '{station_id}' is a deterministic check and has no agent")
+            if patch["agent"] not in doc.agents:
+                raise WorkflowError(f"agent '{patch['agent']}' not found")
+            st.agent = str(patch["agent"])
         self._save(doc)
 
     # ---------------------------------------------------------------- docs --

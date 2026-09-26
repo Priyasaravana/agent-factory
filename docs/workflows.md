@@ -105,7 +105,9 @@ stations:
   sends the findings to `on_fail`.
 - Repair stations (`only_on_fail: true`) are reached only through `on_fail`,
   and go to `next` afterwards.
-- Other validation errors: unknown routes, agents, handlers, skills or docs;
+- Built-in steps must keep the order intake → design → build → package → deploy →
+  acceptance → deliver, because each one uses the previous one's output.
+- Other validation errors: invalid station ids, unknown routes, agents, handlers, skills or docs;
   unreachable stations; oversized docs.
 
 Older `line.yaml` files are still read.
@@ -118,7 +120,15 @@ The draft saves as you go and never runs.
 - **Start from a template:** a built-in template, or a folder in a GitHub repo
   (`owner/repo` + path + ref, pinned to the exact commit). Private repos use
   `SKILLS_GITHUB_TOKEN`.
-- **Stations → agents:** choose which agent runs each agent station.
+- **Lane:** the stations left to right. Drag from the **palette** to insert a
+  custom agent step, a built-in agent step that isn't used yet, or a check
+  (verify, package, deploy, deliver); you can also click to append. Drag the ⠿
+  handle to reorder, × to remove (routes pointing at it are cleared). On each
+  card you set the agent, **on fail** (where a failure goes back to) and
+  **repair only** plus **then** (for stations reached only on failure).
+  Problems appear on the card itself as you edit. Built-in steps must stay in
+  the order intake → design → build → package → deploy → acceptance → deliver;
+  verify and custom steps can go anywhere.
 - **Agents:** create, edit, duplicate and delete. The settings are the model,
   tool preset and narrowing, skills, reference docs, earlier-iteration recall,
   learnings, turn budget, promised outputs and prompt.

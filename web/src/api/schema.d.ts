@@ -496,6 +496,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/{workflow_id}/draft/stations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a station to the draft's lane (agent station or deterministic check)
+         * @description Add a station to the draft's lane (agent station or deterministic check)
+         */
+        post: operations["add_draft_station"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a station; routes pointing at it are cleared
+         * @description Remove a station; routes pointing at it are cleared
+         */
+        delete: operations["delete_draft_station"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a station's routes, repair flag, handler or agent (only the sent fields)
+         * @description Change a station's routes, repair flag, handler or agent (only the sent fields)
+         */
+        patch: operations["update_draft_station"];
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/stations/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the lane order (every station id exactly once)
+         * @description Set the lane order (every station id exactly once)
+         */
+        put: operations["reorder_draft_stations"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows/{workflow_id}/draft/docs/{doc_id}": {
         parameters: {
             query?: never;
@@ -561,6 +625,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddStationInput */
+        AddStationInput: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "check";
+            /** Agent */
+            agent?: string | null;
+            /** Handler */
+            handler?: string | null;
+            /** On Fail */
+            on_fail?: string | null;
+            /** Next */
+            next?: string | null;
+            /**
+             * Only On Fail
+             * @default false
+             */
+            only_on_fail: boolean;
+            /** Position */
+            position?: number | null;
+        };
         /** AgentSpec */
         AgentSpec: {
             /** Id */
@@ -885,6 +974,11 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** ReorderStationsInput */
+        ReorderStationsInput: {
+            /** Order */
+            order: string[];
+        };
         /** Run */
         Run: {
             /** Id */
@@ -999,6 +1093,22 @@ export interface components {
             agents: string[];
             /** Docs */
             docs: string[];
+        };
+        /**
+         * UpdateStationInput
+         * @description Only the fields that are sent are changed; send null to clear a route.
+         */
+        UpdateStationInput: {
+            /** On Fail */
+            on_fail?: string | null;
+            /** Next */
+            next?: string | null;
+            /** Only On Fail */
+            only_on_fail?: boolean | null;
+            /** Handler */
+            handler?: string | null;
+            /** Agent */
+            agent?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1882,6 +1992,144 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["StationAgentInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_draft_station: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddStationInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_draft_station: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                station_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_draft_station: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                station_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStationInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_draft_stations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderStationsInput"];
             };
         };
         responses: {

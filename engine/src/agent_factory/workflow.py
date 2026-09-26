@@ -41,6 +41,7 @@ AGENT_HANDLERS = {"intake", "design", "build", "deploy_fix", "acceptance", "agen
 CHECK_HANDLERS = {"verify", "package", "deploy", "deliver"}
 
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+STATION_ID = re.compile(r"^[a-z][a-z0-9_-]{1,40}$")
 
 # What each engine handler needs from the agent running it. Violations block
 # publishing: a design agent that cannot write would always fail, an intake
@@ -198,6 +199,8 @@ def validate_workflow(doc: WorkflowDoc, skills_dir: Path | None = None) -> list[
     if not doc.forward_stations():
         errors.append("the workflow needs at least one forward station")
     for s in doc.stations:
+        if not STATION_ID.match(s.id):
+            errors.append(f"station id '{s.id}' must be lowercase letters, digits, '-' or '_'")
         for label, target in (("on_fail", s.on_fail), ("next", s.next)):
             if target and target not in ids:
                 errors.append(f"station '{s.id}': {label} routes to unknown station '{target}'")
@@ -217,6 +220,7 @@ def validate_workflow(doc: WorkflowDoc, skills_dir: Path | None = None) -> list[
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)
+    errors += _order_errors(doc)
     for did, d in doc.docs.items():
         if did != d.id:
             errors.append(f"doc key '{did}' does not match its id '{d.id}'")
@@ -280,6 +284,28 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
         if aid not in used:
             warnings.append(f"agent '{aid}' is not used by any station")
     return sorted(set(warnings))
+
+
+# Built-in handlers that depend on an earlier one's output (spec → design →
+# code → image → deployment → acceptance → delivery). Their forward order is fixed;
+# verify, generic agents and repair stations can go anywhere.
+STAGE_ORDER = ["intake", "design", "build", "package", "deploy", "acceptance", "deliver"]
+
+
+def _order_errors(doc: WorkflowDoc) -> list[str]:
+    seen: list[tuple[int, str]] = []
+    for s in doc.forward_stations():
+        h = s.resolved_handler()
+        if h in STAGE_ORDER:
+            seen.append((STAGE_ORDER.index(h), s.id))
+    errors = []
+    for (a, a_id), (b, b_id) in zip(seen, seen[1:], strict=False):
+        if b < a:
+            errors.append(
+                f"station '{b_id}' ({STAGE_ORDER[b]}) must come before '{a_id}' ({STAGE_ORDER[a]}): "
+                f"order is {' → '.join(STAGE_ORDER)}"
+            )
+    return errors
 
 
 def _reachability(doc: WorkflowDoc) -> list[str]:

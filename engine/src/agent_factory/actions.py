@@ -22,6 +22,7 @@ from agent_factory.engine.pipeline import FactoryError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import GitHubError, fetch_dir
 from agent_factory.models import (
+    AddStationInput,
     AgentView,
     AnswersInput,
     CatalogView,
@@ -39,12 +40,14 @@ from agent_factory.models import (
     Order,
     OrderDetail,
     PublishInput,
+    ReorderStationsInput,
     Run,
     RunDetail,
     SkillInfo,
     StationAgentInput,
     StationView,
     TemplateInfo,
+    UpdateStationInput,
     WorkflowSummary,
     WorkflowView,
 )
@@ -60,6 +63,7 @@ from agent_factory.workflow import (
     AgentSpec,
     RefDoc,
     WorkflowDoc,
+    WorkflowStation,
     WorkflowVersionInfo,
     workflow_warnings,
 )
@@ -463,6 +467,52 @@ def delete_draft_agent(f: Factory, workflow_id: str, agent_id: str) -> DraftView
 )
 def set_station_agent(f: Factory, workflow_id: str, station_id: str, body: StationAgentInput) -> DraftView:
     f.workflows[workflow_id].draft.set_station_agent(station_id, body.agent)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "add_draft_station",
+    "Add a station to the draft's lane (agent station or deterministic check)",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/stations",
+)
+def add_draft_station(f: Factory, workflow_id: str, body: AddStationInput) -> DraftView:
+    data = body.model_dump(exclude={"position"})
+    f.workflows[workflow_id].draft.add_station(WorkflowStation(**data), body.position)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "update_draft_station",
+    "Change a station's routes, repair flag, handler or agent (only the sent fields)",
+    "PATCH",
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}",
+)
+def update_draft_station(f: Factory, workflow_id: str, station_id: str, body: UpdateStationInput) -> DraftView:
+    patch = {k: getattr(body, k) for k in body.model_fields_set}
+    f.workflows[workflow_id].draft.update_station(station_id, patch)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "delete_draft_station",
+    "Remove a station; routes pointing at it are cleared",
+    "DELETE",
+    "/api/workflows/{workflow_id}/draft/stations/{station_id}",
+)
+def delete_draft_station(f: Factory, workflow_id: str, station_id: str) -> DraftView:
+    f.workflows[workflow_id].draft.remove_station(station_id)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "reorder_draft_stations",
+    "Set the lane order (every station id exactly once)",
+    "PUT",
+    "/api/workflows/{workflow_id}/draft/stations/order",
+)
+def reorder_draft_stations(f: Factory, workflow_id: str, body: ReorderStationsInput) -> DraftView:
+    f.workflows[workflow_id].draft.reorder_stations(body.order)
     return get_draft(f, workflow_id)
 
 
