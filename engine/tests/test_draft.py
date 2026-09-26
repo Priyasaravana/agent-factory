@@ -47,7 +47,7 @@ async def test_add_agent_map_it_to_a_station_and_publish(make_factory):
     assert info.version == 2 and info.active
     assert f.workflows[WF].get(2).station("acceptance").agent == "strict-verifier"
     assert f.workflows[WF].get(1).station("acceptance").agent == "verifier", "v1 is immutable"
-    assert f.store.get_workflow_draft("default") is None, "publishing clears the draft"
+    assert f.store.get_workflow_draft(WF) is None, "publishing clears the draft"
 
 
 async def test_guardrails_on_editing(make_factory):

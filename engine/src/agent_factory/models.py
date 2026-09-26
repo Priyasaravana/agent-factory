@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -231,6 +231,31 @@ class DuplicateAgentInput(BaseModel):
 
 class StationAgentInput(BaseModel):
     agent: str
+
+
+class AddStationInput(BaseModel):
+    id: str
+    kind: Literal["agent", "check"]
+    agent: str | None = None
+    handler: str | None = None
+    on_fail: str | None = None
+    next: str | None = None
+    only_on_fail: bool = False
+    position: int | None = None  # index in the lane; end when omitted
+
+
+class UpdateStationInput(BaseModel):
+    """Only the fields that are sent are changed; send null to clear a route."""
+
+    on_fail: str | None = None
+    next: str | None = None
+    only_on_fail: bool | None = None
+    handler: str | None = None
+    agent: str | None = None
+
+
+class ReorderStationsInput(BaseModel):
+    order: list[str]
 
 
 class PublishInput(BaseModel):

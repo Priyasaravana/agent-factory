@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, unwrap, type AgentSpec, type DraftView, type RefDoc } from "../api/client";
 import AgentCard from "../components/AgentCard";
 import AgentEditor from "../components/AgentEditor";
+import LaneBuilder, { type LaneOps } from "../components/LaneBuilder";
 
 type Editing = { kind: "agent"; spec?: AgentSpec } | { kind: "doc"; doc?: RefDoc } | null;
 
@@ -47,7 +48,31 @@ export default function WorkflowEditPage() {
 
   if (!draft.data || !catalog.data) return <p className="muted">Loading…</p>;
   const d = draft.data;
-  const agentIds = d.agents.map((a) => a.spec.id);
+  const st = (station_id: string) => ({ params: { path: { ...wid, station_id } } });
+  const laneOps: LaneOps = {
+    busy: m.isPending,
+    add: ({ position, ...body }) =>
+      m.mutate(() =>
+        unwrap(
+          api.POST("/api/workflows/{workflow_id}/draft/stations", {
+            params: { path: wid },
+            body: { ...body, only_on_fail: body.only_on_fail ?? false, position },
+          }),
+        ),
+      ),
+    remove: (id) => m.mutate(() => unwrap(api.DELETE("/api/workflows/{workflow_id}/draft/stations/{station_id}", st(id)))),
+    reorder: (order) => {
+      // optimistic: show the new order at once, the server answer replaces it
+      apply({ ...d, stations: order.map((id) => d.stations.find((s) => s.id === id)!) });
+      m.mutate(() =>
+        unwrap(api.PUT("/api/workflows/{workflow_id}/draft/stations/order", { params: { path: wid }, body: { order } })),
+      );
+    },
+    update: (id, patch) =>
+      m.mutate(() =>
+        unwrap(api.PATCH("/api/workflows/{workflow_id}/draft/stations/{station_id}", { ...st(id), body: patch })),
+      ),
+  };
 
   return (
     <div className="stack">
@@ -167,46 +192,9 @@ export default function WorkflowEditPage() {
       </section>
 
       <section className="card">
-        <h3>Stations → agents</h3>
-        <table className="wide">
-          <tbody>
-            {d.stations.map((s) => (
-              <tr key={s.id}>
-                <td>
-                  <strong>{s.id}</strong> {s.repair && <span className="pill muted">repair</span>}
-                </td>
-                <td className="small muted">{s.kind === "agent" ? `handler: ${s.handler}` : "deterministic check"}</td>
-                <td>
-                  {s.kind === "agent" ? (
-                    <select
-                      value={s.role ?? ""}
-                      onChange={(e) => {
-                        const agent = e.target.value; // read now: the controlled select re-renders before the request runs
-                        m.mutate(() =>
-                          unwrap(
-                            api.PUT("/api/workflows/{workflow_id}/draft/stations/{station_id}/agent", {
-                              params: { path: { ...wid, station_id: s.id } },
-                              body: { agent },
-                            }),
-                          ),
-                        );
-                      }}
-                    >
-                      {agentIds.map((id) => (
-                        <option key={id} value={id}>
-                          {id}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="muted small">Adding, removing and reordering stations comes in the next slice.</p>
+        <h3>Lane</h3>
+        <LaneBuilder draft={d} handlers={catalog.data.handlers} ops={laneOps} />
+        {m.error && <p className="error">{m.error.message}</p>}
       </section>
 
       <section className="card">
