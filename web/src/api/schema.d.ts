@@ -308,6 +308,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Choices for the editor: tool presets, model tiers, installed skills
+         * @description Choices for the editor: tool presets, model tiers, installed skills
+         */
+        get: operations["get_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The editable draft of the line (created from the active version on first edit)
+         * @description The editable draft of the line (created from the active version on first edit)
+         */
+        get: operations["get_draft"];
+        put?: never;
+        post?: never;
+        /**
+         * Throw the draft away
+         * @description Throw the draft away
+         */
+        delete: operations["discard_draft"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create or update an agent in the draft
+         * @description Create or update an agent in the draft
+         */
+        put: operations["put_draft_agent"];
+        post?: never;
+        /**
+         * Delete an agent that no station uses
+         * @description Delete an agent that no station uses
+         */
+        delete: operations["delete_draft_agent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft/agents/{agent_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy an agent under a new id
+         * @description Copy an agent under a new id
+         */
+        post: operations["duplicate_draft_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft/stations/{station_id}/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Choose which agent runs an agent station
+         * @description Choose which agent runs an agent station
+         */
+        put: operations["set_station_agent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft/docs/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create or update a reference document
+         * @description Create or update a reference document
+         */
+        put: operations["put_draft_doc"];
+        post?: never;
+        /**
+         * Delete a reference document no agent uses
+         * @description Delete a reference document no agent uses
+         */
+        delete: operations["delete_draft_doc"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/draft/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate the draft and publish it as the next active line version
+         * @description Validate the draft and publish it as the next active line version
+         */
+        post: operations["publish_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/stream": {
         parameters: {
             query?: never;
@@ -329,35 +481,96 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AgentView */
-        AgentView: {
+        /** AgentSpec */
+        AgentSpec: {
             /** Id */
             id: string;
-            /** Description */
+            /**
+             * Description
+             * @default
+             */
             description: string;
-            /** Model */
+            /**
+             * Model
+             * @default default
+             */
             model: string;
+            /**
+             * Tools
+             * @default observer
+             * @enum {string}
+             */
+            tools: "observer" | "reviewer" | "author" | "operator" | "builder";
+            /** Extra Tools */
+            extra_tools?: string[];
+            /** Disallowed Tools */
+            disallowed_tools?: string[];
+            /** Skills */
+            skills?: string[];
+            /**
+             * Max Turns
+             * @default 50
+             */
+            max_turns: number;
+            /** Produces */
+            produces?: string[];
+            /** Context Docs */
+            context_docs?: string[];
+            /**
+             * Previous Iterations
+             * @default 0
+             */
+            previous_iterations: number;
+            /**
+             * Learnings
+             * @default
+             */
+            learnings: string;
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+        };
+        /** AgentView */
+        AgentView: {
+            spec: components["schemas"]["AgentSpec"];
             /** Model Resolved */
             model_resolved: string;
-            /** Tools */
-            tools: string;
             /** Effective Tools */
             effective_tools: string[];
             /** Observe Only */
             observe_only: boolean;
-            /** Skills */
-            skills: string[];
-            /** Max Turns */
-            max_turns: number;
-            /** Produces */
-            produces: string[];
-            /** Prompt */
-            prompt: string;
+            /** Used By */
+            used_by: string[];
         };
         /** AnswersInput */
         AnswersInput: {
             /** Answers */
             answers: string[];
+        };
+        /** CatalogView */
+        CatalogView: {
+            /** Presets */
+            presets: {
+                [key: string]: string[];
+            };
+            /** Observe Only Presets */
+            observe_only_presets: string[];
+            /** Extra Tools */
+            extra_tools: string[];
+            /** Model Tiers */
+            model_tiers: {
+                [key: string]: string;
+            };
+            /** Skills */
+            skills: components["schemas"]["SkillInfo"][];
+            /** Max Previous Iterations */
+            max_previous_iterations: number;
+            /** Max Doc Chars */
+            max_doc_chars: number;
+            /** Max Learnings Chars */
+            max_learnings_chars: number;
         };
         /** ConfigView */
         ConfigView: {
@@ -405,6 +618,32 @@ export interface components {
              * @default
              */
             rationale: string;
+        };
+        /** DraftView */
+        DraftView: {
+            /** Base Version */
+            base_version: number;
+            /** Active Version */
+            active_version: number;
+            /** Stale */
+            stale: boolean;
+            /** Dirty */
+            dirty: boolean;
+            /** Updated At */
+            updated_at: string | null;
+            /** Problems */
+            problems: string[];
+            /** Stations */
+            stations: components["schemas"]["StationView"][];
+            /** Agents */
+            agents: components["schemas"]["AgentView"][];
+            /** Docs */
+            docs: components["schemas"]["RefDoc"][];
+        };
+        /** DuplicateAgentInput */
+        DuplicateAgentInput: {
+            /** New Id */
+            new_id: string;
         };
         /** Event */
         Event: {
@@ -519,6 +758,8 @@ export interface components {
             stations: components["schemas"]["StationView"][];
             /** Agents */
             agents: components["schemas"]["AgentView"][];
+            /** Docs */
+            docs?: components["schemas"]["RefDoc"][];
         };
         /** Order */
         Order: {
@@ -556,6 +797,23 @@ export interface components {
             runs: components["schemas"]["Run"][];
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
+        };
+        /** PublishInput */
+        PublishInput: {
+            /** Note */
+            note: string;
+        };
+        /**
+         * RefDoc
+         * @description Team knowledge (standards, conventions, architecture rules) attached to agents.
+         */
+        RefDoc: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Content */
+            content: string;
         };
         /** Run */
         Run: {
@@ -622,6 +880,20 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "cancelled" | "failed";
+        /** SkillInfo */
+        SkillInfo: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Vendored */
+            vendored: boolean;
+        };
+        /** StationAgentInput */
+        StationAgentInput: {
+            /** Agent */
+            agent: string;
+        };
         /** StationView */
         StationView: {
             /** Id */
@@ -1098,6 +1370,301 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineVersionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogView"];
+                };
+            };
+        };
+    };
+    get_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+        };
+    };
+    discard_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+        };
+    };
+    put_draft_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSpec"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_draft_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_draft_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DuplicateAgentInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_station_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                station_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StationAgentInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_draft_doc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefDoc"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_draft_doc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

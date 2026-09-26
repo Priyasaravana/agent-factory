@@ -13,6 +13,10 @@ export type ConfigView = components["schemas"]["ConfigView"];
 export type LineView = components["schemas"]["LineView"];
 export type AgentView = components["schemas"]["AgentView"];
 export type LineVersionInfo = components["schemas"]["LineVersionInfo"];
+export type AgentSpec = components["schemas"]["AgentSpec"];
+export type RefDoc = components["schemas"]["RefDoc"];
+export type DraftView = components["schemas"]["DraftView"];
+export type CatalogView = components["schemas"]["CatalogView"];
 
 export const api = createClient<paths>({ baseUrl: "" });
 

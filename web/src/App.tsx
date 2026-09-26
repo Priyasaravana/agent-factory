@@ -4,6 +4,7 @@ import { api, unwrap } from "./api/client";
 import OrdersPage from "./pages/OrdersPage";
 import OrderPage from "./pages/OrderPage";
 import LinePage from "./pages/LinePage";
+import LineEditPage from "./pages/LineEditPage";
 
 export default function App() {
   const health = useQuery({
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/" element={<OrdersPage />} />
           <Route path="/orders/:orderId" element={<OrderPage />} />
           <Route path="/line" element={<LinePage />} />
+          <Route path="/line/edit" element={<LineEditPage />} />
         </Routes>
       </main>
     </div>

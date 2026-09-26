@@ -12,6 +12,9 @@ produces:
 - docs/design.md
 - docs/openapi.yaml
 - docs/tasks.md
+context_docs:
+- api-conventions
+previous_iterations: 2
 ---
 # Role: Architect
 

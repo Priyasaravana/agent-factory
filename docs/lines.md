@@ -26,6 +26,10 @@ disallowed_tools: []      # narrow the preset further
 skills: [factory-station-contract]
 max_turns: 30
 produces: []              # files that must exist afterwards (checked by the engine)
+context_docs: [security-standards]   # reference docs from the line's library
+previous_iterations: 1    # recall N earlier iterations of this product (0–5)
+learnings: |              # human-approved lessons (max 4000 chars)
+  Flag any endpoint without input validation.
 ---
 You are the security reviewer. ...
 ```
@@ -42,6 +46,22 @@ The guardrail hooks apply to every preset. No spec can grant `git push`,
 access to credentials, writes outside the run worktree, or holdout access.
 Only the acceptance station sees the holdout scenarios, and its agent must use
 an observe-only preset.
+
+## Context an agent receives
+
+Every part of an agent's context comes from the pinned line version or from the
+order's own history, so a run can always be explained afterwards.
+
+| Setting | What the agent gets |
+|---|---|
+| `prompt` | The job. |
+| `context_docs` | Team standards from the line's **reference docs** (`docs/<id>.md` in a blueprint). Max 20,000 chars each and 40,000 per agent. |
+| `learnings` | A short, human-approved list of lessons. It replaces free-form agent memory: it is versioned, reviewable and reproducible. |
+| `previous_iterations` | For each earlier iteration of the same product: what was asked, the outcome, and the recorded decisions. |
+| skills | Loaded on demand from `plugin/skills/`. |
+
+The factory also always gives agents the shared station contract and, where
+relevant, the failure evidence routed to them.
 
 ## Line (`line.yaml`)
 
@@ -80,6 +100,21 @@ docker compose exec factory agent-factory line import /data/line-edit --note "ad
 docker compose exec factory agent-factory line activate 1        # rollback
 ```
 
-The UI's **The line** page shows the active version, every agent spec and the
-version history, and lets you activate an older version. Editing in the UI is
-the next slice.
+## Editing in the UI
+
+**The line → Edit line** opens a **draft**: one working copy per line, saved as
+you go, which never runs.
+
+- **Agents:** create, edit, duplicate and delete. You can set the model (tier or
+  a specific model), tool preset and narrowing, skills, reference docs,
+  earlier-iteration recall, learnings, turn budget, promised outputs and prompt.
+  Ids can't be renamed (duplicate instead). An agent that a station uses can't
+  be deleted.
+- **Stations → agents:** choose which agent runs each agent station. Check
+  stations have no agent.
+- **Reference docs:** create, edit and delete. A doc attached to an agent can't
+  be deleted.
+- **Publish** validates the draft (the problems are listed live) and stores it
+  as the next active version. **Discard** drops the draft.
+
+Adding, removing and reordering stations comes in the next slice.

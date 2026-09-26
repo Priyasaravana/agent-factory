@@ -95,7 +95,7 @@ class StationContext:
             prompt=prompt,
             cwd=self.worktree,
             model=self.cfg.models.resolve(spec.model),
-            system_prompt=spec.prompt,
+            system_prompt=compose_system_prompt(self, spec),
             tools=spec.effective_tools(),
             observe_only=spec.observe_only,
             produces=spec.produces,
@@ -109,6 +109,42 @@ class StationContext:
         res = await self.agents.run(req, sink)
         self.run.cost_usd += res.cost_usd
         return res
+
+
+def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
+    """The spec's prompt plus the context it asked for. Everything here comes from
+    the pinned line version or this order's own history, so a run stays reproducible."""
+    parts = [spec.prompt.strip()]
+    docs = [ctx.line_doc.docs[d] for d in spec.context_docs if d in ctx.line_doc.docs]
+    if docs:
+        parts.append(
+            "## Reference documents (team standards — follow them)\n\n"
+            + "\n\n".join(f"### {d.title}\n{d.content.strip()}" for d in docs)
+        )
+    if spec.learnings.strip():
+        parts.append("## Learnings from earlier runs (human-approved)\n" + spec.learnings.strip())
+    if spec.previous_iterations:
+        history = iteration_history(ctx, spec.previous_iterations)
+        if history:
+            parts.append("## Earlier iterations of this product\n" + history)
+    return "\n\n".join(parts)
+
+
+def iteration_history(ctx: StationContext, limit: int) -> str:
+    """What was asked, what was delivered and which decisions were made in the
+    previous iterations of this order (newest first)."""
+    earlier = [r for r in ctx.store.list_runs(ctx.order.id) if r.iteration < ctx.run.iteration][:limit]
+    blocks = []
+    for r in earlier:
+        decisions = [e.message for e in ctx.store.list_events(r.id) if e.kind == EventKind.decision][:12]
+        lines = [
+            f"### Iteration {r.iteration} ({r.status})",
+            f"- asked: {r.change_request or 'initial requirements'}",
+            f"- outcome: {r.summary or 'n/a'}",
+        ]
+        lines += [f"- decision: {d}" for d in decisions]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 Station = Callable[[StationContext], Awaitable[StationResult]]

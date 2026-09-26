@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_factory.line import AgentSpec, RefDoc
+
 
 class RunStatus(StrEnum):
     queued = "queued"
@@ -163,17 +165,11 @@ class ConfigView(BaseModel):
 
 
 class AgentView(BaseModel):
-    id: str
-    description: str
-    model: str
+    spec: AgentSpec
     model_resolved: str
-    tools: str
     effective_tools: list[str]
     observe_only: bool
-    skills: list[str]
-    max_turns: int
-    produces: list[str]
-    prompt: str
+    used_by: list[str]  # station ids that run this agent
 
 
 class LineView(BaseModel):
@@ -187,3 +183,45 @@ class LineView(BaseModel):
     blueprint_update_available: bool
     stations: list[StationView]
     agents: list[AgentView]
+    docs: list[RefDoc] = Field(default_factory=list)
+
+
+class DraftView(BaseModel):
+    base_version: int
+    active_version: int
+    stale: bool  # the active version moved on since this draft was started
+    dirty: bool  # the draft differs from its base version
+    updated_at: str | None
+    problems: list[str]  # publishing is blocked while this is non-empty
+    stations: list[StationView]
+    agents: list[AgentView]
+    docs: list[RefDoc]
+
+
+class SkillInfo(BaseModel):
+    name: str
+    description: str
+    vendored: bool
+
+
+class CatalogView(BaseModel):
+    presets: dict[str, list[str]]
+    observe_only_presets: list[str]
+    extra_tools: list[str]
+    model_tiers: dict[str, str]
+    skills: list[SkillInfo]
+    max_previous_iterations: int
+    max_doc_chars: int
+    max_learnings_chars: int
+
+
+class DuplicateAgentInput(BaseModel):
+    new_id: str
+
+
+class StationAgentInput(BaseModel):
+    agent: str
+
+
+class PublishInput(BaseModel):
+    note: str = Field(min_length=3, max_length=200)

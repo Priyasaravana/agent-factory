@@ -627,6 +627,406 @@
         }
       }
     },
+    "/api/catalog": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Choices for the editor: tool presets, model tiers, installed skills",
+        "description": "Choices for the editor: tool presets, model tiers, installed skills",
+        "operationId": "get_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The editable draft of the line (created from the active version on first edit)",
+        "description": "The editable draft of the line (created from the active version on first edit)",
+        "operationId": "get_draft",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Throw the draft away",
+        "description": "Throw the draft away",
+        "operationId": "discard_draft",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft/agents/{agent_id}": {
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Create or update an agent in the draft",
+        "description": "Create or update an agent in the draft",
+        "operationId": "put_draft_agent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSpec"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Delete an agent that no station uses",
+        "description": "Delete an agent that no station uses",
+        "operationId": "delete_draft_agent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft/agents/{agent_id}/duplicate": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Copy an agent under a new id",
+        "description": "Copy an agent under a new id",
+        "operationId": "duplicate_draft_agent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateAgentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft/stations/{station_id}/agent": {
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Choose which agent runs an agent station",
+        "description": "Choose which agent runs an agent station",
+        "operationId": "set_station_agent",
+        "parameters": [
+          {
+            "name": "station_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Station Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StationAgentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft/docs/{doc_id}": {
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Create or update a reference document",
+        "description": "Create or update a reference document",
+        "operationId": "put_draft_doc",
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Doc Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefDoc"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Delete a reference document no agent uses",
+        "description": "Delete a reference document no agent uses",
+        "operationId": "delete_draft_doc",
+        "parameters": [
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Doc Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/draft/publish": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Validate the draft and publish it as the next active line version",
+        "description": "Validate the draft and publish it as the next active line version",
+        "operationId": "publish_draft",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineVersionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/stream": {
       "get": {
         "tags": [
@@ -680,7 +1080,7 @@
   },
   "components": {
     "schemas": {
-      "AgentView": {
+      "AgentSpec": {
         "properties": {
           "id": {
             "type": "string",
@@ -688,19 +1088,101 @@
           },
           "description": {
             "type": "string",
-            "title": "Description"
+            "title": "Description",
+            "default": ""
           },
           "model": {
             "type": "string",
-            "title": "Model"
+            "title": "Model",
+            "default": "default"
+          },
+          "tools": {
+            "type": "string",
+            "enum": [
+              "observer",
+              "reviewer",
+              "author",
+              "operator",
+              "builder"
+            ],
+            "title": "Tools",
+            "default": "observer"
+          },
+          "extra_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Extra Tools"
+          },
+          "disallowed_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Disallowed Tools"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skills"
+          },
+          "max_turns": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Max Turns",
+            "default": 50
+          },
+          "produces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Produces"
+          },
+          "context_docs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Context Docs"
+          },
+          "previous_iterations": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Previous Iterations",
+            "default": 0
+          },
+          "learnings": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Learnings",
+            "default": ""
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "AgentSpec"
+      },
+      "AgentView": {
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/AgentSpec"
           },
           "model_resolved": {
             "type": "string",
             "title": "Model Resolved"
-          },
-          "tools": {
-            "type": "string",
-            "title": "Tools"
           },
           "effective_tools": {
             "items": {
@@ -713,42 +1195,21 @@
             "type": "boolean",
             "title": "Observe Only"
           },
-          "skills": {
+          "used_by": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Skills"
-          },
-          "max_turns": {
-            "type": "integer",
-            "title": "Max Turns"
-          },
-          "produces": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Produces"
-          },
-          "prompt": {
-            "type": "string",
-            "title": "Prompt"
+            "title": "Used By"
           }
         },
         "type": "object",
         "required": [
-          "id",
-          "description",
-          "model",
+          "spec",
           "model_resolved",
-          "tools",
           "effective_tools",
           "observe_only",
-          "skills",
-          "max_turns",
-          "produces",
-          "prompt"
+          "used_by"
         ],
         "title": "AgentView"
       },
@@ -768,6 +1229,72 @@
           "answers"
         ],
         "title": "AnswersInput"
+      },
+      "CatalogView": {
+        "properties": {
+          "presets": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Presets"
+          },
+          "observe_only_presets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Observe Only Presets"
+          },
+          "extra_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Extra Tools"
+          },
+          "model_tiers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Model Tiers"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillInfo"
+            },
+            "type": "array",
+            "title": "Skills"
+          },
+          "max_previous_iterations": {
+            "type": "integer",
+            "title": "Max Previous Iterations"
+          },
+          "max_doc_chars": {
+            "type": "integer",
+            "title": "Max Doc Chars"
+          },
+          "max_learnings_chars": {
+            "type": "integer",
+            "title": "Max Learnings Chars"
+          }
+        },
+        "type": "object",
+        "required": [
+          "presets",
+          "observe_only_presets",
+          "extra_tools",
+          "model_tiers",
+          "skills",
+          "max_previous_iterations",
+          "max_doc_chars",
+          "max_learnings_chars"
+        ],
+        "title": "CatalogView"
       },
       "ConfigView": {
         "properties": {
@@ -879,6 +1406,91 @@
           "decision"
         ],
         "title": "DecisionInput"
+      },
+      "DraftView": {
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "title": "Base Version"
+          },
+          "active_version": {
+            "type": "integer",
+            "title": "Active Version"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "dirty": {
+            "type": "boolean",
+            "title": "Dirty"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationView"
+            },
+            "type": "array",
+            "title": "Stations"
+          },
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentView"
+            },
+            "type": "array",
+            "title": "Agents"
+          },
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/RefDoc"
+            },
+            "type": "array",
+            "title": "Docs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_version",
+          "active_version",
+          "stale",
+          "dirty",
+          "updated_at",
+          "problems",
+          "stations",
+          "agents",
+          "docs"
+        ],
+        "title": "DraftView"
+      },
+      "DuplicateAgentInput": {
+        "properties": {
+          "new_id": {
+            "type": "string",
+            "title": "New Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_id"
+        ],
+        "title": "DuplicateAgentInput"
       },
       "Event": {
         "properties": {
@@ -1142,6 +1754,13 @@
             },
             "type": "array",
             "title": "Agents"
+          },
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/RefDoc"
+            },
+            "type": "array",
+            "title": "Docs"
           }
         },
         "type": "object",
@@ -1290,6 +1909,46 @@
           "feedback"
         ],
         "title": "OrderDetail"
+      },
+      "PublishInput": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "note"
+        ],
+        "title": "PublishInput"
+      },
+      "RefDoc": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "content"
+        ],
+        "title": "RefDoc",
+        "description": "Team knowledge (standards, conventions, architecture rules) attached to agents."
       },
       "Run": {
         "properties": {
@@ -1460,6 +2119,42 @@
           "failed"
         ],
         "title": "RunStatus"
+      },
+      "SkillInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "vendored": {
+            "type": "boolean",
+            "title": "Vendored"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "vendored"
+        ],
+        "title": "SkillInfo"
+      },
+      "StationAgentInput": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "title": "Agent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent"
+        ],
+        "title": "StationAgentInput"
       },
       "StationView": {
         "properties": {

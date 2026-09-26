@@ -10,20 +10,36 @@ Agents never click the UI; UI and agents share one action layer.
 from __future__ import annotations
 
 import inspect
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from agent_factory.engine.lines import LineError
 from agent_factory.engine.pipeline import FactoryError
-from agent_factory.line import LineVersionInfo
+from agent_factory.line import (
+    MAX_DOC_CHARS,
+    MAX_LEARNINGS_CHARS,
+    OBSERVE_ONLY_PRESETS,
+    SAFE_EXTRA_TOOLS,
+    TOOL_PRESETS,
+    AgentSpec,
+    LineDoc,
+    LineVersionInfo,
+    RefDoc,
+)
 from agent_factory.models import (
     AgentView,
     AnswersInput,
+    CatalogView,
     ConfigView,
     CreateOrderInput,
     DecisionInput,
+    DraftView,
+    DuplicateAgentInput,
     Event,
     EventKind,
     FeedbackInput,
@@ -31,8 +47,11 @@ from agent_factory.models import (
     LineView,
     Order,
     OrderDetail,
+    PublishInput,
     Run,
     RunDetail,
+    SkillInfo,
+    StationAgentInput,
     StationView,
 )
 
@@ -240,23 +259,151 @@ def _line_view(f: Factory, version: int) -> LineView:
         blueprint=doc.blueprint,
         blueprint_update_available=f.lines.blueprint_update_available(),
         stations=_station_views(f, None, version),
-        agents=[
-            AgentView(
-                id=a.id,
-                description=a.description,
-                model=a.model,
-                model_resolved=f.cfg.models.resolve(a.model),
-                tools=a.tools,
-                effective_tools=a.effective_tools(),
-                observe_only=a.observe_only,
-                skills=a.skills,
-                max_turns=a.max_turns,
-                produces=a.produces,
-                prompt=a.prompt,
-            )
-            for a in doc.agents.values()
-        ],
+        agents=_agent_views(f, doc),
+        docs=list(doc.docs.values()),
     )
+
+
+def _agent_views(f: Factory, doc: LineDoc) -> list[AgentView]:
+    return [
+        AgentView(
+            spec=a,
+            model_resolved=f.cfg.models.resolve(a.model),
+            effective_tools=a.effective_tools(),
+            observe_only=a.observe_only,
+            used_by=doc.stations_using(a.id),
+        )
+        for a in doc.agents.values()
+    ]
+
+
+def _station_views_for(doc: LineDoc) -> list[StationView]:
+    return [
+        StationView(
+            id=s.id,
+            kind=s.kind,
+            role=s.agent,
+            handler=s.resolved_handler(),
+            repair=s.only_on_fail,
+            state="pending",
+            attempts=0,
+        )
+        for s in doc.stations
+    ]
+
+
+# ------------------------------------------------------------ line editing --
+@action("get_catalog", "Choices for the editor: tool presets, model tiers, installed skills", "GET", "/api/catalog")
+def get_catalog(f: Factory) -> CatalogView:
+    return CatalogView(
+        presets=TOOL_PRESETS,
+        observe_only_presets=sorted(OBSERVE_ONLY_PRESETS),
+        extra_tools=sorted(SAFE_EXTRA_TOOLS),
+        model_tiers={t: f.cfg.models.resolve(t) for t in ("judgment", "default", "fast")},
+        skills=_installed_skills(f.lines.skills_dir),
+        max_previous_iterations=5,
+        max_doc_chars=MAX_DOC_CHARS,
+        max_learnings_chars=MAX_LEARNINGS_CHARS,
+    )
+
+
+@action(
+    "get_draft",
+    "The editable draft of the line (created from the active version on first edit)",
+    "GET",
+    "/api/line/draft",
+)
+def get_draft(f: Factory) -> DraftView:
+    base, doc, stamp = f.lines.draft.get()
+    active = f.lines.active_version()
+    return DraftView(
+        base_version=base,
+        active_version=active,
+        stale=base != active,
+        dirty=f.lines.draft.dirty(),
+        updated_at=stamp,
+        problems=f.lines.draft.problems(),
+        stations=_station_views_for(doc),
+        agents=_agent_views(f, doc),
+        docs=list(doc.docs.values()),
+    )
+
+
+@action("put_draft_agent", "Create or update an agent in the draft", "PUT", "/api/line/draft/agents/{agent_id}")
+def put_draft_agent(f: Factory, agent_id: str, body: AgentSpec) -> DraftView:
+    if body.id != agent_id:
+        raise LineError("agent id in the path and body must match (ids cannot be renamed; duplicate instead)")
+    f.lines.draft.upsert_agent(body)
+    return get_draft(f)
+
+
+@action("duplicate_draft_agent", "Copy an agent under a new id", "POST", "/api/line/draft/agents/{agent_id}/duplicate")
+def duplicate_draft_agent(f: Factory, agent_id: str, body: DuplicateAgentInput) -> DraftView:
+    f.lines.draft.duplicate_agent(agent_id, body.new_id)
+    return get_draft(f)
+
+
+@action("delete_draft_agent", "Delete an agent that no station uses", "DELETE", "/api/line/draft/agents/{agent_id}")
+def delete_draft_agent(f: Factory, agent_id: str) -> DraftView:
+    f.lines.draft.delete_agent(agent_id)
+    return get_draft(f)
+
+
+@action(
+    "set_station_agent",
+    "Choose which agent runs an agent station",
+    "PUT",
+    "/api/line/draft/stations/{station_id}/agent",
+)
+def set_station_agent(f: Factory, station_id: str, body: StationAgentInput) -> DraftView:
+    f.lines.draft.set_station_agent(station_id, body.agent)
+    return get_draft(f)
+
+
+@action("put_draft_doc", "Create or update a reference document", "PUT", "/api/line/draft/docs/{doc_id}")
+def put_draft_doc(f: Factory, doc_id: str, body: RefDoc) -> DraftView:
+    if body.id != doc_id:
+        raise LineError("doc id in the path and body must match")
+    f.lines.draft.upsert_doc(body)
+    return get_draft(f)
+
+
+@action("delete_draft_doc", "Delete a reference document no agent uses", "DELETE", "/api/line/draft/docs/{doc_id}")
+def delete_draft_doc(f: Factory, doc_id: str) -> DraftView:
+    f.lines.draft.delete_doc(doc_id)
+    return get_draft(f)
+
+
+@action(
+    "publish_draft",
+    "Validate the draft and publish it as the next active line version",
+    "POST",
+    "/api/line/draft/publish",
+    status_code=201,
+)
+def publish_draft(f: Factory, body: PublishInput) -> LineVersionInfo:
+    return f.lines.draft.publish(body.note)
+
+
+@action("discard_draft", "Throw the draft away", "DELETE", "/api/line/draft")
+def discard_draft(f: Factory) -> DraftView:
+    f.lines.draft.discard()
+    return get_draft(f)
+
+
+def _installed_skills(skills_dir: Path) -> list[SkillInfo]:
+    vendored = set()
+    note = skills_dir / "VENDORED.md"
+    if note.exists():
+        vendored = set(re.findall(r"^\| ([a-z0-9-]+) \|", note.read_text(), re.MULTILINE))
+    out = []
+    for skill in sorted(skills_dir.glob("*/SKILL.md")):
+        text = skill.read_text()
+        m = re.search(r"^description:\s*(?:>-?\s*\n)?(.+?)(?:\n[a-z_-]+:|\n---)", text, re.DOTALL | re.MULTILINE)
+        desc = " ".join(m.group(1).split()) if m else ""
+        name = skill.parent.name
+        out.append(SkillInfo(name=name, description=desc[:300], vendored=name in vendored))
+    return out
 
 
 # --------------------------------------------------------------- adapters --

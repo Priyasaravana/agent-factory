@@ -41,6 +41,27 @@ CHECK_HANDLERS = {"verify", "package", "deploy", "deliver"}
 
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 
+# Context budgets: reference material is useful, but unbounded context is
+# expensive and dilutes the agent's attention.
+MAX_DOC_CHARS = 20_000
+MAX_DOCS_PER_AGENT_CHARS = 40_000
+MAX_LEARNINGS_CHARS = 4_000
+
+
+class RefDoc(BaseModel):
+    """Team knowledge (standards, conventions, architecture rules) attached to agents."""
+
+    id: str
+    title: str
+    content: str = Field(max_length=MAX_DOC_CHARS)
+
+    @field_validator("id")
+    @classmethod
+    def _slug(cls, v: str) -> str:
+        if not _SLUG.match(v):
+            raise ValueError(f"doc id '{v}' must be lowercase letters, digits and dashes")
+        return v
+
 
 class AgentSpec(BaseModel):
     id: str
@@ -52,6 +73,9 @@ class AgentSpec(BaseModel):
     skills: list[str] = Field(default_factory=list)
     max_turns: int = Field(default=50, ge=1, le=500)
     produces: list[str] = Field(default_factory=list)  # files that must exist afterwards
+    context_docs: list[str] = Field(default_factory=list)  # RefDoc ids from the line's doc library
+    previous_iterations: int = Field(default=0, ge=0, le=5)  # earlier iterations of this product to recall
+    learnings: str = Field(default="", max_length=MAX_LEARNINGS_CHARS)  # human-approved lessons
     prompt: str = ""
 
     @field_validator("id")
@@ -101,6 +125,10 @@ class LineDoc(BaseModel):
     blueprint_hash: str | None = None
     stations: list[LineStation]
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
+    docs: dict[str, RefDoc] = Field(default_factory=dict)
+
+    def stations_using(self, agent_id: str) -> list[str]:
+        return [s.id for s in self.stations if s.agent == agent_id]
 
     def station(self, station_id: str) -> LineStation:
         for s in self.stations:
@@ -167,7 +195,17 @@ def validate_line(doc: LineDoc, skills_dir: Path | None = None) -> list[str]:
                 errors.append(f"check station '{s.id}': unknown handler '{handler}'")
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
+    errors += _reachability(doc)
+    for did, d in doc.docs.items():
+        if did != d.id:
+            errors.append(f"doc key '{did}' does not match its id '{d.id}'")
     for aid, spec in doc.agents.items():
+        missing_docs = [d for d in spec.context_docs if d not in doc.docs]
+        if missing_docs:
+            errors.append(f"agent '{aid}' references unknown docs {missing_docs}")
+        size = sum(len(doc.docs[d].content) for d in spec.context_docs if d in doc.docs)
+        if size > MAX_DOCS_PER_AGENT_CHARS:
+            errors.append(f"agent '{aid}' has {size} chars of reference docs (max {MAX_DOCS_PER_AGENT_CHARS})")
         if aid != spec.id:
             errors.append(f"agent key '{aid}' does not match its id '{spec.id}'")
         if not spec.prompt.strip():
@@ -177,6 +215,24 @@ def validate_line(doc: LineDoc, skills_dir: Path | None = None) -> list[str]:
                 if not (skills_dir / sk / "SKILL.md").exists():
                     errors.append(f"agent '{aid}' uses unknown skill '{sk}'")
     return errors
+
+
+def _reachability(doc: LineDoc) -> list[str]:
+    """Every station must be reachable from the start, or it would never run."""
+    forward = doc.forward_stations()
+    if not forward:
+        return []
+    ids = {s.id for s in doc.stations}
+    seen: set[str] = set()
+    todo = [forward[0].id]
+    while todo:
+        sid = todo.pop()
+        if sid in seen or sid not in ids:
+            continue
+        seen.add(sid)
+        st = doc.station(sid)
+        todo += [t for t in (st.next or doc.next_forward(sid), st.on_fail) if t]
+    return [f"station '{s}' can never be reached" for s in [s.id for s in doc.stations] if s not in seen]
 
 
 # ---------------------------------------------------------- file format ---
@@ -196,19 +252,36 @@ def render_agent_md(spec: AgentSpec) -> str:
     return "---\n" + yaml.safe_dump(meta, sort_keys=False) + "---\n" + spec.prompt
 
 
+def parse_doc_md(text: str) -> RefDoc:
+    m = _FRONT.match(text)
+    if not m:
+        raise ValueError("reference doc must start with a --- YAML frontmatter block ---")
+    meta = yaml.safe_load(m.group(1)) or {}
+    return RefDoc.model_validate({**meta, "content": m.group(2).strip() + "\n"})
+
+
+def render_doc_md(d: RefDoc) -> str:
+    return "---\n" + yaml.safe_dump({"id": d.id, "title": d.title}, sort_keys=False) + "---\n" + d.content
+
+
 def load_line_dir(path: Path) -> LineDoc:
     raw = yaml.safe_load((path / "line.yaml").read_text()) or {}
     agents: dict[str, AgentSpec] = {}
     for f in sorted((path / "agents").glob("*.md")):
         spec = parse_agent_md(f.read_text())
         agents[spec.id] = spec
+    docs: dict[str, RefDoc] = {}
+    for f in sorted((path / "docs").glob("*.md")):
+        d = parse_doc_md(f.read_text())
+        docs[d.id] = d
     digest = hashlib.sha256()
-    for f in [path / "line.yaml", *sorted((path / "agents").glob("*.md"))]:
+    for f in [path / "line.yaml", *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md"))]:
         digest.update(f.read_bytes())
     return LineDoc.model_validate(
         {
             **raw,
             "agents": agents,
+            "docs": docs,
             "blueprint": raw.get("blueprint") or path.name,
             "blueprint_hash": digest.hexdigest()[:16],
         }
@@ -228,3 +301,7 @@ def export_line_dir(doc: LineDoc, path: Path) -> None:
     (path / "line.yaml").write_text(yaml.safe_dump(line, sort_keys=False))
     for spec in doc.agents.values():
         (path / "agents" / f"{spec.id}.md").write_text(render_agent_md(spec))
+    if doc.docs:
+        (path / "docs").mkdir(exist_ok=True)
+        for d in doc.docs.values():
+            (path / "docs" / f"{d.id}.md").write_text(render_doc_md(d))

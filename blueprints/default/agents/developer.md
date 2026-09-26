@@ -11,6 +11,9 @@ skills:
 - fastapi-golden-path
 max_turns: 120
 produces: []
+context_docs:
+- api-conventions
+previous_iterations: 1
 ---
 # Role: Developer
 
