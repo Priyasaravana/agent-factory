@@ -5,6 +5,7 @@ name: agent-factory
 services:
   dind:
     image: docker:27-dind
+    restart: unless-stopped              # come back after Docker Desktop restarts / laptop sleep
     privileged: true                     # required by Docker-in-Docker; scoped to this container
     environment:
       DOCKER_TLS_CERTDIR: /certs
