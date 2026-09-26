@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, unwrap, type AgentView } from "../api/client";
+import { Link } from "react-router-dom";
+import { api, unwrap } from "../api/client";
+import AgentCard from "../components/AgentCard";
 import StationStrip from "../components/StationStrip";
 
 export default function LinePage() {
@@ -36,11 +38,16 @@ export default function LinePage() {
             {c.name}: line <span className="pill info">v{l.version}</span>{" "}
             {l.active ? <span className="pill ok">active</span> : <span className="pill muted">inactive</span>}
           </h2>
-          {!l.active && (
-            <button onClick={() => activate.mutate(l.version)} disabled={activate.isPending}>
-              Make v{l.version} active
-            </button>
-          )}
+          <div className="row">
+            {!l.active && (
+              <button onClick={() => activate.mutate(l.version)} disabled={activate.isPending}>
+                Make v{l.version} active
+              </button>
+            )}
+            <Link to="/line/edit">
+              <button>Edit line</button>
+            </Link>
+          </div>
         </div>
         <p className="muted">
           {l.description} · blueprint <code>{l.blueprint}</code> · {l.note}
@@ -59,9 +66,22 @@ export default function LinePage() {
         <h3>Agents in this version</h3>
         <div className="grid2">
           {l.agents.map((a) => (
-            <AgentCard key={a.id} a={a} stations={l.stations.filter((s) => s.role === a.id).map((s) => s.id)} />
+            <AgentCard key={a.spec.id} a={a} />
           ))}
         </div>
+        {(l.docs?.length ?? 0) > 0 && (
+          <>
+            <h3>Reference documents</h3>
+            {l.docs!.map((d) => (
+              <details key={d.id}>
+                <summary>
+                  {d.title} <span className="muted small">({d.id})</span>
+                </summary>
+                <pre className="pre">{d.content}</pre>
+              </details>
+            ))}
+          </>
+        )}
       </section>
 
       <section className="grid2">
@@ -84,7 +104,7 @@ export default function LinePage() {
             </tbody>
           </table>
           <p className="muted small">
-            New versions are imported with <code>agent-factory line import</code> (UI editing comes next).
+            Edit the line to create a new version, or import one with <code>agent-factory line import</code>.
           </p>
         </div>
         <div className="card">
@@ -105,33 +125,6 @@ export default function LinePage() {
           <ul>{c.gates.map((g) => <li key={g}>{g}</li>)}</ul>
         </div>
       </section>
-    </div>
-  );
-}
-
-function AgentCard({ a, stations }: { a: AgentView; stations: string[] }) {
-  return (
-    <div className="agent">
-      <div className="row spread">
-        <strong>{a.id}</strong>
-        <span className="row">
-          <span className="pill info" title={`model: ${a.model_resolved}`}>{a.model}</span>
-          <span className={`pill ${a.observe_only ? "ok" : "warn"}`} title={a.effective_tools.join(", ")}>
-            {a.tools}
-          </span>
-        </span>
-      </div>
-      <p className="small muted">{a.description}</p>
-      <div className="small">
-        <div>stations: {stations.join(", ") || "—"}</div>
-        <div>tools: {a.effective_tools.join(", ")}</div>
-        <div>skills: {a.skills.join(", ") || "—"}</div>
-        <div>max turns: {a.max_turns}{a.produces.length ? ` · produces: ${a.produces.join(", ")}` : ""}</div>
-      </div>
-      <details>
-        <summary className="small">prompt</summary>
-        <pre className="pre">{a.prompt}</pre>
-      </details>
     </div>
   );
 }

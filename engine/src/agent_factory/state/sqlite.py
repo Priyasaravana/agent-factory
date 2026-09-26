@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS line_versions (
   line_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, note TEXT NOT NULL,
   created_at TEXT NOT NULL, PRIMARY KEY (line_id, version));
 CREATE TABLE IF NOT EXISTS line_active (line_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS line_drafts (
+  line_id TEXT PRIMARY KEY, base_version INTEGER NOT NULL, doc TEXT NOT NULL, updated_at TEXT NOT NULL);
 """
 
 
@@ -216,3 +218,21 @@ class SqliteStateStore:
                 )
             )
         return out
+
+    # -- line drafts ---------------------------------------------------------
+    def get_line_draft(self, line_id: str) -> tuple[int, LineDoc, str] | None:
+        row = self._exec("SELECT base_version, doc, updated_at FROM line_drafts WHERE line_id=?", (line_id,)).fetchone()
+        return (int(row[0]), LineDoc.model_validate_json(row[1]), row[2]) if row else None
+
+    def save_line_draft(self, line_id: str, base_version: int, doc: LineDoc) -> str:
+        ts = _now().isoformat()
+        self._exec(
+            "INSERT INTO line_drafts(line_id, base_version, doc, updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(line_id) DO UPDATE SET base_version=excluded.base_version, doc=excluded.doc, "
+            "updated_at=excluded.updated_at",
+            (line_id, base_version, doc.model_dump_json(), ts),
+        )
+        return ts
+
+    def delete_line_draft(self, line_id: str) -> None:
+        self._exec("DELETE FROM line_drafts WHERE line_id=?", (line_id,))

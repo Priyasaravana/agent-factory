@@ -55,3 +55,14 @@ button.tab.active { color: var(--text); border-color: var(--accent); }
 table { border-collapse: collapse; } td { padding: 4px 12px 4px 0; }
 code { font-size: 13px; }
 .agent { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; }
+.editor { border-color: var(--accent); display: grid; gap: 12px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
+legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+.check { display: inline-flex; flex-direction: row; gap: 6px; align-items: center; margin-right: 12px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.problems { border: 1px solid var(--bad); border-radius: 8px; padding: 8px 12px; color: var(--bad); }
+.grow { flex: 1; min-width: 240px; }
+table.wide { width: 100%; }
+.doc { padding: 6px 0; border-bottom: 1px solid var(--line); }
+a > button { pointer-events: none; }

@@ -67,8 +67,8 @@ async def test_line_endpoints(make_factory):
     async with c:
         line = (await c.get("/api/line")).json()
         assert line["version"] == 1 and line["active"] and line["blueprint"] == "default"
-        assert {a["id"] for a in line["agents"]} == {"intake", "architect", "developer", "devops", "verifier"}
-        verifier = next(a for a in line["agents"] if a["id"] == "verifier")
+        assert {a["spec"]["id"] for a in line["agents"]} == {"intake", "architect", "developer", "devops", "verifier"}
+        verifier = next(a for a in line["agents"] if a["spec"]["id"] == "verifier")
         assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
         assert (await c.get("/api/line/versions")).json()[0]["version"] == 1
         assert (await c.get("/api/line/versions/9")).status_code == 404

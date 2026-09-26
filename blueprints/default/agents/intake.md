@@ -10,6 +10,7 @@ skills:
 - factory-station-contract
 max_turns: 30
 produces: []
+previous_iterations: 3
 ---
 # Role: Intake (product analyst)
 
