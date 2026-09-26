@@ -43,6 +43,15 @@ def test_writes_confined_to_worktree() -> None:
 
 
 def test_verifier_is_observe_only() -> None:
-    assert evaluate("verifier", "Bash", {"command": "curl -s http://dind:8081/healthz | jq ."}, CWD, []) is None
-    assert evaluate("verifier", "Bash", {"command": "curl -s x && touch hack"}, CWD, [])
-    assert evaluate("verifier", "Bash", {"command": "make verify"}, CWD, [])
+    ok = evaluate("verifier", "Bash", {"command": "curl -s http://dind:8081/healthz | jq ."}, CWD, [], True)
+    assert ok is None
+    assert evaluate("verifier", "Bash", {"command": "curl -s x && touch hack"}, CWD, [], True)
+    assert evaluate("verifier", "Bash", {"command": "make verify"}, CWD, [], True)
+    assert evaluate("verifier", "Write", {"file_path": "app/x.py"}, CWD, [], True)
+
+
+def test_observe_only_follows_preset_not_name() -> None:
+    # a custom reviewer agent gets the same restrictions as the verifier
+    assert evaluate("security-reviewer", "Bash", {"command": "make verify"}, CWD, HOLD, True)
+    # and a builder named "verifier" would not (names carry no privileges)
+    assert evaluate("verifier", "Bash", {"command": "make verify"}, CWD, HOLD, False) is None

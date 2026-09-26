@@ -1,0 +1,16 @@
+# Default line for the fastapi-service product line.
+# Stations run top to bottom. kind: agent (judgment work by an agent spec) or
+# check (deterministic, engine-implemented). on_fail routes failure evidence;
+# repair stations (only_on_fail) are reached only through on_fail and go to `next`.
+name: default
+description: Spec → design → build → verify → package → deploy → independent acceptance → deliver
+stations:
+  - {id: intake,     kind: agent, agent: intake}
+  - {id: design,     kind: agent, agent: architect}
+  - {id: build,      kind: agent, agent: developer}
+  - {id: verify,     kind: check, on_fail: build}
+  - {id: package,    kind: check, on_fail: build}
+  - {id: deploy,     kind: check, on_fail: deploy_fix}
+  - {id: deploy_fix, kind: agent, agent: devops, next: deploy, only_on_fail: true}
+  - {id: acceptance, kind: agent, agent: verifier, on_fail: build}
+  - {id: deliver,    kind: check}

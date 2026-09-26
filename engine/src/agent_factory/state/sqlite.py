@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_factory.line import LineDoc, LineVersionInfo
 from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus
 
 _SCHEMA = """
@@ -25,6 +26,10 @@ CREATE INDEX IF NOT EXISTS events_run ON events(run_id, id);
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS line_versions (
+  line_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, note TEXT NOT NULL,
+  created_at TEXT NOT NULL, PRIMARY KEY (line_id, version));
+CREATE TABLE IF NOT EXISTS line_active (line_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
 """
 
 
@@ -161,3 +166,53 @@ class SqliteStateStore:
             )
             for r in rows
         ]
+
+    # -- versioned lines -----------------------------------------------------
+    def create_line_version(self, line_id: str, doc: LineDoc, note: str) -> int:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM line_versions WHERE line_id=?", (line_id,)
+            ).fetchone()
+            version = int(row[0]) + 1
+            self._db.execute(
+                "INSERT INTO line_versions(line_id, version, doc, note, created_at) VALUES (?,?,?,?,?)",
+                (line_id, version, doc.model_dump_json(), note, _now().isoformat()),
+            )
+        return version
+
+    def get_line_version(self, line_id: str, version: int) -> LineDoc | None:
+        row = self._exec("SELECT doc FROM line_versions WHERE line_id=? AND version=?", (line_id, version)).fetchone()
+        return LineDoc.model_validate_json(row[0]) if row else None
+
+    def active_line_version(self, line_id: str) -> int | None:
+        row = self._exec("SELECT version FROM line_active WHERE line_id=?", (line_id,)).fetchone()
+        return int(row[0]) if row else None
+
+    def set_active_line_version(self, line_id: str, version: int) -> None:
+        self._exec(
+            "INSERT INTO line_active(line_id, version) VALUES (?,?) "
+            "ON CONFLICT(line_id) DO UPDATE SET version=excluded.version",
+            (line_id, version),
+        )
+
+    def list_line_versions(self, line_id: str) -> list[LineVersionInfo]:
+        active = self.active_line_version(line_id)
+        rows = self._exec(
+            "SELECT version, doc, note, created_at FROM line_versions WHERE line_id=? ORDER BY version DESC",
+            (line_id,),
+        ).fetchall()
+        out = []
+        for version, doc, note, created in rows:
+            d = LineDoc.model_validate_json(doc)
+            out.append(
+                LineVersionInfo(
+                    line_id=line_id,
+                    version=version,
+                    note=note,
+                    created_at=created,
+                    active=version == active,
+                    stations=len(d.stations),
+                    agents=len(d.agents),
+                )
+            )
+        return out

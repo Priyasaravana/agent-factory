@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from agent_factory.engine.pipeline import FactoryError
+from agent_factory.line import LineVersionInfo
 from agent_factory.models import (
+    AgentView,
     AnswersInput,
     ConfigView,
     CreateOrderInput,
@@ -26,6 +28,7 @@ from agent_factory.models import (
     EventKind,
     FeedbackInput,
     HealthView,
+    LineView,
     Order,
     OrderDetail,
     Run,
@@ -62,9 +65,10 @@ def action(
 
 
 # ------------------------------------------------------------------ views --
-def _station_views(f: Factory, run: Run | None) -> list[StationView]:
+def _station_views(f: Factory, run: Run | None, version: int | None = None) -> list[StationView]:
     views = []
-    for s in f.cfg.stations:
+    flow = f.lines.get(run.line_version if run else version)
+    for s in flow.stations:
         attempts = run.attempts.get(s.id, 0) if run else 0
         state = "pending"
         if run:
@@ -82,7 +86,15 @@ def _station_views(f: Factory, run: Run | None) -> list[StationView]:
                 ]
                 state = last[-1].data.get("outcome", "passed") if last else "passed"
         views.append(
-            StationView(id=s.id, kind=s.kind, role=s.role, repair=s.only_on_fail, state=state, attempts=attempts)
+            StationView(
+                id=s.id,
+                kind=s.kind,
+                role=s.agent,
+                handler=s.resolved_handler(),
+                repair=s.only_on_fail,
+                state=state,
+                attempts=attempts,
+            )
         )
     return views
 
@@ -105,6 +117,7 @@ def get_config(f: Factory) -> ConfigView:
     return ConfigView(
         name=f.cfg.factory.name,
         mode=f.settings.factory_mode,
+        line_version=f.lines.active_version(),
         product_lines={k: v.description for k, v in f.cfg.product_lines.items()},
         stations=_station_views(f, None),
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
@@ -186,6 +199,64 @@ def log_decision(f: Factory, body: DecisionInput) -> Event:
         raise FactoryError("run not found")
     msg = body.decision + (f" — because {body.rationale}" if body.rationale else "")
     return f.store.add_event(body.run_id, EventKind.decision, msg, station=body.station)
+
+
+# ------------------------------------------------------------------ lines --
+@action("get_line", "The active line: stations and agent specs", "GET", "/api/line")
+def get_line(f: Factory) -> LineView:
+    return _line_view(f, f.lines.active_version())
+
+
+@action("get_line_version", "A specific (immutable) line version", "GET", "/api/line/versions/{version}")
+def get_line_version(f: Factory, version: int) -> LineView:
+    return _line_view(f, version)
+
+
+@action("list_line_versions", "All line versions, newest first", "GET", "/api/line/versions")
+def list_line_versions(f: Factory) -> list[LineVersionInfo]:
+    return f.lines.versions()
+
+
+@action(
+    "activate_line_version",
+    "Make a version the active line for new runs (runs in flight keep their version)",
+    "POST",
+    "/api/line/versions/{version}/activate",
+)
+def activate_line_version(f: Factory, version: int) -> LineVersionInfo:
+    return f.lines.activate(version)
+
+
+def _line_view(f: Factory, version: int) -> LineView:
+    doc = f.lines.get(version)
+    info = next(i for i in f.lines.versions() if i.version == version)
+    return LineView(
+        line_id=f.lines.line_id,
+        version=version,
+        active=info.active,
+        note=info.note,
+        name=doc.name,
+        description=doc.description,
+        blueprint=doc.blueprint,
+        blueprint_update_available=f.lines.blueprint_update_available(),
+        stations=_station_views(f, None, version),
+        agents=[
+            AgentView(
+                id=a.id,
+                description=a.description,
+                model=a.model,
+                model_resolved=f.cfg.models.resolve(a.model),
+                tools=a.tools,
+                effective_tools=a.effective_tools(),
+                observe_only=a.observe_only,
+                skills=a.skills,
+                max_turns=a.max_turns,
+                produces=a.produces,
+                prompt=a.prompt,
+            )
+            for a in doc.agents.values()
+        ],
+    )
 
 
 # --------------------------------------------------------------- adapters --

@@ -19,6 +19,7 @@ from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
+from agent_factory.line import AgentSpec, LineDoc
 from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
@@ -45,10 +46,16 @@ class StationContext:
     run: Run
     worktree: Path
     station_id: str
+    line_doc: LineDoc
 
     @property
-    def line(self) -> ProductLine:
+    def product_line(self) -> ProductLine:
         return self.cfg.product_lines[self.order.product_line]
+
+    @property
+    def spec(self) -> AgentSpec:
+        """The agent spec bound to this station (agent stations only)."""
+        return self.line_doc.agent_for(self.station_id)
 
     async def emit(self, kind: EventKind, message: str, data: dict[str, Any] | None = None) -> None:
         self.store.add_event(self.run.id, kind, message, station=self.station_id, data=data)
@@ -66,13 +73,11 @@ class StationContext:
 
     async def agent(
         self,
-        role: str,
         prompt: str,
-        model_tier: str | None,
         schema: dict[str, Any] | None = None,
         protect_holdout: bool = True,
     ) -> AgentResult:
-        skills = self.cfg.role_skills.get(role, [])
+        spec = self.spec
         protected = [str(self.ws.data_dir / "holdout")] if protect_holdout else []
 
         async def sink(kind: str, data: dict[str, Any]) -> None:
@@ -86,13 +91,17 @@ class StationContext:
         req = AgentRequest(
             run_id=self.run.id,
             station=self.station_id,
-            role=role,
+            role=spec.id,
             prompt=prompt,
             cwd=self.worktree,
-            model=self.cfg.models.resolve(model_tier or "default"),
-            max_turns=self.cfg.budgets.agent_max_turns.get(role, 50),
-            skills=skills,
-            skill_overlay=self.cfg.skill_overlay(skills),
+            model=self.cfg.models.resolve(spec.model),
+            system_prompt=spec.prompt,
+            tools=spec.effective_tools(),
+            observe_only=spec.observe_only,
+            produces=spec.produces,
+            max_turns=spec.max_turns,
+            skills=spec.skills,
+            skill_overlay=self.cfg.skill_overlay(spec.skills),
             output_schema=schema,
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
@@ -113,6 +122,11 @@ def _limit_result(res: AgentResult) -> StationResult | None:
 
 def _read(p: Path) -> str:
     return p.read_text() if p.exists() else ""
+
+
+def _missing_outputs(ctx: StationContext) -> list[str]:
+    """Files the station's agent spec promises to produce but did not."""
+    return [f for f in ctx.spec.produces if not (ctx.worktree / f).exists()]
 
 
 # ------------------------------------------------------------------ intake --
@@ -161,10 +175,10 @@ async def intake(ctx: StationContext) -> StationResult:
 ## Current spec (update it, do not start over, when present)
 {_read(spec_path) or "none"}
 
-Product line: {ctx.order.product_line} — {ctx.line.description}.
+Product line: {ctx.order.product_line} — {ctx.product_line.description}.
 Only put a question in blocking_questions if no reasonable assumption exists.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
-    res = await ctx.agent("intake", prompt, ctx.cfg.station("intake").model, SPEC_SCHEMA)
+    res = await ctx.agent(prompt, SPEC_SCHEMA)
     if lim := _limit_result(res):
         return lim
     if not res.ok:
@@ -203,10 +217,10 @@ Write:
   docs/tasks.md    — ordered implementation tasks, each with its test
 
 Change request this iteration: {ctx.run.change_request or "none"}"""
-    res = await ctx.agent("architect", prompt, ctx.cfg.station("design").model)
+    res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
-    missing = [f for f in ("docs/design.md", "docs/openapi.yaml", "docs/tasks.md") if not (ctx.worktree / f).exists()]
+    missing = _missing_outputs(ctx)
     if not res.ok or missing:
         return StationResult(StationOutcome.failed, "design incomplete", res.error or f"missing artifacts: {missing}")
     await ctx.ws.commit_all(ctx.worktree, "docs: design, API contract and task plan")
@@ -217,11 +231,11 @@ Change request this iteration: {ctx.run.change_request or "none"}"""
 async def build(ctx: StationContext) -> StationResult:
     fix = ctx.run.last_failure
     prompt = f"""Implement docs/tasks.md against docs/design.md and docs/openapi.yaml.
-Read AGENTS.md first. Write tests alongside code. `{ctx.line.verify_command}` must pass.
+Read AGENTS.md first. Write tests alongside code. `{ctx.product_line.verify_command}` must pass.
 Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 
 {"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
-    res = await ctx.agent("developer", prompt, ctx.cfg.station("build").model)
+    res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
     if not res.ok:
@@ -232,7 +246,7 @@ Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 
 # ------------------------------------------------------------------ verify --
 async def verify(ctx: StationContext) -> StationResult:
-    res = await ctx.cmd(ctx.line.verify_command, timeout=1200)
+    res = await ctx.cmd(ctx.product_line.verify_command, timeout=1200)
     if not res.ok:
         return StationResult(
             StationOutcome.failed,
@@ -247,8 +261,8 @@ async def package(ctx: StationContext) -> StationResult:
     sha = await ctx.ws.head_sha(ctx.worktree)
     image = f"{ctx.order.product_slug}:{sha}"
     steps = [f"docker build -t {image} ."]
-    if ctx.line.scan_command:
-        steps.append(ctx.line.scan_command.format(image=image))
+    if ctx.product_line.scan_command:
+        steps.append(ctx.product_line.scan_command.format(image=image))
     else:
         await ctx.emit(EventKind.decision, "security scan NOT run: no scan_command configured")
     steps.append(f"kind load docker-image {image} --name {ctx.settings.cluster_name}")
@@ -277,7 +291,7 @@ async def deploy(ctx: StationContext) -> StationResult:
     sha = await ctx.ws.head_sha(ctx.worktree)
     ns, slug = namespace(ctx.order), ctx.order.product_slug
     helm = (
-        f"helm upgrade --install {slug} {ctx.line.chart_path} --namespace {ns} --create-namespace "
+        f"helm upgrade --install {slug} {ctx.product_line.chart_path} --namespace {ns} --create-namespace "
         f"--set image.repository={slug} --set image.tag={sha} "
         f"--set service.nodePort={ctx.order.node_port} --wait --timeout 5m"
     )
@@ -303,11 +317,11 @@ async def deploy(ctx: StationContext) -> StationResult:
 async def deploy_fix(ctx: StationContext) -> StationResult:
     prompt = f"""The deployment to namespace {namespace(ctx.order)} failed. Diagnose from the
 evidence below (you may run kubectl get/describe/logs in that namespace) and fix the
-chart ({ctx.line.chart_path}), Dockerfile or app config. Do not delete namespaces.
+chart ({ctx.product_line.chart_path}), Dockerfile or app config. Do not delete namespaces.
 
 ## Evidence
 {ctx.run.last_failure}"""
-    res = await ctx.agent("devops", prompt, ctx.cfg.station("deploy_fix").model)
+    res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
     if not res.ok:
@@ -352,9 +366,7 @@ scenarios. Exercise each one with real HTTP calls (curl). Record concrete eviden
 
 ## Holdout scenarios
 {scenarios}"""
-    res = await ctx.agent(
-        "verifier", prompt, ctx.cfg.station("acceptance").model, VERDICT_SCHEMA, protect_holdout=False
-    )
+    res = await ctx.agent(prompt, VERDICT_SCHEMA, protect_holdout=False)
     if lim := _limit_result(res):
         return lim
     if not res.ok or not isinstance(res.structured, dict):
@@ -422,6 +434,57 @@ async def deliver(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.order.app_url}")
 
 
+# --------------------------------------------------- generic agent station --
+GENERIC_VERDICT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["passed", "summary", "findings"],
+    "properties": {
+        "passed": {"type": "boolean"},
+        "summary": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
+async def generic_agent(ctx: StationContext) -> StationResult:
+    """Any custom agent station: the spec's prompt defines the job; the engine
+    enforces the contract (a structured verdict + the files the spec promises)."""
+    spec = ctx.spec
+    prompt = f"""Carry out your station `{ctx.station_id}` for this order, working in the
+current repository.
+
+## Order: {ctx.order.title}
+{ctx.order.requirements}
+
+## Change request for this iteration
+{ctx.run.change_request or "none"}
+
+## Evidence routed to you from a failed station
+{ctx.run.last_failure or "none"}
+
+Finish with a verdict. `passed` is true only if your checks succeeded. Each finding
+must be concrete: file and line, command and output, or request and response."""
+    res = await ctx.agent(prompt, GENERIC_VERDICT_SCHEMA)
+    if lim := _limit_result(res):
+        return lim
+    if not res.ok or not isinstance(res.structured, dict):
+        return StationResult(StationOutcome.failed, f"{spec.id} produced no verdict", res.error)
+    if not spec.observe_only:
+        await ctx.ws.commit_all(ctx.worktree, f"chore({ctx.station_id}): {spec.id} changes")
+    missing = _missing_outputs(ctx)
+    if missing:
+        return StationResult(
+            StationOutcome.failed, f"{spec.id} did not produce {missing}", f"missing artifacts: {missing}"
+        )
+    verdict = res.structured
+    if verdict.get("passed") is True:
+        return StationResult(StationOutcome.passed, verdict.get("summary") or f"{spec.id} passed")
+    findings = "\n".join(f"- {f}" for f in verdict.get("findings", [])) or verdict.get("summary", "")
+    return StationResult(
+        StationOutcome.failed, f"{spec.id}: {verdict.get('summary', 'failed')}", f"{spec.id} findings:\n{findings}"
+    )
+
+
 STATIONS: dict[str, Station] = {
     "intake": intake,
     "design": design,
@@ -432,6 +495,7 @@ STATIONS: dict[str, Station] = {
     "deploy_fix": deploy_fix,
     "acceptance": acceptance,
     "deliver": deliver,
+    "agent": generic_agent,
 }
 
 

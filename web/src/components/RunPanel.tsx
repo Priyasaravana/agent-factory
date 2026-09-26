@@ -32,7 +32,8 @@ export default function RunPanel({ runId, orderId }: { runId: string; orderId: s
     <section className="card">
       <div className="row spread">
         <h3>
-          Iteration {r.iteration} <StatusPill status={r.status} />
+          Iteration {r.iteration} <StatusPill status={r.status} />{" "}
+          <span className="pill muted" title="Line version this run is pinned to">line v{r.line_version}</span>
         </h3>
         <div className="row">
           <span className="muted small">

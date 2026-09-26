@@ -50,8 +50,10 @@ def evaluate(
     tool_input: dict[str, Any],
     cwd: Path,
     protected_paths: list[str],
+    observe_only: bool = False,
 ) -> str | None:
-    """Return a denial reason, or None to allow."""
+    """Return a denial reason, or None to allow. `observe_only` comes from the
+    agent spec's tool preset (observer/reviewer), not from the agent's name."""
     blob = " ".join(str(v) for v in tool_input.values())
 
     for p in protected_paths:
@@ -63,14 +65,16 @@ def evaluate(
         for pattern, why in DENY_PATTERNS:
             if re.search(pattern, cmd):
                 return f"blocked: {why}"
-        if role == "verifier":
+        if observe_only:
             for part in re.split(r"&&|\|\||;|\|", cmd):
                 part = part.strip()
                 if part and not part.startswith(VERIFIER_BASH_PREFIXES):
-                    return f"verifier is observe-only; '{part[:60]}' is not allowed"
+                    return f"'{role}' is observe-only; '{part[:60]}' is not allowed"
         return None
 
     if tool_name in WRITE_TOOLS:
+        if observe_only:
+            return f"'{role}' is observe-only and cannot modify files"
         target = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
         try:
             resolved = (cwd / target).resolve() if not Path(target).is_absolute() else Path(target).resolve()
@@ -81,7 +85,7 @@ def evaluate(
     return None
 
 
-def build_hooks(role: str, cwd: Path, protected_paths: list[str]) -> dict[str, Any]:
+def build_hooks(role: str, cwd: Path, protected_paths: list[str], observe_only: bool = False) -> dict[str, Any]:
     from claude_agent_sdk import HookMatcher
 
     async def guard(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
@@ -91,6 +95,7 @@ def build_hooks(role: str, cwd: Path, protected_paths: list[str]) -> dict[str, A
             input_data.get("tool_input", {}) or {},
             cwd,
             protected_paths,
+            observe_only,
         )
         if reason is None:
             return {}

@@ -1,3 +1,15 @@
+---
+id: devops
+description: Diagnoses and repairs failed deployments to the kind cluster
+model: default
+tools: operator
+skills:
+- read-the-damn-docs
+- factory-station-contract
+- helm-kind-deploy
+max_turns: 40
+produces: []
+---
 # Role: DevOps (deploy repair)
 
 A deployment to the local kind cluster failed. Diagnose from the evidence and,

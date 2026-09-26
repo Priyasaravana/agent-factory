@@ -60,3 +60,18 @@ async def test_errors_and_contract(make_factory):
         ops = {op["operationId"] for p in spec["paths"].values() for op in p.values()}
         assert {"create_order", "get_run", "submit_feedback", "log_decision", "stream_run"} <= ops
     await ctx.__aexit__(None, None, None)
+
+
+async def test_line_endpoints(make_factory):
+    app, ctx, c = await _client(make_factory())
+    async with c:
+        line = (await c.get("/api/line")).json()
+        assert line["version"] == 1 and line["active"] and line["blueprint"] == "default"
+        assert {a["id"] for a in line["agents"]} == {"intake", "architect", "developer", "devops", "verifier"}
+        verifier = next(a for a in line["agents"] if a["id"] == "verifier")
+        assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
+        assert (await c.get("/api/line/versions")).json()[0]["version"] == 1
+        assert (await c.get("/api/line/versions/9")).status_code == 404
+        cfg = (await c.get("/api/config")).json()
+        assert cfg["line_version"] == 1 and cfg["stations"][0]["handler"] == "intake"
+    await ctx.__aexit__(None, None, None)

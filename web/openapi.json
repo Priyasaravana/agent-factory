@@ -493,6 +493,140 @@
         }
       }
     },
+    "/api/line": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The active line: stations and agent specs",
+        "description": "The active line: stations and agent specs",
+        "operationId": "get_line",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/versions/{version}": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "A specific (immutable) line version",
+        "description": "A specific (immutable) line version",
+        "operationId": "get_line_version",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/versions": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "All line versions, newest first",
+        "description": "All line versions, newest first",
+        "operationId": "list_line_versions",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LineVersionInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Line Versions"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/line/versions/{version}/activate": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Make a version the active line for new runs (runs in flight keep their version)",
+        "description": "Make a version the active line for new runs (runs in flight keep their version)",
+        "operationId": "activate_line_version",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineVersionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/stream": {
       "get": {
         "tags": [
@@ -546,6 +680,78 @@
   },
   "components": {
     "schemas": {
+      "AgentView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "model_resolved": {
+            "type": "string",
+            "title": "Model Resolved"
+          },
+          "tools": {
+            "type": "string",
+            "title": "Tools"
+          },
+          "effective_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Effective Tools"
+          },
+          "observe_only": {
+            "type": "boolean",
+            "title": "Observe Only"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skills"
+          },
+          "max_turns": {
+            "type": "integer",
+            "title": "Max Turns"
+          },
+          "produces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Produces"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "model",
+          "model_resolved",
+          "tools",
+          "effective_tools",
+          "observe_only",
+          "skills",
+          "max_turns",
+          "produces",
+          "prompt"
+        ],
+        "title": "AgentView"
+      },
       "AnswersInput": {
         "properties": {
           "answers": {
@@ -572,6 +778,10 @@
           "mode": {
             "type": "string",
             "title": "Mode"
+          },
+          "line_version": {
+            "type": "integer",
+            "title": "Line Version"
           },
           "product_lines": {
             "additionalProperties": {
@@ -606,6 +816,7 @@
         "required": [
           "name",
           "mode",
+          "line_version",
           "product_lines",
           "stations",
           "policies",
@@ -834,6 +1045,120 @@
         ],
         "title": "HealthView"
       },
+      "LineVersionInfo": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": false
+          },
+          "stations": {
+            "type": "integer",
+            "title": "Stations",
+            "default": 0
+          },
+          "agents": {
+            "type": "integer",
+            "title": "Agents",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "version",
+          "note",
+          "created_at"
+        ],
+        "title": "LineVersionInfo"
+      },
+      "LineView": {
+        "properties": {
+          "line_id": {
+            "type": "string",
+            "title": "Line Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "blueprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprint"
+          },
+          "blueprint_update_available": {
+            "type": "boolean",
+            "title": "Blueprint Update Available"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationView"
+            },
+            "type": "array",
+            "title": "Stations"
+          },
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentView"
+            },
+            "type": "array",
+            "title": "Agents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line_id",
+          "version",
+          "active",
+          "note",
+          "name",
+          "description",
+          "blueprint",
+          "blueprint_update_available",
+          "stations",
+          "agents"
+        ],
+        "title": "LineView"
+      },
       "Order": {
         "properties": {
           "id": {
@@ -994,6 +1319,11 @@
             ],
             "title": "Current Station"
           },
+          "line_version": {
+            "type": "integer",
+            "title": "Line Version",
+            "default": 1
+          },
           "attempts": {
             "additionalProperties": {
               "type": "integer"
@@ -1152,6 +1482,10 @@
             ],
             "title": "Role"
           },
+          "handler": {
+            "type": "string",
+            "title": "Handler"
+          },
           "repair": {
             "type": "boolean",
             "title": "Repair"
@@ -1170,6 +1504,7 @@
           "id",
           "kind",
           "role",
+          "handler",
           "repair",
           "state",
           "attempts"

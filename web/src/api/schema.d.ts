@@ -228,6 +228,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The active line: stations and agent specs
+         * @description The active line: stations and agent specs
+         */
+        get: operations["get_line"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A specific (immutable) line version
+         * @description A specific (immutable) line version
+         */
+        get: operations["get_line_version"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * All line versions, newest first
+         * @description All line versions, newest first
+         */
+        get: operations["list_line_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/line/versions/{version}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a version the active line for new runs (runs in flight keep their version)
+         * @description Make a version the active line for new runs (runs in flight keep their version)
+         */
+        post: operations["activate_line_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/stream": {
         parameters: {
             query?: never;
@@ -249,6 +329,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentView */
+        AgentView: {
+            /** Id */
+            id: string;
+            /** Description */
+            description: string;
+            /** Model */
+            model: string;
+            /** Model Resolved */
+            model_resolved: string;
+            /** Tools */
+            tools: string;
+            /** Effective Tools */
+            effective_tools: string[];
+            /** Observe Only */
+            observe_only: boolean;
+            /** Skills */
+            skills: string[];
+            /** Max Turns */
+            max_turns: number;
+            /** Produces */
+            produces: string[];
+            /** Prompt */
+            prompt: string;
+        };
         /** AnswersInput */
         AnswersInput: {
             /** Answers */
@@ -260,6 +365,8 @@ export interface components {
             name: string;
             /** Mode */
             mode: string;
+            /** Line Version */
+            line_version: number;
             /** Product Lines */
             product_lines: {
                 [key: string]: string;
@@ -364,6 +471,55 @@ export interface components {
             /** Active Runs */
             active_runs: number;
         };
+        /** LineVersionInfo */
+        LineVersionInfo: {
+            /** Line Id */
+            line_id: string;
+            /** Version */
+            version: number;
+            /** Note */
+            note: string;
+            /** Created At */
+            created_at: string;
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Stations
+             * @default 0
+             */
+            stations: number;
+            /**
+             * Agents
+             * @default 0
+             */
+            agents: number;
+        };
+        /** LineView */
+        LineView: {
+            /** Line Id */
+            line_id: string;
+            /** Version */
+            version: number;
+            /** Active */
+            active: boolean;
+            /** Note */
+            note: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Blueprint */
+            blueprint: string | null;
+            /** Blueprint Update Available */
+            blueprint_update_available: boolean;
+            /** Stations */
+            stations: components["schemas"]["StationView"][];
+            /** Agents */
+            agents: components["schemas"]["AgentView"][];
+        };
         /** Order */
         Order: {
             /** Id */
@@ -412,6 +568,11 @@ export interface components {
             status: components["schemas"]["RunStatus"];
             /** Current Station */
             current_station?: string | null;
+            /**
+             * Line Version
+             * @default 1
+             */
+            line_version: number;
             /** Attempts */
             attempts?: {
                 [key: string]: number;
@@ -469,6 +630,8 @@ export interface components {
             kind: string;
             /** Role */
             role: string | null;
+            /** Handler */
+            handler: string;
             /** Repair */
             repair: boolean;
             /** State */
@@ -838,6 +1001,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineView"];
+                };
+            };
+        };
+    };
+    get_line_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_line_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineVersionInfo"][];
+                };
+            };
+        };
+    };
+    activate_line_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineVersionInfo"];
                 };
             };
             /** @description Validation Error */

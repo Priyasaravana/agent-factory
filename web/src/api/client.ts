@@ -10,6 +10,9 @@ export type FactoryEvent = components["schemas"]["Event"];
 export type StationView = components["schemas"]["StationView"];
 export type Health = components["schemas"]["HealthView"];
 export type ConfigView = components["schemas"]["ConfigView"];
+export type LineView = components["schemas"]["LineView"];
+export type AgentView = components["schemas"]["AgentView"];
+export type LineVersionInfo = components["schemas"]["LineVersionInfo"];
 
 export const api = createClient<paths>({ baseUrl: "" });
 

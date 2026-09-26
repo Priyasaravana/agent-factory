@@ -67,6 +67,7 @@ class Run(BaseModel):
     iteration: int
     status: RunStatus
     current_station: str | None = None
+    line_version: int = 1  # the line version this run is pinned to
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
     change_request: str | None = None  # feedback that started this iteration
@@ -124,7 +125,8 @@ class DecisionInput(BaseModel):
 class StationView(BaseModel):
     id: str
     kind: str
-    role: str | None
+    role: str | None  # agent spec id for agent stations
+    handler: str
     repair: bool
     state: str  # pending | running | passed | failed | held
     attempts: int
@@ -153,7 +155,35 @@ class HealthView(BaseModel):
 class ConfigView(BaseModel):
     name: str
     mode: str
+    line_version: int
     product_lines: dict[str, str]
     stations: list[StationView]
     policies: dict[str, str]
     gates: list[str]
+
+
+class AgentView(BaseModel):
+    id: str
+    description: str
+    model: str
+    model_resolved: str
+    tools: str
+    effective_tools: list[str]
+    observe_only: bool
+    skills: list[str]
+    max_turns: int
+    produces: list[str]
+    prompt: str
+
+
+class LineView(BaseModel):
+    line_id: str
+    version: int
+    active: bool
+    note: str
+    name: str
+    description: str
+    blueprint: str | None
+    blueprint_update_available: bool
+    stations: list[StationView]
+    agents: list[AgentView]

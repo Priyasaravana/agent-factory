@@ -8,15 +8,21 @@ import claude_agent_sdk
 from claude_agent_sdk import RateLimitEvent, RateLimitInfo, ResultMessage
 
 from agent_factory.agents.runner import AgentRequest, ClaudeAgentRunner
+from agent_factory.line import load_line_dir
 
 REPO = Path(__file__).resolve().parents[2]
+LINE = load_line_dir(REPO / "blueprints" / "default")
 
 
 def _req(tmp_path: Path, role: str = "developer", schema=None) -> AgentRequest:
+    spec = LINE.agents[role]
     return AgentRequest(
         run_id="r1",
         station="build",
         role=role,
+        system_prompt=spec.prompt,
+        tools=spec.effective_tools(),
+        observe_only=spec.observe_only,
         prompt="do it",
         cwd=tmp_path,
         model="sonnet",

@@ -57,11 +57,12 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 
 | Path | What it is |
 |---|---|
-| `.agent-factory/config.yaml` | **The line.** Stations, routes, policies, budgets, gates, skills per role. |
+| `.agent-factory/config.yaml` | Factory settings: models, product lines, policies, budgets, gates, skill guidance. |
+| `blueprints/default/` | **The line.** `line.yaml` (stations, routes) + `agents/*.md` (one spec per agent). Seeded into the DB as line v1; see [docs/lines.md](docs/lines.md). |
 | `engine/` | Python engine and API: state machine, stations, agent runner, guardrail hooks. |
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |
-| `prompts/` | One system prompt per agent role, plus the shared station contract. |
+| `prompts/` | The shared station contract every agent receives. |
 | `plugin/` | Skills loaded into agents: vendored from BuilderIO/skills, plus our own. |
 | `cluster/` | kind-in-dind config, bootstrap and container entrypoint. |
 | `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, gh, uv. The vulnerability scanner runs as a container in dind. |

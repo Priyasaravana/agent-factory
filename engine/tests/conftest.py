@@ -22,6 +22,17 @@ def cfg():
     return load_config(REPO / ".agent-factory" / "config.yaml")
 
 
+_CREATED: list[Factory] = []
+
+
+@pytest.fixture(autouse=True)
+async def _stop_runs_after_test():
+    """Cancel runs a test left in flight, so the event loop can close cleanly."""
+    yield
+    while _CREATED:
+        await _CREATED.pop().manager.shutdown()
+
+
 @pytest.fixture
 def make_factory(tmp_path, cfg):
     def make(executor: FakeExecutor | None = None, agents: FakeAgentRunner | None = None) -> Factory:
@@ -32,13 +43,15 @@ def make_factory(tmp_path, cfg):
             data_dir=str(tmp_path / "data"),
             _env_file=None,
         )
-        return build_factory(
+        f = build_factory(
             settings,
             cfg,
             SqliteStateStore(":memory:"),
             executor or FakeExecutor(),
             agents or FakeAgentRunner(),
         )
+        _CREATED.append(f)
+        return f
 
     return make
 
