@@ -116,7 +116,11 @@ function useRunEvents(runId: string): FactoryEvent[] {
 function EventLog({ events }: { events: FactoryEvent[] }) {
   const [filter, setFilter] = useState<"all" | "decisions" | "stations">("all");
   const bottom = useRef<HTMLDivElement>(null);
-  useEffect(() => bottom.current?.scrollIntoView({ block: "nearest" }), [events.length]);
+  // Block body on purpose: newer Chrome returns a Promise from scrollIntoView, and
+  // React would call a returned value as the effect's cleanup (blank page).
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "nearest" });
+  }, [events.length]);
   const shown = events.filter((e) =>
     filter === "all" ? true : filter === "decisions" ? e.kind === "decision" : e.kind.startsWith("station"),
   );
