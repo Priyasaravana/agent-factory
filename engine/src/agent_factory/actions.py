@@ -572,7 +572,6 @@ def _skill_info(r: SkillRecord) -> SkillInfo:
     return SkillInfo(
         name=r.name,
         description=r.description[:300],
-        vendored=False,
         source="github",
         repo=r.repo,
         path=r.path,
@@ -667,17 +666,13 @@ def remove_skill(f: Factory, name: str) -> list[SkillInfo]:
 
 
 def _installed_skills(skills_dir: Path) -> list[SkillInfo]:
-    vendored = set()
-    note = skills_dir / "VENDORED.md"
-    if note.exists():
-        vendored = set(re.findall(r"^\| ([a-z0-9-]+) \|", note.read_text(), re.MULTILINE))
     out = []
     for skill in sorted(skills_dir.glob("*/SKILL.md")):
         text = skill.read_text()
         m = re.search(r"^description:\s*(?:>-?\s*\n)?(.+?)(?:\n[a-z_-]+:|\n---)", text, re.DOTALL | re.MULTILINE)
         desc = " ".join(m.group(1).split()) if m else ""
         name = skill.parent.name
-        out.append(SkillInfo(name=name, description=desc[:300], vendored=name in vendored))
+        out.append(SkillInfo(name=name, description=desc[:300]))
     return out
 
 

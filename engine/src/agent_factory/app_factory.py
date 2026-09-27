@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -22,10 +23,13 @@ from agent_factory.engine.pipeline import FactoryError, RunManager
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
+from agent_factory.github import fetch_dir
 from agent_factory.models import TERMINAL, RunStatus
 from agent_factory.settings import Settings
 from agent_factory.skills import SkillError, SkillLibrary
 from agent_factory.state import SqliteStateStore, StateStore
+
+log = logging.getLogger("agent_factory")
 
 
 @dataclass
@@ -61,7 +65,24 @@ def build_factory(
         home / "plugin" / "skills",
         library,
     )
-    workflows.ensure_seeded()  # first start: template -> workflow v1 per product line (never overwrites)
+    # default skills first: the default workflow template uses them
+    skill_problems = library.ensure_defaults(
+        cfg.default_skills,
+        Path(settings.skill_seeds_dir),
+        lambda repo, path, ref: fetch_dir(repo, path, ref, settings.skills_github_token),
+    )
+    for problem in skill_problems:
+        log.warning("%s", problem)
+    try:
+        workflows.ensure_seeded()  # first start: template -> workflow v1 per product line (never overwrites)
+    except WorkflowError as exc:
+        if skill_problems:
+            raise WorkflowError(
+                "could not seed the workflows because default skills are missing "
+                "(first start needs GitHub access, or an image built with them)",
+                exc.problems + skill_problems,
+            ) from exc
+        raise  # first start: template -> workflow v1 per product line (never overwrites)
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
     if agents is None:
         if live:

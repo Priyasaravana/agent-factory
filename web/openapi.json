@@ -3091,10 +3091,6 @@
             "type": "string",
             "title": "Description"
           },
-          "vendored": {
-            "type": "boolean",
-            "title": "Vendored"
-          },
           "source": {
             "type": "string",
             "enum": [
@@ -3170,8 +3166,7 @@
         "type": "object",
         "required": [
           "name",
-          "description",
-          "vendored"
+          "description"
         ],
         "title": "SkillInfo"
       },

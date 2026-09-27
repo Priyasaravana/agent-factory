@@ -63,7 +63,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |
 | `prompts/` | The shared station contract every agent receives. |
-| `plugin/` | Built-in skills loaded into agents: vendored from BuilderIO/skills, plus our own. More can be imported from GitHub in the UI; see [docs/skills.md](docs/skills.md). |
+| `plugin/` | The factory's own skills. BuilderIO skills are imported on first start (pinned in `default_skills` in the config), and more can be imported in the UI; see [docs/skills.md](docs/skills.md). |
 | `cluster/` | kind-in-dind config, bootstrap and container entrypoint. |
 | `images/factory/` | Factory runtime image: engine plus docker CLI, kind, kubectl, helm, gh, uv. The vulnerability scanner runs as a container in dind. |
 | `docs/` | Architecture, ADRs, scaling path, runbook. |
@@ -84,8 +84,8 @@ make openapi     # after changing engine models/actions: regenerate contract + U
 cd web && npm run dev   # UI dev server on :5173, proxied to the engine on :8000
 ```
 
-Credits: the Factory conventions and several skills come from
-[BuilderIO/skills](https://github.com/BuilderIO/skills) (MIT). The
-shared-actions pattern comes from
-[BuilderIO/agent-native](https://github.com/BuilderIO/agent-native). See
-[plugin/skills/VENDORED.md](plugin/skills/VENDORED.md).
+Credits: the Factory conventions and the default skills come from
+[BuilderIO/skills](https://github.com/BuilderIO/skills) (MIT); they are imported
+at a pinned commit (see `default_skills` in `.agent-factory/config.yaml`), not
+copied into this repo. The shared-actions pattern comes from
+[BuilderIO/agent-native](https://github.com/BuilderIO/agent-native).

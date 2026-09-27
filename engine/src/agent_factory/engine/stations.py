@@ -48,6 +48,7 @@ class StationContext:
     station_id: str
     workflow_doc: WorkflowDoc
     imported_plugin: Path | None = None  # the version's pinned imported skills, as a local plugin
+    skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this run
 
     @property
     def product_line(self) -> ProductLine:
@@ -101,8 +102,8 @@ class StationContext:
             observe_only=spec.observe_only,
             produces=spec.produces,
             max_turns=spec.max_turns,
-            skills=[k for k in spec.skills if k not in self.workflow_doc.skill_pins],
-            imported_skills=[k for k in spec.skills if k in self.workflow_doc.skill_pins],
+            skills=[k for k in spec.skills if k not in self.skill_pins],
+            imported_skills=[k for k in spec.skills if k in self.skill_pins],
             imported_plugin=self.imported_plugin,
             skill_overlay=self.cfg.skill_overlay(spec.skills),
             output_schema=schema,

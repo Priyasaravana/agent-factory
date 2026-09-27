@@ -1,5 +1,5 @@
-"""Skills library: the vendored skills shipped in plugin/skills plus skills
-imported from GitHub.
+"""Skills library: the factory's own skills shipped in plugin/skills, plus
+skills imported from GitHub (including the configured defaults, e.g. BuilderIO/skills).
 
 Imported skills are pinned to a commit. Every installed commit is kept in the DB,
 so a workflow version that pinned an older commit still gets exactly that
@@ -29,6 +29,9 @@ import yaml
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from agent_factory.config import SkillSource
     from agent_factory.github import Fetched
     from agent_factory.state.base import StateStore
     from agent_factory.workflow import WorkflowDoc
@@ -111,6 +114,10 @@ def read_folder(root: Path) -> tuple[dict[str, str], list[str]]:
     return files, problems
 
 
+def seed_dir(seeds_dir: Path, repo: str, sha: str, path: str) -> Path:
+    return seeds_dir / repo / sha / path.strip("/")
+
+
 def _diff(old: dict[str, str], new: dict[str, str]) -> str:
     out: list[str] = []
     for path in sorted(set(old) | set(new)):
@@ -127,14 +134,14 @@ def _diff(old: dict[str, str], new: dict[str, str]) -> str:
 
 
 class SkillLibrary:
-    def __init__(self, store: StateStore, vendored_dir: Path, cache_dir: Path) -> None:
+    def __init__(self, store: StateStore, builtin_dir: Path, cache_dir: Path) -> None:
         self.store = store
-        self.vendored_dir = vendored_dir
+        self.builtin_dir = builtin_dir
         self.cache_dir = cache_dir
 
     # ---------------------------------------------------------------- read --
-    def vendored_names(self) -> set[str]:
-        return {p.parent.name for p in self.vendored_dir.glob("*/SKILL.md")}
+    def builtin_names(self) -> set[str]:
+        return {p.parent.name for p in self.builtin_dir.glob("*/SKILL.md")}
 
     def imported(self) -> list[SkillRecord]:
         return self.store.current_skills()
@@ -158,8 +165,8 @@ class SkillLibrary:
         name, description = skill_meta(files.get("SKILL.md", ""), fallback)
         if not SKILL_NAME.match(name):
             problems.append(f"skill name '{name}' must be lowercase letters, digits and '-' (max 64)")
-        if name in self.vendored_names():
-            problems.append(f"'{name}' is a vendored skill shipped with the factory; imports cannot replace it")
+        if name in self.builtin_names():
+            problems.append(f"'{name}' is a built-in skill shipped with the factory; imports cannot replace it")
         if not description:
             problems.append("SKILL.md frontmatter needs a description (agents use it to decide when to load the skill)")
         current = self.store.current_skill(name)
@@ -180,8 +187,9 @@ class SkillLibrary:
             scripts=[p for p, c in files.items() if is_script(p, c)],
             problems=problems,
             installed_sha=current.sha if current else None,
-            diff=_diff(current.files, files) if current and current.sha != fetched.sha else None,
-            up_to_date=bool(current and current.sha == fetched.sha),
+            diff=(_diff(current.files, files) or None) if current and current.sha != fetched.sha else None,
+            # a newer commit that doesn't touch this skill's folder is not an update
+            up_to_date=bool(current and (current.sha == fetched.sha or current.files == files)),
         )
 
     # ------------------------------------------------------------- install --
@@ -211,7 +219,55 @@ class SkillLibrary:
         self.get(name)
         self.store.set_current_skill(name, None)
 
+    # ------------------------------------------------------------ defaults --
+    def ensure_defaults(
+        self,
+        sources: list[SkillSource],
+        seeds_dir: Path,
+        fetch: Callable[[str, str, str], Fetched],
+    ) -> list[str]:
+        """First start: install the configured default skills at their pinned
+        commit, from the copy baked into the image or else from GitHub. A skill
+        that was ever installed is left alone (updated or removed by a human).
+        Returns problems; the factory still starts without them."""
+        from agent_factory.github import Fetched
+
+        problems: list[str] = []
+        for src in sources:
+            for path in src.paths:
+                if self.store.skill_versions(Path(path).name):
+                    continue
+                seed = seed_dir(seeds_dir, src.repo, src.sha, path)
+                try:
+                    if (seed / "SKILL.md").exists():
+                        fetched = Fetched(src.repo, path, src.ref, src.sha, seed, _tmp=seeds_dir / ".none")
+                    else:
+                        fetched = fetch(src.repo, path, src.sha)
+                        fetched.ref = src.ref
+                    try:
+                        name, _ = skill_meta((fetched.root / "SKILL.md").read_text(), Path(path).name)
+                        if not self.store.skill_versions(name):
+                            self.install(fetched, accept_scripts=True)  # reviewed via the pin in config
+                    finally:
+                        if fetched.root != seed:
+                            fetched.cleanup()
+                except Exception as exc:  # noqa: BLE001 - one bad default must not stop the factory
+                    problems.append(f"default skill {src.repo}/{path}@{src.sha[:7]}: {exc}")
+        return problems
+
     # ---------------------------------------------------------------- pins --
+    def effective_pins(self, doc: WorkflowDoc) -> dict[str, str]:
+        """Pins a run uses: the version's own pins, plus the installed commit for
+        imported skills an older version used before it recorded pins (e.g. the
+        BuilderIO skills that used to ship inside the image)."""
+        pins = dict(doc.skill_pins)
+        current = {r.name: r.sha for r in self.imported()}
+        for a in doc.agents.values():
+            for s in a.skills:
+                if s not in pins and s in current and s not in self.builtin_names():
+                    pins[s] = current[s]
+        return pins
+
     def pins_for(self, doc: WorkflowDoc) -> dict[str, str]:
         """Pins for publishing: the installed commit of every imported skill the
         workflow's agents use (an earlier pin is kept only if the skill was removed)."""

@@ -112,7 +112,7 @@ async def test_draft_over_http(make_factory):
     async with c:
         cat = (await c.get("/api/catalog")).json()
         assert "builder" in cat["presets"] and cat["model_tiers"]["judgment"] == "opus"
-        assert any(s["name"] == "plow-ahead" and s["vendored"] for s in cat["skills"])
+        assert any(s["name"] == "plow-ahead" and s["source"] == "github" for s in cat["skills"])
 
         spec = _reviewer().model_dump()
         r = await c.put("/api/workflows/fastapi-service/draft/agents/strict-verifier", json=spec)

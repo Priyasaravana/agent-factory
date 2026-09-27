@@ -83,6 +83,22 @@ limits:
   pause_at_utilization: 0.95
 
 # Per-skill project guidance, layered onto the skill wherever an agent uses it.
+# Installed on first start (from the copy baked into the image, else GitHub) and
+# then managed on the Skills page. Changing a pin here only affects new installs.
+default_skills:
+  - repo: BuilderIO/skills
+    ref: main
+    sha: a74a3a0b8f400d2820351bcd695a7217dc88bec7
+    license: MIT
+    paths:
+      - skills/plow-ahead
+      - skills/agent-watchdog
+      - skills/efficient-frontier
+      - skills/read-the-damn-docs
+      - skills/quick-recap
+      - skills/stay-within-limits
+      - skills/factory-recover
+
 skill_prompts:
   plow-ahead: |
     Humans only give requirements and post-deploy feedback. Turn routine

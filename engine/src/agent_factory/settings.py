@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     github_token: str | None = None
     # Read-only token for importing templates/skills from private GitHub repos
     skills_github_token: str | None = None
+    # default skills fetched at image build (see images/factory/Dockerfile); if a
+    # folder is missing here, it is fetched from GitHub on first start instead
+    skill_seeds_dir: str = "/opt/factory/skill-seeds"
     git_author_name: str = "Agent Factory"
     git_author_email: str = "agent-factory@localhost"
 

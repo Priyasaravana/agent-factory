@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from conftest import _CREATED, ORDER, wait_run
+from conftest import _CREATED, ORDER, default_skill_names, make_seeds, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.app_factory import build_factory
@@ -25,6 +25,7 @@ from agent_factory.workflow import load_workflow_dir, validate_workflow, workflo
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATES = REPO / "workflow-templates"
 SKILLS = REPO / "plugin" / "skills"
+DEFAULTS = default_skill_names()  # imported on first start (config: default_skills)
 WF = "fastapi-service"
 
 
@@ -42,13 +43,13 @@ WF = "fastapi-service"
 def test_station_role_requirements(agent, preset, message) -> None:
     doc = load_workflow_dir(TEMPLATES / "default")
     doc.agents[agent].tools = preset
-    assert any(message in p for p in validate_workflow(doc, SKILLS))
+    assert any(message in p for p in validate_workflow(doc, SKILLS, DEFAULTS))
 
 
 def test_narrowing_a_preset_can_break_a_role() -> None:
     doc = load_workflow_dir(TEMPLATES / "default")
     doc.agents["developer"].disallowed_tools = ["Bash"]
-    assert any("needs shell access" in p for p in validate_workflow(doc, SKILLS))
+    assert any("needs shell access" in p for p in validate_workflow(doc, SKILLS, DEFAULTS))
 
 
 def test_warnings_are_advice_not_errors() -> None:
@@ -57,7 +58,7 @@ def test_warnings_are_advice_not_errors() -> None:
     doc.agents["intake"].model = "fast"
     doc.agents["spare"] = doc.agents["intake"].model_copy(update={"id": "spare"})
     warnings = workflow_warnings(doc)
-    assert validate_workflow(doc, SKILLS) == []
+    assert validate_workflow(doc, SKILLS, DEFAULTS) == []
     assert any("agent-watchdog" in w for w in warnings)
     assert any("fast tier" in w for w in warnings)
     assert any("'spare' is not used" in w for w in warnings)
@@ -66,7 +67,7 @@ def test_warnings_are_advice_not_errors() -> None:
 # -------------------------------------------------------------- templates --
 def test_builtin_templates_are_valid() -> None:
     for t in [p for p in TEMPLATES.iterdir() if p.is_dir()]:
-        assert validate_workflow(load_workflow_dir(t), SKILLS) == [], t.name
+        assert validate_workflow(load_workflow_dir(t), SKILLS, DEFAULTS) == [], t.name
 
 
 async def test_start_from_template_then_publish_and_run(make_factory):
@@ -121,7 +122,13 @@ def two_products(tmp_path):
     cfg.product_lines["secure-api"] = base.model_copy(
         update={"workflow_template": "workflow-templates/api-security-review", "node_ports": [30083, 30084]}
     )
-    settings = Settings(factory_mode="dry-run", factory_home=str(REPO), data_dir=str(tmp_path / "data"), _env_file=None)
+    settings = Settings(
+        factory_mode="dry-run",
+        factory_home=str(REPO),
+        data_dir=str(tmp_path / "data"),
+        skill_seeds_dir=str(make_seeds(tmp_path / "seeds")),
+        _env_file=None,
+    )
     f = build_factory(settings, cfg, SqliteStateStore(":memory:"), FakeExecutor(), FakeAgentRunner())
     _CREATED.append(f)
     return f
@@ -181,7 +188,13 @@ def test_legacy_line_tables_and_runs_migrate(tmp_path):
     con.close()
 
     cfg = load_config(REPO / ".agent-factory" / "config.yaml")
-    settings = Settings(factory_mode="dry-run", factory_home=str(REPO), data_dir=str(tmp_path), _env_file=None)
+    settings = Settings(
+        factory_mode="dry-run",
+        factory_home=str(REPO),
+        data_dir=str(tmp_path),
+        skill_seeds_dir=str(make_seeds(tmp_path / "seeds")),
+        _env_file=None,
+    )
     f = build_factory(settings, cfg, SqliteStateStore(db), FakeExecutor(), FakeAgentRunner())
     w = f.workflows[WF]
     assert w.active_version() == 2 and [v.version for v in w.versions()] == [2, 1]

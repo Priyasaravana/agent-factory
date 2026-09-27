@@ -32,6 +32,11 @@ def main() -> None:
     wa = wsub.add_parser("activate", help="make a version active for new runs (rollback)")
     wa.add_argument("version", type=int)
 
+    sk = sub.add_parser("skills", help="skills library")
+    ssub = sk.add_subparsers(dest="sk_cmd", required=True)
+    sc = ssub.add_parser("cache", help="fetch the config's default_skills at their pinned commits (image build)")
+    sc.add_argument("--out", required=True)
+
     args = parser.parse_args()
 
     if args.cmd == "serve":
@@ -46,6 +51,38 @@ def main() -> None:
         print(f"wrote {args.out}")
     elif args.cmd == "workflow":
         _workflow(args)
+    elif args.cmd == "skills":
+        _skills_cache(Path(args.out))
+
+
+def _skills_cache(out: Path) -> None:
+    """Copy each default skill folder to <out>/<repo>/<sha>/<path>, so a new
+    factory can install them without GitHub access."""
+    import shutil
+
+    from agent_factory.config import load_config
+    from agent_factory.github import fetch_dir
+    from agent_factory.settings import Settings
+    from agent_factory.skills import seed_dir
+
+    settings = Settings()
+    for src in load_config(settings.factory_config).default_skills:
+        for path in src.paths:
+            dest = seed_dir(out, src.repo, src.sha, path)
+            if (dest / "SKILL.md").exists():
+                continue
+            fetched = fetch_dir(src.repo, path, src.sha, settings.skills_github_token)
+            try:
+                shutil.copytree(fetched.root, dest, ignore=shutil.ignore_patterns(".git"))
+            finally:
+                fetched.cleanup()
+            print(f"cached {src.repo}/{path}@{src.sha[:7]}")
+        if src.license:
+            notice = out / src.repo / src.sha / "NOTICE"
+            notice.write_text(
+                f"Skills from https://github.com/{src.repo} at {src.sha}, {src.license} licensed.\n"
+                f"License: https://github.com/{src.repo}/blob/{src.sha}/LICENSE\n"
+            )
 
 
 def _workflow(args: argparse.Namespace) -> None:

@@ -8,8 +8,9 @@
   line, seeded from `workflow-templates/<name>/`, stored as immutable versions in
   the DB. Runs are pinned to (workflow, version). Prefer template, spec and skill
   changes over engine changes (see docs/workflows.md).
-- Vendored skills in `plugin/skills/` are unmodified upstream copies. Layer
-  guidance through `skill_prompts` instead of editing them.
+- `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
+  imported at a pinned commit via `default_skills` in the config; never copy
+  them into the repo. Layer guidance through `skill_prompts` instead of editing them.
 - Stations must never report success without evidence. Missing evidence means
   FAILED or HELD.
 - Guardrails live in `engine/src/agent_factory/agents/hooks.py`. Add a test in

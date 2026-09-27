@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import ORDER, default_skill_names, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.engine.workflows import WorkflowError
@@ -25,11 +25,12 @@ WF = "fastapi-service"
 REPO = Path(__file__).resolve().parents[2]
 BLUEPRINT = REPO / "workflow-templates" / "default"
 SKILLS = REPO / "plugin" / "skills"
+DEFAULTS = default_skill_names()  # imported on first start (config: default_skills)
 
 
 def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
     doc = load_workflow_dir(BLUEPRINT)
-    assert validate_workflow(doc, SKILLS) == []
+    assert validate_workflow(doc, SKILLS, DEFAULTS) == []
     assert [s.id for s in doc.forward_stations()] == [
         "intake",
         "design",
@@ -65,7 +66,7 @@ def test_agent_md_roundtrip() -> None:
 def test_validation_catches_broken_lines(mutate, problem) -> None:
     doc = load_workflow_dir(BLUEPRINT)
     mutate(doc)
-    assert any(problem in p for p in validate_workflow(doc, SKILLS))
+    assert any(problem in p for p in validate_workflow(doc, SKILLS, DEFAULTS))
 
 
 def test_presets_cannot_be_widened_to_dangerous_tools() -> None:

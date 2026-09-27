@@ -133,7 +133,7 @@ export default function AgentEditor({ initial, catalog, docs, saving, error, onS
           {catalog.skills.map((sk) => (
             <label key={sk.name} className="check" title={sk.description}>
               <input type="checkbox" checked={(s.skills ?? []).includes(sk.name)} onChange={() => toggle("skills", sk.name)} />
-              {sk.name} {sk.vendored && <span className="muted small">(vendored)</span>}
+              {sk.name}
               {sk.source === "github" && (
                 <span className="pill info" title={`${sk.repo}/${sk.path} @ ${sk.sha}`}>
                   github @{sk.sha?.slice(0, 7)}

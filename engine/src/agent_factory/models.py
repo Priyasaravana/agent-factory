@@ -210,7 +210,6 @@ class DraftView(BaseModel):
 class SkillInfo(BaseModel):
     name: str
     description: str
-    vendored: bool  # copied from BuilderIO/skills (see plugin/skills/VENDORED.md)
     source: Literal["builtin", "github"] = "builtin"
     repo: str | None = None  # github imports: owner/repo, folder, ref and the pinned commit
     path: str | None = None
