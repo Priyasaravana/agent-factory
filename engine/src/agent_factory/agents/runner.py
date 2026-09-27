@@ -67,6 +67,23 @@ def plugins_for(factory_home: Path, req: AgentRequest) -> list[dict[str, str]]:
     return plugins
 
 
+def init_summary(data: dict[str, Any], req: AgentRequest) -> dict[str, Any]:
+    """What the CLI actually loaded, from its init message: makes a missing
+    plugin or skill visible in the run log instead of silently absent."""
+    plugins = [p.get("name", "?") if isinstance(p, dict) else str(p) for p in data.get("plugins") or []]
+    # newer CLIs report "skills"; older ones only list them among slash commands
+    loaded = [str(s) for s in data.get("skills") or data.get("slash_commands") or []]
+    wanted = skill_refs(req)
+    missing = [w for w in wanted if loaded and w not in loaded and w.split(":", 1)[-1] not in loaded]
+    seen = f"available {loaded}" if loaded else "not reported by the CLI"
+    text = f"agent loaded plugins {plugins or '[]'}; requested skills {wanted}; {seen}"
+    if missing:
+        text += f"; MISSING {missing}"
+    if "Skill" not in (data.get("tools") or []) and wanted:
+        text += "; Skill tool NOT available"
+    return {"text": text, "plugins": plugins, "skills": loaded, "wanted": wanted, "missing": missing}
+
+
 def sdk_tools(req: AgentRequest) -> list[str]:
     """Built-in tools available to the agent. `tools` is the SDK's *base set*:
     without the Skill tool in it, no skill can ever be loaded, however it is
@@ -108,6 +125,7 @@ class ClaudeAgentRunner:
             ClaudeAgentOptions,
             RateLimitEvent,
             ResultMessage,
+            SystemMessage,
             TextBlock,
             ToolUseBlock,
             query,
@@ -168,6 +186,8 @@ class ClaudeAgentRunner:
                         "rate_limit",
                         {"status": info.status, "utilization": info.utilization, "resets_at": info.resets_at},
                     )
+                elif isinstance(msg, SystemMessage) and msg.subtype == "init":
+                    await sink("agent_init", init_summary(msg.data, req))
                 elif isinstance(msg, ResultMessage):
                     result.cost_usd = msg.total_cost_usd or 0.0
                     result.turns = msg.num_turns

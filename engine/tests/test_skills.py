@@ -11,7 +11,7 @@ from test_api import _client
 
 import agent_factory.actions as actions
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.agents.runner import AgentRequest, plugins_for, sdk_tools, skill_refs
+from agent_factory.agents.runner import AgentRequest, init_summary, plugins_for, sdk_tools, skill_refs
 from agent_factory.github import Fetched
 from agent_factory.models import InstallSkillInput, RunStatus, SkillSourceInput
 from agent_factory.skills import SkillError
@@ -193,3 +193,35 @@ def test_skill_tool_is_available_only_when_skills_are_listed(tmp_path: Path) -> 
     assert sdk_tools(base) == ["Read"]
     with_skill = AgentRequest(**{**base.__dict__, "skills": ["factory-station-contract"]})
     assert sdk_tools(with_skill) == ["Read", "Skill"] and with_skill.tools == ["Read"]
+
+
+def test_init_summary_flags_missing_skills(tmp_path: Path) -> None:
+    req = AgentRequest(
+        run_id="r",
+        station="s",
+        role="x",
+        prompt="p",
+        cwd=tmp_path,
+        model="m",
+        skills=["factory-station-contract"],
+        imported_skills=["plow-ahead"],
+        imported_plugin=tmp_path,
+    )
+    ok = init_summary(
+        {
+            "plugins": [{"name": "agent-factory"}, {"name": "imported-skills"}],
+            "tools": ["Read", "Skill"],
+            "skills": ["agent-factory:factory-station-contract", "imported-skills:plow-ahead"],
+        },
+        req,
+    )
+    assert ok["missing"] == [] and "MISSING" not in ok["text"]
+    bad = init_summary(
+        {
+            "plugins": [{"name": "agent-factory"}],
+            "tools": ["Read"],
+            "skills": ["agent-factory:factory-station-contract"],
+        },
+        req,
+    )
+    assert bad["missing"] == ["imported-skills:plow-ahead"] and "Skill tool NOT available" in bad["text"]
