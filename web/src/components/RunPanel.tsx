@@ -72,19 +72,38 @@ function useRunEvents(runId: string): FactoryEvent[] {
     let last = 0;
     let source: EventSource | null = null;
     let closed = false;
+    const add = (batch: FactoryEvent[]) => {
+      if (!batch.length) return;
+      last = Math.max(last, ...batch.map((e) => e.id));
+      setEvents((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const fresh = batch.filter((e) => !seen.has(e.id));
+        return fresh.length ? [...prev, ...fresh].sort((a, b) => a.id - b.id) : prev;
+      });
+    };
+    // Fallback when the live stream can't get through (a proxy, or too many open
+    // tabs): fetch whatever was missed over plain HTTP.
+    const catchUp = async () => {
+      try {
+        const res = await api.GET("/api/runs/{run_id}/events", {
+          params: { path: { run_id: runId }, query: { after: last } },
+        });
+        if (res.data && !closed) add(res.data);
+      } catch {
+        /* the next reconnect tries again */
+      }
+    };
     const connect = () => {
       source = new EventSource(`/api/runs/${runId}/stream?after=${last}`);
-      source.addEventListener("event", (m) => {
-        const ev = JSON.parse((m as MessageEvent).data) as FactoryEvent;
-        last = Math.max(last, ev.id);
-        setEvents((prev) => (prev.some((p) => p.id === ev.id) ? prev : [...prev, ev]));
-      });
+      source.addEventListener("event", (m) => add([JSON.parse((m as MessageEvent).data) as FactoryEvent]));
       // The server closes the stream when the run parks; reconnect slowly to catch resumes.
       source.onerror = () => {
         source?.close();
+        void catchUp();
         if (!closed) setTimeout(connect, 5_000);
       };
     };
+    void catchUp();
     connect();
     return () => {
       closed = true;
