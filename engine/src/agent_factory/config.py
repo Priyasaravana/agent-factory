@@ -70,6 +70,18 @@ class Limits(BaseModel):
     pause_at_utilization: float = 0.95
 
 
+class SkillSource(BaseModel):
+    """Skills installed on first start from a GitHub repo, pinned to a commit.
+    Changing the pin here is how the default is reviewed (in a PR); after
+    install, updates are managed in the Skills page."""
+
+    repo: str  # owner/name
+    ref: str = "main"  # followed by "check for update"
+    sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    paths: list[str]  # skill folders (each contains SKILL.md)
+    license: str | None = None
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -81,6 +93,7 @@ class FactoryConfig(BaseModel):
     budgets: Budgets = Budgets()
     limits: Limits = Limits()
     skill_prompts: dict[str, str] = Field(default_factory=dict)
+    default_skills: list[SkillSource] = Field(default_factory=list)
 
     def skill_overlay(self, skills: list[str]) -> str:
         parts = [

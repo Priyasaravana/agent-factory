@@ -44,6 +44,9 @@ COPY engine/src engine/src
 RUN uv pip install --system --no-cache ./engine
 
 COPY .agent-factory .agent-factory
+# Default skills (config: default_skills) at their pinned commits, so first start
+# works offline. They are installed into the DB and managed on the Skills page.
+RUN FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml agent-factory skills cache --out /opt/factory/skill-seeds
 COPY prompts prompts
 COPY workflow-templates workflow-templates
 COPY plugin plugin

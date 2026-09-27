@@ -1205,8 +1205,6 @@ export interface components {
             name: string;
             /** Description */
             description: string;
-            /** Vendored */
-            vendored: boolean;
             /**
              * Source
              * @default builtin

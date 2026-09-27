@@ -19,6 +19,6 @@ so each change below replaces an implementation rather than rewriting the engine
 - `.agent-factory/config.yaml`: stations, routes, policies, budgets, models, skills per role
 - `templates/<product-line>/`: a new golden path (e.g. Next.js, Go service)
 - `prompts/<role>.md`: role behaviour
-- `plugin/skills/<name>/SKILL.md`: portable skills in the open skills format,
+- `plugin/skills/<name>/SKILL.md` (our own) or `default_skills` imports: portable skills in the open skills format,
   usable in Claude Code or Codex too
 - Plugins for new station types or providers (future: Python entry points)

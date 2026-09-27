@@ -1,6 +1,6 @@
 # ADR-0004: Reuse BuilderIO Factory practices instead of inventing our own
 
-**Status:** accepted · 2026-09-25
+**Status:** accepted · 2026-09-25 · vendoring superseded by ADR-0010 (imported defaults)
 
 ## Context
 BuilderIO/skills ships an experimental *Factory* skill set for turning signals

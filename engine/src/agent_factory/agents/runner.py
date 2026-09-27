@@ -37,7 +37,7 @@ class AgentRequest:
     observe_only: bool = False
     produces: list[str] = field(default_factory=list)  # files the spec promises (checked by the engine)
     max_turns: int = 50
-    skills: list[str] = field(default_factory=list)  # vendored skills (factory plugin)
+    skills: list[str] = field(default_factory=list)  # built-in skills (factory plugin)
     imported_skills: list[str] = field(default_factory=list)  # pinned imports, loaded from imported_plugin
     imported_plugin: Path | None = None
     skill_overlay: str = ""

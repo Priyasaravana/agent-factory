@@ -76,9 +76,9 @@ async def test_preview_shows_files_scripts_and_problems(make_factory, gh):
     assert {x.path for x in pv.files} == {"SKILL.md", "scripts/scan.sh"}
     assert pv.installed_sha is None and pv.diff is None
 
-    gh.commit("3" * 40, {"SKILL.md": "---\nname: agent-watchdog\n---\nnope\n"})
+    gh.commit("3" * 40, {"SKILL.md": "---\nname: factory-station-contract\n---\nnope\n"})
     pv = actions.preview_skill(f, SRC.model_copy(update={"ref": "3" * 40}))
-    assert any("vendored skill" in p for p in pv.problems)
+    assert any("built-in skill" in p for p in pv.problems)
     assert any("needs a description" in p for p in pv.problems)
     gh.commit("4" * 40, {"README.md": "no skill here"})
     pv = actions.preview_skill(f, SRC.model_copy(update={"ref": "4" * 40}))
@@ -95,7 +95,7 @@ async def test_install_needs_script_consent_and_the_reviewed_commit(make_factory
     assert info.sha == SHA1 and info.ref == "main" and info.source == "github"
     assert gh.calls[-1][2] == SHA1
     names = {s.name: s for s in actions.get_catalog(f).skills}
-    assert names["owasp-check"].source == "github" and names["agent-watchdog"].source == "builtin"
+    assert names["owasp-check"].source == "github" and names["factory-station-contract"].source == "builtin"
 
 
 async def test_pinned_skill_reaches_the_agent_and_old_versions_keep_their_pin(make_factory, gh):
@@ -107,12 +107,12 @@ async def test_pinned_skill_reaches_the_agent_and_old_versions_keep_their_pin(ma
     _install(f)
     assert d.problems() == []
     d.publish("verifier uses owasp-check")
-    assert f.workflows[WF].get(2).skill_pins == {"owasp-check": SHA1}
+    assert f.workflows[WF].get(2).skill_pins["owasp-check"] == SHA1
 
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
     req = next(c for c in runner.calls if c.role == "verifier")
-    assert req.imported_skills == ["owasp-check"] and "owasp-check" not in req.skills
+    assert "owasp-check" in req.imported_skills and "owasp-check" not in req.skills
     assert (req.imported_plugin / "skills" / "owasp-check" / "SKILL.md").read_text() == SKILL_V1
     assert (req.imported_plugin / "skills" / "owasp-check" / "scripts" / "scan.sh").exists()
 
@@ -126,7 +126,7 @@ async def test_pinned_skill_reaches_the_agent_and_old_versions_keep_their_pin(ma
     view = actions.get_draft(f, WF)
     assert view.skill_updates == {"owasp-check": SHA2} and not view.dirty
     f.workflows[WF].draft.publish("pick up owasp-check update")
-    assert f.workflows[WF].get(3).skill_pins == {"owasp-check": SHA2}
+    assert f.workflows[WF].get(3).skill_pins["owasp-check"] == SHA2
     lib = f.workflows.library
     old = lib.materialise(f.workflows[WF].get(2).skill_pins)
     new = lib.materialise(f.workflows[WF].get(3).skill_pins)

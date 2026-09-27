@@ -150,7 +150,7 @@ export default function SkillsPage() {
         <ul className="list">
           {builtin.map((s: SkillInfo) => (
             <li key={s.name}>
-              <strong>{s.name}</strong> {s.vendored && <span className="pill muted">BuilderIO</span>}
+              <strong>{s.name}</strong>
               <span className="small muted">{s.description}</span>
             </li>
           ))}
@@ -197,7 +197,13 @@ function PreviewCard({
         )}
       </p>
       <p>{p.description}</p>
-      {p.up_to_date && <p className="note">Already installed at this commit.</p>}
+      {p.up_to_date && (
+        <p className="note">
+          {p.installed_sha === p.sha
+            ? "Already installed at this commit."
+            : `No changes to this skill since the installed commit (${p.installed_sha?.slice(0, 7)}).`}
+        </p>
+      )}
       {p.problems.length > 0 && (
         <div className="problems">
           <strong>Cannot install:</strong>
