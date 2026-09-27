@@ -58,7 +58,10 @@ async def test_options_are_scoped_per_role(tmp_path, monkeypatch):
     res = await ClaudeAgentRunner(REPO).run(_req(tmp_path), _noop_sink)
     o = seen["options"]
     assert res.ok and res.cost_usd == 0.12 and res.turns == 3
-    assert o.tools == ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"]
+    # Skill must be in the base tool set or no skill can load; the allow-list
+    # stays per skill (the SDK adds Skill(agent-factory:plow-ahead))
+    assert o.tools == ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task", "Skill"]
+    assert "Skill" not in o.allowed_tools
     assert o.skills == ["agent-factory:plow-ahead"]
     assert o.plugins[0]["path"].endswith("plugin")
     assert o.agents["mechanic"].model == "haiku"

@@ -67,6 +67,16 @@ def plugins_for(factory_home: Path, req: AgentRequest) -> list[dict[str, str]]:
     return plugins
 
 
+def sdk_tools(req: AgentRequest) -> list[str]:
+    """Built-in tools available to the agent. `tools` is the SDK's *base set*:
+    without the Skill tool in it, no skill can ever be loaded, however it is
+    listed in `skills`."""
+    tools = list(req.tools)
+    if skill_refs(req) and "Skill" not in tools:
+        tools.append("Skill")
+    return tools
+
+
 def skill_refs(req: AgentRequest) -> list[str]:
     refs = [f"{PLUGIN_NAME}:{s}" for s in req.skills]
     if req.imported_plugin:
@@ -103,8 +113,8 @@ class ClaudeAgentRunner:
             query,
         )
 
-        tools = list(req.tools)
-        allowed = list(tools)
+        tools = sdk_tools(req)
+        allowed = list(req.tools)  # the SDK adds Skill(<name>) for each listed skill
         mcp_servers: dict[str, Any] = {}
         if self.tools_server is not None:
             mcp_servers["factory"] = self.tools_server

@@ -11,7 +11,7 @@ from test_api import _client
 
 import agent_factory.actions as actions
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.agents.runner import AgentRequest, plugins_for, skill_refs
+from agent_factory.agents.runner import AgentRequest, plugins_for, sdk_tools, skill_refs
 from agent_factory.github import Fetched
 from agent_factory.models import InstallSkillInput, RunStatus, SkillSourceInput
 from agent_factory.skills import SkillError
@@ -184,3 +184,12 @@ async def test_skill_endpoints(make_factory, gh):
         assert (await c.get("/api/skills/nope")).status_code == 404
         assert (await c.delete("/api/skills/owasp-check")).status_code == 200
     await ctx.__aexit__(None, None, None)
+
+
+def test_skill_tool_is_available_only_when_skills_are_listed(tmp_path: Path) -> None:
+    """Regression: `tools` is the SDK's base tool set; without Skill in it the
+    agent could never load a skill (built-in or imported)."""
+    base = AgentRequest(run_id="r", station="s", role="x", prompt="p", cwd=tmp_path, model="m", tools=["Read"])
+    assert sdk_tools(base) == ["Read"]
+    with_skill = AgentRequest(**{**base.__dict__, "skills": ["factory-station-contract"]})
+    assert sdk_tools(with_skill) == ["Read", "Skill"] and with_skill.tools == ["Read"]
