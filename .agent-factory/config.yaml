@@ -44,6 +44,18 @@ product_lines:
     chart_path: deploy/chart
     service_port: 8000
     node_ports: [30080, 30081, 30082, 30083, 30084]   # mapped to host 8081-8085
+    environment: local            # where registry/scan/deploy/publish happen (see below)
+
+# ---------------------------------------------------------------------------
+# Delivery integrations (docs/design/integrations.md). Stations call the
+# provider bound to the product line's environment for each capability.
+# `local` (kind + dind + Trivy + gh) always exists and needs no config.
+# Never put credentials here; secret references arrive in phase 2.
+# ---------------------------------------------------------------------------
+integrations:
+  local: {provider: local}
+environments:
+  local: {registry: local, scan: local, deploy: local, publish: local}
 
 # ---------------------------------------------------------------------------
 # Action policies (Builder Factory style). Modes: auto | manual | off

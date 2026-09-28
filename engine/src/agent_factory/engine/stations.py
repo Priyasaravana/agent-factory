@@ -20,6 +20,8 @@ from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
 from agent_factory.models import EventKind, Order, Run, StationOutcome
+from agent_factory.providers import LocalProvider, ProviderSet
+from agent_factory.providers.local import failed_detail
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import AgentSpec, WorkflowDoc
@@ -32,6 +34,11 @@ class StationResult:
     failure_evidence: str | None = None  # handed to the on_fail station
     questions: list[str] = field(default_factory=list)
     resets_at: int | None = None
+
+
+def _local_set() -> ProviderSet:
+    p = LocalProvider()
+    return ProviderSet(environment="local", registry=p, scan=p, deploy=p, publish=p)
 
 
 @dataclass
@@ -47,6 +54,7 @@ class StationContext:
     worktree: Path
     station_id: str
     workflow_doc: WorkflowDoc
+    providers: ProviderSet = field(default_factory=lambda: _local_set())
     imported_plugin: Path | None = None  # the version's pinned imported skills, as a local plugin
     skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this run
 
@@ -300,65 +308,47 @@ async def verify(ctx: StationContext) -> StationResult:
 
 # ----------------------------------------------------------------- package --
 async def package(ctx: StationContext) -> StationResult:
+    """Build the image here, then scan and publish it through the environment's providers."""
+    p = ctx.providers
     sha = await ctx.ws.head_sha(ctx.worktree)
-    image = f"{ctx.order.product_slug}:{sha}"
-    steps = [f"docker build -t {image} ."]
-    if ctx.product_line.scan_command:
-        steps.append(ctx.product_line.scan_command.format(image=image))
-    else:
-        await ctx.emit(EventKind.decision, "security scan NOT run: no scan_command configured")
-    steps.append(f"kind load docker-image {image} --name {ctx.settings.cluster_name}")
-    for step in steps:
-        res = await ctx.cmd(step, timeout=1500)
-        if not res.ok:
-            return StationResult(
-                StationOutcome.failed,
-                f"packaging failed at: {' '.join(step.split()[:2])}",
-                f"`{step}` exited {res.returncode}:\n{res.output[-4000:]}",
-            )
-    await ctx.emit(EventKind.decision, f"image built and loaded: {image}", {"image": image})
-    return StationResult(StationOutcome.passed, f"image {image} built, scanned and loaded")
+    local_image = f"{ctx.order.product_slug}:{sha}"
+    build = f"docker build -t {local_image} ."
+    res = await ctx.cmd(build, timeout=1500)
+    if not res.ok:
+        return StationResult(
+            StationOutcome.failed,
+            "packaging failed at: docker build",
+            failed_detail(build, res),
+        )
+    scan = await p.scan.scan(ctx, local_image)
+    if not scan.ok:
+        return StationResult(StationOutcome.failed, scan.summary, scan.detail)
+    ref = p.registry.image_ref(ctx, sha)
+    push = await p.registry.push(ctx, local_image, ref)
+    if not push.ok:
+        return StationResult(StationOutcome.failed, push.summary, push.detail)
+    await ctx.emit(EventKind.decision, f"image built and {push.summary}: {ref}", {"image": str(ref)})
+    return StationResult(StationOutcome.passed, f"image {ref} built, {scan.summary} and {push.summary}")
 
 
 # ------------------------------------------------------------------ deploy --
-def namespace(order: Order) -> str:
-    return f"app-{order.product_slug}"[:63]
-
-
 def internal_url(ctx: StationContext) -> str:
-    return f"http://{ctx.settings.dind_host}:{ctx.order.host_port}"
+    return ctx.providers.deploy.internal_url(ctx)
 
 
 async def deploy(ctx: StationContext) -> StationResult:
-    sha = await ctx.ws.head_sha(ctx.worktree)
-    ns, slug = namespace(ctx.order), ctx.order.product_slug
-    helm = (
-        f"helm upgrade --install {slug} {ctx.product_line.chart_path} --namespace {ns} --create-namespace "
-        f"--set image.repository={slug} --set image.tag={sha} "
-        f"--set service.nodePort={ctx.order.node_port} --wait --timeout 5m"
-    )
-    res = await ctx.cmd(helm, timeout=420)
+    p = ctx.providers
+    ref = p.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
+    res = await p.deploy.deploy(ctx, ref)
     if res.ok:
-        smoke = await ctx.cmd(
-            f"for i in $(seq 1 30); do curl -fsS {internal_url(ctx)}/healthz && exit 0; sleep 2; done; exit 1",
-            timeout=90,
-        )
-        if smoke.ok:
-            return StationResult(StationOutcome.passed, f"deployed {slug}:{sha} to {ns}; healthz ok")
-        res = smoke
-    diag = await ctx.cmd(
-        f"kubectl -n {ns} get pods -o wide; kubectl -n {ns} describe pods | tail -60; "
-        f"kubectl -n {ns} logs -l app.kubernetes.io/instance={slug} --tail=80 --all-containers",
-        timeout=60,
-    )
-    return StationResult(
-        StationOutcome.failed, "deployment failed", f"{res.output[-2500:]}\n--- diagnostics ---\n{diag.output[-3500:]}"
-    )
+        return StationResult(StationOutcome.passed, res.summary)
+    diag = await p.deploy.diagnostics(ctx)
+    return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}")
 
 
 async def deploy_fix(ctx: StationContext) -> StationResult:
-    prompt = f"""The deployment to namespace {namespace(ctx.order)} failed. Diagnose from the
-evidence below (you may run kubectl get/describe/logs in that namespace) and fix the
+    prompt = f"""The deployment to {ctx.providers.deploy.target(ctx)} failed. Diagnose from the
+evidence below (you may run kubectl get/describe/logs there) and fix the
 chart ({ctx.product_line.chart_path}), Dockerfile or app config. Do not delete namespaces.
 
 ## Evidence
@@ -447,32 +437,15 @@ async def deliver(ctx: StationContext) -> StationResult:
     pub = ctx.cfg.policies.publish
     if pub.mode == "auto" and ctx.settings.factory_mode == "dry-run":
         notes.append("publish simulated (dry-run)")
-    elif pub.mode == "auto" and ctx.settings.github_token:
-        env = {"GH_TOKEN": ctx.settings.github_token}
-        owner = getattr(pub, "owner", "") or ""
-        name = f"{owner}/{ctx.order.product_slug}" if owner else ctx.order.product_slug
-        has_remote = (await ws.git("remote get-url origin", repo)).ok
-        if not has_remote:
-            vis = "--private" if getattr(pub, "visibility", "private") == "private" else "--public"
-            c = await ctx.cmd(f"gh repo create {name} {vis} --source . --remote origin", env=env, cwd=repo, timeout=120)
-            if not c.ok:
-                return StationResult(StationOutcome.held, "GitHub repo creation failed", c.output)
-        p = await ctx.cmd(
-            "gh auth setup-git && git push -u origin main --tags --force-with-lease",
-            env={**env, **ws.git_env},
-            cwd=repo,
-            timeout=300,
-        )
-        if not p.ok:
-            return StationResult(StationOutcome.held, "push to GitHub failed", p.output)
-        url = await ctx.cmd("gh repo view --json url -q .url", env=env, cwd=repo, timeout=60)
-        ctx.order.repo_url = url.output.strip().splitlines()[-1] if url.ok else None
-        notes.append(f"pushed to {ctx.order.repo_url or name}")
     elif pub.mode == "auto":
-        await ctx.emit(EventKind.decision, "publish NOT done: GITHUB_TOKEN is not set")
-        notes.append("NOT pushed (no GITHUB_TOKEN)")
+        res = await ctx.providers.publish.publish(ctx)
+        if not res.ok:
+            return StationResult(StationOutcome.held, res.summary, res.detail)
+        if res.data.get("repo_url"):
+            ctx.order.repo_url = res.data["repo_url"]
+        notes.append(res.summary)
 
-    ctx.order.app_url = f"{ctx.cfg.factory.public_app_base_url}:{ctx.order.host_port}"
+    ctx.order.app_url = ctx.providers.deploy.public_url(ctx)
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.order.app_url}")
 
 
