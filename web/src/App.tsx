@@ -7,6 +7,7 @@ import WorkflowPage from "./pages/WorkflowPage";
 import WorkflowEditPage from "./pages/WorkflowEditPage";
 import WorkflowsPage from "./pages/WorkflowsPage";
 import SkillsPage from "./pages/SkillsPage";
+import IntegrationsPage from "./pages/IntegrationsPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
           <Link to="/">Orders</Link>
           <Link to="/workflows">Workflows</Link>
           <Link to="/skills">Skills</Link>
+          <Link to="/integrations">Integrations</Link>
           <a href="/api/docs" target="_blank" rel="noreferrer">
             API
           </a>
@@ -62,6 +64,7 @@ export default function App() {
               element={<WorkflowEditPage />}
             />
             <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/integrations" element={<IntegrationsPage />} />
             <Route
               path="/line"
               element={<Navigate to="/workflows" replace />}

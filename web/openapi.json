@@ -1570,6 +1570,28 @@
         }
       }
     },
+    "/api/integrations": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Delivery integrations and environments, with a live readiness check of each integration",
+        "description": "Delivery integrations and environments, with a live readiness check of each integration",
+        "operationId": "get_delivery",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/skills": {
       "get": {
         "tags": [
@@ -1995,6 +2017,13 @@
             "type": "array",
             "title": "Skills"
           },
+          "preload_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preload Skills"
+          },
           "max_turns": {
             "type": "integer",
             "maximum": 500.0,
@@ -2290,6 +2319,53 @@
         ],
         "title": "DecisionInput"
       },
+      "DeliveryBinding": {
+        "properties": {
+          "capability": {
+            "type": "string",
+            "title": "Capability"
+          },
+          "integration": {
+            "type": "string",
+            "title": "Integration"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "integration",
+          "provider"
+        ],
+        "title": "DeliveryBinding"
+      },
+      "DeliveryView": {
+        "properties": {
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationView"
+            },
+            "type": "array",
+            "title": "Integrations"
+          },
+          "environments": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentView"
+            },
+            "type": "array",
+            "title": "Environments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "integrations",
+          "environments"
+        ],
+        "title": "DeliveryView"
+      },
       "DraftView": {
         "properties": {
           "workflow_id": {
@@ -2404,6 +2480,34 @@
           "new_id"
         ],
         "title": "DuplicateAgentInput"
+      },
+      "EnvironmentView": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "bindings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Bindings"
+          },
+          "product_lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Product Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "bindings"
+        ],
+        "title": "EnvironmentView"
       },
       "Event": {
         "properties": {
@@ -2648,6 +2752,48 @@
         ],
         "title": "InstallSkillInput"
       },
+      "IntegrationView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ReadinessView"
+          },
+          "used_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Used By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "capabilities",
+          "readiness"
+        ],
+        "title": "IntegrationView"
+      },
       "Order": {
         "properties": {
           "id": {
@@ -2794,6 +2940,26 @@
           "note"
         ],
         "title": "PublishInput"
+      },
+      "ReadinessView": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "ReadinessView"
       },
       "RefDoc": {
         "properties": {
@@ -3554,6 +3720,11 @@
             "type": "string",
             "title": "Product Line"
           },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "local"
+          },
           "active_version": {
             "type": "integer",
             "title": "Active Version"
@@ -3710,6 +3881,18 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "local"
+          },
+          "delivery": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryBinding"
+            },
+            "type": "array",
+            "title": "Delivery"
           }
         },
         "type": "object",

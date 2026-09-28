@@ -189,6 +189,8 @@ class WorkflowView(BaseModel):
     agents: list[AgentView]
     docs: list[RefDoc] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    environment: str = "local"  # where this product line's delivery steps run
+    delivery: list[DeliveryBinding] = Field(default_factory=list)
 
 
 class DraftView(BaseModel):
@@ -294,9 +296,41 @@ class PublishInput(BaseModel):
     note: str = Field(min_length=3, max_length=200)
 
 
+class ReadinessView(BaseModel):
+    state: str  # ready | degraded | failed | unknown
+    reasons: list[str] = Field(default_factory=list)
+
+
+class IntegrationView(BaseModel):
+    id: str
+    provider: str
+    capabilities: list[str]
+    settings: dict[str, Any] = Field(default_factory=dict)  # non-secret options only
+    readiness: ReadinessView
+    used_by: list[str] = Field(default_factory=list)  # environments
+
+
+class EnvironmentView(BaseModel):
+    name: str
+    bindings: dict[str, str]  # capability -> integration id
+    product_lines: list[str] = Field(default_factory=list)
+
+
+class DeliveryView(BaseModel):
+    integrations: list[IntegrationView]
+    environments: list[EnvironmentView]
+
+
+class DeliveryBinding(BaseModel):
+    capability: str
+    integration: str
+    provider: str
+
+
 class WorkflowSummary(BaseModel):
     workflow_id: str  # = product line id
     product_line: str  # product line description
+    environment: str = "local"  # delivery environment of the product line
     active_version: int
     description: str
     template: str | None

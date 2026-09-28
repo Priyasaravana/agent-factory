@@ -96,3 +96,4 @@ button.icon:hover { color: var(--bad); }
 .preview { border-color: var(--accent); display: grid; gap: 8px; }
 .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
 label.check { display: flex; gap: 8px; align-items: flex-start; }
+.pill.clickable { cursor: pointer; }

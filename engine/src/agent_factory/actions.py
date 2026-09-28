@@ -29,8 +29,11 @@ from agent_factory.models import (
     ConfigView,
     CreateOrderInput,
     DecisionInput,
+    DeliveryBinding,
+    DeliveryView,
     DraftView,
     DuplicateAgentInput,
+    EnvironmentView,
     Event,
     EventKind,
     FeedbackInput,
@@ -38,9 +41,11 @@ from agent_factory.models import (
     FromTemplateInput,
     HealthView,
     InstallSkillInput,
+    IntegrationView,
     Order,
     OrderDetail,
     PublishInput,
+    ReadinessView,
     ReorderStationsInput,
     Run,
     RunDetail,
@@ -55,6 +60,7 @@ from agent_factory.models import (
     WorkflowSummary,
     WorkflowView,
 )
+from agent_factory.providers import CAPABILITIES
 from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRecord
 from agent_factory.workflow import (
     AGENT_HANDLERS,
@@ -247,6 +253,7 @@ def list_workflows(f: Factory) -> list[WorkflowSummary]:
             WorkflowSummary(
                 workflow_id=w.workflow_id,
                 product_line=f.cfg.product_lines[w.workflow_id].description,
+                environment=f.cfg.product_lines[w.workflow_id].environment,
                 active_version=w.active_version(),
                 description=doc.description,
                 template=doc.template,
@@ -307,7 +314,17 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
         warnings=workflow_warnings(doc),
+        environment=f.cfg.product_lines[workflow_id].environment,
+        delivery=_bindings(f, workflow_id),
     )
+
+
+def _bindings(f: Factory, product_line: str) -> list[DeliveryBinding]:
+    ps = f.manager.providers.for_product_line(product_line)
+    return [
+        DeliveryBinding(capability=c, integration=getattr(ps, c).name, provider=getattr(ps, c).kind)
+        for c in CAPABILITIES
+    ]
 
 
 def _agent_views(f: Factory, doc: WorkflowDoc) -> list[AgentView]:
@@ -560,6 +577,47 @@ def discard_draft(f: Factory, workflow_id: str) -> DraftView:
     return get_draft(f, workflow_id)
 
 
+# ------------------------------------------------------------- integrations --
+@action(
+    "get_delivery",
+    "Delivery integrations and environments, with a live readiness check of each integration",
+    "GET",
+    "/api/integrations",
+)
+async def get_delivery(f: Factory) -> DeliveryView:
+    providers = f.manager.providers
+    envs = f.cfg.environments
+    integrations = []
+    for name, p in providers.integrations.items():
+        try:
+            if f.settings.factory_mode == "dry-run":
+                ready = ReadinessView(state="ready", reasons=["dry-run: delivery steps are simulated"])
+            else:
+                r = await p.check(None)
+                ready = ReadinessView(state=r.state, reasons=r.reasons)
+        except Exception as exc:  # noqa: BLE001 - a broken check is itself a readiness result
+            ready = ReadinessView(state="failed", reasons=[f"check crashed: {exc}"])
+        integrations.append(
+            IntegrationView(
+                id=name,
+                provider=p.kind,
+                capabilities=sorted(p.capabilities),
+                settings=dict(f.cfg.integrations[name].settings),
+                readiness=ready,
+                used_by=[e for e, env in envs.items() if name in env.model_dump().values()],
+            )
+        )
+    environments = [
+        EnvironmentView(
+            name=e,
+            bindings=env.model_dump(),
+            product_lines=[pl for pl, cfg in f.cfg.product_lines.items() if cfg.environment == e],
+        )
+        for e, env in envs.items()
+    ]
+    return DeliveryView(integrations=integrations, environments=environments)
+
+
 # ------------------------------------------------------------------ skills --
 @action("list_skills", "Skills agents can use: built-in and imported from GitHub", "GET", "/api/skills")
 def list_skills(f: Factory) -> list[SkillInfo]:
@@ -684,7 +742,8 @@ def endpoint_for(spec: ActionSpec, f: Factory) -> Callable[..., Any]:
 
     async def endpoint(**kwargs: Any) -> Any:
         # async so actions run on the event loop (they may schedule engine tasks)
-        return spec.fn(f, **kwargs)
+        result = spec.fn(f, **kwargs)
+        return await result if inspect.isawaitable(result) else result
 
     endpoint.__signature__ = sig.replace(parameters=params)  # type: ignore[attr-defined]
     endpoint.__name__ = spec.name

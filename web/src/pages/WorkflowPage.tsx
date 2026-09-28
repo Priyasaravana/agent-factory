@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, unwrap } from "../api/client";
 import AgentCard from "../components/AgentCard";
 import StationStrip from "../components/StationStrip";
+import DeliveryCard from "../components/DeliveryCard";
 
 export default function WorkflowPage() {
   const { workflowId = "" } = useParams();
@@ -79,6 +80,8 @@ export default function WorkflowPage() {
           they started with.
         </p>
       </section>
+
+      <DeliveryCard w={w} />
 
       <section className="card">
         <h3>Agents in this version</h3>

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 # --------------------------------------------------------------- tools ----
 # A preset is the ceiling of what an agent may do. Guardrail hooks still apply
@@ -92,6 +92,9 @@ class AgentSpec(BaseModel):
     extra_tools: list[str] = Field(default_factory=list)
     disallowed_tools: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    # skills whose instructions go straight into the system prompt, so the agent
+    # always follows them (the rest are loaded on demand, when the agent decides)
+    preload_skills: list[str] = Field(default_factory=list)
     max_turns: int = Field(default=50, ge=1, le=500)
     produces: list[str] = Field(default_factory=list)  # files that must exist afterwards
     context_docs: list[str] = Field(default_factory=list)  # RefDoc ids from the workflow's doc library
@@ -113,6 +116,13 @@ class AgentSpec(BaseModel):
         if bad:
             raise ValueError(f"extra_tools may only add {sorted(SAFE_EXTRA_TOOLS)}, not {sorted(bad)}")
         return v
+
+    @model_validator(mode="after")
+    def _preload_subset(self) -> AgentSpec:
+        extra = [s for s in self.preload_skills if s not in self.skills]
+        if extra:
+            raise ValueError(f"preload_skills {extra} must also be listed in skills")
+        return self
 
     @property
     def observe_only(self) -> bool:

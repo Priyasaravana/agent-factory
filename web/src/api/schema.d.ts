@@ -604,6 +604,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Delivery integrations and environments, with a live readiness check of each integration
+         * @description Delivery integrations and environments, with a live readiness check of each integration
+         */
+        get: operations["get_delivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/skills": {
         parameters: {
             query?: never;
@@ -780,6 +800,8 @@ export interface components {
             disallowed_tools?: string[];
             /** Skills */
             skills?: string[];
+            /** Preload Skills */
+            preload_skills?: string[];
             /**
              * Max Turns
              * @default 50
@@ -902,6 +924,22 @@ export interface components {
              */
             rationale: string;
         };
+        /** DeliveryBinding */
+        DeliveryBinding: {
+            /** Capability */
+            capability: string;
+            /** Integration */
+            integration: string;
+            /** Provider */
+            provider: string;
+        };
+        /** DeliveryView */
+        DeliveryView: {
+            /** Integrations */
+            integrations: components["schemas"]["IntegrationView"][];
+            /** Environments */
+            environments: components["schemas"]["EnvironmentView"][];
+        };
         /** DraftView */
         DraftView: {
             /** Workflow Id */
@@ -937,6 +975,17 @@ export interface components {
         DuplicateAgentInput: {
             /** New Id */
             new_id: string;
+        };
+        /** EnvironmentView */
+        EnvironmentView: {
+            /** Name */
+            name: string;
+            /** Bindings */
+            bindings: {
+                [key: string]: string;
+            };
+            /** Product Lines */
+            product_lines?: string[];
         };
         /** Event */
         Event: {
@@ -1050,6 +1099,22 @@ export interface components {
              */
             accept_scripts: boolean;
         };
+        /** IntegrationView */
+        IntegrationView: {
+            /** Id */
+            id: string;
+            /** Provider */
+            provider: string;
+            /** Capabilities */
+            capabilities: string[];
+            /** Settings */
+            settings?: {
+                [key: string]: unknown;
+            };
+            readiness: components["schemas"]["ReadinessView"];
+            /** Used By */
+            used_by?: string[];
+        };
         /** Order */
         Order: {
             /** Id */
@@ -1091,6 +1156,13 @@ export interface components {
         PublishInput: {
             /** Note */
             note: string;
+        };
+        /** ReadinessView */
+        ReadinessView: {
+            /** State */
+            state: string;
+            /** Reasons */
+            reasons?: string[];
         };
         /**
          * RefDoc
@@ -1354,6 +1426,11 @@ export interface components {
             workflow_id: string;
             /** Product Line */
             product_line: string;
+            /**
+             * Environment
+             * @default local
+             */
+            environment: string;
             /** Active Version */
             active_version: number;
             /** Description */
@@ -1419,6 +1496,13 @@ export interface components {
             docs?: components["schemas"]["RefDoc"][];
             /** Warnings */
             warnings?: string[];
+            /**
+             * Environment
+             * @default local
+             */
+            environment: string;
+            /** Delivery */
+            delivery?: components["schemas"]["DeliveryBinding"][];
         };
     };
     responses: never;
@@ -2477,6 +2561,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_delivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryView"];
                 };
             };
         };
