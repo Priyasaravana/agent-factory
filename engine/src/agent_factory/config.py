@@ -7,10 +7,10 @@ YAML, templates, prompts and skills — never engine code.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 PolicyMode = Literal["auto", "manual", "off"]
 
@@ -38,6 +38,7 @@ class ProductLine(BaseModel):
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
+    environment: str = "local"  # where its delivery steps run (see `environments`)
     service_port: int = 8000
     node_ports: list[int] = Field(default_factory=lambda: [30080])
 
@@ -70,6 +71,24 @@ class Limits(BaseModel):
     pause_at_utilization: float = 0.95
 
 
+class Integration(BaseModel):
+    """An external system the factory delivers through. `provider` is the type
+    (e.g. "local"); `settings` are non-secret options. Credentials are never
+    stored here (secret references arrive in phase 2 of docs/design/integrations.md)."""
+
+    provider: str
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class Environment(BaseModel):
+    """Binds each delivery capability to an integration."""
+
+    registry: str = "local"
+    scan: str = "local"
+    deploy: str = "local"
+    publish: str = "local"
+
+
 class SkillSource(BaseModel):
     """Skills installed on first start from a GitHub repo, pinned to a commit.
     Changing the pin here is how the default is reviewed (in a PR); after
@@ -94,6 +113,15 @@ class FactoryConfig(BaseModel):
     limits: Limits = Limits()
     skill_prompts: dict[str, str] = Field(default_factory=dict)
     default_skills: list[SkillSource] = Field(default_factory=list)
+    integrations: dict[str, Integration] = Field(default_factory=dict)
+    environments: dict[str, Environment] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _local_defaults(self) -> FactoryConfig:
+        # today's behaviour needs no config: a `local` integration and environment always exist
+        self.integrations.setdefault("local", Integration(provider="local"))
+        self.environments.setdefault("local", Environment())
+        return self
 
     def skill_overlay(self, skills: list[str]) -> str:
         parts = [

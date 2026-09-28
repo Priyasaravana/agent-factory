@@ -25,6 +25,7 @@ from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.github import fetch_dir
 from agent_factory.models import TERMINAL, RunStatus
+from agent_factory.providers import Providers
 from agent_factory.settings import Settings
 from agent_factory.skills import SkillError, SkillLibrary
 from agent_factory.state import SqliteStateStore, StateStore
@@ -89,7 +90,7 @@ def build_factory(
             agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory))
         else:
             agents = FakeAgentRunner()
-    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows)
+    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows, Providers(cfg))
     return factory
 
 
