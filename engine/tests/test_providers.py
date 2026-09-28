@@ -124,3 +124,21 @@ async def test_an_environment_can_route_steps_to_another_provider(make_factory, 
     assert "https://bookmarks-service.dev.internal" in verifier.prompt, "acceptance tests the deployed URL"
     order = f.store.get_order(run.order_id)
     assert order.app_url == "https://bookmarks-service.dev.example.com"
+
+
+async def test_delivery_is_visible_over_the_api(make_factory):
+    from test_api import _client
+
+    app, ctx, c = await _client(make_factory())
+    async with c:
+        d = (await c.get("/api/integrations")).json()
+        local = next(i for i in d["integrations"] if i["id"] == "local")
+        assert local["provider"] == "local" and set(local["capabilities"]) == {"registry", "scan", "deploy", "publish"}
+        assert local["readiness"]["state"] in {"ready", "failed"} and local["used_by"] == ["local"]
+        env = next(e for e in d["environments"] if e["name"] == "local")
+        assert env["bindings"]["deploy"] == "local" and env["product_lines"] == ["fastapi-service"]
+        wf = (await c.get("/api/workflows/fastapi-service")).json()
+        assert wf["environment"] == "local"
+        assert {b["capability"]: b["integration"] for b in wf["delivery"]}["registry"] == "local"
+        assert (await c.get("/api/workflows")).json()[0]["environment"] == "local"
+    await ctx.__aexit__(None, None, None)

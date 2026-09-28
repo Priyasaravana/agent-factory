@@ -8,6 +8,7 @@ is FAILED or HELD — never a plausible PASS.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -100,6 +101,11 @@ class StationContext:
             else:
                 await self.emit(EventKind.log, kind, data)
 
+        on_demand = [k for k in spec.skills if k not in spec.preload_skills]
+        if spec.preload_skills:
+            await self.emit(
+                EventKind.log, f"preloaded skills: {spec.preload_skills}", {"preloaded": spec.preload_skills}
+            )
         req = AgentRequest(
             run_id=self.run.id,
             station=self.station_id,
@@ -112,8 +118,8 @@ class StationContext:
             observe_only=spec.observe_only,
             produces=spec.produces,
             max_turns=spec.max_turns,
-            skills=[k for k in spec.skills if k not in self.skill_pins],
-            imported_skills=[k for k in spec.skills if k in self.skill_pins],
+            skills=[k for k in on_demand if k not in self.skill_pins],
+            imported_skills=[k for k in on_demand if k in self.skill_pins],
             imported_plugin=self.imported_plugin,
             skill_overlay=self.cfg.skill_overlay(spec.skills),
             output_schema=schema,
@@ -135,6 +141,12 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
             "## Reference documents (team standards — follow them)\n\n"
             + "\n\n".join(f"### {d.title}\n{d.content.strip()}" for d in docs)
         )
+    preloaded = [(name, text) for name in spec.preload_skills if (text := skill_text(ctx, name))]
+    if preloaded:
+        parts.append(
+            "## Skills for this station (follow them; already loaded, no need to invoke)\n\n"
+            + "\n\n".join(f"### Skill: {name}\n{text}" for name, text in preloaded)
+        )
     if spec.learnings.strip():
         parts.append("## Learnings from earlier runs (human-approved)\n" + spec.learnings.strip())
     if spec.previous_iterations:
@@ -142,6 +154,21 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
         if history:
             parts.append("## Earlier iterations of this product\n" + history)
     return "\n\n".join(parts)
+
+
+MAX_PRELOAD_CHARS = 15_000
+
+
+def skill_text(ctx: StationContext, name: str) -> str:
+    """SKILL.md body (without frontmatter) of a built-in or pinned imported skill."""
+    candidates = [ctx.ws.factory_home / "plugin" / "skills" / name / "SKILL.md"]
+    if ctx.imported_plugin:
+        candidates.insert(0, ctx.imported_plugin / "skills" / name / "SKILL.md")
+    for path in candidates:
+        if path.exists():
+            body = re.sub(r"^---\s*\n.*?\n---\s*\n?", "", path.read_text(), count=1, flags=re.DOTALL)
+            return body.strip()[:MAX_PRELOAD_CHARS]
+    return ""
 
 
 def iteration_history(ctx: StationContext, limit: int) -> str:

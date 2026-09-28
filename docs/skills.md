@@ -80,6 +80,17 @@ Limits: 200 files and 2 MB per folder.
   skill. Removed skills vanish from the picker, but every installed commit stays
   stored, so older workflow versions still run and can be audited.
 
+## On demand vs preloaded
+
+An agent opens an on-demand skill only when its task seems to match the skill's
+description. Live runs showed agents using our own skills but never the BuilderIO
+ones, whose descriptions match phrases like "plow ahead" or "watch another
+agent's work". Mark a skill **preloaded** in the agent editor
+(`preload_skills` in the spec) to put its instructions straight into the system
+prompt. The run log shows `preloaded skills: [...]` per agent. Whether a skill
+helps is a measurement question: compare runs of a workflow version with and
+without it.
+
 ## Safety
 
 Skills are instructions; they grant no permissions. An agent can run a skill's

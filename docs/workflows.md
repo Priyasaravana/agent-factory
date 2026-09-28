@@ -34,7 +34,8 @@ model: judgment           # tier from config.models (judgment | default | fast) 
 tools: reviewer           # preset, see below
 extra_tools: []           # only WebFetch / WebSearch may be added
 disallowed_tools: []      # narrow the preset further
-skills: [factory-station-contract]
+skills: [factory-station-contract, agent-watchdog]
+preload_skills: [agent-watchdog]   # always in the system prompt; others load on demand
 max_turns: 40
 produces: []              # files that must exist afterwards (checked by the engine)
 context_docs: [secure-coding]   # reference docs from the workflow's library
@@ -82,7 +83,7 @@ Publishing is **blocked** when an agent can't do its station's job safely:
 | `context_docs` | Team standards from the workflow's **reference docs**. Max 20,000 chars each and 40,000 per agent. |
 | `learnings` | Human-approved lessons, used instead of free-form memory: versioned and reproducible. |
 | `previous_iterations` | For each earlier iteration of the same product: what was asked, the outcome, and the decisions. |
-| skills | Loaded on demand: built-in skills, or skills imported from GitHub and pinned per version (see [skills.md](skills.md)). |
+| skills | Loaded on demand (the agent decides from each skill's description), or **preloaded** (`preload_skills`: the skill's instructions go into the system prompt, so they are always followed). Built-in or imported from GitHub and pinned per version (see [skills.md](skills.md)). |
 
 ## Workflow file (`workflow.yaml`)
 
