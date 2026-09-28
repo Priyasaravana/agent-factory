@@ -1,6 +1,6 @@
 # Design: integrations, credentials and the factory control plane
 
-Status: **proposed for review** · Decision record: [ADR-0011](../adr/0011-pluggable-delivery-control-plane.md)
+Status: **accepted** · phase 1 (provider seam) implemented · Decision record: [ADR-0011](../adr/0011-pluggable-delivery-control-plane.md)
 
 ## 1. Goals and non-goals
 
@@ -167,7 +167,7 @@ Each phase is a separate PR with its own acceptance check.
 
 | Phase | Scope | Done when |
 |---|---|---|
-| 1. Provider seam | `Provider` interface; move today's code into `local`; environments in config | The Ping counter run is unchanged; tests pass with `environment: local` |
+| 1. Provider seam ✅ | `Provider` interface (`engine/src/agent_factory/providers/`); today's code in `local`; `integrations` + `environments` in config | Local runs issue the same commands; a test environment routes registry/deploy to another provider and acceptance tests its URL |
 | 2. Secrets | SecretRef resolver (`env://`, `aws-sm://`, `k8s://`), redaction, audit | No secret in DB, events or logs (a test greps a run for known values) |
 | 3. Sandbox | Agent tool execution in a per-run container without secrets | The earlier env/cert bypasses fail inside the sandbox; a live run passes |
 | 4. Readiness | `check()`, Integrations page, order preflight | A broken integration blocks an order in seconds, with reasons |
