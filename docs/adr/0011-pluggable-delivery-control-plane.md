@@ -1,6 +1,6 @@
 # ADR-0011: Pluggable delivery: providers, secret references, and a narrow control plane
 
-**Status:** proposed · 2026-09-28 · design: [docs/design/integrations.md](../design/integrations.md)
+**Status:** accepted · 2026-09-28 · design: [docs/design/integrations.md](../design/integrations.md)
 
 ## Context
 Every delivery step (build, registry, scan, deploy, test, publish) is currently
