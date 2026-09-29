@@ -61,7 +61,9 @@ class Order(BaseModel):
     host_port: int | None = None
     app_url: str | None = None
     repo_url: str | None = None
-    created_by: str | None = None  # signed-in user who submitted it
+    created_by: str | None = None
+    archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
+    archived_by: str | None = None  # signed-in user who submitted it
 
 
 class Run(BaseModel):
@@ -161,6 +163,8 @@ class HealthView(BaseModel):
     # agent sandbox (ADR-0014): off | preparing | ready | failed
     sandbox: str = "off"
     sandbox_detail: list[str] = Field(default_factory=list)
+    # worst state of the latest readiness checks (ADR-0015): ready | degraded | failed | unknown
+    preflight: str = "unknown"
 
 
 class ConfigView(BaseModel):
@@ -298,6 +302,28 @@ class ReorderStationsInput(BaseModel):
 
 class PublishInput(BaseModel):
     note: str = Field(min_length=3, max_length=200)
+
+
+class CheckView(BaseModel):
+    """One readiness check. `failed` blocks what it guards (new orders and/or new
+    iterations); `degraded` is shown but never blocks."""
+
+    id: str
+    title: str
+    area: str  # agents | build | registry | scan | deploy | publish | workflow
+    state: str  # ready | degraded | failed
+    reasons: list[str] = Field(default_factory=list)
+    integration: str | None = None
+    blocks: list[str] = Field(default_factory=list)  # "order", "iteration"
+
+
+class PreflightView(BaseModel):
+    product_line: str
+    environment: str
+    state: str  # ready | degraded | failed
+    checked_at: datetime
+    duration_ms: int
+    checks: list[CheckView]
 
 
 class ReadinessView(BaseModel):

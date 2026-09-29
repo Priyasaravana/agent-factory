@@ -4,12 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
 import { cn } from "../lib/utils";
+import Problems from "./Problems";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
-export default function RunPanel({ runId, orderId }: { runId: string; orderId: string }) {
+export default function RunPanel({
+  runId,
+  orderId,
+  archived = false,
+}: {
+  runId: string;
+  orderId: string;
+  archived?: boolean;
+}) {
   const qc = useQueryClient();
   const run = useQuery({
     queryKey: ["run", runId],
@@ -70,6 +79,7 @@ export default function RunPanel({ runId, orderId }: { runId: string; orderId: s
             </span>
           </p>
         )}
+        <Problems error={resume.error} />
         <StationStrip stations={stations} />
         {r.summary && (
           <p className={cn("m-0 text-sm", r.status === "held" ? "error" : "text-muted-foreground")}>{r.summary}</p>
@@ -81,7 +91,7 @@ export default function RunPanel({ runId, orderId }: { runId: string; orderId: s
           </details>
         )}
         {r.status === "needs_input" && <Questions runId={runId} questions={r.questions ?? []} onDone={refresh} />}
-        {r.status === "awaiting_feedback" && <FeedbackForm orderId={orderId} onDone={refresh} />}
+        {r.status === "awaiting_feedback" && !archived && <FeedbackForm orderId={orderId} onDone={refresh} />}
         <EventLog events={events} live={ACTIVE.has(r.status)} />
       </CardContent>
     </Card>
@@ -247,7 +257,7 @@ function FeedbackForm({ orderId, onDone }: { orderId: string; onDone: () => void
       <Button className="w-fit" disabled={send.isPending}>
         <Send /> Send feedback &amp; start next iteration
       </Button>
-      {send.error && <p className="error">{send.error.message}</p>}
+      <Problems error={send.error} />
     </form>
   );
 }

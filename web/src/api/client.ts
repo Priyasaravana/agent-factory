@@ -21,6 +21,15 @@ export type DraftView = components["schemas"]["DraftView"];
 export type CatalogView = components["schemas"]["CatalogView"];
 export type SkillInfo = components["schemas"]["SkillInfo"];
 export type SkillPreview = components["schemas"]["SkillPreview"];
+export type PreflightView = components["schemas"]["PreflightView"];
+export type CheckView = components["schemas"]["CheckView"];
+
+/** An API error; `problems` lists what a preflight or validation found. */
+export class ApiError extends Error {
+  constructor(message: string, readonly problems: string[] = [], readonly status = 0) {
+    super(message);
+  }
+}
 
 export const api = createClient<paths>({ baseUrl: "" });
 
@@ -32,8 +41,12 @@ export async function unwrap<T>(p: Promise<{ data?: T; error?: unknown; response
     window.dispatchEvent(new Event("factory-auth-changed"));
   }
   if (error !== undefined) {
-    const detail = (error as { detail?: unknown })?.detail;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail ?? error));
+    const { detail, problems } = (error ?? {}) as { detail?: unknown; problems?: unknown };
+    throw new ApiError(
+      typeof detail === "string" ? detail : JSON.stringify(detail ?? error),
+      Array.isArray(problems) ? problems.map(String) : [],
+      response?.status ?? 0,
+    );
   }
   return data as T;
 }

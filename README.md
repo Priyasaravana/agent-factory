@@ -34,6 +34,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   - a secret scan, SBOM and provenance.
 
   A Readiness station holds every run to that bar ([practices](docs/practices.md)).
+- **Checked before it starts.** Readiness checks cover the model, sandbox,
+  Docker, cluster, free ports and credentials. They refuse an order in seconds,
+  before any model usage, if something it needs is broken
+  ([ADR-0015](docs/adr/0015-readiness-and-preflight.md)).
 - **API-first.** A Python engine (FastAPI) exposes an OpenAPI contract. The
   TypeScript UI (React + Vite, Tailwind + Radix components, ⌘K command palette,
   dark/light themes) uses types generated from that contract.
@@ -60,7 +64,8 @@ try the UI, gates, fix loops and resume without spending any model usage.
 3. Set `FACTORY_MODE=live`, then `make up`. The first start creates the kind
    cluster inside the dind container, which takes about 2 minutes.
 4. Submit an order. The delivered app is served on `http://localhost:8081`
-   (the second product on `:8082`, and so on).
+   (the second product on `:8082`, and so on, up to 20 apps on `:8100`).
+   Archive orders you no longer need to free their port.
 
 See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshooting.
 

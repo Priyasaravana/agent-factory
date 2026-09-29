@@ -47,6 +47,20 @@ class ImageRef:
 class Readiness:
     state: Literal["ready", "degraded", "failed", "unknown"] = "unknown"
     reasons: list[str] = field(default_factory=list)
+    data: dict[str, Any] = field(default_factory=dict)  # facts later checks use (e.g. mapped app ports)
+
+
+@dataclass
+class CheckContext:
+    """What a readiness check may use: config, settings and an executor. There is
+    no run: checks must be fast (seconds), read-only and side-effect free."""
+
+    cfg: Any
+    settings: Any
+    ex: Any
+
+    async def cmd(self, command: str, timeout: float = 15) -> Any:
+        return await self.ex.run(command, timeout=timeout)
 
 
 class Provider(Protocol):
@@ -60,7 +74,7 @@ class Provider(Protocol):
     # resolve it with ctx.secret(ref, purpose) at the moment it is needed
     auth: Any
 
-    async def check(self, ctx: StationContext | None) -> Readiness: ...
+    async def check(self, ctx: CheckContext | None) -> Readiness: ...
 
 
 class RegistryProvider(Provider, Protocol):
@@ -78,6 +92,7 @@ class DeployProvider(Provider, Protocol):
     def public_url(self, ctx: StationContext) -> str: ...  # where a person opens it
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult: ...
     async def diagnostics(self, ctx: StationContext) -> str: ...
+    async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
 
 
 class PublishProvider(Provider, Protocol):

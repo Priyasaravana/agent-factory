@@ -1,9 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpRight, GitBranch, Globe, Layers } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, ArrowLeft, ArrowUpRight, GitBranch, Globe, Layers } from "lucide-react";
+import { toast } from "sonner";
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, unwrap } from "../api/client";
+import { ACTIVE, api, unwrap } from "../api/client";
+import Problems from "../components/Problems";
 import RunPanel from "../components/RunPanel";
+import { Button } from "../components/ui/button";
+import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
 import { Card, CardContent } from "../components/ui/card";
 import { ago } from "../lib/time";
@@ -17,6 +21,18 @@ export default function OrderPage() {
     refetchInterval: 4_000,
   });
   const [selected, setSelected] = useState<string | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const qc = useQueryClient();
+  const archive = useMutation({
+    mutationFn: () =>
+      unwrap(api.POST("/api/orders/{order_id}/archive", { params: { path: { order_id: orderId } } })),
+    onSuccess: (o) => {
+      setConfirmArchive(false);
+      qc.invalidateQueries({ queryKey: ["order", orderId] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast.success("Order archived", { description: `${o.title}: app removed, port freed` });
+    },
+  });
 
   if (detail.isLoading) return <div className="h-40 animate-pulse rounded-xl bg-muted" />;
   if (detail.error) return <p className="error">{detail.error.message}</p>;
@@ -36,8 +52,48 @@ export default function OrderPage() {
             {order.created_by ? ` by ${order.created_by}` : ""}
           </p>
         </div>
-        {order.latest_status && <StatusPill status={order.latest_status} />}
+        <div className="flex items-center gap-2">
+          {order.archived_at ? (
+            <span className="pill muted">archived</span>
+          ) : (
+            order.latest_status && <StatusPill status={order.latest_status} />
+          )}
+          {!order.archived_at && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmArchive(true)}
+              disabled={order.latest_status ? ACTIVE.has(order.latest_status) : false}
+              title="Remove the app from the cluster and free its port"
+            >
+              <Archive /> Archive
+            </Button>
+          )}
+        </div>
       </div>
+      {order.archived_at && (
+        <p className="note m-0">
+          Archived {ago(order.archived_at)}
+          {order.archived_by ? ` by ${order.archived_by}` : ""}. The app was removed from the cluster and its port
+          freed; the product repo, runs and evidence are kept. Place a new order to build it again.
+        </p>
+      )}
+      <ConfirmDialog
+        open={confirmArchive}
+        onOpenChange={setConfirmArchive}
+        title={`Archive “${order.title}”?`}
+        confirm="Archive order"
+        destructive
+        busy={archive.isPending}
+        onConfirm={() => archive.mutate()}
+      >
+        <p className="m-0">
+          The running app{order.app_url ? ` at ${order.app_url}` : ""} is removed from the cluster and its port is
+          freed for new orders. No further iterations are possible.
+        </p>
+        <p className="m-0">Kept: the product repo, every run, its events and evidence.</p>
+        <Problems error={archive.error} />
+      </ConfirmDialog>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Fact icon={<Layers />} label="Product line">
@@ -97,7 +153,7 @@ export default function OrderPage() {
           ))}
         </div>
       )}
-      {runId && <RunPanel key={runId} runId={runId} orderId={order.id} />}
+      {runId && <RunPanel key={runId} runId={runId} orderId={order.id} archived={!!order.archived_at} />}
     </div>
   );
 }

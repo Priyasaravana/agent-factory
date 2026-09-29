@@ -58,17 +58,39 @@
         "summary": "List orders, newest first",
         "description": "List orders, newest first",
         "operationId": "list_orders",
+        "parameters": [
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Archived"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Order"
                   },
-                  "type": "array",
                   "title": "Response List Orders"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -83,14 +105,14 @@
         "description": "Submit requirements; starts the first run",
         "operationId": "create_order",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateOrderInput"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -401,6 +423,99 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{order_id}/archive": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Archive an order: remove its app from the cluster and free its port; history is kept",
+        "description": "Archive an order: remove its app from the cluster and free its port; history is kept",
+        "operationId": "archive_order",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preflight": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Readiness checks per product line (cached; see ADR-0015)",
+        "description": "Readiness checks per product line (cached; see ADR-0015)",
+        "operationId": "get_preflight",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PreflightView"
+                  },
+                  "type": "array",
+                  "title": "Response Get Preflight"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Run every readiness check now",
+        "description": "Run every readiness check now",
+        "operationId": "run_preflight",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PreflightView"
+                  },
+                  "type": "array",
+                  "title": "Response Run Preflight"
                 }
               }
             }
@@ -2213,6 +2328,60 @@
         ],
         "title": "CatalogView"
       },
+      "CheckView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "integration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integration"
+          },
+          "blocks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "area",
+          "state"
+        ],
+        "title": "CheckView",
+        "description": "One readiness check. `failed` blocks what it guards (new orders and/or new\niterations); `degraded` is shown but never blocks."
+      },
       "ConfigView": {
         "properties": {
           "name": {
@@ -2713,6 +2882,11 @@
             },
             "type": "array",
             "title": "Sandbox Detail"
+          },
+          "preflight": {
+            "type": "string",
+            "title": "Preflight",
+            "default": "unknown"
           }
         },
         "type": "object",
@@ -2919,6 +3093,29 @@
               }
             ],
             "title": "Created By"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By"
           }
         },
         "type": "object",
@@ -2959,6 +3156,48 @@
           "feedback"
         ],
         "title": "OrderDetail"
+      },
+      "PreflightView": {
+        "properties": {
+          "product_line": {
+            "type": "string",
+            "title": "Product Line"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckView"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_line",
+          "environment",
+          "state",
+          "checked_at",
+          "duration_ms",
+          "checks"
+        ],
+        "title": "PreflightView"
       },
       "PublishInput": {
         "properties": {

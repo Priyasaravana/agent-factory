@@ -21,7 +21,7 @@ services:
       # (containers inside dind) can mount a run's worktree — and only that.
       - ./.factory-data:/data
     ports:
-      - "127.0.0.1:8081-8085:8081-8085"  # generated apps (kind NodePorts)
+      - "127.0.0.1:8081-8100:8081-8100"  # generated apps (kind NodePorts 30080-30099)
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 5s

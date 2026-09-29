@@ -188,6 +188,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/orders/{order_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive an order: remove its app from the cluster and free its port; history is kept
+         * @description Archive an order: remove its app from the cluster and free its port; history is kept
+         */
+        post: operations["archive_order"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness checks per product line (cached; see ADR-0015)
+         * @description Readiness checks per product line (cached; see ADR-0015)
+         */
+        get: operations["get_preflight"];
+        put?: never;
+        /**
+         * Run every readiness check now
+         * @description Run every readiness check now
+         */
+        post: operations["run_preflight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/cancel": {
         parameters: {
             query?: never;
@@ -877,6 +921,27 @@ export interface components {
             /** Max Learnings Chars */
             max_learnings_chars: number;
         };
+        /**
+         * CheckView
+         * @description One readiness check. `failed` blocks what it guards (new orders and/or new
+         *     iterations); `degraded` is shown but never blocks.
+         */
+        CheckView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Area */
+            area: string;
+            /** State */
+            state: string;
+            /** Reasons */
+            reasons?: string[];
+            /** Integration */
+            integration?: string | null;
+            /** Blocks */
+            blocks?: string[];
+        };
         /** ConfigView */
         ConfigView: {
             /** Name */
@@ -1083,6 +1148,11 @@ export interface components {
             sandbox: string;
             /** Sandbox Detail */
             sandbox_detail?: string[];
+            /**
+             * Preflight
+             * @default unknown
+             */
+            preflight: string;
         };
         /** InstallSkillInput */
         InstallSkillInput: {
@@ -1154,6 +1224,10 @@ export interface components {
             repo_url?: string | null;
             /** Created By */
             created_by?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Archived By */
+            archived_by?: string | null;
         };
         /** OrderDetail */
         OrderDetail: {
@@ -1162,6 +1236,24 @@ export interface components {
             runs: components["schemas"]["Run"][];
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
+        };
+        /** PreflightView */
+        PreflightView: {
+            /** Product Line */
+            product_line: string;
+            /** Environment */
+            environment: string;
+            /** State */
+            state: string;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Checks */
+            checks: components["schemas"]["CheckView"][];
         };
         /** PublishInput */
         PublishInput: {
@@ -1566,7 +1658,9 @@ export interface operations {
     };
     list_orders: {
         parameters: {
-            query?: never;
+            query?: {
+                include_archived?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1580,6 +1674,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Order"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1809,6 +1912,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_order: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightView"][];
+                };
+            };
+        };
+    };
+    run_preflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightView"][];
                 };
             };
         };

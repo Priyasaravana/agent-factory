@@ -38,6 +38,9 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **Sandbox preparing / failed** (header pill) | First start builds the sandbox image inside dind (a few minutes); runs wait for it. If it failed, the pill's tooltip and `docker compose logs factory` say why. Then `make sandbox-check`. |
 | An agent needs a site that is blocked | Add `host:443` to `sandbox.egress` in `.agent-factory/config.yaml` and restart the factory. Denied attempts: `docker compose exec dind docker logs factory-egress \| grep deny` |
 | Run **failed at readiness** | The repo lost an agent-readiness Level 3 signal (see the scorecard event). The build agent gets the missing list and fixes it; a secret found by the scan must also be rotated. |
+| **Order refused: "preflight failed"** | The message lists the failing checks. Integrations shows every check with its reasons. Fix the cause, then **Check now**. Nothing was started and no model usage was spent. |
+| **No free app port** | Open an order you no longer need → **Archive**. The app is removed from the cluster and its port freed; its repo and history are kept. |
+| Want all 20 app ports (installs from before ADR-0015) | `make reset-cluster`, then re-deliver apps you still need (new order or feedback). Until then the readiness page shows how many ports the cluster maps. |
 | Start over completely | `docker compose down -v && rm -rf .factory-data` |
 
 ## Troubleshooting

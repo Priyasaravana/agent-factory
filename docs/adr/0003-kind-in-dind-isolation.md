@@ -11,7 +11,7 @@ should be able to affect the host laptop.
   and the **kind** cluster. The factory talks to it over TLS (`dind:2376`) and
   never mounts the host Docker socket.
 - kind's API server listens on `dind:6443`, with the certificate SAN set to
-  `dind`. App NodePorts 30080–30084 map to dind ports 8081–8085, which compose
+  `dind`. App NodePorts 30080–30099 map to dind ports 8081–8100 (5 before ADR-0015), which compose
   publishes to `127.0.0.1` on the host.
 - The only host path mounted is `./.factory-data`. The factory process runs as
   an unprivileged user.

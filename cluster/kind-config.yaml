@@ -12,10 +12,26 @@ kubeadmConfigPatches:
       certSANs: ["dind", "localhost", "127.0.0.1"]
 nodes:
   - role: control-plane
-    # App NodePorts -> dind host ports -> (compose) your Mac's localhost:8081-8085
+    # App NodePorts -> dind host ports -> (compose) your Mac's localhost:8081-8100.
+    # kind cannot add mappings to a running cluster: `make reset-cluster` applies changes.
     extraPortMappings:
       - {containerPort: 30080, hostPort: 8081, listenAddress: "0.0.0.0"}
       - {containerPort: 30081, hostPort: 8082, listenAddress: "0.0.0.0"}
       - {containerPort: 30082, hostPort: 8083, listenAddress: "0.0.0.0"}
       - {containerPort: 30083, hostPort: 8084, listenAddress: "0.0.0.0"}
       - {containerPort: 30084, hostPort: 8085, listenAddress: "0.0.0.0"}
+      - {containerPort: 30085, hostPort: 8086, listenAddress: "0.0.0.0"}
+      - {containerPort: 30086, hostPort: 8087, listenAddress: "0.0.0.0"}
+      - {containerPort: 30087, hostPort: 8088, listenAddress: "0.0.0.0"}
+      - {containerPort: 30088, hostPort: 8089, listenAddress: "0.0.0.0"}
+      - {containerPort: 30089, hostPort: 8090, listenAddress: "0.0.0.0"}
+      - {containerPort: 30090, hostPort: 8091, listenAddress: "0.0.0.0"}
+      - {containerPort: 30091, hostPort: 8092, listenAddress: "0.0.0.0"}
+      - {containerPort: 30092, hostPort: 8093, listenAddress: "0.0.0.0"}
+      - {containerPort: 30093, hostPort: 8094, listenAddress: "0.0.0.0"}
+      - {containerPort: 30094, hostPort: 8095, listenAddress: "0.0.0.0"}
+      - {containerPort: 30095, hostPort: 8096, listenAddress: "0.0.0.0"}
+      - {containerPort: 30096, hostPort: 8097, listenAddress: "0.0.0.0"}
+      - {containerPort: 30097, hostPort: 8098, listenAddress: "0.0.0.0"}
+      - {containerPort: 30098, hostPort: 8099, listenAddress: "0.0.0.0"}
+      - {containerPort: 30099, hostPort: 8100, listenAddress: "0.0.0.0"}

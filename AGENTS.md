@@ -24,4 +24,7 @@
   git publish) stay in the engine. New egress goes through `sandbox.egress`.
 - Generated repos must stay at agent-readiness Level 3 (`readiness.py`). A new
   golden path ships the same signals in its template.
+- Every delivery provider implements `check()` (fast, read-only readiness) and
+  `undeploy()` (archive) besides its capability methods. New run-starting actions
+  go through the preflight gate (`manager.preflight.gate`, ADR-0015).
 - Record significant decisions as ADRs in `docs/adr/`.

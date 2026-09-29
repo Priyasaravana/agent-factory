@@ -24,11 +24,11 @@ flowchart LR
   factory -->|docker over TLS :2376| dind
   factory -->|kubectl/helm dind:6443| kind
   factory --- data
-  browser -->|:8081-8085| kind
+  browser -->|:8081-8100| kind
   factory -->|docker run -i: agent session| sandbox
   sandbox -->|only exit| egress
   egress -->|model API, PyPI| claude["Claude (subscription / API / Bedrock)"]
-  egress -->|HTTP :8081-8085| kind
+  egress -->|HTTP :8081-8100| kind
   factory -->|HTTPS| gh["GitHub (private product repos)"]
 ```
 

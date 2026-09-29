@@ -69,6 +69,9 @@ class RunManager:
         self.secrets = secrets or SecretResolver(settings)
         self.ws, self.ex, self.agents = ws, ex, agents
         self.sandbox = sandbox  # runs agent-written code (verify) and agent sessions
+        from agent_factory.engine.preflight import Preflight
+
+        self.preflight = Preflight(self)  # readiness checks + order gate (ADR-0015)
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
 
@@ -98,10 +101,11 @@ class RunManager:
         base = slug
         while slug in taken_slugs:
             slug, n = f"{base}-{n}", n + 1
-        used = {o.node_port for o in orders}
-        free = [p for p in line.node_ports if p not in used]
+        free = self.free_node_ports(data.product_line)
+        mapped = self.preflight.mapped_node_ports
+        free = [p for p in free if mapped is None or p in mapped]
         if not free:
-            raise FactoryError("no free app ports on this product line (see config node_ports)")
+            raise FactoryError("no free app port: archive an order you no longer need (see config node_ports)")
         node_port = free[0]
         order = Order(
             id=uuid.uuid4().hex[:12],
@@ -115,7 +119,59 @@ class RunManager:
         )
         return self.store.create_order(order)
 
+    def free_node_ports(self, product_line: str) -> list[int]:
+        """App ports not held by a live (non-archived) order of this product line."""
+        line = self.cfg.product_lines[product_line]
+        used = {o.node_port for o in self.store.list_orders() if not o.archived_at}
+        return [p for p in line.node_ports if p not in used]
+
+    async def archive(self, order_id: str, by: str) -> Order:
+        """Remove the order's app from its deploy target and free its port. The
+        product repo, runs, events and feedback are kept; no new iterations."""
+        order = self.store.get_order(order_id)
+        if not order:
+            raise FactoryError("order not found")
+        if order.archived_at:
+            return order
+        runs = self.store.list_runs(order.id)
+        if any(self.is_active(r.id) for r in runs):
+            raise FactoryError("a run for this order is in progress: cancel it first")
+        latest = self.store.get_run(order.latest_run_id) if order.latest_run_id else (runs[0] if runs else None)
+        if latest is not None:
+            ctx = StationContext(
+                self.cfg,
+                self.settings,
+                self.store,
+                self.ws,
+                self.ex,
+                self.agents,
+                order,
+                latest,
+                self.ws.run_dir(latest.id),
+                "archive",
+                self.workflows[latest.workflow_id or order.product_line].get(latest.workflow_version),
+            )
+            ctx.providers = self.providers.for_product_line(order.product_line)
+            res = await ctx.providers.deploy.undeploy(ctx)
+            if not res.ok:
+                raise FactoryError(f"archive stopped: {res.summary}\n{res.detail}")
+            if self.sandbox is not None:
+                for r in runs:
+                    await self.sandbox.remove_run(r.id)
+            self.store.add_event(
+                latest.id,
+                EventKind.decision,
+                f"order archived by {by}: {res.summary}; app port {order.host_port} freed",
+                station="archive",
+                data={"archived_by": by, "app_url": order.app_url},
+            )
+        order.archived_at, order.archived_by, order.app_url = _now(), by, None
+        self.store.save_order(order)
+        return order
+
     def start_run(self, order: Order, change_request: str | None = None) -> Run:
+        if order.archived_at:
+            raise FactoryError("this order is archived: place a new order instead")
         runs = self.store.list_runs(order.id)
         if any(self.is_active(r.id) for r in runs):
             raise FactoryError("a run for this order is already in progress")
