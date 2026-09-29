@@ -1,6 +1,6 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-09-29 (after the readiness + preflight change).
+Status: living reference · last reviewed 2026-09-29 (after the upgrade-safety change).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
 The factory is judged twice:
@@ -56,7 +56,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
 - **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ⬜ signature (cosign) once images go to a registry.
-- **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker · ⬜ pin Actions to commit SHAs, branch protection on main.
+- **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker (Python base images patch-only) · ✅ CI builds and tests the shipped images and runs a dry-run end-to-end smoke test (ADR-0016) · ⬜ pin Actions to commit SHAs, branch protection with required checks on main.
 
 ## 5. Agent engineering
 - ✅ Deterministic orchestration and LLM work only inside stations ("workflows before agents").
@@ -72,8 +72,10 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - **Done:**
   - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Readiness station; SBOM + provenance; threat model.
   - readiness + preflight change: provider `check()`; readiness page and header pill; order/iteration preflight; archive; 20 app ports; OpenSSF Scorecard; Dependabot; least-privilege CI.
+  - upgrade-safety change: CI builds all images and tests the engine on the image's Python; the sandbox verifies the golden path offline; a dry-run end-to-end browser smoke test; engine on the next Python (advisory); a weekly run; app Python decoupled from the factory's; `make backup` / `restore` / `upgrade`.
 - **Next:**
-  - Outcomes page (DORA + autonomy ratio + cost per change + share of apps at Level 3);
+  - spec-driven development (candidate 2 below);
+  - Outcomes page (DORA + autonomy ratio + cost per change + share of apps at Level 3 + waiting on whom);
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.
 - **Then:** phase 5, generic `registry/oci` + `deploy/helm` providers (any dev cluster, ingress hosts instead of NodePorts), then ECR + Argo CD.
@@ -84,8 +86,23 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - provider fallback;
   - parallel tasks.
 
+## Candidates to consider (from Warp's Cloud Software Factory)
+Highest value only; each fits data or hooks we already have.
+1. **"Waiting on whom" metric**: split every run's time into agent-working vs waiting-for-a-human, and show the factory as a board by state. Warp's own dashboard shows humans, not agents, are the bottleneck. → part of the Outcomes page.
+2. **Spec-driven development** (decided: next):
+   - an optional spec review gate after design, with approve, request changes or edit (per workflow: always, first iteration or off; **off by default**);
+   - `PRODUCT.md` with numbered requirements plus `TECH.md`;
+   - requirement → scenario → test → acceptance traceability, with a readiness signal;
+   - feedback updates the spec first, and the gate shows the spec diff;
+   - an order can bring its own spec.
+
+   Warp calls spec review the highest-leverage checkpoint.
+3. **Self-improving loop**: after feedback or a fix loop, an agent proposes changes to the relevant skill or learnings as a workflow draft that an admin approves. Corrections then become better future runs.
+4. **Review station**: a reviewer agent checks the diff against spec and design before packaging and records its findings as evidence. Part of the default template.
+
 ## Sources
 - Factory.ai, *Software Factory: An Autonomy Maturity Model for the enterprise* (white paper, 2026)
 - [DORA: State of AI-assisted Software Development 2025](https://dora.dev/dora-report-2025/) · [2025 DORA AI Capabilities Model](https://services.google.com/fh/files/misc/2025_dora_ai_capabilities_model.pdf)
 - [OWASP Top 10 for Agentic Applications 2026](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/)
 - [SLSA (OpenSSF)](https://openssf.org/projects/slsa/)
+- [Warp: The Cloud Software Factory Build Guide](https://www.warp.dev/blog/software-factory-build-guide) · [build.warp.dev](https://build.warp.dev)

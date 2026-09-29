@@ -1,9 +1,12 @@
-"""One Python version everywhere that runs our code or the code agents write.
+"""Python versions: what must match, and what may differ.
 
-The sandbox runs the generated app's tests with the template's pinned Python and
-no interpreter downloads (UV_PYTHON_DOWNLOADS=never), and the app ships on the
-template's runtime image. If the images, CI or the template drift apart, verify
-fails in every live run (or passes on a different Python than production)."""
+- The engine and auth run on one Python, and CI tests exactly that one
+  (factory image = auth image = CI `--python`).
+- Generated apps run their tests in the sandbox with the version they pin, from
+  the interpreters baked into the sandbox image (no downloads at run time); the
+  golden path's pin must be one of them and must match its own runtime image.
+So the factory and the apps can upgrade Python independently, and a mismatch
+fails here instead of in every live run."""
 
 from __future__ import annotations
 
@@ -17,15 +20,17 @@ def _from_python(dockerfile: Path) -> set[str]:
     return set(re.findall(r"^FROM python:(\d+\.\d+)", dockerfile.read_text(), re.M))
 
 
-def test_images_ci_and_golden_path_use_the_same_python_minor():
-    template = (ROOT / "templates" / "fastapi-service" / ".python-version").read_text().strip()
-    versions = {
-        "template .python-version": {template},
-        "template Dockerfile": _from_python(ROOT / "templates" / "fastapi-service" / "Dockerfile"),
-        "sandbox image": _from_python(ROOT / "images" / "sandbox" / "Dockerfile"),
-        "factory image": _from_python(ROOT / "images" / "factory" / "Dockerfile"),
-        "auth image": _from_python(ROOT / "images" / "auth" / "Dockerfile"),
-        "CI": set(re.findall(r"--python (\d+\.\d+)", (ROOT / ".github" / "workflows" / "ci.yml").read_text())),
-    }
-    assert all(versions.values()), versions
-    assert all(v == {template} for v in versions.values()), f"Python versions drifted: {versions}"
+def test_engine_and_auth_images_run_the_python_ci_tests():
+    ci = set(re.findall(r"--python (\d+\.\d+)", (ROOT / ".github" / "workflows" / "ci.yml").read_text()))
+    factory = _from_python(ROOT / "images" / "factory" / "Dockerfile")
+    auth = _from_python(ROOT / "images" / "auth" / "Dockerfile")
+    assert len(ci) == 1 and factory == auth == ci, {"ci": ci, "factory": factory, "auth": auth}
+
+
+def test_the_sandbox_provides_the_python_the_golden_path_pins():
+    template = ROOT / "templates" / "fastapi-service"
+    pinned = (template / ".python-version").read_text().strip()
+    m = re.search(r'^ARG APP_PYTHONS="([^"]+)"', (ROOT / "images" / "sandbox" / "Dockerfile").read_text(), re.M)
+    assert m, "images/sandbox/Dockerfile must declare APP_PYTHONS"
+    assert pinned in m.group(1).split(), f"sandbox offers {m.group(1)}; golden path pins {pinned}"
+    assert _from_python(template / "Dockerfile") == {pinned}, "app tests and app runtime use the same Python"

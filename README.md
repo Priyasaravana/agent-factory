@@ -91,6 +91,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
   practices, model access, holdout verification
 - [Scaling path](docs/scaling.md): seams already in the code, and what changes for team use
 - [Best practices we measure against](docs/practices.md) and the [threat model](docs/security/threat-model.md)
+- [Upgrading, backup and rollback](docs/upgrading.md)
 
 ## Development
 

@@ -65,6 +65,21 @@ def bundled_cli() -> Path | None:
         return None
 
 
+def assemble_context(factory_home: Path, dest: Path) -> str | None:
+    """Build context for the sandbox image: its Dockerfile, the factory plugin,
+    the egress proxy and the Claude CLI the engine's SDK bundles (same version).
+    Used by the engine (build inside dind) and by CI (build and test the image)."""
+    cli = bundled_cli()
+    if cli is None:
+        return "Claude CLI binary not found in the engine's SDK install"
+    shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(factory_home / "images" / "sandbox", dest)
+    shutil.copytree(factory_home / "plugin", dest / "plugin", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(egress.__file__, dest / "egress.py")
+    shutil.copy2(cli, dest / "claude")
+    return None
+
+
 class SandboxManager:
     def __init__(
         self,
@@ -137,15 +152,10 @@ class SandboxManager:
     async def _image(self) -> str | None:
         if (await self._sh(f"docker image inspect {self.image} >/dev/null 2>&1")).ok:
             return None
-        cli = bundled_cli()
-        if cli is None:
-            return "Claude CLI binary not found in the engine's SDK install"
         ctx = self.data_dir / "sandbox" / "build"
-        shutil.rmtree(ctx, ignore_errors=True)
-        shutil.copytree(self.context_dir, ctx)
-        shutil.copytree(self.home / "plugin", ctx / "plugin", ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copy2(egress.__file__, ctx / "egress.py")
-        shutil.copy2(cli, ctx / "claude")
+        problem = assemble_context(self.home, ctx)
+        if problem:
+            return problem
         log.info("building sandbox image %s (first start only)", self.image)
         res = await self._sh(f"docker build -q -t {self.image} {ctx}", timeout=1800)
         shutil.rmtree(ctx, ignore_errors=True)
