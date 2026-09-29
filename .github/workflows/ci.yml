@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: {node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json}
       - run: cd web && npm ci && npm run gen:api && git diff --exit-code src/api/schema.d.ts && npm run build
 
