@@ -282,3 +282,12 @@ def test_default_config_enables_the_sandbox_with_a_narrow_allowlist(cfg):
 
 def test_command_result_shape_is_unchanged():
     assert CommandResult("x", 0, "").ok
+
+
+async def test_package_cache_volume_is_handed_to_the_sandbox_user(tmp_path):
+    ex = FakeExecutor()
+    mgr = SandboxManager(SandboxConfig(), Path(__file__).resolve().parents[2], tmp_path, ex=ex)
+    assert await mgr._cache() is None
+    create, chown = ex.calls[-2:]
+    assert create.startswith("docker volume create") and "factory-sandbox-cache" in create
+    assert "--user 0" in chown and "os.chown" in chown and "10001" in chown and "--network none" in chown

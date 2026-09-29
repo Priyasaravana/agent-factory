@@ -26,6 +26,7 @@ from agent_factory.executor import CommandResult, Executor, LocalExecutor
 from agent_factory.providers.base import Readiness
 from agent_factory.sandbox import egress
 from agent_factory.sandbox.spec import (
+    CACHE_VOLUME,
     PROXY_PORT,
     SANDBOX_UID,
     Mount,
@@ -120,7 +121,7 @@ class SandboxManager:
     async def ensure(self) -> Readiness:
         try:
             self.state = Readiness("unknown", ["preparing"])
-            steps = [self._image, self._network, self._proxy, self._cleanup_stale]
+            steps = [self._image, self._cache, self._network, self._proxy, self._cleanup_stale]
             for step in steps:
                 problem = await step()
                 if problem:
@@ -149,6 +150,17 @@ class SandboxManager:
         res = await self._sh(f"docker build -q -t {self.image} {ctx}", timeout=1800)
         shutil.rmtree(ctx, ignore_errors=True)
         return None if res.ok else f"sandbox image build failed:\n{res.output[-2000:]}"
+
+    async def _cache(self) -> str | None:
+        """A new named volume is root-owned; sandboxes run as SANDBOX_UID. Hand the
+        package cache to that user once (idempotent), or `uv sync` cannot write it."""
+        vol = CACHE_VOLUME
+        await self._sh(f"docker volume create --label {LABEL}=cache {vol} >/dev/null")
+        res = await self._sh(
+            f"docker run --rm --user 0 --network none -v {vol}:/cache {self.image} "
+            f"python3 -c 'import os; os.chown(\"/cache\", {SANDBOX_UID}, {SANDBOX_UID})'"
+        )
+        return None if res.ok else f"could not prepare the package cache volume {vol}: {res.output[-500:]}"
 
     async def _network(self) -> str | None:
         net = self.cfg.network
@@ -179,7 +191,14 @@ class SandboxManager:
         if not res.ok:
             return f"could not start egress proxy: {res.output[-800:]}"
         res = await self._sh(f"docker network connect {self.cfg.network} {name}")
-        return None if res.ok else f"could not attach egress proxy to {self.cfg.network}: {res.output[-500:]}"
+        if not res.ok:
+            return f"could not attach egress proxy to {self.cfg.network}: {res.output[-500:]}"
+        for _ in range(40):  # ready once it logged "listening" (a fresh start takes a moment)
+            logs = await self._sh(f"docker logs {name} 2>&1 | head -5")
+            if '"listening"' in logs.output:
+                return None
+            await asyncio.sleep(0.25)
+        return f"egress proxy did not start listening:\n{logs.output[-800:]}"
 
     async def _cleanup_stale(self) -> str | None:
         """Sessions left behind by a crash or restart."""
@@ -236,7 +255,6 @@ class SandboxManager:
         work.mkdir(parents=True, exist_ok=True)
         spec = self.base_spec(container_name("probe", uuid.uuid4().hex[:6]), work, {"af.run": "probe"})
         spec.pass_env = forwarded_env_names(dict(os.environ))
-        spec.cache_volume = None
         script = Path(__file__).with_name("probe.py").read_text().replace("__PROXY__", f"{self.cfg.proxy}:{PROXY_PORT}")
         res = await self.ex.run(shlex.join(spec.argv(["python3", "-c", script])), timeout=120)
         try:

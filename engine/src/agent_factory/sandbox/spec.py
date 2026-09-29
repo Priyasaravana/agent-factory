@@ -19,6 +19,7 @@ from pathlib import Path
 SANDBOX_UID = 10001
 SANDBOX_HOME = "/home/agent"
 PROXY_PORT = 3128
+CACHE_VOLUME = "factory-sandbox-cache"  # uv/pip downloads shared by sandboxes; owned by SANDBOX_UID
 
 # Environment the agent CLI may see. Everything else in the engine's
 # environment (GITHUB_TOKEN, SKILLS_GITHUB_TOKEN, AWS_*, DOCKER_*, KUBECONFIG, …)
@@ -85,7 +86,7 @@ class SandboxSpec:
     cpus: str = "2"
     pids: int = 512
     tmp_size: str = "1g"
-    cache_volume: str | None = "factory-sandbox-cache"
+    cache_volume: str | None = CACHE_VOLUME
 
     def argv(self, command: list[str], interactive: bool = False) -> list[str]:
         a = ["docker", "run", "--rm", "--init", "--name", self.name]
