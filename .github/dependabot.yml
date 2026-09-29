@@ -15,9 +15,24 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
+  # Python base images: patch updates only. A Python minor upgrade (3.12 -> 3.13)
+  # is a deliberate change across the images, CI and the golden-path template
+  # together (engine/tests/test_python_versions.py enforces that they match).
   - package-ecosystem: docker
     directory: /images/factory
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: docker
     directory: /images/sandbox
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: docker
+    directory: /images/auth
+    schedule: {interval: weekly}
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
