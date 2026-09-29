@@ -1,8 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban, CircleDollarSign, MessageSquareText, Play, RefreshCw, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
+import { cn } from "../lib/utils";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export default function RunPanel({ runId, orderId }: { runId: string; orderId: string }) {
   const qc = useQueryClient();
@@ -25,43 +30,61 @@ export default function RunPanel({ runId, orderId }: { runId: string; orderId: s
     onSuccess: refresh,
   });
 
-  if (!run.data) return <p className="muted">Loading run…</p>;
+  if (!run.data) return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
   const { run: r, stations } = run.data;
 
   return (
-    <section className="card">
-      <div className="row spread">
-        <h3>
-          Iteration {r.iteration} <StatusPill status={r.status} />{" "}
+    <Card>
+      <CardHeader className="border-b pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Iteration {r.iteration}</CardTitle>
+          <StatusPill status={r.status} />
           <span className="pill muted" title="Workflow version this run is pinned to">
             {r.workflow_id ?? "workflow"} v{r.workflow_version}
           </span>
-        </h3>
-        <div className="row">
-          <span className="muted small">
-            {r.cost_usd > 0 ? `$${r.cost_usd.toFixed(2)} · ` : ""}loops {r.loops}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+            <CircleDollarSign className="size-3.5" />${r.cost_usd.toFixed(2)}
+            <RefreshCw className="ml-2 size-3.5" />
+            {r.loops} {r.loops === 1 ? "loop" : "loops"}
           </span>
           {["held", "interrupted", "paused_limits"].includes(r.status) && (
-            <button onClick={() => resume.mutate()} disabled={resume.isPending}>Resume</button>
+            <Button size="sm" onClick={() => resume.mutate()} disabled={resume.isPending}>
+              <Play /> Resume
+            </Button>
           )}
           {ACTIVE.has(r.status) && (
-            <button className="secondary" onClick={() => cancel.mutate()}>Cancel</button>
+            <Button size="sm" variant="outline" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+              <Ban /> Cancel
+            </Button>
           )}
         </div>
-      </div>
-      {r.change_request && <p className="note">Change request: {r.change_request}</p>}
-      <StationStrip stations={stations} />
-      {r.summary && <p className={r.status === "held" ? "error" : "muted"}>{r.summary}</p>}
-      {r.status === "held" && r.last_failure && (
-        <details open>
-          <summary>Evidence</summary>
-          <pre className="pre">{r.last_failure}</pre>
-        </details>
-      )}
-      {r.status === "needs_input" && <Questions runId={runId} questions={r.questions ?? []} onDone={refresh} />}
-      {r.status === "awaiting_feedback" && <FeedbackForm orderId={orderId} onDone={refresh} />}
-      <EventLog events={events} />
-    </section>
+      </CardHeader>
+      <CardContent className="grid gap-4 pt-4">
+        {r.change_request && (
+          <p className="note m-0 flex items-start gap-2">
+            <MessageSquareText className="mt-0.5 size-4 shrink-0 text-info" />
+            <span>
+              <span className="font-medium">Change request:</span> {r.change_request}
+            </span>
+          </p>
+        )}
+        <StationStrip stations={stations} />
+        {r.summary && (
+          <p className={cn("m-0 text-sm", r.status === "held" ? "error" : "text-muted-foreground")}>{r.summary}</p>
+        )}
+        {r.status === "held" && r.last_failure && (
+          <details open>
+            <summary className="font-medium">Evidence</summary>
+            <pre className="pre mt-2">{r.last_failure}</pre>
+          </details>
+        )}
+        {r.status === "needs_input" && <Questions runId={runId} questions={r.questions ?? []} onDone={refresh} />}
+        {r.status === "awaiting_feedback" && <FeedbackForm orderId={orderId} onDone={refresh} />}
+        <EventLog events={events} live={ACTIVE.has(r.status)} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -113,7 +136,7 @@ function useRunEvents(runId: string): FactoryEvent[] {
   return events;
 }
 
-function EventLog({ events }: { events: FactoryEvent[] }) {
+function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
   const [filter, setFilter] = useState<"all" | "decisions" | "stations">("all");
   const bottom = useRef<HTMLDivElement>(null);
   // Block body on purpose: newer Chrome returns a Promise from scrollIntoView, and
@@ -126,13 +149,24 @@ function EventLog({ events }: { events: FactoryEvent[] }) {
   );
   return (
     <div>
-      <div className="row">
-        <h4>Activity</h4>
-        {(["all", "decisions", "stations"] as const).map((f) => (
-          <button key={f} className={`tab ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
-            {f}
-          </button>
-        ))}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h4 className="m-0 flex items-center gap-2">
+          Activity
+          {live && (
+            <span className="relative flex size-2" title="Live">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-ok" />
+            </span>
+          )}
+        </h4>
+        <span className="text-xs text-muted-foreground">{events.length} events</span>
+        <div className="ml-auto flex gap-1 rounded-lg border bg-card p-0.5">
+          {(["all", "decisions", "stations"] as const).map((f) => (
+            <button key={f} className={`tab ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
+              {f}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="log">
         {shown.map((e) => (
@@ -148,6 +182,7 @@ function EventLog({ events }: { events: FactoryEvent[] }) {
             )}
           </div>
         ))}
+        {shown.length === 0 && <p className="m-0 p-3 text-muted-foreground">Nothing yet.</p>}
         <div ref={bottom} />
       </div>
     </div>
@@ -163,13 +198,13 @@ function Questions({ runId, questions, onDone }: { runId: string; questions: str
   });
   return (
     <form
-      className="panel"
+      className="rounded-xl border border-warn/50 bg-warn/5 p-4"
       onSubmit={(e) => {
         e.preventDefault();
         submit.mutate();
       }}
     >
-      <h4>Intake needs a decision from you</h4>
+      <h4 className="m-0">Intake needs a decision from you</h4>
       {questions.map((q, i) => (
         <label key={i}>
           {q}
@@ -180,7 +215,9 @@ function Questions({ runId, questions, onDone }: { runId: string; questions: str
           />
         </label>
       ))}
-      <button disabled={submit.isPending}>Send answers</button>
+      <Button className="w-fit" disabled={submit.isPending}>
+        <Send /> Send answers
+      </Button>
       {submit.error && <p className="error">{submit.error.message}</p>}
     </form>
   );
@@ -193,20 +230,23 @@ function FeedbackForm({ orderId, onDone }: { orderId: string; onDone: () => void
       unwrap(api.POST("/api/orders/{order_id}/feedback", { params: { path: { order_id: orderId } }, body: { text } })),
     onSuccess: () => {
       setText("");
+      toast.success("Feedback sent", { description: "The next iteration is starting." });
       onDone();
     },
   });
   return (
     <form
-      className="panel"
+      className="rounded-xl border border-ok/40 bg-ok/5 p-4"
       onSubmit={(e) => {
         e.preventDefault();
         send.mutate();
       }}
     >
-      <h4>Try the app, then tell the factory what to change</h4>
-      <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} required minLength={3} />
-      <button disabled={send.isPending}>Send feedback &amp; start next iteration</button>
+      <h4 className="m-0">Try the app, then tell the factory what to change</h4>
+      <textarea className="font-sans text-sm" placeholder="e.g. add pagination to the list endpoint…" rows={4} value={text} onChange={(e) => setText(e.target.value)} required minLength={3} />
+      <Button className="w-fit" disabled={send.isPending}>
+        <Send /> Send feedback &amp; start next iteration
+      </Button>
       {send.error && <p className="error">{send.error.message}</p>}
     </form>
   );

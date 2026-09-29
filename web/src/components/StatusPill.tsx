@@ -1,3 +1,6 @@
+import { AlertTriangle, Ban, CheckCircle2, CircleDashed, Loader2, MessageCircleQuestion, PauseCircle, XCircle } from "lucide-react";
+import type { ReactNode } from "react";
+
 const TONE: Record<string, string> = {
   queued: "info",
   running: "info",
@@ -16,6 +19,23 @@ const LABEL: Record<string, string> = {
   awaiting_feedback: "delivered · awaiting feedback",
 };
 
+const ICON: Record<string, ReactNode> = {
+  queued: <CircleDashed />,
+  running: <Loader2 className="animate-spin" />,
+  needs_input: <MessageCircleQuestion />,
+  paused_limits: <PauseCircle />,
+  held: <AlertTriangle />,
+  interrupted: <PauseCircle />,
+  awaiting_feedback: <CheckCircle2 />,
+  cancelled: <Ban />,
+  failed: <XCircle />,
+};
+
 export default function StatusPill({ status }: { status: string }) {
-  return <span className={`pill ${TONE[status] ?? "muted"}`}>{LABEL[status] ?? status}</span>;
+  return (
+    <span className={`pill ${TONE[status] ?? "muted"} [&_svg]:size-3`}>
+      {ICON[status]}
+      {LABEL[status] ?? status}
+    </span>
+  );
 }
