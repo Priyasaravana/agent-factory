@@ -12,7 +12,7 @@ jobs:
   engine:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd engine && uv run --python 3.12 --extra dev ruff check src tests
@@ -25,7 +25,7 @@ jobs:
   auth:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - run: cd auth && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd auth && uv run --python 3.12 --extra dev pytest -q
@@ -33,7 +33,7 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: {node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json}
       - run: cd web && npm ci && npm run gen:api && git diff --exit-code src/api/schema.d.ts && npm run build
@@ -41,7 +41,7 @@ jobs:
   golden-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - uses: azure/setup-helm@v4
       - run: cd templates/fastapi-service && make verify
