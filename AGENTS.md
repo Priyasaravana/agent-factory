@@ -27,4 +27,8 @@
 - Every delivery provider implements `check()` (fast, read-only readiness) and
   `undeploy()` (archive) besides its capability methods. New run-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
+- Changes to `images/`, Dockerfiles, `docker-compose.yml` or the golden path must
+  keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's
+  Python (factory/auth images, CI) is one version; apps pick theirs from the
+  sandbox's `APP_PYTHONS` (`tests/test_python_versions.py`).
 - Record significant decisions as ADRs in `docs/adr/`.

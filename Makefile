@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check backup restore upgrade test lint web-build openapi check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -19,6 +19,18 @@ down: ## stop everything (keeps cluster, images and data)
 
 sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist)
 	docker compose exec factory agent-factory sandbox check
+
+backup: ## consistent snapshot of all factory + auth data into backups/ (safe while running)
+	./scripts/backup.sh
+
+restore: ## restore a backup: make restore BACKUP=backups/agent-factory-<timestamp>
+	./scripts/restore.sh $(BACKUP)
+
+upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.md)
+	./scripts/backup.sh
+	git pull --ff-only
+	docker compose up -d --build --wait
+	docker compose exec -T factory agent-factory sandbox check
 
 reset-admin: ## break-glass: print a one-time password for the admin user
 	docker compose exec auth factory-auth reset-password $${FACTORY_ADMIN_USER:-admin}

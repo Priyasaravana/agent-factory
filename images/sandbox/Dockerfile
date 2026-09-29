@@ -11,6 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
 
+# Interpreters for the generated apps, independent of this image's own Python:
+# an app pins its version (.python-version) and uv picks it from here, offline
+# (UV_PYTHON_DOWNLOADS=never at run time). Adding a version here is how the
+# factory lets apps move to a newer Python; engine/tests/test_python_versions.py
+# checks the golden path's pin is on this list.
+ARG APP_PYTHONS="3.12 3.13 3.14"
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
+RUN uv python install ${APP_PYTHONS} && chmod -R a+rX /opt/python && uv python list --only-installed
+
 COPY claude /usr/local/bin/claude
 COPY plugin /opt/factory/plugin
 COPY egress.py /opt/egress.py

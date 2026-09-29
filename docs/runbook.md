@@ -41,6 +41,8 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **Order refused: "preflight failed"** | The message lists the failing checks. Integrations shows every check with its reasons. Fix the cause, then **Check now**. Nothing was started and no model usage was spent. |
 | **No free app port** | Open an order you no longer need → **Archive**. The app is removed from the cluster and its port freed; its repo and history are kept. |
 | Want all 20 app ports (installs from before ADR-0015) | `make reset-cluster`, then re-deliver apps you still need (new order or feedback). Until then the readiness page shows how many ports the cluster maps. |
+| **Upgrade the factory** | `make upgrade` (backup → pull → rebuild → check). Details and rollback: [upgrading.md](upgrading.md). |
+| Back up / restore | `make backup` (safe while running) · `make restore BACKUP=backups/agent-factory-<ts>` |
 | Start over completely | `docker compose down -v && rm -rf .factory-data` |
 
 ## Troubleshooting

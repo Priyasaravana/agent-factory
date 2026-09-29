@@ -40,6 +40,8 @@ def main() -> None:
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
+    sctx = sbsub.add_parser("context", help="assemble the sandbox image build context (CI builds and tests it)")
+    sctx.add_argument("--out", required=True)
 
     args = parser.parse_args()
 
@@ -57,6 +59,14 @@ def main() -> None:
         _workflow(args)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
+    elif args.cmd == "sandbox" and args.sb_cmd == "context":
+        from agent_factory.sandbox.manager import assemble_context
+        from agent_factory.settings import Settings
+
+        problem = assemble_context(Path(Settings().factory_home), Path(args.out))
+        if problem:
+            raise SystemExit(problem)
+        print(f"sandbox build context in {args.out}")
     elif args.cmd == "sandbox":
         _sandbox_check()
 
