@@ -33,6 +33,7 @@ export default function IntegrationsPage() {
               <td>integration</td>
               <td>provider</td>
               <td>capabilities</td>
+              <td>credential</td>
               <td>used by</td>
               <td>readiness</td>
             </tr>
@@ -52,6 +53,13 @@ export default function IntegrationsPage() {
                 </td>
                 <td>{i.provider}</td>
                 <td>{i.capabilities.join(", ")}</td>
+                <td>
+                  {i.auth ? (
+                    <code>{i.auth}</code>
+                  ) : (
+                    <span className="muted">none</span>
+                  )}
+                </td>
                 <td>
                   {(i.used_by ?? []).join(", ") || (
                     <span className="muted">—</span>

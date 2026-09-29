@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus
+from agent_factory.secret_refs import REDACTOR
 from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
 
@@ -73,7 +74,7 @@ class SqliteStateStore:
     def create_order(self, order: Order) -> Order:
         self._exec(
             "INSERT INTO orders(id, created_at, doc) VALUES (?,?,?)",
-            (order.id, order.created_at.isoformat(), order.model_dump_json()),
+            (order.id, order.created_at.isoformat(), REDACTOR.text(order.model_dump_json())),
         )
         return order
 
@@ -86,13 +87,13 @@ class SqliteStateStore:
         return [Order.model_validate_json(r[0]) for r in rows]
 
     def save_order(self, order: Order) -> None:
-        self._exec("UPDATE orders SET doc=? WHERE id=?", (order.model_dump_json(), order.id))
+        self._exec("UPDATE orders SET doc=? WHERE id=?", (REDACTOR.text(order.model_dump_json()), order.id))
 
     # -- runs ----------------------------------------------------------------
     def create_run(self, run: Run) -> Run:
         self._exec(
             "INSERT INTO runs(id, order_id, status, created_at, doc) VALUES (?,?,?,?,?)",
-            (run.id, run.order_id, run.status, run.created_at.isoformat(), run.model_dump_json()),
+            (run.id, run.order_id, run.status, run.created_at.isoformat(), REDACTOR.text(run.model_dump_json())),
         )
         return run
 
@@ -104,7 +105,7 @@ class SqliteStateStore:
         run.updated_at = _now()
         self._exec(
             "UPDATE runs SET status=?, doc=? WHERE id=?",
-            (run.status, run.model_dump_json(), run.id),
+            (run.status, REDACTOR.text(run.model_dump_json()), run.id),
         )
 
     def list_runs(self, order_id: str) -> list[Run]:
@@ -129,6 +130,8 @@ class SqliteStateStore:
         data: dict[str, Any] | None = None,
     ) -> Event:
         ts = _now()
+        # every resolved secret value is masked before anything is stored or streamed
+        message, data = REDACTOR.text(message), REDACTOR.obj(data or {})
         cur = self._exec(
             "INSERT INTO events(run_id, ts, station, kind, message, data) VALUES (?,?,?,?,?,?)",
             (run_id, ts.isoformat(), station, kind.value, message, json.dumps(data or {})),

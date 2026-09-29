@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 PolicyMode = Literal["auto", "manual", "off"]
 
@@ -71,13 +71,30 @@ class Limits(BaseModel):
     pause_at_utilization: float = 0.95
 
 
+class IntegrationAuth(BaseModel):
+    """How an integration authenticates. Never a credential itself: a secret
+    reference (env://, file://, aws-sm://, vault://) resolved just in time, or a
+    workload identity that needs no secret at all."""
+
+    secret_ref: str | None = Field(default=None, validation_alias=AliasChoices("secret_ref", "secretRef"))
+    identity: str | None = None  # e.g. "irsa": the pod's own role, no secret
+
+    @field_validator("secret_ref")
+    @classmethod
+    def _is_reference(cls, v: str | None) -> str | None:
+        if v is not None and "://" not in v:
+            raise ValueError("secret_ref must be a reference like env://NAME or aws-sm://id#key, never a value")
+        return v
+
+
 class Integration(BaseModel):
     """An external system the factory delivers through. `provider` is the type
-    (e.g. "local"); `settings` are non-secret options. Credentials are never
-    stored here (secret references arrive in phase 2 of docs/design/integrations.md)."""
+    (e.g. "local"); `settings` are non-secret options; `auth` points at the
+    credential without containing it."""
 
     provider: str
     settings: dict[str, Any] = Field(default_factory=dict)
+    auth: IntegrationAuth = Field(default_factory=IntegrationAuth)
 
 
 class Environment(BaseModel):
@@ -114,12 +131,20 @@ class FactoryConfig(BaseModel):
     skill_prompts: dict[str, str] = Field(default_factory=dict)
     default_skills: list[SkillSource] = Field(default_factory=list)
     integrations: dict[str, Integration] = Field(default_factory=dict)
+    # read-only token for importing templates/skills from private GitHub repos
+    skills_github_token_ref: str | None = "env://SKILLS_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
     environments: dict[str, Environment] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:
         # today's behaviour needs no config: a `local` integration and environment always exist
-        self.integrations.setdefault("local", Integration(provider="local"))
+        self.integrations.setdefault(
+            "local",
+            Integration(provider="local", auth=IntegrationAuth(secret_ref="env://GITHUB_TOKEN")),  # noqa: S106
+        )
+        local = self.integrations["local"]
+        if local.provider == "local" and not (local.auth.secret_ref or local.auth.identity):
+            local.auth.secret_ref = "env://GITHUB_TOKEN"  # noqa: S105 - the pre-phase-2 default, as a reference
         self.environments.setdefault("local", Environment())
         return self
 

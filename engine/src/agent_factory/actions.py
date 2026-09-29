@@ -149,7 +149,7 @@ def get_health(f: Factory) -> HealthView:
         status="ok",
         mode=f.settings.factory_mode,
         model_auth=f.settings.model_auth_configured(),
-        github=bool(f.settings.github_token),
+        github=_publish_token_available(f),
         active_runs=f.manager.active_count(),
     )
 
@@ -319,6 +319,23 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
     )
 
 
+def _auth_label(auth: Any) -> str | None:
+    if auth.identity:
+        return f"identity: {auth.identity}"
+    return auth.secret_ref
+
+
+def _publish_token_available(f: Factory) -> bool:
+    """Whether the default product line's publish integration has a usable token (never the value)."""
+    try:
+        pl = next(iter(f.cfg.product_lines))
+        publish = f.manager.providers.for_product_line(pl).publish
+    except (StopIteration, Exception):  # noqa: BLE001
+        return False
+    ref = getattr(getattr(publish, "auth", None), "secret_ref", None)
+    return f.manager.secrets.available(ref)[0]
+
+
 def _bindings(f: Factory, product_line: str) -> list[DeliveryBinding]:
     ps = f.manager.providers.for_product_line(product_line)
     return [
@@ -391,7 +408,9 @@ def draft_from_template(f: Factory, workflow_id: str, body: FromTemplateInput) -
 )
 def draft_from_github(f: Factory, workflow_id: str, body: FromGitHubInput) -> DraftView:
     try:
-        fetched = fetch_dir(body.repo, body.path, body.ref, f.settings.skills_github_token)
+        fetched = fetch_dir(
+            body.repo, body.path, body.ref, f.manager.secrets.resolve_optional(f.cfg.skills_github_token_ref)
+        )
     except GitHubError as exc:
         raise WorkflowError(str(exc)) from exc
     try:
@@ -594,7 +613,13 @@ async def get_delivery(f: Factory) -> DeliveryView:
                 ready = ReadinessView(state="ready", reasons=["dry-run: delivery steps are simulated"])
             else:
                 r = await p.check(None)
-                ready = ReadinessView(state=r.state, reasons=r.reasons)
+                ready = ReadinessView(state=r.state, reasons=list(r.reasons))
+                ref = f.cfg.integrations[name].auth.secret_ref
+                ok, why = f.manager.secrets.available(ref) if ref else (True, "")
+                if not ok:
+                    ready.reasons.append(f"credential {ref} not available ({why})")
+                    if ready.state == "ready":
+                        ready.state = "degraded"
         except Exception as exc:  # noqa: BLE001 - a broken check is itself a readiness result
             ready = ReadinessView(state="failed", reasons=[f"check crashed: {exc}"])
         integrations.append(
@@ -603,6 +628,7 @@ async def get_delivery(f: Factory) -> DeliveryView:
                 provider=p.kind,
                 capabilities=sorted(p.capabilities),
                 settings=dict(f.cfg.integrations[name].settings),
+                auth=_auth_label(f.cfg.integrations[name].auth),
                 readiness=ready,
                 used_by=[e for e, env in envs.items() if name in env.model_dump().values()],
             )
@@ -648,7 +674,7 @@ def _library(f: Factory) -> SkillLibrary:
 
 def _fetch_skill(f: Factory, repo: str, path: str, ref: str) -> Fetched:
     try:
-        return fetch_dir(repo, path, ref, f.settings.skills_github_token)
+        return fetch_dir(repo, path, ref, f.manager.secrets.resolve_optional(f.cfg.skills_github_token_ref))
     except GitHubError as exc:
         raise SkillError(str(exc)) from exc
 

@@ -2774,6 +2774,17 @@
             "type": "object",
             "title": "Settings"
           },
+          "auth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
           "readiness": {
             "$ref": "#/components/schemas/ReadinessView"
           },

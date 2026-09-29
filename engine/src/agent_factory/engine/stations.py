@@ -23,6 +23,7 @@ from agent_factory.executor import CommandResult, Executor
 from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.providers import LocalProvider, ProviderSet
 from agent_factory.providers.local import failed_detail
+from agent_factory.secret_refs import SecretError, SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import AgentSpec, WorkflowDoc
@@ -56,6 +57,7 @@ class StationContext:
     station_id: str
     workflow_doc: WorkflowDoc
     providers: ProviderSet = field(default_factory=lambda: _local_set())
+    secrets: SecretResolver = field(default_factory=SecretResolver)
     imported_plugin: Path | None = None  # the version's pinned imported skills, as a local plugin
     skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this run
 
@@ -67,6 +69,25 @@ class StationContext:
     def spec(self) -> AgentSpec:
         """The agent spec bound to this station (agent stations only)."""
         return self.workflow_doc.agent_for(self.station_id)
+
+    def secret(self, ref: str, purpose: str) -> str | None:
+        """Resolve a secret reference for one step. The value is returned, never
+        logged (the store masks it); the audit trail records only the reference."""
+        try:
+            value = self.secrets.resolve(ref)
+        except SecretError as exc:
+            self.store.add_event(
+                self.run.id, EventKind.log, f"secret {ref} for {purpose} unavailable: {exc}", station=self.station_id
+            )
+            return None
+        self.store.add_event(
+            self.run.id,
+            EventKind.decision,
+            f"used secret {ref} for {purpose}",
+            station=self.station_id,
+            data={"secret_ref": ref, "purpose": purpose},
+        )
+        return value
 
     async def emit(self, kind: EventKind, message: str, data: dict[str, Any] | None = None) -> None:
         self.store.add_event(self.run.id, kind, message, station=self.station_id, data=data)

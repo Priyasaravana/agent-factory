@@ -27,6 +27,7 @@ from agent_factory.models import (
     StationOutcome,
 )
 from agent_factory.providers import Providers
+from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
 
@@ -55,10 +56,12 @@ class RunManager:
         agents: AgentRunner,
         workflows: WorkflowRegistry,
         providers: Providers | None = None,
+        secrets: SecretResolver | None = None,
     ) -> None:
         self.cfg, self.settings, self.store = cfg, settings, store
         self.workflows = workflows
         self.providers = providers or Providers(cfg)
+        self.secrets = secrets or SecretResolver(settings)
         self.ws, self.ex, self.agents = ws, ex, agents
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
@@ -288,6 +291,7 @@ class RunManager:
                 self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, order, run, worktree, sid, flow
             )
             ctx.providers = self.providers.for_product_line(order.product_line)
+            ctx.secrets = self.secrets
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
                 ctx.imported_plugin = self.workflows.library.materialise(ctx.skill_pins)

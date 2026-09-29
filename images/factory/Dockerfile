@@ -41,7 +41,9 @@ WORKDIR /opt/factory
 
 COPY engine/pyproject.toml engine/
 COPY engine/src engine/src
-RUN uv pip install --system --no-cache ./engine
+# Optional extras, e.g. --build-arg ENGINE_EXTRAS=aws for aws-sm:// secret references
+ARG ENGINE_EXTRAS=""
+RUN uv pip install --system --no-cache "./engine${ENGINE_EXTRAS:+[${ENGINE_EXTRAS}]}"
 
 COPY .agent-factory .agent-factory
 # Default skills (config: default_skills) at their pinned commits, so first start

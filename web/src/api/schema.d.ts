@@ -1111,6 +1111,8 @@ export interface components {
             settings?: {
                 [key: string]: unknown;
             };
+            /** Auth */
+            auth?: string | null;
             readiness: components["schemas"]["ReadinessView"];
             /** Used By */
             used_by?: string[];
