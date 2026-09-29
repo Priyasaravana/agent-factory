@@ -33,14 +33,15 @@ services:
       DOCKER_HOST: tcp://docker:2376     # must match the dind cert SAN (see alias above)
       DOCKER_TLS_VERIFY: "1"
       DIND_HOST: dind
+      AUTH_MODE: gateway                 # trust only the identity the gateway forwards
     volumes:
       - dind-certs:/certs:ro
       - ./.factory-data:/data            # the ONLY host path mounted: state, product repos, run worktrees
     depends_on:
       dind:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:8000:8000"            # API + OpenAPI docs at /api/docs
+    # No published port: every API call goes through the web gateway (8080), which
+    # asks the auth service first. API docs: http://localhost:8080/api/docs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
       interval: 5s
@@ -49,11 +50,27 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  auth:
+    build:
+      context: .
+      dockerfile: images/auth/Dockerfile
+    environment:
+      # Only what auth needs; it never gets the factory's .env (model/GitHub tokens).
+      FACTORY_ADMIN_USER: ${FACTORY_ADMIN_USER:-admin}
+      FACTORY_ADMIN_PASSWORD: ${FACTORY_ADMIN_PASSWORD:-}   # first start only; else a one-time password is generated
+      AUTH_SESSION_HOURS: ${AUTH_SESSION_HOURS:-12}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}      # true behind HTTPS
+    volumes:
+      - auth-data:/data                  # its own database: users, sessions, token hashes, audit
+    restart: unless-stopped
+
   web:
     build: ./web
     depends_on:
       factory:
         condition: service_started     # nginx no longer needs the engine up to serve the UI
+      auth:
+        condition: service_started
     ports:
       - "127.0.0.1:8080:80"              # the factory UI
     restart: unless-stopped
@@ -61,3 +78,4 @@ services:
 volumes:
   dind-certs:
   dind-data:
+  auth-data:

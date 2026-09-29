@@ -32,7 +32,7 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 ```bash
 cp .env.example .env        # FACTORY_MODE=dry-run by default
 make up                     # builds and starts dind + factory + web
-open http://localhost:8080  # submit an order and watch the workflow run
+open http://localhost:8080  # sign in (see docs/runbook.md), submit an order, watch the workflow run
 ```
 
 **Dry-run** simulates the agents and commands. Git is still real. Use it to

@@ -15,4 +15,7 @@
   FAILED or HELD.
 - Guardrails live in `engine/src/agent_factory/agents/hooks.py`. Add a test in
   `tests/test_hooks.py` for every rule.
+- `auth/` is a separate service (own package, container and database). It must not
+  import the engine, and the engine must not import it: they meet only at the
+  gateway headers `X-Auth-User` / `X-Auth-Role` (see ADR-0012).
 - Record significant decisions as ADRs in `docs/adr/`.

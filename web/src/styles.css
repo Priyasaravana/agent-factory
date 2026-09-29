@@ -97,3 +97,8 @@ button.icon:hover { color: var(--bad); }
 .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
 label.check { display: flex; gap: 8px; align-items: flex-start; }
 .pill.clickable { cursor: pointer; }
+/* auth */
+.login { min-height: 80vh; display: grid; place-items: center; padding: 16px; }
+.login .card { width: min(420px, 100%); display: grid; gap: 12px; }
+.user-menu { margin-left: 8px; }
+button.small-btn { padding: 4px 10px; font-size: 13px; }

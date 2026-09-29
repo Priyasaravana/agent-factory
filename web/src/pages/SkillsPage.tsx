@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, unwrap, type SkillInfo, type SkillPreview } from "../api/client";
+import { useIsAdmin } from "../auth";
 
 type Source = { repo: string; path: string; ref: string };
 
 export default function SkillsPage() {
+  const isAdmin = useIsAdmin();
   const qc = useQueryClient();
   const skills = useQuery({ queryKey: ["skills"], queryFn: () => unwrap(api.GET("/api/skills")) });
   const [src, setSrc] = useState<Source>({ repo: "", path: "", ref: "main" });
@@ -56,6 +58,7 @@ export default function SkillsPage() {
           workflow editor. Imported skills are pinned to a commit; a workflow picks up a newer commit only when it is
           published again.
         </p>
+        {!isAdmin && <p className="note">Only admins can import, update or remove skills.</p>}
         <h3>Import from GitHub</h3>
         <form
           className="row"

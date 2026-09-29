@@ -24,6 +24,7 @@ from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.github import fetch_dir
+from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, RunStatus
 from agent_factory.providers import Providers
 from agent_factory.secret_refs import SecretResolver
@@ -120,6 +121,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         redoc_url=None,
     )
     settings = factory.settings if factory else Settings()
+    app.add_middleware(IdentityMiddleware, mode=settings.auth_mode)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],

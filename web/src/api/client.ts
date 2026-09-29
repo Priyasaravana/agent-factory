@@ -25,8 +25,12 @@ export type SkillPreview = components["schemas"]["SkillPreview"];
 export const api = createClient<paths>({ baseUrl: "" });
 
 /** Unwrap an openapi-fetch result, throwing the API's `detail` message on error. */
-export async function unwrap<T>(p: Promise<{ data?: T; error?: unknown }>): Promise<T> {
-  const { data, error } = await p;
+export async function unwrap<T>(p: Promise<{ data?: T; error?: unknown; response?: Response }>): Promise<T> {
+  const { data, error, response } = await p;
+  if (response && (response.status === 401 || response.status === 403) && error !== undefined) {
+    // the session expired or the password must change: let the auth shell re-check
+    window.dispatchEvent(new Event("factory-auth-changed"));
+  }
   if (error !== undefined) {
     const detail = (error as { detail?: unknown })?.detail;
     throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail ?? error));

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from agent_factory.engine.pipeline import FactoryError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
+from agent_factory.identity import current_identity
 from agent_factory.models import (
     AddStationInput,
     AgentView,
@@ -175,6 +176,8 @@ def list_orders(f: Factory) -> list[Order]:
 @action("create_order", "Submit requirements; starts the first run", "POST", "/api/orders", status_code=201)
 def create_order(f: Factory, body: CreateOrderInput) -> OrderDetail:
     order = f.manager.create_order(body)
+    order.created_by = current_identity().user
+    f.store.save_order(order)
     f.manager.start_run(order)
     return get_order(f, order.id)
 
@@ -587,7 +590,7 @@ def delete_draft_doc(f: Factory, workflow_id: str, doc_id: str) -> DraftView:
     status_code=201,
 )
 def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> WorkflowVersionInfo:
-    return f.workflows[workflow_id].draft.publish(body.note)
+    return f.workflows[workflow_id].draft.publish(f"{body.note} (by {current_identity().user})")
 
 
 @action("discard_draft", "Throw the draft away", "DELETE", "/api/workflows/{workflow_id}/draft")
