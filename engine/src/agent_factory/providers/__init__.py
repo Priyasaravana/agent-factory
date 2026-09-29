@@ -64,7 +64,9 @@ class Providers:
                 raise ProviderError(
                     f"integration '{name}': unknown provider '{integ.provider}' (known: {sorted(_KINDS)})"
                 )
-            self.integrations[name] = factory(name, dict(integ.settings))
+            provider = factory(name, dict(integ.settings))
+            provider.auth = integ.auth  # a reference, resolved by the provider when it needs it
+            self.integrations[name] = provider
         for env_name, env in cfg.environments.items():
             for cap in CAPABILITIES:
                 self._bind(env_name, cap, getattr(env, cap))  # fail at startup, not mid-run

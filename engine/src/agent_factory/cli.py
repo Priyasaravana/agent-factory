@@ -62,16 +62,20 @@ def _skills_cache(out: Path) -> None:
 
     from agent_factory.config import load_config
     from agent_factory.github import fetch_dir
+    from agent_factory.secret_refs import SecretResolver
     from agent_factory.settings import Settings
     from agent_factory.skills import seed_dir
 
     settings = Settings()
-    for src in load_config(settings.factory_config).default_skills:
+    cfg = load_config(settings.factory_config)
+    for src in cfg.default_skills:
         for path in src.paths:
             dest = seed_dir(out, src.repo, src.sha, path)
             if (dest / "SKILL.md").exists():
                 continue
-            fetched = fetch_dir(src.repo, path, src.sha, settings.skills_github_token)
+            fetched = fetch_dir(
+                src.repo, path, src.sha, SecretResolver(settings).resolve_optional(cfg.skills_github_token_ref)
+            )
             try:
                 shutil.copytree(fetched.root, dest, ignore=shutil.ignore_patterns(".git"))
             finally:

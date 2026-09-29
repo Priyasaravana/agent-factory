@@ -306,6 +306,7 @@ class IntegrationView(BaseModel):
     provider: str
     capabilities: list[str]
     settings: dict[str, Any] = Field(default_factory=dict)  # non-secret options only
+    auth: str | None = None  # the secret *reference* or identity; never a value
     readiness: ReadinessView
     used_by: list[str] = Field(default_factory=list)  # environments
 

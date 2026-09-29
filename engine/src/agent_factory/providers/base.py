@@ -56,6 +56,9 @@ class Provider(Protocol):
     name: str  # the integration id from config
     kind: str  # the provider type, e.g. "local"
     capabilities: frozenset[str]
+    # set by Providers from config: IntegrationAuth (a secret *reference* or an identity);
+    # resolve it with ctx.secret(ref, purpose) at the moment it is needed
+    auth: Any
 
     async def check(self, ctx: StationContext | None) -> Readiness: ...
 

@@ -26,6 +26,7 @@ from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.github import fetch_dir
 from agent_factory.models import TERMINAL, RunStatus
 from agent_factory.providers import Providers
+from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.skills import SkillError, SkillLibrary
 from agent_factory.state import SqliteStateStore, StateStore
@@ -58,6 +59,7 @@ def build_factory(
     executor = executor or (LocalExecutor() if live else FakeExecutor())
     ws = Workspace(data_dir, home, settings.git_author_name, settings.git_author_email)
 
+    secrets = SecretResolver(settings)
     library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
     workflows = WorkflowRegistry(
         store,
@@ -70,7 +72,7 @@ def build_factory(
     skill_problems = library.ensure_defaults(
         cfg.default_skills,
         Path(settings.skill_seeds_dir),
-        lambda repo, path, ref: fetch_dir(repo, path, ref, settings.skills_github_token),
+        lambda repo, path, ref: fetch_dir(repo, path, ref, secrets.resolve_optional(cfg.skills_github_token_ref)),
     )
     for problem in skill_problems:
         log.warning("%s", problem)
@@ -90,7 +92,7 @@ def build_factory(
             agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory))
         else:
             agents = FakeAgentRunner()
-    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows, Providers(cfg))
+    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets)
     return factory
 
 

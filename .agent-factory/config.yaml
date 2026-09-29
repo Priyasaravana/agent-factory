@@ -50,10 +50,15 @@ product_lines:
 # Delivery integrations (docs/design/integrations.md). Stations call the
 # provider bound to the product line's environment for each capability.
 # `local` (kind + dind + Trivy + gh) always exists and needs no config.
-# Never put credentials here; secret references arrive in phase 2.
+# Never put credentials here: `auth.secret_ref` names where one lives.
 # ---------------------------------------------------------------------------
 integrations:
-  local: {provider: local}
+  local:
+    provider: local
+    auth:
+      # a reference, never a value: env:// (dev, from .env), file:// (mounted secret),
+      # aws-sm://id#key (AWS Secrets Manager), vault://mount/path#key (Vault KV v2)
+      secret_ref: env://GITHUB_TOKEN   # used by publish
 environments:
   local: {registry: local, scan: local, deploy: local, publish: local}
 
@@ -110,6 +115,9 @@ default_skills:
       - skills/quick-recap
       - skills/stay-within-limits
       - skills/factory-recover
+
+# token for importing templates/skills from private GitHub repos (a reference)
+skills_github_token_ref: env://SKILLS_GITHUB_TOKEN
 
 skill_prompts:
   plow-ahead: |

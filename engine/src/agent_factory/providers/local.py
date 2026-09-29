@@ -106,10 +106,11 @@ class LocalProvider:
     async def publish(self, ctx: StationContext) -> StepResult:
         ws = ctx.ws
         repo = ws.product_dir(ctx.order.product_slug)
-        token = ctx.settings.github_token
+        ref = getattr(getattr(self, "auth", None), "secret_ref", None) or "env://GITHUB_TOKEN"
+        token = ctx.secret(ref, "publish")
         if not token:
-            await ctx.emit(EventKind.decision, "publish NOT done: GITHUB_TOKEN is not set")
-            return StepResult(True, "NOT pushed (no GITHUB_TOKEN)")
+            await ctx.emit(EventKind.decision, f"publish NOT done: no GitHub token ({ref} not available)")
+            return StepResult(True, f"NOT pushed ({ref} not available)")
         pub = ctx.cfg.policies.publish
         owner = self.settings.get("owner", getattr(pub, "owner", "")) or ""
         visibility = self.settings.get("visibility", getattr(pub, "visibility", "private"))
@@ -129,5 +130,6 @@ class LocalProvider:
         if not p.ok:
             return StepResult(False, "push to GitHub failed", p.output)
         url = await ctx.cmd("gh repo view --json url -q .url", env=env, cwd=repo, timeout=60)
-        repo_url = url.output.strip().splitlines()[-1] if url.ok and url.output.strip() else None
+        lines = url.output.strip().splitlines() if url.ok else []
+        repo_url = next((ln.strip() for ln in lines if ln.strip().startswith("https://")), None)
         return StepResult(True, f"pushed to {repo_url or name}", data={"repo_url": repo_url})
