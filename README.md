@@ -25,7 +25,8 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   independent verifier agent. It runs **holdout scenarios** that the builder
   never sees against the live app.
 - **API-first.** A Python engine (FastAPI) exposes an OpenAPI contract. The
-  TypeScript UI (React + Vite) uses types generated from that contract.
+  TypeScript UI (React + Vite, Tailwind + Radix components, ⌘K command palette,
+  dark/light themes) uses types generated from that contract.
 
 ## Quick start
 
