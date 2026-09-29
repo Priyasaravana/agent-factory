@@ -20,6 +20,8 @@ from agent_factory.providers.base import Readiness
 from agent_factory.sandbox import SandboxManager, egress, wrapper
 from agent_factory.sandbox.spec import Mount, SandboxSpec, forwarded_env_names, git_mounts
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 ENGINE_ENV = {
     "CLAUDE_CODE_OAUTH_TOKEN": "model-token",
     "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
@@ -286,7 +288,7 @@ def test_command_result_shape_is_unchanged():
 
 async def test_package_cache_volume_is_handed_to_the_sandbox_user(tmp_path):
     ex = FakeExecutor()
-    mgr = SandboxManager(SandboxConfig(), Path(__file__).resolve().parents[2], tmp_path, ex=ex)
+    mgr = SandboxManager(SandboxConfig(), REPO_ROOT, tmp_path, ex=ex)
     assert await mgr._cache() is None
     create, chown = ex.calls[-2:]
     assert create.startswith("docker volume create") and "factory-sandbox-cache" in create
