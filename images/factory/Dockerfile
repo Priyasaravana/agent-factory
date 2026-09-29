@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # The factory runtime: engine + API, and every tool the stations shell out to.
 # It never gets the host Docker socket; it talks to the dind sidecar over TLS.
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 ARG KIND_VERSION=v0.27.0
 ARG KUBECTL_VERSION=v1.32.3
