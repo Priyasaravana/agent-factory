@@ -58,5 +58,12 @@ try:
     check("worktree is writable", True)
 except OSError as e:
     check("worktree is writable", False, e)
+try:
+    cache = pathlib.Path.home() / ".cache" / "probe"
+    cache.mkdir(parents=True, exist_ok=True)
+    cache.rmdir()
+    check("package cache is writable (uv/pip)", True)
+except OSError as e:
+    check("package cache is writable (uv/pip)", False, e)
 check("runs as non-root", os.getuid() != 0, os.getuid())
 print(json.dumps(out))

@@ -25,5 +25,12 @@ the inputs you were given; downstream stations will verify what you produce.
 - Do not weaken tests, lint rules or coverage thresholds to make checks pass.
 - Do not look for hidden acceptance scenarios; you will not find them.
 
+## Environment problems are reported, not worked around
+You run in a sandbox. If the environment itself fails (permission denied outside
+the worktree, a missing tool, a blocked network host, a read-only path), do not
+change product files (Makefile, config, CI, Dockerfile) to route around it: the
+next environment would inherit the hack. Log it with `log_decision` as an
+environment problem, say so in your recap, and fail the step if it blocks you.
+
 ## Finish cleanly
 End with a three-line recap: what changed, how it was verified, residual risk.
