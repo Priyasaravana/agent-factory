@@ -24,6 +24,16 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 - **Evidence over claims.** Checks are deterministic. Acceptance is done by an
   independent verifier agent. It runs **holdout scenarios** that the builder
   never sees against the live app.
+- **Sandboxed agents.** Every agent session, and every run of code the agents
+  wrote, gets a throw-away container that can write only its worktree, holds no
+  factory secrets, and reaches only an egress allowlist
+  ([ADR-0014](docs/adr/0014-agent-sandbox.md)). Check it with `make sandbox-check`.
+- **Level 3 by default.** Generated apps start at agent-readiness Level 3:
+  - CI, CODEOWNERS and pre-commit;
+  - JSON logs, metrics and tracing;
+  - a secret scan, SBOM and provenance.
+
+  A Readiness station holds every run to that bar ([practices](docs/practices.md)).
 - **API-first.** A Python engine (FastAPI) exposes an OpenAPI contract. The
   TypeScript UI (React + Vite, Tailwind + Radix components, ⌘K command palette,
   dark/light themes) uses types generated from that contract.
@@ -75,6 +85,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 - [ADRs](docs/adr/): the factory model, stack, isolation, reuse of Builder
   practices, model access, holdout verification
 - [Scaling path](docs/scaling.md): seams already in the code, and what changes for team use
+- [Best practices we measure against](docs/practices.md) and the [threat model](docs/security/threat-model.md)
 
 ## Development
 

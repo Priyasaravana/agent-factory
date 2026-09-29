@@ -96,7 +96,9 @@ class LocalProvider:
     async def diagnostics(self, ctx: StationContext) -> str:
         ns, slug = namespace(ctx.order), ctx.order.product_slug
         diag = await ctx.cmd(
-            f"kubectl -n {ns} get pods -o wide; kubectl -n {ns} describe pods | tail -60; "
+            f"kubectl -n {ns} get pods -o wide; "
+            f"kubectl -n {ns} get events --sort-by=.lastTimestamp | tail -20; "
+            f"kubectl -n {ns} describe pods | tail -60; "
             f"kubectl -n {ns} logs -l app.kubernetes.io/instance={slug} --tail=80 --all-containers",
             timeout=60,
         )

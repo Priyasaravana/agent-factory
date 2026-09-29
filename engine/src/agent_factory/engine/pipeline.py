@@ -10,6 +10,7 @@ import re
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import FactoryConfig
@@ -30,6 +31,9 @@ from agent_factory.providers import Providers
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
+
+if TYPE_CHECKING:
+    from agent_factory.sandbox import SandboxManager
 
 
 class FactoryError(Exception):
@@ -57,12 +61,14 @@ class RunManager:
         workflows: WorkflowRegistry,
         providers: Providers | None = None,
         secrets: SecretResolver | None = None,
+        sandbox: SandboxManager | None = None,
     ) -> None:
         self.cfg, self.settings, self.store = cfg, settings, store
         self.workflows = workflows
         self.providers = providers or Providers(cfg)
         self.secrets = secrets or SecretResolver(settings)
         self.ws, self.ex, self.agents = ws, ex, agents
+        self.sandbox = sandbox  # runs agent-written code (verify) and agent sessions
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
 
@@ -170,6 +176,8 @@ class RunManager:
         task = self._tasks.get(run_id)
         if task and not task.done():
             task.cancel()
+        if self.sandbox is not None:
+            asyncio.get_running_loop().create_task(self.sandbox.remove_run(run_id))
         run.status = RunStatus.cancelled
         self.store.save_run(run)
         self._sync_order(run)
@@ -268,7 +276,8 @@ class RunManager:
         self.store.save_run(run)
         self._sync_order(run, order)
         product = self.cfg.product_lines[order.product_line]
-        await self.ws.ensure_product_repo(order.product_slug, product.template)
+        owner = str(getattr(self.cfg.policies.publish, "owner", "") or "")
+        await self.ws.ensure_product_repo(order.product_slug, product.template, owner)
         # pinned: later workflow edits never affect this run
         flow = self.workflows[run.workflow_id or order.product_line].get(run.workflow_version)
         worktree = await self.ws.create_worktree(order.product_slug, run.id)
@@ -291,6 +300,8 @@ class RunManager:
                 self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, order, run, worktree, sid, flow
             )
             ctx.providers = self.providers.for_product_line(order.product_line)
+            if self.sandbox is not None:
+                ctx.untrusted_ex = self.sandbox.executor(run.id, sid)
             ctx.secrets = self.secrets
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)

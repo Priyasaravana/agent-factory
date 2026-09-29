@@ -246,6 +246,9 @@ def create_app(store: Store | None = None, settings: Settings | None = None) -> 
             path="/",
         )
         st.audit(user.username, "changed password")
+        if user.username == s.admin_user:
+            # the one-time password is spent: stop `make up` from printing a stale one
+            (s.data_dir / "initial-admin-password").unlink(missing_ok=True)
         return _view(st.get_user(user.username))  # type: ignore[arg-type]
 
     # ---- API tokens (own) ----

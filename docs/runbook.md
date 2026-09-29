@@ -35,6 +35,9 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **Locked out** / forgot the admin password | `make reset-admin` prints a one-time password (must be changed at sign-in). |
 | Add a person | Admin → Add user (member or admin) with a temporary password; they choose their own at first sign-in. |
 | Script or CI access | Account → API tokens; send `Authorization: Bearer <token>` to `http://localhost:8080/api/...` |
+| **Sandbox preparing / failed** (header pill) | First start builds the sandbox image inside dind (a few minutes); runs wait for it. If it failed, the pill's tooltip and `docker compose logs factory` say why. Then `make sandbox-check`. |
+| An agent needs a site that is blocked | Add `host:443` to `sandbox.egress` in `.agent-factory/config.yaml` and restart the factory. Denied attempts: `docker compose exec dind docker logs factory-egress \| grep deny` |
+| Run **failed at readiness** | The repo lost an agent-readiness Level 3 signal (see the scorecard event). The build agent gets the missing list and fixes it; a secret found by the scan must also be rotated. |
 | Start over completely | `docker compose down -v && rm -rf .factory-data` |
 
 ## Troubleshooting
@@ -50,5 +53,9 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 - **Image build fails downloading a tool.** Each tool has its own `RUN` line in
   `images/factory/Dockerfile`, so the failing layer names the tool. Bump that
   tool's `ARG` version.
-- **Agent sessions fail immediately.** Check the auth pill. Look in
+- **Agent sessions fail immediately.** Check the auth and sandbox pills. Look in
   `docker compose logs factory` for the CLI's error.
+- **Upgrading from before the sandbox.** `make up` recreates dind with the
+  `.factory-data` mount it now needs. Existing workflows keep their stations:
+  add the Readiness check in Workflows → Edit (drag it after verify), or reset
+  the lane from the `default` template, and publish.

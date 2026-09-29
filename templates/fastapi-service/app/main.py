@@ -4,7 +4,10 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.db import Base, engine
+from app.observability import configure_logging, instrument
 from app.settings import settings
+
+configure_logging(settings.log_level)
 
 
 @asynccontextmanager
@@ -14,6 +17,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+instrument(app, settings.app_name)
 
 
 @app.get("/healthz")

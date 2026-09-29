@@ -23,6 +23,7 @@ from agent_factory.executor import CommandResult, Executor
 from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.providers import LocalProvider, ProviderSet
 from agent_factory.providers.local import failed_detail
+from agent_factory.readiness import score
 from agent_factory.secret_refs import SecretError, SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
@@ -60,6 +61,9 @@ class StationContext:
     secrets: SecretResolver = field(default_factory=SecretResolver)
     imported_plugin: Path | None = None  # the version's pinned imported skills, as a local plugin
     skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this run
+    # where untrusted commands (the generated app's own build/tests) run: a sandbox
+    # executor in live mode; None = the engine's executor (dry-run, tests, dev)
+    untrusted_ex: Executor | None = None
 
     @property
     def product_line(self) -> ProductLine:
@@ -93,9 +97,17 @@ class StationContext:
         self.store.add_event(self.run.id, kind, message, station=self.station_id, data=data)
 
     async def cmd(
-        self, command: str, timeout: float = 900, env: dict[str, str] | None = None, cwd: Path | None = None
+        self,
+        command: str,
+        timeout: float = 900,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        untrusted: bool = False,
     ) -> CommandResult:
-        res = await self.ex.run(command, cwd=cwd or self.worktree, timeout=timeout, env=env)
+        """Run a command. `untrusted=True` for code the agents wrote (tests, the
+        app's Makefile): it runs in the sandbox, never next to engine secrets."""
+        ex = (self.untrusted_ex or self.ex) if untrusted else self.ex
+        res = await ex.run(command, cwd=cwd or self.worktree, timeout=timeout, env=env)
         await self.emit(
             EventKind.command,
             f"{'✓' if res.ok else '✗'} {command}",
@@ -117,7 +129,7 @@ class StationContext:
                 await self.emit(EventKind.agent, data.get("text", ""), {})
             elif kind == "tool":
                 await self.emit(EventKind.log, f"{data['tool']}: {data['input']}", data)
-            elif kind == "agent_init":
+            elif kind in ("agent_init", "sandbox"):
                 await self.emit(EventKind.log, data["text"], data)
             else:
                 await self.emit(EventKind.log, kind, data)
@@ -344,7 +356,7 @@ Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 
 # ------------------------------------------------------------------ verify --
 async def verify(ctx: StationContext) -> StationResult:
-    res = await ctx.cmd(ctx.product_line.verify_command, timeout=1200)
+    res = await ctx.cmd(ctx.product_line.verify_command, timeout=1200, untrusted=True)
     if not res.ok:
         return StationResult(
             StationOutcome.failed,
@@ -352,6 +364,38 @@ async def verify(ctx: StationContext) -> StationResult:
             f"`{res.command}` exited {res.returncode}:\n{res.output[-4000:]}",
         )
     return StationResult(StationOutcome.passed, "lint, tests, coverage and security checks passed")
+
+
+# --------------------------------------------------------------- readiness --
+async def readiness(ctx: StationContext) -> StationResult:
+    """Score the repo against the agent-readiness signals (docs/practices.md) and
+    hold it to the product line's level. Deterministic: files plus a secret scan."""
+    line = ctx.product_line
+    scan_ok: bool | None = None
+    scan_evidence = ""
+    if line.secret_scan_command:
+        res = await ctx.cmd(line.secret_scan_command.format(path=ctx.worktree), timeout=600)
+        scan_ok = res.ok
+        if not res.ok:
+            scan_evidence = f"\nSecret scan (values redacted):\n{res.output[-2500:]}"
+    else:
+        await ctx.emit(EventKind.decision, "secret scan NOT run: no secret_scan_command configured")
+        scan_ok = False
+    card = score(ctx.worktree, scan_ok)
+    await ctx.emit(
+        EventKind.decision,
+        f"agent readiness: Level {card.level} ({card.points}/{card.max_points} points)",
+        {"readiness": card.as_data()},
+    )
+    need = line.min_readiness_level
+    if card.level >= need:
+        return StationResult(StationOutcome.passed, f"agent-ready: Level {card.level}, {card.points} points")
+    missing = "\n".join(f"- [L{s.level}] {s.title}: {s.hint}" for s in card.missing(need))
+    return StationResult(
+        StationOutcome.failed,
+        f"below agent-readiness Level {need} (at Level {card.level})",
+        f"The repo must stay at agent-readiness Level {need}. Missing signals:\n{missing}{scan_evidence}",
+    )
 
 
 # ----------------------------------------------------------------- package --
@@ -371,12 +415,58 @@ async def package(ctx: StationContext) -> StationResult:
     scan = await p.scan.scan(ctx, local_image)
     if not scan.ok:
         return StationResult(StationOutcome.failed, scan.summary, scan.detail)
+    sbom = await _sbom_and_provenance(ctx, local_image, sha)
+    if sbom is not None and not sbom.ok:
+        return StationResult(StationOutcome.failed, "packaging failed at: SBOM", failed_detail(sbom.command, sbom))
     ref = p.registry.image_ref(ctx, sha)
     push = await p.registry.push(ctx, local_image, ref)
     if not push.ok:
         return StationResult(StationOutcome.failed, push.summary, push.detail)
     await ctx.emit(EventKind.decision, f"image built and {push.summary}: {ref}", {"image": str(ref)})
-    return StationResult(StationOutcome.passed, f"image {ref} built, {scan.summary} and {push.summary}")
+    extra = ", SBOM + provenance recorded" if sbom is not None else ""
+    return StationResult(StationOutcome.passed, f"image {ref} built, {scan.summary}{extra} and {push.summary}")
+
+
+def artifacts_dir(ctx: StationContext) -> Path:
+    return ctx.ws.data_dir / "artifacts" / ctx.run.id
+
+
+async def _sbom_and_provenance(ctx: StationContext, image: str, sha: str) -> CommandResult | None:
+    """SPDX SBOM of the built image (syft in dind) plus a provenance record tying
+    image, commit, workflow version and run together. None = not configured."""
+    template = ctx.product_line.sbom_command
+    if not template:
+        await ctx.emit(EventKind.decision, "SBOM NOT produced: no sbom_command configured")
+        return None
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    out.chmod(0o777)  # the SBOM tool's container writes here  # noqa: S103
+    res = await ctx.cmd(template.format(image=image, out=out), timeout=900)
+    if not res.ok:
+        return res
+    digest = await ctx.cmd(f"docker image inspect -f '{{{{.Id}}}}' {image}", timeout=60)
+    sbom = out / "sbom.spdx.json"
+    provenance = {
+        "_type": "agent-factory/provenance/v1",
+        "subject": {"image": image, "image_id": digest.output.strip().splitlines()[-1] if digest.ok else None},
+        "source": {"product": ctx.order.product_slug, "commit": sha, "branch": f"run/{ctx.run.id}"},
+        "builder": {
+            "id": "agent-factory",
+            "workflow": ctx.run.workflow_id,
+            "workflow_version": ctx.run.workflow_version,
+            "run": ctx.run.id,
+            "iteration": ctx.run.iteration,
+            "sandboxed": ctx.untrusted_ex is not None,
+        },
+        "materials": {"sbom": str(sbom) if sbom.exists() else None},
+    }
+    (out / "provenance.json").write_text(json.dumps(provenance, indent=2))
+    await ctx.emit(
+        EventKind.decision,
+        f"SBOM and provenance recorded for {image}",
+        {"sbom": str(sbom), "provenance": str(out / "provenance.json")},
+    )
+    return res
 
 
 # ------------------------------------------------------------------ deploy --
@@ -396,8 +486,9 @@ async def deploy(ctx: StationContext) -> StationResult:
 
 async def deploy_fix(ctx: StationContext) -> StationResult:
     prompt = f"""The deployment to {ctx.providers.deploy.target(ctx)} failed. Diagnose from the
-evidence below (you may run kubectl get/describe/logs there) and fix the
-chart ({ctx.product_line.chart_path}), Dockerfile or app config. Do not delete namespaces.
+evidence below (pod status, events and logs collected by the engine; you have no
+cluster access yourself) and fix the chart ({ctx.product_line.chart_path}), Dockerfile
+or app config. The engine redeploys after you finish.
 
 ## Evidence
 {ctx.run.last_failure}"""
@@ -553,6 +644,7 @@ STATIONS: dict[str, Station] = {
     "design": design,
     "build": build,
     "verify": verify,
+    "readiness": readiness,
     "package": package,
     "deploy": deploy,
     "deploy_fix": deploy_fix,

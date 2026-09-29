@@ -24,7 +24,9 @@ async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
 
     stations = [s for s, _ in _finished(f, run.id)]
-    assert stations == ["intake", "design", "build", "verify", "package", "deploy", "acceptance", "deliver"]
+    assert stations == [
+        "intake", "design", "build", "verify", "readiness", "package", "deploy", "acceptance", "deliver"
+    ]  # fmt: skip
     order = f.store.get_order(order.id)
     assert order.latest_status == RunStatus.awaiting_feedback
     assert order.app_url == "http://localhost:8081"

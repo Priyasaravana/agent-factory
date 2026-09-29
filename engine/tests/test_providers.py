@@ -38,7 +38,8 @@ async def test_local_run_issues_the_same_commands_as_before(make_factory):
     def idx(prefix: str) -> int:
         return next(i for i, c in enumerate(ex.calls) if c.startswith(prefix))
 
-    assert idx("docker build") < idx("docker run") < idx("kind load") < idx("helm upgrade --install")
+    trivy = next(i for i, c in enumerate(ex.calls) if "aquasec/trivy" in c)
+    assert idx("docker build") < trivy < idx("kind load") < idx("helm upgrade --install")
     helm = ex.calls[idx("helm upgrade")]
     assert "--namespace app-bookmarks-service" in helm and "--set image.repository=bookmarks-service" in helm
     env_event = next(e for e in f.store.list_events(run.id) if e.message.startswith("delivery environment"))

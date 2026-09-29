@@ -3,12 +3,13 @@
 # check (deterministic, engine-implemented). on_fail routes failure evidence;
 # repair stations (only_on_fail) are reached only through on_fail and go to `next`.
 name: default
-description: Spec → design → build → verify → package → deploy → independent acceptance → deliver
+description: Spec → design → build → verify → readiness → package → deploy → independent acceptance → deliver
 stations:
   - {id: intake,     kind: agent, agent: intake}
   - {id: design,     kind: agent, agent: architect}
   - {id: build,      kind: agent, agent: developer}
   - {id: verify,     kind: check, on_fail: build}
+  - {id: readiness,  kind: check, on_fail: build}   # agent-readiness Level 3 + secret scan
   - {id: package,    kind: check, on_fail: build}
   - {id: deploy,     kind: check, on_fail: deploy_fix}
   - {id: deploy_fix, kind: agent, agent: devops, next: deploy, only_on_fail: true}

@@ -17,6 +17,9 @@ services:
     volumes:
       - dind-certs:/certs
       - dind-data:/var/lib/docker        # images + kind cluster survive restarts
+      # Same host folder at the same path as in the factory, so agent sandboxes
+      # (containers inside dind) can mount a run's worktree — and only that.
+      - ./.factory-data:/data
     ports:
       - "127.0.0.1:8081-8085:8081-8085"  # generated apps (kind NodePorts)
     healthcheck:
@@ -34,6 +37,9 @@ services:
       DOCKER_TLS_VERIFY: "1"
       DIND_HOST: dind
       AUTH_MODE: gateway                 # trust only the identity the gateway forwards
+      # agents + generated code run in throw-away sandboxes inside dind (ADR-0014);
+      # AGENT_SANDBOX=off in .env is for development only
+      AGENT_SANDBOX: ${AGENT_SANDBOX:-container}
     volumes:
       - dind-certs:/certs:ro
       - ./.factory-data:/data            # the ONLY host path mounted: state, product repos, run worktrees

@@ -7,6 +7,7 @@ stations:
   - {id: build,           kind: agent, agent: developer}
   - {id: security-review, kind: agent, agent: security-reviewer, on_fail: build}
   - {id: verify,          kind: check, on_fail: build}
+  - {id: readiness,       kind: check, on_fail: build}
   - {id: package,         kind: check, on_fail: build}
   - {id: deploy,          kind: check, on_fail: deploy_fix}
   - {id: deploy_fix,      kind: agent, agent: devops, next: deploy, only_on_fail: true}

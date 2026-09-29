@@ -39,7 +39,7 @@ SAFE_EXTRA_TOOLS = {"WebFetch", "WebSearch"}  # read-only additions any preset m
 # Station handlers implemented by the engine. `agent` is the generic,
 # spec-driven handler used for any custom agent station.
 AGENT_HANDLERS = {"intake", "design", "build", "deploy_fix", "acceptance", "agent"}
-CHECK_HANDLERS = {"verify", "package", "deploy", "deliver"}
+CHECK_HANDLERS = {"verify", "readiness", "package", "deploy", "deliver"}
 
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 STATION_ID = re.compile(r"^[a-z][a-z0-9_-]{1,40}$")

@@ -5,6 +5,7 @@ install:
 
 lint: install
 	uv run ruff check app tests
+	uv run ruff format --check app tests
 
 test: install
 	DATABASE_URL=sqlite:// uv run pytest -q --cov=app --cov-fail-under=80

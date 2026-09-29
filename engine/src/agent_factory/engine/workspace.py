@@ -13,6 +13,20 @@ from pathlib import Path
 from agent_factory.executor import CommandResult, Executor, LocalExecutor
 
 
+def render_codeowners(repo: Path, owner: str) -> None:
+    """Fill the template's CODEOWNERS with the publishing owner (user or org/team)."""
+    f = repo / ".github" / "CODEOWNERS"
+    if not f.exists():
+        return
+    text = f.read_text()
+    if owner:
+        f.write_text(text.replace("__OWNER__", owner.lstrip("@")))
+    else:
+        f.write_text(
+            text.replace("* @__OWNER__", "# * @your-org/your-team   (set policies.publish.owner in the factory config)")
+        )
+
+
 class Workspace:
     def __init__(
         self,
@@ -46,13 +60,14 @@ class Workspace:
     async def git(self, args: str, cwd: Path) -> CommandResult:
         return await self.ex.run(f"git {args}", cwd=cwd, timeout=120, env=self.git_env)
 
-    async def ensure_product_repo(self, slug: str, template: str) -> Path:
+    async def ensure_product_repo(self, slug: str, template: str, owner: str = "") -> Path:
         repo = self.product_dir(slug)
         if (repo / ".git").exists():
             return repo
         src = self.factory_home / template
         repo.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, repo, dirs_exist_ok=True)
+        render_codeowners(repo, owner)
         await self.git("init -q -b main", repo)
         await self.git("add -A", repo)
         await self.git(f'commit -q -m "chore: scaffold from {template}"', repo)
