@@ -12,6 +12,10 @@ flowchart LR
       subgraph dind["dind (Docker-in-Docker, privileged)"]
         kind["kind cluster 'factory'<br/>app namespaces + Postgres"]
         images["built images"]
+        subgraph sbx["network factory-sandbox (internal)"]
+          sandbox["af-sbx-* sandboxes<br/>Claude CLI / make verify<br/>worktree only, no secrets"]
+        end
+        egress["factory-egress<br/>allowlist proxy"]
       end
     end
     data[".factory-data/<br/>state db, product repos,<br/>run worktrees, holdout"]
@@ -21,7 +25,10 @@ flowchart LR
   factory -->|kubectl/helm dind:6443| kind
   factory --- data
   browser -->|:8081-8085| kind
-  factory -->|HTTPS| claude["Claude (subscription / API / Bedrock)"]
+  factory -->|docker run -i: agent session| sandbox
+  sandbox -->|only exit| egress
+  egress -->|model API, PyPI| claude["Claude (subscription / API / Bedrock)"]
+  egress -->|HTTP :8081-8085| kind
   factory -->|HTTPS| gh["GitHub (private product repos)"]
 ```
 
@@ -29,7 +36,12 @@ Isolation properties:
 
 - The factory container **never** mounts the host Docker socket. Everything it
   builds or runs lives inside `dind`: images, the kind cluster, and the app pods.
-- The only host path mounted is `./.factory-data`.
+- The only host path mounted is `./.factory-data` (into the factory and dind at `/data`).
+- Agents never run in the factory container: every agent session and every run of
+  agent-written code gets a throw-away sandbox inside dind (ADR-0014).
+  - It can write only the run worktree.
+  - It gets no secrets, no Docker access and no cluster access.
+  - Its network's only exit is an egress allowlist.
 - Ports are bound to `127.0.0.1` only.
 - The factory process runs as an unprivileged user. It starts as root only to
   copy the dind client certificates.

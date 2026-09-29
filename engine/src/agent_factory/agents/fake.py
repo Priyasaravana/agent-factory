@@ -74,6 +74,10 @@ class FakeAgentRunner:
                 out = req.cwd / rel
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(f"# {req.role} output (dry-run)\n")
+        if req.role == "developer":
+            tests = req.cwd / "tests"
+            tests.mkdir(exist_ok=True)
+            (tests / "test_acceptance.py").write_text("def test_acceptance_dry_run() -> None:\n    assert True\n")
         if req.role in ("developer", "devops"):
             with (docs / "build-log.md").open("a") as fh:
                 fh.write(f"- {req.role} pass for {req.station}\n")

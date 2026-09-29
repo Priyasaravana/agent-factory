@@ -41,6 +41,16 @@ product_lines:
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
       aquasec/trivy:latest image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}
+    # Readiness station: the generated repo must stay at agent-readiness Level 3
+    # (docs/practices.md). The secret scan runs in dind on the run worktree ({path}).
+    min_readiness_level: 3
+    secret_scan_command: >-
+      docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
+      detect --no-git --source {path} --redact --no-banner --exit-code 1
+    # SPDX SBOM of every built image, next to a provenance record (artifacts/<run>/)
+    sbom_command: >-
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
+      anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
     chart_path: deploy/chart
     service_port: 8000
     node_ports: [30080, 30081, 30082, 30083, 30084]   # mapped to host 8081-8085
@@ -61,6 +71,23 @@ integrations:
       secret_ref: env://GITHUB_TOKEN   # used by publish
 environments:
   local: {registry: local, scan: local, deploy: local, publish: local}
+
+# ---------------------------------------------------------------------------
+# Agent sandbox (docs/adr/0014-agent-sandbox.md). Every agent session and every
+# run of agent-written code (verify) gets a throw-away container inside dind:
+# only the run worktree is writable, no factory secrets, no Docker, no cluster,
+# and the network's only exit is this egress allowlist. Check it with
+# `make sandbox-check`.
+# ---------------------------------------------------------------------------
+sandbox:
+  mode: container                 # container | off (development only)
+  memory: 4g
+  cpus: "2"
+  egress:                         # host:port, *.domain:port or host:lo-hi
+    - api.anthropic.com:443       # the model
+    - pypi.org:443                # Python packages
+    - files.pythonhosted.org:443
+    - dind:8081-8085              # apps on the local cluster (acceptance)
 
 # ---------------------------------------------------------------------------
 # Action policies (Builder Factory style). Modes: auto | manual | off

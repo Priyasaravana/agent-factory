@@ -18,4 +18,10 @@
 - `auth/` is a separate service (own package, container and database). It must not
   import the engine, and the engine must not import it: they meet only at the
   gateway headers `X-Auth-User` / `X-Auth-Role` (see ADR-0012).
+- Agents and agent-written code (tests, Makefiles) run only in sandboxes
+  (`engine/src/agent_factory/sandbox/`, ADR-0014): use `ctx.agent(...)` and
+  `ctx.cmd(..., untrusted=True)`. Privileged steps (docker build, kubectl, helm,
+  git publish) stay in the engine. New egress goes through `sandbox.egress`.
+- Generated repos must stay at agent-readiness Level 3 (`readiness.py`). A new
+  golden path ships the same signals in its template.
 - Record significant decisions as ADRs in `docs/adr/`.

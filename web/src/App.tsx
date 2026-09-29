@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Boxes, ChevronsUpDown, Command as CommandIcon, Factory, KeyRound, LayoutDashboard, LogOut, Menu, Monitor, Moon,
-  Plug, Shield, Sparkles, Sun, X,
+  Plug, Shield, ShieldAlert, ShieldCheck, Sparkles, Sun, X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
@@ -193,8 +193,28 @@ function StatusChips() {
       </Tip>
       <span className={cn("pill", h.model_auth ? "ok" : "bad")}>model {h.model_auth ? "ready" : "no auth"}</span>
       <span className={cn("pill", h.github ? "ok" : "muted")}>github {h.github ? "on" : "off"}</span>
+      <SandboxChip state={h.sandbox ?? "off"} detail={h.sandbox_detail ?? []} mode={h.mode} />
       <span className={cn("pill", h.active_runs ? "info" : "muted")}>{h.active_runs} active</span>
     </div>
+  );
+}
+
+const SANDBOX_TONE: Record<string, string> = { ready: "ok", preparing: "info", failed: "bad", off: "warn" };
+
+function SandboxChip({ state, detail, mode }: { state: string; detail: string[]; mode: string }) {
+  if (mode !== "live") return null; // dry-run runs no agents and no generated code
+  const why =
+    state === "off"
+      ? "Agents run inside the factory container (development only)"
+      : state === "ready"
+        ? "Agents and generated code run in isolated sandboxes"
+        : detail.join("; ") || state;
+  return (
+    <Tip label={why} side="bottom">
+      <span className={cn("pill", SANDBOX_TONE[state] ?? "muted")}>
+        {state === "ready" ? <ShieldCheck /> : <ShieldAlert />}sandbox {state}
+      </span>
+    </Tip>
   );
 }
 

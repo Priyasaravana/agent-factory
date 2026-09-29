@@ -54,6 +54,8 @@ COPY workflow-templates workflow-templates
 COPY plugin plugin
 COPY templates templates
 COPY cluster cluster
+# Build context for the agent sandbox image; the engine builds it inside dind.
+COPY images/sandbox images/sandbox
 
 ENV FACTORY_HOME=/opt/factory \
     FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml \

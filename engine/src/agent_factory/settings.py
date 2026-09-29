@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     git_author_name: str = "Agent Factory"
     git_author_email: str = "agent-factory@localhost"
 
+    # overrides config `sandbox.mode`: "container" | "off" (empty = use the config)
+    agent_sandbox: Literal["", "container", "off"] = ""
+
     cluster_name: str = "factory"
     dind_host: str = "dind"  # where kind's NodePorts are reachable from the engine
     app_host_port_base: int = 8081  # node_ports[i] -> host port base+i

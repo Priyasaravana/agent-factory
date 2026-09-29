@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster reset-admin test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check test lint web-build openapi check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -16,6 +16,9 @@ up-live: ## start in live mode (real agents + kind)
 
 down: ## stop everything (keeps cluster, images and data)
 	docker compose down
+
+sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist)
+	docker compose exec factory agent-factory sandbox check
 
 reset-admin: ## break-glass: print a one-time password for the admin user
 	docker compose exec auth factory-auth reset-password $${FACTORY_ADMIN_USER:-admin}

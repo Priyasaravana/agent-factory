@@ -1076,6 +1076,13 @@ export interface components {
             github: boolean;
             /** Active Runs */
             active_runs: number;
+            /**
+             * Sandbox
+             * @default off
+             */
+            sandbox: string;
+            /** Sandbox Detail */
+            sandbox_detail?: string[];
         };
         /** InstallSkillInput */
         InstallSkillInput: {

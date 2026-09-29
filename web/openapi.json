@@ -2701,6 +2701,18 @@
           "active_runs": {
             "type": "integer",
             "title": "Active Runs"
+          },
+          "sandbox": {
+            "type": "string",
+            "title": "Sandbox",
+            "default": "off"
+          },
+          "sandbox_detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sandbox Detail"
           }
         },
         "type": "object",

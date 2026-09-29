@@ -11,12 +11,19 @@ AgentSpec (see workflow.py):
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from agent_factory.agents.hooks import build_hooks
+
+if TYPE_CHECKING:
+    from agent_factory.sandbox import SandboxManager
+
+SANDBOX_CLI = "agent-factory-sandbox-claude"
+SANDBOX_HOME_DIR = Path("/opt/factory")  # where images/sandbox/Dockerfile puts plugin/
 
 EventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -106,9 +113,12 @@ class AgentRunner(Protocol):
 
 
 class ClaudeAgentRunner:
-    def __init__(self, factory_home: Path, tools_server: Any | None = None) -> None:
+    def __init__(
+        self, factory_home: Path, tools_server: Any | None = None, sandbox: SandboxManager | None = None
+    ) -> None:
         self.factory_home = factory_home
         self.tools_server = tools_server  # in-process MCP server with factory actions
+        self.sandbox = sandbox  # None = the CLI runs in the factory container (development only)
 
     def _system_prompt(self, req: AgentRequest) -> str:
         contract = (self.factory_home / "prompts" / "_contract.md").read_text()
@@ -119,6 +129,36 @@ class ClaudeAgentRunner:
         return "\n\n".join(parts)
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
+        if self.sandbox is None:
+            return await self._run(req, sink, {})
+        ready = await self.sandbox.ready()
+        if ready.state != "ready":
+            return AgentResult(ok=False, error="agent sandbox not ready: " + "; ".join(ready.reasons))
+        cli = shutil.which(SANDBOX_CLI)
+        if cli is None:
+            return AgentResult(ok=False, error=f"{SANDBOX_CLI} not installed; refusing to run unsandboxed")
+        spec = self.sandbox.agent_spec(req)
+        path = self.sandbox.write_spec(spec)
+        await sink(
+            "sandbox",
+            {
+                "text": f"agent sandbox {spec.name}: image {spec.image}, network {spec.network} "
+                f"(egress allowlist only), writable: {req.cwd}",
+                "container": spec.name,
+                "mounts": [m.arg() for m in spec.mounts],
+            },
+        )
+        try:
+            # the factory plugin is baked into the sandbox image at the same path as in the factory image
+            return await self._run(
+                req, sink, {"cli_path": cli, "env": {"AF_SANDBOX_SPEC": str(path)}}, plugin_home=SANDBOX_HOME_DIR
+            )
+        finally:
+            await self.sandbox.remove(spec.name)  # also stops it if the SDK was cancelled mid-session
+
+    async def _run(
+        self, req: AgentRequest, sink: EventSink, transport: dict[str, Any], plugin_home: Path | None = None
+    ) -> AgentResult:
         from claude_agent_sdk import (
             AgentDefinition,
             AssistantMessage,
@@ -160,11 +200,12 @@ class ClaudeAgentRunner:
             agents=subagents or None,
             mcp_servers=mcp_servers,
             hooks=build_hooks(req.role, req.cwd, req.protected_paths, req.observe_only),
-            plugins=plugins_for(self.factory_home, req),
+            plugins=plugins_for(plugin_home or self.factory_home, req),
             skills=skill_refs(req),
             setting_sources=["project"],  # product CLAUDE.md -> AGENTS.md conventions
             add_dirs=[str(d) for d in req.readable_extra_dirs],
             output_format=({"type": "json_schema", "schema": req.output_schema} if req.output_schema else None),
+            **transport,
         )
 
         result = AgentResult(ok=False)

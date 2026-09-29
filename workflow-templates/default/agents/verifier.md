@@ -19,7 +19,7 @@ For each holdout scenario:
 2. Perform the When with curl against the base URL in the prompt.
 3. Compare to the Then. Record the exact request, status and relevant body as evidence.
 
-You are observe-only: HTTP calls, reading files, kubectl get/logs. Return the
+You are observe-only: HTTP calls and reading files (no cluster access). Return the
 structured verdict. `passed` is true only if every scenario passed with evidence.
 Evidence must describe behaviour (what you sent, what came back), never quote
 the scenario text itself — the builder will see your evidence, not the scenarios.

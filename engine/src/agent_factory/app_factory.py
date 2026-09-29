@@ -27,6 +27,7 @@ from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, RunStatus
 from agent_factory.providers import Providers
+from agent_factory.sandbox import SandboxManager
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.skills import SkillError, SkillLibrary
@@ -42,6 +43,18 @@ class Factory:
     store: StateStore
     manager: RunManager
     workflows: WorkflowRegistry
+    sandbox: SandboxManager | None = None
+
+
+def sandbox_for(cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Path) -> SandboxManager | None:
+    mode = settings.agent_sandbox or cfg.sandbox.mode
+    if mode == "off":
+        log.warning(
+            "agent sandbox is OFF: agents and generated code run inside the factory container, "
+            "next to its credentials and the Docker daemon. Use only for development."
+        )
+        return None
+    return SandboxManager(cfg.sandbox, home, data_dir)
 
 
 def build_factory(
@@ -88,12 +101,16 @@ def build_factory(
             ) from exc
         raise  # first start: template -> workflow v1 per product line (never overwrites)
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
+    sandbox = sandbox_for(cfg, settings, home, data_dir) if live else None
+    factory.sandbox = sandbox
     if agents is None:
         if live:
-            agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory))
+            agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory), sandbox=sandbox)
         else:
             agents = FakeAgentRunner()
-    factory.manager = RunManager(cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets)
+    factory.manager = RunManager(
+        cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets, sandbox=sandbox
+    )
     return factory
 
 
@@ -104,6 +121,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         f = factory or build_factory()
         holder["f"] = f
+        if f.sandbox is not None:
+            f.sandbox.start()  # image, network and egress proxy; the first build takes a few minutes
         interrupted = f.manager.recover_on_startup()
         if interrupted:
             app.state.interrupted = interrupted

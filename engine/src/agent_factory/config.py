@@ -39,6 +39,12 @@ class ProductLine(BaseModel):
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
     environment: str = "local"  # where its delivery steps run (see `environments`)
+    # Readiness station: the generated repo must reach this agent-readiness level (1-3)
+    min_readiness_level: int = Field(default=3, ge=0, le=3)
+    # secret scan of the worktree (runs in dind); {path} = the run worktree
+    secret_scan_command: str | None = None
+    # software bill of materials for the built image; {image} and {out} (a folder) are filled in
+    sbom_command: str | None = None
     service_port: int = 8000
     node_ports: list[int] = Field(default_factory=lambda: [30080])
 
@@ -118,6 +124,32 @@ class SkillSource(BaseModel):
     license: str | None = None
 
 
+DEFAULT_EGRESS = [
+    "api.anthropic.com:443",  # the model
+    "pypi.org:443",  # Python packages (uv/pip)
+    "files.pythonhosted.org:443",
+    "dind:8081-8085",  # apps on the local cluster (acceptance calls them over HTTP)
+]
+
+
+class SandboxConfig(BaseModel):
+    """Where agent tools and untrusted build/test commands run (ADR-0014).
+
+    container: one throw-away container per agent session / verify command, in
+               dind, on an internal network whose only exit is an allowlist proxy.
+    off:       run in the factory container (development only: agents can then
+               reach engine credentials and the Docker daemon)."""
+
+    mode: Literal["container", "off"] = "container"
+    image: str = "agent-factory-sandbox"
+    network: str = "factory-sandbox"
+    proxy: str = "factory-egress"
+    memory: str = "4g"
+    cpus: str = "2"
+    pids: int = 512
+    egress: list[str] = Field(default_factory=lambda: list(DEFAULT_EGRESS))
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -134,6 +166,7 @@ class FactoryConfig(BaseModel):
     # read-only token for importing templates/skills from private GitHub repos
     skills_github_token_ref: str | None = "env://SKILLS_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
     environments: dict[str, Environment] = Field(default_factory=dict)
+    sandbox: SandboxConfig = SandboxConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

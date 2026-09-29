@@ -37,6 +37,10 @@ def main() -> None:
     sc = ssub.add_parser("cache", help="fetch the config's default_skills at their pinned commits (image build)")
     sc.add_argument("--out", required=True)
 
+    sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
+    sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
+    sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
+
     args = parser.parse_args()
 
     if args.cmd == "serve":
@@ -53,6 +57,28 @@ def main() -> None:
         _workflow(args)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
+    elif args.cmd == "sandbox":
+        _sandbox_check()
+
+
+def _sandbox_check() -> None:
+    import asyncio
+    import sys
+
+    from agent_factory.config import load_config
+    from agent_factory.sandbox import SandboxManager
+    from agent_factory.settings import Settings
+
+    s = Settings()
+    cfg = load_config(s.factory_config)
+    mgr = SandboxManager(cfg.sandbox, Path(s.factory_home), Path(s.data_dir or cfg.factory.data_dir))
+    print(f"sandbox image {mgr.image}; network {cfg.sandbox.network}; egress {cfg.sandbox.egress}")
+    results = asyncio.run(mgr.probe())
+    for r in results:
+        print(f"  {'PASS' if r['ok'] else 'FAIL'}  {r['check']}" + (f"  ({r['detail']})" if r.get("detail") else ""))
+    failed = [r for r in results if not r["ok"]]
+    print(f"{len(results) - len(failed)}/{len(results)} checks passed")
+    sys.exit(1 if failed else 0)
 
 
 def _skills_cache(out: Path) -> None:

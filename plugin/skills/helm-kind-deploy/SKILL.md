@@ -9,10 +9,14 @@ The Deploy station ran `helm upgrade --install ... --wait` into namespace
 `app-<slug>` with `image.repository`, `image.tag` and `service.nodePort` set.
 Images are side-loaded with `kind load` — there is no registry.
 
-## Diagnose (read-only first)
-- `kubectl -n <ns> get pods,svc,pvc -o wide`
-- `kubectl -n <ns> describe pod <pod>` — events: ImagePull, probes, OOM, scheduling
-- `kubectl -n <ns> logs <pod> --all-containers --tail=100`
+## Diagnose from the evidence
+You run in a sandbox without cluster access. The engine already collected, in
+the evidence you were given:
+- `kubectl -n <ns> get pods -o wide` and recent namespace events
+- `kubectl -n <ns> describe pods` — ImagePull, probes, OOM, scheduling
+- `kubectl -n <ns> logs … --all-containers --tail=80`
+Reproduce locally what you can: `make verify`, `uv run uvicorn app.main:app` and
+curl it, render the chart in your head against `values.yaml`.
 
 ## Common causes on this golden path
 | Symptom | Likely cause | Fix |
@@ -24,6 +28,6 @@ Images are side-loaded with `kind load` — there is no registry.
 | PVC Pending | storage class | kind ships `standard` (local-path); don't set storageClassName |
 
 ## Rules
-- Fix the chart, Dockerfile or app config in the worktree. Never `kubectl edit`
-  live objects or delete namespaces — the next deploy must be reproducible.
+- Fix the chart, Dockerfile or app config in the worktree; the engine redeploys.
+  The fix must live in the repo — the next deploy must be reproducible.
 - Log the root cause with `log_decision`.

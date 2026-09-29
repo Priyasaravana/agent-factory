@@ -46,6 +46,7 @@ def test_generated_password_when_no_reference(tmp_path, monkeypatch):
     r = c.post("/auth/me/password", json={"current_password": pw, "new_password": "a-new-long-password"})
     assert r.status_code == 200 and r.json()["must_change"] is False
     assert c.get("/auth/check").status_code == 200
+    assert not pwfile.exists(), "the spent one-time password is removed"
 
 
 def test_wrong_password_and_lockout(env):

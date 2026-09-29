@@ -152,7 +152,16 @@ def get_health(f: Factory) -> HealthView:
         model_auth=f.settings.model_auth_configured(),
         github=_publish_token_available(f),
         active_runs=f.manager.active_count(),
+        sandbox=_sandbox_state(f)[0],
+        sandbox_detail=_sandbox_state(f)[1],
     )
+
+
+def _sandbox_state(f: Factory) -> tuple[str, list[str]]:
+    sb = getattr(f, "sandbox", None)
+    if sb is None:
+        return "off", []
+    return {"unknown": "preparing"}.get(sb.state.state, sb.state.state), list(sb.state.reasons)
 
 
 @action("get_config", "Factory settings: product lines, their workflow versions, policies, gates", "GET", "/api/config")

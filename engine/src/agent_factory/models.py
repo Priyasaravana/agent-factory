@@ -158,6 +158,9 @@ class HealthView(BaseModel):
     model_auth: bool
     github: bool
     active_runs: int
+    # agent sandbox (ADR-0014): off | preparing | ready | failed
+    sandbox: str = "off"
+    sandbox_detail: list[str] = Field(default_factory=list)
 
 
 class ConfigView(BaseModel):
