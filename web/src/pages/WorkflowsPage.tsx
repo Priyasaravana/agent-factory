@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, unwrap } from "../api/client";
+import { useIsAdmin } from "../auth";
 
 export default function WorkflowsPage() {
+  const isAdmin = useIsAdmin();
   const workflows = useQuery({ queryKey: ["workflows"], queryFn: () => unwrap(api.GET("/api/workflows")) });
   const templates = useQuery({ queryKey: ["templates"], queryFn: () => unwrap(api.GET("/api/workflow-templates")) });
   return (
@@ -43,9 +45,11 @@ export default function WorkflowsPage() {
                   <code>{w.template}</code>
                 </td>
                 <td>
-                  <Link to={`/workflows/${w.workflow_id}/edit`}>
-                    <button className="secondary">Edit</button>
-                  </Link>
+                  {isAdmin && (
+                    <Link to={`/workflows/${w.workflow_id}/edit`}>
+                      <button className="secondary">Edit</button>
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

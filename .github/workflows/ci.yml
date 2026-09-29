@@ -18,6 +18,14 @@ jobs:
           cd engine && uv run --python 3.12 agent-factory openapi --out /tmp/openapi.json
           diff -u ../web/openapi.json /tmp/openapi.json
 
+  auth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: cd auth && uv run --python 3.12 --extra dev ruff check src tests
+      - run: cd auth && uv run --python 3.12 --extra dev pytest -q
+
   web:
     runs-on: ubuntu-latest
     steps:

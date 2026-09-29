@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster reset-admin test lint web-build openapi check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -8,13 +8,17 @@ init: ## create .env from the example
 
 up: init ## start the factory (mode from .env)
 	docker compose up -d --build
-	@echo "UI  http://localhost:8080   API docs  http://localhost:8000/api/docs"
+	@echo "UI  http://localhost:8080   API docs  http://localhost:8080/api/docs (after sign-in)"
+	@docker compose exec -T auth sh -c 'test -f /data/initial-admin-password && echo "first sign-in: admin / $$(cat /data/initial-admin-password)  (change it when asked)"' 2>/dev/null || true
 
 up-live: ## start in live mode (real agents + kind)
 	FACTORY_MODE=live docker compose up -d --build
 
 down: ## stop everything (keeps cluster, images and data)
 	docker compose down
+
+reset-admin: ## break-glass: print a one-time password for the admin user
+	docker compose exec auth factory-auth reset-password $${FACTORY_ADMIN_USER:-admin}
 
 logs: ## follow factory logs
 	docker compose logs -f factory
@@ -26,11 +30,13 @@ reset-cluster: ## delete and recreate the kind cluster inside dind
 	docker compose exec factory kind delete cluster --name factory || true
 	docker compose restart factory
 
-test: ## engine tests (dry-run, no model usage)
+test: ## engine + auth tests (dry-run, no model usage)
 	cd engine && uv run --extra dev pytest -q
+	cd auth && uv run --extra dev pytest -q
 
 lint:
 	cd engine && uv run --extra dev ruff check src tests
+	cd auth && uv run --extra dev ruff check src tests
 
 openapi: ## regenerate the API contract and the UI's typed client
 	cd engine && uv run agent-factory openapi --out ../web/openapi.json

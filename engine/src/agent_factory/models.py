@@ -61,6 +61,7 @@ class Order(BaseModel):
     host_port: int | None = None
     app_url: str | None = None
     repo_url: str | None = None
+    created_by: str | None = None  # signed-in user who submitted it
 
 
 class Run(BaseModel):

@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, unwrap } from "../api/client";
+import { useIsAdmin } from "../auth";
 import AgentCard from "../components/AgentCard";
 import StationStrip from "../components/StationStrip";
 import DeliveryCard from "../components/DeliveryCard";
 
 export default function WorkflowPage() {
   const { workflowId = "" } = useParams();
+  const isAdmin = useIsAdmin();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const p = { workflow_id: workflowId };
@@ -52,14 +54,16 @@ export default function WorkflowPage() {
             {w.active ? <span className="pill ok">active</span> : <span className="pill muted">inactive</span>}
           </h2>
           <div className="row">
-            {!w.active && (
+            {isAdmin && !w.active && (
               <button onClick={() => activate.mutate(w.version)} disabled={activate.isPending}>
                 Make v{w.version} active
               </button>
             )}
-            <Link to={`/workflows/${workflowId}/edit`}>
-              <button>Edit workflow</button>
-            </Link>
+            {isAdmin && (
+              <Link to={`/workflows/${workflowId}/edit`}>
+                <button>Edit workflow</button>
+              </Link>
+            )}
           </div>
         </div>
         <p className="muted">

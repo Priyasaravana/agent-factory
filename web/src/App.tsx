@@ -8,9 +8,45 @@ import WorkflowEditPage from "./pages/WorkflowEditPage";
 import WorkflowsPage from "./pages/WorkflowsPage";
 import SkillsPage from "./pages/SkillsPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
+import LoginPage from "./pages/LoginPage";
+import AccountPage, { ChangePassword } from "./pages/AccountPage";
+import AdminPage from "./pages/AdminPage";
+import { useAuth, useSignOut } from "./auth";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
+  const auth = useAuth();
+  if (auth.kind === "loading") return <p className="muted shell">Loading…</p>;
+  if (auth.kind === "signed-out") return <LoginPage />;
+  if (auth.kind === "signed-in" && auth.me.must_change)
+    return (
+      <div className="login">
+        <ChangePassword forced />
+      </div>
+    );
+  return <Shell />;
+}
+
+function UserMenu() {
+  const auth = useAuth();
+  const signOut = useSignOut();
+  if (auth.kind !== "signed-in") return null;
+  return (
+    <span className="row user-menu">
+      <Link to="/account" title="Account and API tokens">
+        {auth.me.username}
+      </Link>
+      <span className="pill muted">{auth.me.role}</span>
+      <button className="secondary small-btn" onClick={signOut}>
+        Sign out
+      </button>
+    </span>
+  );
+}
+
+function Shell() {
+  const auth = useAuth();
+  const isAdmin = auth.kind === "signed-in" && auth.me.role === "admin";
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => unwrap(api.GET("/api/health")),
@@ -29,6 +65,7 @@ export default function App() {
           <Link to="/workflows">Workflows</Link>
           <Link to="/skills">Skills</Link>
           <Link to="/integrations">Integrations</Link>
+          {isAdmin && <Link to="/admin">Admin</Link>}
           <a href="/api/docs" target="_blank" rel="noreferrer">
             API
           </a>
@@ -50,6 +87,7 @@ export default function App() {
           ) : (
             <span className="pill bad">engine unreachable</span>
           )}
+          <UserMenu />
         </div>
       </header>
       <main>
@@ -64,7 +102,9 @@ export default function App() {
               element={<WorkflowEditPage />}
             />
             <Route path="/skills" element={<SkillsPage />} />
-          <Route path="/integrations" element={<IntegrationsPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route
               path="/line"
               element={<Navigate to="/workflows" replace />}

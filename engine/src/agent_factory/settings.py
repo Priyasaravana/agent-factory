@@ -12,6 +12,8 @@ class Settings(BaseSettings):
 
     # live = real agents + real docker/kind; dry-run = fakes, zero model usage
     factory_mode: Literal["live", "dry-run"] = "dry-run"
+    # gateway = identity comes from the auth gateway (X-Auth-User/Role via nginx); off = single-user dev
+    auth_mode: Literal["off", "gateway"] = "off"
     factory_config: str = "/opt/factory/.agent-factory/config.yaml"
     factory_home: str = "/opt/factory"  # templates/, prompts/, plugin/
     data_dir: str | None = None  # overrides config.factory.data_dir
