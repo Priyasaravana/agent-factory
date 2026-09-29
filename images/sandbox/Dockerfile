@@ -4,7 +4,7 @@
 #   Dockerfile (this file), claude (the CLI the engine's Agent SDK bundles),
 #   plugin/ (the factory's own skills), egress.py (the allowlist proxy).
 # It holds tools only: no credentials, no Docker CLI, no kubectl, no engine.
-FROM python:3.14-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash git make curl jq ripgrep ca-certificates procps less \
