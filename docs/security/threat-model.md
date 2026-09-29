@@ -34,9 +34,9 @@ package registries, and anything an agent writes (code, tests, charts).
 | 5 | Unexpected code execution | Agent-written tests or build scripts run with engine privileges | `make verify` runs in a sandbox (ADR-0014). Docker builds run in dind with no secrets | — |
 | 6 | Memory & context poisoning | Earlier iterations, learnings or docs steer later runs | Learnings are human-approved; context docs are versioned with the workflow; iteration history is summarised from engine records | Review learnings in the UI before publishing a workflow |
 | 7 | Insecure inter-agent communication | One agent's output misleads another | Agents never talk directly: the engine passes evidence only. The builder gets observed behaviour, never holdout text | — |
-| 8 | Cascading failures | Fix loops burn budget or corrupt the repo | Attempt and loop budgets, wall-clock limit, usage-limit pause, HOLD on missing evidence, fresh worktree per run | — |
+| 8 | Cascading failures | Fix loops burn budget or corrupt the repo; a run starts against a broken dependency | Attempt and loop budgets, wall-clock limit, usage-limit pause, HOLD on missing evidence, fresh worktree per run. Preflight refuses orders and iterations while a guarding check fails (ADR-0015) | — |
 | 9 | Human-agent trust exploitation | A plausible summary hides a failure | Every decision carries evidence (commands, outputs, scorecards). Publishing and merging follow policy; the feedback gate needs a person | Approval gate before shared-environment deploys (remote providers) |
-| 10 | Rogue agents | An agent keeps working outside its task | Sandboxes are per session and removed afterwards; runs cancel their containers; `max_turns` per spec | Per-run egress log in the run view |
+| 10 | Rogue agents | An agent keeps working outside its task | Sandboxes are per session and removed afterwards; runs cancel their containers; archiving removes the app and any leftover sandboxes, with an audit event; `max_turns` per spec | Per-run egress log in the run view |
 
 ## How to verify
 - `make sandbox-check` runs the isolation probe inside a real sandbox.
@@ -44,6 +44,8 @@ package registries, and anything an agent writes (code, tests, charts).
   - hooks (`test_hooks.py`);
   - secret redaction (`test_secret_refs.py`);
   - the sandbox spec and egress proxy (`test_sandbox.py`);
-  - readiness and SBOM (`test_readiness.py`).
+  - readiness and SBOM (`test_readiness.py`);
+  - preflight, archive and ports (`test_preflight.py`).
+- CI runs OpenSSF Scorecard on the repo weekly (`.github/workflows/scorecard.yml`).
 - `docker compose exec dind docker logs factory-egress` shows every allowed and
   denied connection.

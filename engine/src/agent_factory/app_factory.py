@@ -20,6 +20,7 @@ from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
 from agent_factory.config import FactoryConfig, load_config
 from agent_factory.engine.pipeline import FactoryError, RunManager
+from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
@@ -123,10 +124,12 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         holder["f"] = f
         if f.sandbox is not None:
             f.sandbox.start()  # image, network and egress proxy; the first build takes a few minutes
+        f.manager.preflight.start()  # readiness checks now and every preflight.interval_minutes
         interrupted = f.manager.recover_on_startup()
         if interrupted:
             app.state.interrupted = interrupted
         yield
+        await f.manager.preflight.stop()
         await f.manager.shutdown()
 
     app = FastAPI(
@@ -157,6 +160,17 @@ def create_app(factory: Factory | None = None) -> FastAPI:
     async def skill_error(_: Request, exc: SkillError) -> JSONResponse:
         code = 404 if "not found" in str(exc) else 409
         return JSONResponse(status_code=code, content={"detail": str(exc)})
+
+    @app.exception_handler(PreflightFailed)
+    async def preflight_failed(_: Request, exc: PreflightFailed) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": str(exc), "problems": exc.problems, "preflight": exc.view.model_dump(mode="json")},
+        )
+
+    @app.exception_handler(PermissionError)
+    async def forbidden(_: Request, exc: PermissionError) -> JSONResponse:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     @app.exception_handler(FactoryError)
     async def factory_error(_: Request, exc: FactoryError) -> JSONResponse:

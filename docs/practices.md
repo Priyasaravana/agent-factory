@@ -1,6 +1,6 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-09-29 (after the sandbox + Level 3 change).
+Status: living reference · last reviewed 2026-09-29 (after the readiness + preflight change).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
 The factory is judged twice:
@@ -23,7 +23,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 | Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per run and egress log; no metrics/tracing yet |
 | Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model |
 
-**Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates ·
+**Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
 🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
 ⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
 
@@ -56,7 +56,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
 - **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ⬜ signature (cosign) once images go to a registry.
-- **Factory repo:** ⬜ run OpenSSF Scorecard in CI (branch protection, pinned actions, token permissions, dependency updates).
+- **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker · ⬜ pin Actions to commit SHAs, branch protection on main.
 
 ## 5. Agent engineering
 - ✅ Deterministic orchestration and LLM work only inside stations ("workflows before agents").
@@ -69,21 +69,17 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - Our audit log, versioned workflows, approvals and evidence records are the raw material. ⬜ Map them when a real customer needs it; don't build for it now.
 
 ## Roadmap
-- **Done (sandbox change):**
-  - per-session agent sandbox with an egress allowlist;
-  - `make verify` sandboxed;
-  - Level 3 template;
-  - Readiness station;
-  - SBOM + provenance;
-  - threat model.
+- **Done:**
+  - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Readiness station; SBOM + provenance; threat model.
+  - readiness + preflight change: provider `check()`; readiness page and header pill; order/iteration preflight; archive; 20 app ports; OpenSSF Scorecard; Dependabot; least-privilege CI.
 - **Next:**
   - Outcomes page (DORA + autonomy ratio + cost per change + share of apps at Level 3);
   - evaluation harness gating workflow publishes;
-  - OpenSSF Scorecard in CI;
   - model token behind an auth proxy.
+- **Then:** phase 5, generic `registry/oci` + `deploy/helm` providers (any dev cluster, ingress hosts instead of NodePorts), then ECR + Argo CD.
 - **Later:**
   - intake from GitHub issues;
-  - staged rollout and rollback with remote providers;
+  - staged rollout and rollback;
   - image signing;
   - provider fallback;
   - parallel tasks.

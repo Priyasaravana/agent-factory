@@ -53,7 +53,7 @@ product_lines:
       anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
     chart_path: deploy/chart
     service_port: 8000
-    node_ports: [30080, 30081, 30082, 30083, 30084]   # mapped to host 8081-8085
+    node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive orders to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,13 @@ sandbox:
     - api.anthropic.com:443       # the model
     - pypi.org:443                # Python packages
     - files.pythonhosted.org:443
-    - dind:8081-8085              # apps on the local cluster (acceptance)
+    - dind:8081-8100              # apps on the local cluster (acceptance)
+
+# Readiness checks + order preflight (docs/adr/0015-readiness-and-preflight.md):
+# a failed check refuses new orders/iterations before any model usage.
+preflight:
+  interval_minutes: 15
+  max_age_seconds: 60
 
 # ---------------------------------------------------------------------------
 # Action policies (Builder Factory style). Modes: auto | manual | off

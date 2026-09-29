@@ -48,6 +48,15 @@ class ProductLine(BaseModel):
     service_port: int = 8000
     node_ports: list[int] = Field(default_factory=lambda: [30080])
 
+    @field_validator("node_ports", mode="before")
+    @classmethod
+    def _port_range(cls, v: Any) -> Any:
+        """Accept "30080-30099" as well as an explicit list."""
+        if isinstance(v, str) and "-" in v:
+            lo, hi = (int(x) for x in v.split("-", 1))
+            return list(range(lo, hi + 1))
+        return v
+
 
 class Policy(BaseModel, extra="allow"):
     mode: PolicyMode = "manual"
@@ -128,8 +137,16 @@ DEFAULT_EGRESS = [
     "api.anthropic.com:443",  # the model
     "pypi.org:443",  # Python packages (uv/pip)
     "files.pythonhosted.org:443",
-    "dind:8081-8085",  # apps on the local cluster (acceptance calls them over HTTP)
+    "dind:8081-8100",  # apps on the local cluster (acceptance calls them over HTTP)
 ]
+
+
+class PreflightConfig(BaseModel):
+    """Readiness checks (ADR-0015): run at startup, every `interval_minutes`, on
+    demand, and before an order or iteration starts (results reused for `max_age_seconds`)."""
+
+    interval_minutes: int = 15
+    max_age_seconds: int = 60
 
 
 class SandboxConfig(BaseModel):
@@ -167,6 +184,7 @@ class FactoryConfig(BaseModel):
     skills_github_token_ref: str | None = "env://SKILLS_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
     environments: dict[str, Environment] = Field(default_factory=dict)
     sandbox: SandboxConfig = SandboxConfig()
+    preflight: PreflightConfig = PreflightConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

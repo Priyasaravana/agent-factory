@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ACTIVE, api, unwrap } from "../api/client";
+import Problems from "../components/Problems";
 import StatusPill from "../components/StatusPill";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -11,9 +12,10 @@ import { cn } from "../lib/utils";
 import { ago } from "../lib/time";
 
 export default function OrdersPage() {
+  const [showArchived, setShowArchived] = useState(false);
   const orders = useQuery({
-    queryKey: ["orders"],
-    queryFn: () => unwrap(api.GET("/api/orders")),
+    queryKey: ["orders", showArchived],
+    queryFn: () => unwrap(api.GET("/api/orders", { params: { query: { include_archived: showArchived } } })),
     refetchInterval: 5_000,
   });
   const [params, setParams] = useSearchParams();
@@ -31,7 +33,8 @@ export default function OrdersPage() {
   }, [params, setParams]);
 
   const list = orders.data ?? [];
-  const count = (pred: (s: string) => boolean) => list.filter((o) => o.latest_status && pred(o.latest_status)).length;
+  const live = list.filter((o) => !o.archived_at);
+  const count = (pred: (s: string) => boolean) => live.filter((o) => o.latest_status && pred(o.latest_status)).length;
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6">
@@ -48,7 +51,7 @@ export default function OrdersPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Orders" value={list.length} />
+        <Stat label="Orders" value={live.length} />
         <Stat label="In progress" value={count((s) => ACTIVE.has(s))} tone="info" />
         <Stat label="Awaiting feedback" value={count((s) => s === "awaiting_feedback")} tone="ok" />
         <Stat label="Need attention" value={count((s) => ["held", "failed", "needs_input", "interrupted", "paused_limits"].includes(s))} tone="bad" />
@@ -61,6 +64,10 @@ export default function OrdersPage() {
               <CardTitle>Recent orders</CardTitle>
               <CardDescription>Newest first. Open one to follow its run live.</CardDescription>
             </div>
+            <label className="check text-xs text-muted-foreground">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              show archived
+            </label>
           </CardHeader>
           <CardContent className="px-2 pb-2">
             {orders.isLoading && <Skeleton />}
@@ -88,7 +95,11 @@ export default function OrdersPage() {
                         {o.created_by ? ` · by ${o.created_by}` : ""}
                       </span>
                     </span>
-                    {o.latest_status && <StatusPill status={o.latest_status} />}
+                    {o.archived_at ? (
+                      <span className="pill muted">archived</span>
+                    ) : (
+                      o.latest_status && <StatusPill status={o.latest_status} />
+                    )}
                   </Link>
                   {o.app_url && (
                     <a href={o.app_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs">
@@ -179,7 +190,7 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
           <Button disabled={create.isPending} size="lg">
             <Rocket /> {create.isPending ? "Submitting…" : "Start the line"}
           </Button>
-          {create.error && <p className="error">{create.error.message}</p>}
+          <Problems error={create.error} />
         </form>
       </CardContent>
     </Card>

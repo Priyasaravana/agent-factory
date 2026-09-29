@@ -45,6 +45,7 @@ from agent_factory.models import (
     IntegrationView,
     Order,
     OrderDetail,
+    PreflightView,
     PublishInput,
     ReadinessView,
     ReorderStationsInput,
@@ -154,7 +155,18 @@ def get_health(f: Factory) -> HealthView:
         active_runs=f.manager.active_count(),
         sandbox=_sandbox_state(f)[0],
         sandbox_detail=_sandbox_state(f)[1],
+        preflight=_preflight_state(f),
     )
+
+
+def _preflight_state(f: Factory) -> str:
+    pf = f.manager.preflight
+    # in-memory checks (ports, model, sandbox) are re-evaluated so the header is never stale
+    views = [pf.refresh_local(v) for v in list(pf.cache.values())]
+    if not views:
+        return "unknown"
+    rank = {"ready": 0, "degraded": 1, "failed": 2}
+    return max((v.state for v in views), key=lambda s: rank.get(s, 2))
 
 
 def _sandbox_state(f: Factory) -> tuple[str, list[str]]:
@@ -178,12 +190,13 @@ def get_config(f: Factory) -> ConfigView:
 
 
 @action("list_orders", "List orders, newest first", "GET", "/api/orders")
-def list_orders(f: Factory) -> list[Order]:
-    return f.store.list_orders()
+def list_orders(f: Factory, include_archived: bool = False) -> list[Order]:
+    return [o for o in f.store.list_orders() if include_archived or not o.archived_at]
 
 
 @action("create_order", "Submit requirements; starts the first run", "POST", "/api/orders", status_code=201)
-def create_order(f: Factory, body: CreateOrderInput) -> OrderDetail:
+async def create_order(f: Factory, body: CreateOrderInput) -> OrderDetail:
+    await _gate(f, body.product_line, "order")
     order = f.manager.create_order(body)
     order.created_by = current_identity().user
     f.store.save_order(order)
@@ -206,7 +219,10 @@ def get_order(f: Factory, order_id: str) -> OrderDetail:
     "/api/orders/{order_id}/feedback",
     status_code=201,
 )
-def submit_feedback(f: Factory, order_id: str, body: FeedbackInput) -> Run:
+async def submit_feedback(f: Factory, order_id: str, body: FeedbackInput) -> Run:
+    order = f.store.get_order(order_id)
+    if order:
+        await _gate(f, order.product_line, "iteration")
     return f.manager.feedback(order_id, body.text)
 
 
@@ -231,8 +247,42 @@ def answer_questions(f: Factory, run_id: str, body: AnswersInput) -> Run:
 
 
 @action("resume_run", "Resume a held, interrupted or paused run", "POST", "/api/runs/{run_id}/resume")
-def resume_run(f: Factory, run_id: str) -> Run:
+async def resume_run(f: Factory, run_id: str) -> Run:
+    run = f.store.get_run(run_id)
+    order = f.store.get_order(run.order_id) if run else None
+    if order:
+        await _gate(f, order.product_line, "iteration")
     return f.manager.resume(run_id)
+
+
+async def _gate(f: Factory, product_line: str, what: str) -> None:
+    if product_line in f.cfg.product_lines:
+        await f.manager.preflight.gate(product_line, what)
+
+
+@action(
+    "archive_order",
+    "Archive an order: remove its app from the cluster and free its port; history is kept",
+    "POST",
+    "/api/orders/{order_id}/archive",
+)
+async def archive_order(f: Factory, order_id: str) -> Order:
+    who = current_identity()
+    order = f.store.get_order(order_id)
+    if order and not who.is_admin and order.created_by and order.created_by != who.user:
+        raise PermissionError("only the order's creator or an admin can archive it")
+    return await f.manager.archive(order_id, who.user)
+
+
+@action("get_preflight", "Readiness checks per product line (cached; see ADR-0015)", "GET", "/api/preflight")
+async def get_preflight(f: Factory) -> list[PreflightView]:
+    pf = f.manager.preflight
+    return [pf.refresh_local(await pf.product_line(pl, max_age=float("inf"))) for pl in f.cfg.product_lines]
+
+
+@action("run_preflight", "Run every readiness check now", "POST", "/api/preflight")
+async def run_preflight(f: Factory) -> list[PreflightView]:
+    return await f.manager.preflight.all(max_age=0)
 
 
 @action("cancel_run", "Cancel a run", "POST", "/api/runs/{run_id}/cancel")
@@ -618,22 +668,15 @@ def discard_draft(f: Factory, workflow_id: str) -> DraftView:
 async def get_delivery(f: Factory) -> DeliveryView:
     providers = f.manager.providers
     envs = f.cfg.environments
+    # readiness comes from the preflight checks (cached; POST /api/preflight re-runs them)
+    checks: dict[str, ReadinessView] = {}
+    for view in await get_preflight(f):
+        for c in view.checks:
+            if c.integration:
+                checks[c.integration] = ReadinessView(state=c.state, reasons=c.reasons)
     integrations = []
     for name, p in providers.integrations.items():
-        try:
-            if f.settings.factory_mode == "dry-run":
-                ready = ReadinessView(state="ready", reasons=["dry-run: delivery steps are simulated"])
-            else:
-                r = await p.check(None)
-                ready = ReadinessView(state=r.state, reasons=list(r.reasons))
-                ref = f.cfg.integrations[name].auth.secret_ref
-                ok, why = f.manager.secrets.available(ref) if ref else (True, "")
-                if not ok:
-                    ready.reasons.append(f"credential {ref} not available ({why})")
-                    if ready.state == "ready":
-                        ready.state = "degraded"
-        except Exception as exc:  # noqa: BLE001 - a broken check is itself a readiness result
-            ready = ReadinessView(state="failed", reasons=[f"check crashed: {exc}"])
+        ready = checks.get(name) or ReadinessView(state="unknown", reasons=["not used by any product line"])
         integrations.append(
             IntegrationView(
                 id=name,

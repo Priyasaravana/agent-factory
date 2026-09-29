@@ -194,6 +194,7 @@ function StatusChips() {
       <span className={cn("pill", h.model_auth ? "ok" : "bad")}>model {h.model_auth ? "ready" : "no auth"}</span>
       <span className={cn("pill", h.github ? "ok" : "muted")}>github {h.github ? "on" : "off"}</span>
       <SandboxChip state={h.sandbox ?? "off"} detail={h.sandbox_detail ?? []} mode={h.mode} />
+      <ReadinessChip state={h.preflight ?? "unknown"} />
       <span className={cn("pill", h.active_runs ? "info" : "muted")}>{h.active_runs} active</span>
     </div>
   );
@@ -214,6 +215,25 @@ function SandboxChip({ state, detail, mode }: { state: string; detail: string[];
       <span className={cn("pill", SANDBOX_TONE[state] ?? "muted")}>
         {state === "ready" ? <ShieldCheck /> : <ShieldAlert />}sandbox {state}
       </span>
+    </Tip>
+  );
+}
+
+function ReadinessChip({ state }: { state: string }) {
+  const tone = { ready: "ok", degraded: "warn", failed: "bad" }[state] ?? "muted";
+  const why =
+    state === "failed"
+      ? "A readiness check failed: new orders are refused until it is fixed"
+      : state === "degraded"
+        ? "Something needs attention, but runs are not blocked"
+        : state === "ready"
+          ? "Everything a run needs is ready"
+          : "Readiness not checked yet";
+  return (
+    <Tip label={why} side="bottom">
+      <NavLink to="/integrations" className={cn("pill clickable no-underline hover:no-underline", tone)}>
+        readiness {state}
+      </NavLink>
     </Tip>
   );
 }

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_factory.providers.base import (
     CAPABILITIES,
+    CheckContext,
     ImageRef,
     Provider,
     ProviderError,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CAPABILITIES",
+    "CheckContext",
     "ImageRef",
     "LocalProvider",
     "Provider",

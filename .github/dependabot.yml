@@ -1,0 +1,23 @@
+# Keep the factory's own dependencies current (OpenSSF Scorecard: Dependency-Update-Tool).
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /engine
+    schedule: {interval: weekly}
+  - package-ecosystem: uv
+    directory: /auth
+    schedule: {interval: weekly}
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly}
+    groups:
+      web: {patterns: ["*"]}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /images/factory
+    schedule: {interval: weekly}
+  - package-ecosystem: docker
+    directory: /images/sandbox
+    schedule: {interval: weekly}

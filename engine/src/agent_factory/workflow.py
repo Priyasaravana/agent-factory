@@ -298,6 +298,12 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
     for aid in doc.agents:
         if aid not in used:
             warnings.append(f"agent '{aid}' is not used by any station")
+    handlers = {s.resolved_handler() for s in doc.stations}
+    if "build" in handlers and "readiness" not in handlers:
+        warnings.append(
+            "no readiness station: delivered apps are not held to agent-readiness Level 3 "
+            "(add the `readiness` check after verify)"
+        )
     return sorted(set(warnings))
 
 

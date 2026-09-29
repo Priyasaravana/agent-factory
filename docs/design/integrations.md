@@ -170,7 +170,7 @@ Each phase is a separate PR with its own acceptance check.
 | 1. Provider seam ✅ | `Provider` interface (`engine/src/agent_factory/providers/`); today's code in `local`; `integrations` + `environments` in config | Local runs issue the same commands; a test environment routes registry/deploy to another provider and acceptance tests its URL |
 | 2. Secrets ✅ | SecretRef resolver (`env://`, `aws-sm://`, `k8s://`), redaction, audit | No secret in DB, events or logs (a test greps a run for known values) |
 | 3. Sandbox ✅ | Agent sessions and `make verify` in throw-away containers without secrets, egress allowlist ([ADR-0014](../adr/0014-agent-sandbox.md)) | The earlier env/cert bypasses fail inside the sandbox; a live run passes |
-| 4. Readiness | `check()`, Integrations page, order preflight | A broken integration blocks an order in seconds, with reasons |
+| 4. Readiness ✅ | `check()` + `undeploy()`, readiness page, order preflight, archive ([ADR-0015](../adr/0015-readiness-and-preflight.md)) | A broken integration blocks an order in seconds, with reasons |
 | 5. First remote path | `registry/ecr` + `deploy/argocd` on a dev EKS; GitHub App publish | A live run deploys to dev via Argo CD and passes acceptance |
 | 6. Handoff mode | `ci/github-actions` provider; acceptance against the preview URL | A run lands as a PR, the company pipeline deploys it, the factory verifies it |
 

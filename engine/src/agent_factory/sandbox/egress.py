@@ -6,7 +6,7 @@ allows a destination only if it matches the allowlist:
 
     api.anthropic.com:443      exact host and port
     *.pythonhosted.org:443     any subdomain (not the bare domain)
-    dind:8081-8085             a port range (apps deployed to the local cluster)
+    dind:8081-8100             a port range (apps deployed to the local cluster)
 
 Every decision is logged as one JSON line, so denied attempts are evidence.
 TLS is never terminated here: the proxy sees host names, not content.

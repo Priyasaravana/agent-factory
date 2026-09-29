@@ -8,12 +8,13 @@ publish   `gh` with GITHUB_TOKEN from .env (moves to secret references in phase 
 
 from __future__ import annotations
 
+import re
 import shutil
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Order
-from agent_factory.providers.base import CAPABILITIES, ImageRef, Readiness, StepResult
+from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
@@ -35,11 +36,29 @@ class LocalProvider:
         self.name = name
         self.settings = settings or {}
 
-    async def check(self, ctx: StationContext | None) -> Readiness:
+    async def check(self, ctx: CheckContext | None) -> Readiness:
+        """dind reachable, cluster API ready, and which app ports the cluster maps."""
         missing = [tool for tool in ("docker", "kind", "helm", "kubectl") if shutil.which(tool) is None]
         if missing:
             return Readiness("failed", [f"{', '.join(missing)} not installed in the factory image"])
-        return Readiness("ready")
+        if ctx is None:
+            return Readiness("ready", ["tools installed"])
+        reasons: list[str] = []
+        docker = await ctx.cmd("docker info --format '{{.ServerVersion}}'", timeout=15)
+        if not docker.ok:
+            return Readiness("failed", [f"Docker-in-Docker not reachable: {docker.output.strip()[-300:]}"])
+        version = (docker.output.strip().splitlines() or ["reachable"])[-1]
+        reasons.append(f"Docker-in-Docker {version}")
+        api = await ctx.cmd("kubectl get --raw=/readyz", timeout=15)
+        if not api.ok:
+            return Readiness(
+                "failed", [*reasons, f"kind cluster API not ready: {api.output.strip()[-300:]} (make reset-cluster)"]
+            )
+        reasons.append("kind cluster API ready")
+        ports = await ctx.cmd(f"docker port {ctx.settings.cluster_name}-control-plane", timeout=15)
+        mapped = sorted({int(m) for m in re.findall(r"^(\d+)/tcp", ports.output, re.M)} - {6443})
+        reasons.append(f"{len(mapped)} app ports mapped to the host")
+        return Readiness("ready", reasons, data={"mapped_node_ports": mapped})
 
     # ------------------------------------------------------------ registry --
     def image_ref(self, ctx: StationContext, tag: str) -> ImageRef:
@@ -103,6 +122,17 @@ class LocalProvider:
             timeout=60,
         )
         return diag.output[-3500:]
+
+    async def undeploy(self, ctx: StationContext) -> StepResult:
+        ns, slug = namespace(ctx.order), ctx.order.product_slug
+        cmd = (
+            f"helm uninstall {slug} --namespace {ns} --ignore-not-found --wait --timeout 2m && "
+            f"kubectl delete namespace {ns} --ignore-not-found --wait=false"
+        )
+        res = await ctx.cmd(cmd, timeout=180)
+        if not res.ok:
+            return StepResult(False, f"could not remove {slug} from {ns}", failed_detail(cmd, res))
+        return StepResult(True, f"removed {slug} and namespace {ns} from the local cluster")
 
     # ------------------------------------------------------------- publish --
     async def publish(self, ctx: StationContext) -> StepResult:
