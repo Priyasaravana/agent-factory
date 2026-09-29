@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: cd templates/fastapi-service && make verify
       - run: helm lint templates/fastapi-service/deploy/chart
       - run: helm template t templates/fastapi-service/deploy/chart > /dev/null
