@@ -2,7 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import {
-  Boxes, FileBox, KeyRound, LayoutDashboard, LogOut, Moon, Plug, Plus, Shield, Sparkles, Sun, Workflow,
+  Boxes, FileBox, Gauge, KeyRound, LayoutDashboard, LogOut, Moon, Plug, Plus, Shield, Sparkles, Sun, Workflow,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -71,6 +71,7 @@ export default function CommandPalette({ open, setOpen }: { open: boolean; setOp
               <Command.Group heading="Go to" className={group}>
                 <Item icon={<Plus />} onSelect={() => go("/?new=1")} hint="order">New order</Item>
                 <Item icon={<LayoutDashboard />} onSelect={() => go("/")}>Orders</Item>
+                <Item icon={<Gauge />} onSelect={() => go("/outcomes")}>Outcomes</Item>
                 <Item icon={<Workflow />} onSelect={() => go("/workflows")}>Workflows</Item>
                 <Item icon={<Sparkles />} onSelect={() => go("/skills")}>Skills</Item>
                 <Item icon={<Plug />} onSelect={() => go("/integrations")}>Integrations</Item>

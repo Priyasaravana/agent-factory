@@ -27,7 +27,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
 ⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
 
-**Headline metric:** share of delivered apps at Level 3+. ✅ The Readiness station scores every run (20 signals + secret scan) and fails the run below Level 3. ⬜ The Outcomes page will aggregate it.
+**Headline metric:** share of delivered apps at Level 3+. ✅ The Readiness station scores every run (20 signals + secret scan) and fails the run below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
 
 ## 2. DORA: four keys and the 2025 AI Capabilities Model
 - **Measure outcomes, not activity:**
@@ -35,8 +35,8 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
   - change failure rate (runs HELD or failed after deploy);
   - time to restore;
   - deploy frequency.
-  - Add **autonomy ratio** (delivered with no questions and no fix loops) and **cost per delivered change**.
-  - ⬜ → Outcomes page (built from existing run data).
+  - Add **autonomy ratio** (delivered with no *unplanned* human touch; fix loops are agents fixing their own work and are reported as effort) and **cost per delivered change** (failed runs' spend included).
+  - ✅ → Outcomes page, from a status transition log (ADR-0019, [definitions](outcomes.md)).
 - **Small batches:** ✅ feedback iterations are small changes. Keep them small (cap the change-request scope).
 - **Strong version control:** ✅ versioned workflows and pinned skills · ⬜ every generated app gets its own repo history by default.
 - **Quality internal platform:** ✅ golden path and product-line workflows.
@@ -75,8 +75,8 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - upgrade-safety change: CI builds all images and tests the engine on the image's Python; the sandbox verifies the golden path offline; a dry-run end-to-end browser smoke test; engine on the next Python (advisory); a weekly run; app Python decoupled from the factory's; `make backup` / `restore` / `upgrade`.
   - spec-driven change: numbered requirements; requirement → scenario → test → live-result traceability with a Level 3 signal; optional spec review gate (off by default); spec diff on feedback; bring your own spec (ADR-0017).
   - least-privilege change: no root in the factory's containers (one-shot offline init step; factory, auth and web without capabilities); runtime proof in CI; privileged dind documented as an accepted risk (ADR-0018).
+  - outcomes change: status transition log; Outcomes page with deliveries, lead time, change failure rate, recovery, autonomy, cost per delivered change, Level 3 share, requirements verified live, where the time goes and who the factory is waiting on (ADR-0019).
 - **Next:**
-  - Outcomes page (DORA + autonomy ratio + cost per change + share of apps at Level 3 + waiting on whom);
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.
 - **Then:** phase 5, generic `registry/oci` + `deploy/helm` providers (any dev cluster, ingress hosts instead of NodePorts), then ECR + Argo CD.
@@ -89,7 +89,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## Candidates to consider (from Warp's Cloud Software Factory)
 Highest value only; each fits data or hooks we already have.
-1. **"Waiting on whom" metric**: split every run's time into agent-working vs waiting-for-a-human, and show the factory as a board by state. Warp's own dashboard shows humans, not agents, are the bottleneck. → part of the Outcomes page.
+1. ✅ **"Waiting on whom" metric** (done, Outcomes page): split every run's time into agent-working vs waiting-for-a-human, and show the factory as a board by state. Warp's own dashboard shows humans, not agents, are the bottleneck. → part of the Outcomes page.
 2. ✅ **Spec-driven development** (done, ADR-0017):
    - an optional spec review gate after design, with approve, request changes or edit (per workflow: always, first iteration or off; **off by default**);
    - numbered requirements (`docs/requirements.yaml`) plus the product spec and technical design (`docs/spec.md`, `docs/design.md`);

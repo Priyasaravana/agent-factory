@@ -26,10 +26,17 @@
   --info: oklch(0.62 0.14 235);
   --glow: oklch(0.6 0.2 275 / 0.12);
   --radius: 0.75rem;
+  /* chart series (categorical slots 1-3, validated for CVD and contrast on --card) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
   color-scheme: light;
 }
 
 .dark {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
   --background: oklch(0.145 0.012 275);
   --foreground: oklch(0.96 0.005 270);
   --card: oklch(0.18 0.014 275);
@@ -71,6 +78,9 @@
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-info: var(--info);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -147,6 +157,7 @@
   button.tab.active { @apply border-border bg-card text-foreground shadow-xs; }
   button.icon { @apply bg-transparent px-1.5 py-0.5 text-base text-muted-foreground shadow-none hover:text-bad; }
   button.small-btn { @apply px-2.5 py-1 text-xs; }
+  button.help { @apply h-auto border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground; }
 
   .pill {
     @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap;

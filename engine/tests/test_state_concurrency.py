@@ -24,14 +24,17 @@ def test_readers_and_a_writer_share_the_connection_safely(tmp_path):
     ]
     errors: list[str] = []
     stop = threading.Event()
+    written = [0]
 
     def writer() -> None:
-        n = 0
-        while not stop.is_set():
-            ev = st.add_event(runs[n % 4].id, EventKind.info, f"event {n}")
-            if ev.id <= 0:
-                errors.append("event without an id")
-            n += 1
+        try:
+            while not stop.is_set():
+                ev = st.add_event(runs[written[0] % 4].id, EventKind.log, f"event {written[0]}")
+                if ev.id <= 0:
+                    errors.append("event without an id")
+                written[0] += 1
+        except Exception as exc:  # noqa: BLE001 - a dead writer must fail the test, not warn
+            errors.append(f"writer: {type(exc).__name__}: {exc}")
 
     def reader() -> None:
         for i in range(300):
@@ -53,3 +56,4 @@ def test_readers_and_a_writer_share_the_connection_safely(tmp_path):
     stop.set()
     w.join()
     assert not errors, f"{len(errors)} failures, e.g. {sorted(set(errors))[:3]}"
+    assert written[0] > 0, "the writer must have run alongside the readers"

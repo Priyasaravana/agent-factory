@@ -44,6 +44,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outcomes: deliveries, lead time, change failure rate, autonomy, cost per change, where the time goes and who the factory is waiting on (ADR-0019)
+         * @description Outcomes: deliveries, lead time, change failure rate, autonomy, cost per change, where the time goes and who the factory is waiting on (ADR-0019)
+         */
+        get: operations["get_outcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/orders": {
         parameters: {
             query?: never;
@@ -1136,6 +1156,18 @@ export interface components {
             /** New Id */
             new_id: string;
         };
+        /** DurationStat */
+        DurationStat: {
+            /** Median S */
+            median_s?: number | null;
+            /** P90 S */
+            p90_s?: number | null;
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+        };
         /** EnvironmentView */
         EnvironmentView: {
             /** Name */
@@ -1249,6 +1281,29 @@ export interface components {
              */
             preflight: string;
         };
+        /** HumanTouches */
+        HumanTouches: {
+            /**
+             * Answered Questions
+             * @default 0
+             */
+            answered_questions: number;
+            /**
+             * Rescued
+             * @default 0
+             */
+            rescued: number;
+            /**
+             * Restarts
+             * @default 0
+             */
+            restarts: number;
+            /**
+             * Spec Reviews
+             * @default 0
+             */
+            spec_reviews: number;
+        };
         /** InstallSkillInput */
         InstallSkillInput: {
             /** Repo */
@@ -1337,6 +1392,87 @@ export interface components {
             runs: components["schemas"]["Run"][];
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
+        };
+        /** OutcomesView */
+        OutcomesView: {
+            /** Window Days */
+            window_days: number;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Deliveries */
+            deliveries: number;
+            /** Deliveries Per Week */
+            deliveries_per_week: number;
+            lead_time: components["schemas"]["DurationStat"];
+            /** Change Failure Rate */
+            change_failure_rate?: number | null;
+            /**
+             * Finished
+             * @default 0
+             */
+            finished: number;
+            /**
+             * Failed Or Rescued
+             * @default 0
+             */
+            failed_or_rescued: number;
+            recovery_time: components["schemas"]["DurationStat"];
+            /** Autonomy Ratio */
+            autonomy_ratio?: number | null;
+            touches: components["schemas"]["HumanTouches"];
+            /** Unplanned Touches Per Delivery */
+            unplanned_touches_per_delivery?: number | null;
+            /** Cost Total Usd */
+            cost_total_usd: number;
+            /** Cost Per Delivery Usd */
+            cost_per_delivery_usd?: number | null;
+            /** Fix Loops Per Delivery */
+            fix_loops_per_delivery?: number | null;
+            time_split: components["schemas"]["TimeSplit"];
+            /**
+             * Runs With Timeline
+             * @default 0
+             */
+            runs_with_timeline: number;
+            /**
+             * Runs In Window
+             * @default 0
+             */
+            runs_in_window: number;
+            /**
+             * Products
+             * @default 0
+             */
+            products: number;
+            /**
+             * Products Level3
+             * @default 0
+             */
+            products_level3: number;
+            /**
+             * Requirements Total
+             * @default 0
+             */
+            requirements_total: number;
+            /**
+             * Requirements Verified Live
+             * @default 0
+             */
+            requirements_verified_live: number;
+            /** Waiting */
+            waiting?: components["schemas"]["WaitingItem"][];
+            /** By Workflow */
+            by_workflow?: components["schemas"]["WorkflowOutcome"][];
+            /** Weekly */
+            weekly?: components["schemas"]["WeekPoint"][];
         };
         /** PreflightView */
         PreflightView: {
@@ -1684,6 +1820,27 @@ export interface components {
             docs: string[];
         };
         /**
+         * TimeSplit
+         * @description Seconds of run time in the window, by who the run was waiting on.
+         */
+        TimeSplit: {
+            /**
+             * Agents S
+             * @default 0
+             */
+            agents_s: number;
+            /**
+             * Person S
+             * @default 0
+             */
+            person_s: number;
+            /**
+             * System S
+             * @default 0
+             */
+            system_s: number;
+        };
+        /**
          * TraceRow
          * @description One requirement, traced: scenarios -> tagged tests -> live acceptance.
          */
@@ -1732,6 +1889,53 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WaitingItem */
+        WaitingItem: {
+            /** Order Id */
+            order_id: string;
+            /** Order Title */
+            order_title: string;
+            /** Run Id */
+            run_id: string;
+            /** Iteration */
+            iteration: number;
+            status: components["schemas"]["RunStatus"];
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Waiting S */
+            waiting_s: number;
+            /** Owner */
+            owner: string;
+            /** Action */
+            action: string;
+        };
+        /** WeekPoint */
+        WeekPoint: {
+            /** Week Start */
+            week_start: string;
+            /** Deliveries */
+            deliveries: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Lead Time Median S */
+            lead_time_median_s?: number | null;
+        };
+        /** WorkflowOutcome */
+        WorkflowOutcome: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Deliveries */
+            deliveries: number;
+            /** Autonomy Ratio */
+            autonomy_ratio?: number | null;
+            /** Cost Per Delivery Usd */
+            cost_per_delivery_usd?: number | null;
+            /** Lead Time Median S */
+            lead_time_median_s?: number | null;
         };
         /** WorkflowSettingsInput */
         WorkflowSettingsInput: {
@@ -1875,6 +2079,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigView"];
+                };
+            };
+        };
+    };
+    get_outcomes: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutcomesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

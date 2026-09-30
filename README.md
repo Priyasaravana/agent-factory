@@ -50,6 +50,12 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   Docker, cluster, free ports and credentials. They refuse an order in seconds,
   before any model usage, if something it needs is broken
   ([ADR-0015](docs/adr/0015-readiness-and-preflight.md)).
+- **Outcomes, not activity.** The Outcomes page shows:
+  - deliveries, lead time, change failure rate and recovery time;
+  - autonomy (deliveries with no unplanned human help) and cost per delivered change;
+  - where the time goes, and who the factory is waiting on right now.
+
+  Every number has a written definition ([outcomes](docs/outcomes.md)).
 - **API-first.** A Python engine (FastAPI) exposes an OpenAPI contract. The
   TypeScript UI (React + Vite, Tailwind + Radix components, ⌘K command palette,
   dark/light themes) uses types generated from that contract.

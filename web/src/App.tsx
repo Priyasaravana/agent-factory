@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Boxes, ChevronsUpDown, Command as CommandIcon, Factory, KeyRound, LayoutDashboard, LogOut, Menu, Monitor, Moon,
+  Boxes, ChevronsUpDown, Command as CommandIcon, Factory, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Monitor, Moon,
   Plug, Shield, ShieldAlert, ShieldCheck, Sparkles, Sun, X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -22,6 +22,7 @@ import IntegrationsPage from "./pages/IntegrationsPage";
 import LoginPage from "./pages/LoginPage";
 import OrderPage from "./pages/OrderPage";
 import OrdersPage from "./pages/OrdersPage";
+import OutcomesPage from "./pages/OutcomesPage";
 import SkillsPage from "./pages/SkillsPage";
 import WorkflowEditPage from "./pages/WorkflowEditPage";
 import WorkflowPage from "./pages/WorkflowPage";
@@ -60,6 +61,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = auth.kind === "signed-in" && auth.me.role === "admin";
   const items: NavItem[] = [
     { to: "/", label: "Orders", icon: <LayoutDashboard />, end: true },
+    { to: "/outcomes", label: "Outcomes", icon: <Gauge /> },
     { to: "/workflows", label: "Workflows", icon: <Boxes /> },
     { to: "/skills", label: "Skills", icon: <Sparkles /> },
     { to: "/integrations", label: "Integrations", icon: <Plug /> },
@@ -280,6 +282,7 @@ function Shell() {
             <Routes>
               <Route path="/" element={<OrdersPage />} />
               <Route path="/orders/:orderId" element={<OrderPage />} />
+              <Route path="/outcomes" element={<OutcomesPage />} />
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/workflows/:workflowId" element={<WorkflowPage />} />
               <Route path="/workflows/:workflowId/edit" element={<WorkflowEditPage />} />
