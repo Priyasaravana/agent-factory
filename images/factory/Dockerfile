@@ -48,7 +48,9 @@ RUN uv pip install --system --no-cache "./engine${ENGINE_EXTRAS:+[${ENGINE_EXTRA
 COPY .agent-factory .agent-factory
 # Default skills (config: default_skills) at their pinned commits, so first start
 # works offline. They are installed into the DB and managed on the Skills page.
-RUN FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml agent-factory skills cache --out /opt/factory/skill-seeds
+# Build steps run as root and write into the image: tell the CLI not to drop to
+# the runtime user here (it does so at run time, see cli.run).
+RUN AGENT_FACTORY_ALLOW_ROOT=1 FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml agent-factory skills cache --out /opt/factory/skill-seeds
 COPY prompts prompts
 COPY workflow-templates workflow-templates
 COPY plugin plugin

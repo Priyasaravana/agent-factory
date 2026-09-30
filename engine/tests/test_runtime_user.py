@@ -89,3 +89,17 @@ def test_the_console_script_drops_root_and_main_does_not(as_root, monkeypatch):
     assert execs and execs[0][0] == "/usr/bin/setpriv" and execs[0][2]["HOME"] == "/home/factory"
     text = (ROOT / "engine" / "pyproject.toml").read_text()
     assert 'agent-factory = "agent_factory.cli:run"' in text
+
+
+def test_image_build_steps_that_call_the_cli_keep_root():
+    """Build steps write into root-owned image paths; the runtime drop must not apply
+    (CI images: "Permission denied: '/opt/factory/skill-seeds'")."""
+    bad = []
+    for f in ROOT.glob("**/Dockerfile*"):
+        if "node_modules" in f.parts:
+            continue
+        for n, line in enumerate(f.read_text().splitlines(), 1):
+            if line.lstrip().startswith("RUN") and re.search(r"\bagent-factory\b", line):
+                if "AGENT_FACTORY_ALLOW_ROOT=1" not in line:
+                    bad.append(f"{f.relative_to(ROOT)}:{n}")
+    assert not bad, "set AGENT_FACTORY_ALLOW_ROOT=1 on build steps that run the CLI: " + ", ".join(bad)
