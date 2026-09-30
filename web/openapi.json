@@ -661,8 +661,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
-        "description": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
+        "summary": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin",
+        "description": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin",
         "operationId": "get_call_transcript",
         "parameters": [
           {

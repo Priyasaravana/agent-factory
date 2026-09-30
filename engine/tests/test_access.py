@@ -1,0 +1,78 @@
+"""Who may change what (ADR-0012, ADR-0022). Every mutating action is classified:
+either admin-only (it changes how the factory behaves for everyone) or allowed to
+any signed-in member. A new action that is neither fails this test, so access is
+always a deliberate decision."""
+
+from __future__ import annotations
+
+import asyncio
+import re
+
+import pytest
+from conftest import ORDER, wait_run
+from test_api import _client
+
+from agent_factory import actions
+from agent_factory.identity import requires_admin
+from agent_factory.models import RunStatus
+
+ADMIN = {"X-Auth-User": "saravana", "X-Auth-Role": "admin"}
+MEMBER = {"X-Auth-User": "priya", "X-Auth-Role": "member"}
+OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
+
+# mutating actions any signed-in member may call (some further limited to the
+# order's creator or an admin inside the action, e.g. spec decisions and archive)
+MEMBER_ACTIONS = {
+    "create_order",
+    "submit_feedback",
+    "answer_questions",
+    "resume_run",
+    "cancel_run",
+    "approve_spec",
+    "request_spec_changes",
+    "edit_spec",
+    "archive_order",
+    "run_preflight",
+    "log_decision",
+}
+MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
+
+
+def test_every_mutating_action_is_classified():
+    admin_only = {s.name for s in MUTATING if requires_admin(s.method, s.path)}
+    member = {s.name for s in MUTATING} - admin_only
+    assert member == MEMBER_ACTIONS, (
+        f"classify new actions: admin-only paths live under /api/workflows or /api/skills; "
+        f"unexpected member actions: {sorted(member - MEMBER_ACTIONS)}; gone: {sorted(MEMBER_ACTIONS - member)}"
+    )
+    assert {"publish_draft", "activate_workflow_version", "accept_learning", "install_skill"} <= admin_only
+
+
+@pytest.mark.parametrize("spec", [s for s in MUTATING if requires_admin(s.method, s.path)], ids=lambda s: s.name)
+async def test_members_cannot_change_workflows_or_skills(make_factory, spec):
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    path = re.sub(r"\{[^}]+\}", "x", spec.path)
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.request(spec.method, path, json={}, headers=MEMBER)
+        assert r.status_code == 403 and r.json()["detail"] == "admin role required"
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_transcripts_are_for_the_orders_creator_or_an_admin(make_factory):
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    async with c:
+        order = (await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)).json()["order"]
+        run_id = order["latest_run_id"]
+        assert await wait_run(f, run_id) == RunStatus.awaiting_feedback
+        await asyncio.sleep(0.1)
+        calls = (await c.get(f"/api/runs/{run_id}/calls", headers=OTHER)).json()["calls"]
+        assert calls, "the call summaries are visible to every member"
+        url = f"/api/runs/{run_id}/calls/{calls[0]['transcript']}/transcript"
+        assert (await c.get(url, headers=OTHER)).status_code == 403
+        assert (await c.get(url, headers=MEMBER)).status_code == 200, "the order's creator"
+        assert (await c.get(url, headers=ADMIN)).status_code == 200
+    await ctx.__aexit__(None, None, None)

@@ -142,6 +142,7 @@ function Transcript({ runId, name }: { runId: string; name: string }) {
         }),
       ) as Promise<Entry[]>,
   });
+  if (q.error) return <p className="muted small m-0">{q.error.message}</p>;
   if (!q.data)
     return <div className="h-24 animate-pulse rounded-lg bg-muted" />;
   return (

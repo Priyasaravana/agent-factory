@@ -62,9 +62,9 @@ call. But four things were missing:
 - Transcripts take disk space, up to 2 MB per call. They live with the run's
   other artifacts, are included in `make backup`, and are removed with the data
   directory.
-- Transcripts may contain code and command output from the generated app;
-  anyone signed in who can see the run can read them. Restricting them per role
-  comes with the admin-only change.
+- Transcripts may contain code and command output from the generated app, so
+  only the order's creator or an admin can read them. Call summaries and denials
+  stay visible to every signed-in member (`tests/test_access.py`).
 - Not done yet: exporting OpenTelemetry GenAI spans to an external tracing
   backend. The per-call records are the same data, so an exporter is a small,
   additive step.
