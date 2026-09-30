@@ -280,8 +280,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)
-         * @description One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)
+         * One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin
+         * @description One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin
          */
         get: operations["get_call_transcript"];
         put?: never;

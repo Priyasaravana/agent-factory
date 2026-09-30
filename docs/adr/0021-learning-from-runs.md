@@ -62,10 +62,11 @@ quietly defeat our checks.
   The Outcomes page (fix loops per delivery, autonomy) shows whether accepted
   lessons help.
 - A run that needed help costs one more judgment-tier call after delivery.
-- **Gap found while building this:** today any signed-in member can edit and
-  publish workflows, including agent prompts and tools. The new accept/reject
-  actions are admin-only, but workflow editing as a whole needs the same rule.
-  That is the next security change.
+- **Access.** Accept/reject are admin-only, like every other change to a workflow.
+  *Correction (2026-10-01):* this ADR first said members could edit and publish
+  workflows. That was wrong. The gateway identity middleware (ADR-0012) already
+  refuses every non-GET call under `/api/workflows` and `/api/skills` from a
+  non-admin. `tests/test_access.py` now pins this for every such action.
 - Not done yet:
   - suggesting changes to skills (not just learnings);
   - learning from feedback that corrects a delivered behaviour;

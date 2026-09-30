@@ -393,15 +393,19 @@ def get_run_calls(f: Factory, run_id: str) -> RunCallsView:
 
 @action(
     "get_call_transcript",
-    "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
+    "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); "
+    "the order's creator or an admin",
     "GET",
     "/api/runs/{run_id}/calls/{name}/transcript",
 )
 def get_call_transcript(f: Factory, run_id: str, name: str) -> list[dict[str, Any]]:
     from agent_factory.observe import read_transcript
 
-    if not f.store.get_run(run_id):
+    run = f.store.get_run(run_id)
+    if not run:
         raise FactoryError("run not found")
+    # full tool output (code, command results): the order's creator or an admin (ADR-0022)
+    _may_steer(f, run.order_id)
     try:
         return read_transcript(f.manager.ws.data_dir / "artifacts" / run_id, name)
     except (ValueError, FileNotFoundError) as exc:

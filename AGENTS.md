@@ -55,4 +55,7 @@
 - Every agent call goes through `observe.AgentCall` (ADR-0022): station agents via
   `ctx.agent(...)`, engine-owned agents (like the retro) explicitly. Guardrails
   report denials through `on_deny`; never drop them.
+- Every mutating action is classified in `tests/test_access.py`: admin-only (under
+  `/api/workflows` or `/api/skills`, enforced by the identity middleware) or in
+  `MEMBER_ACTIONS`. A new action must be added deliberately to one of the two.
 - Record significant decisions as ADRs in `docs/adr/`.
