@@ -167,9 +167,15 @@ class ClaudeAgentRunner:
             ResultMessage,
             SystemMessage,
             TextBlock,
+            ToolResultBlock,
             ToolUseBlock,
+            UserMessage,
             query,
         )
+
+        async def on_deny(tool: str, tool_input: dict[str, Any], reason: str) -> None:
+            await sink("denied", {"tool": tool, "input": _brief(tool_input), "reason": reason})
+            await sink("transcript", {"type": "denied", "tool": tool, "input": _full(tool_input), "reason": reason})
 
         tools = sdk_tools(req)
         allowed = list(req.tools)  # the SDK adds Skill(<name>) for each listed skill
@@ -199,7 +205,7 @@ class ClaudeAgentRunner:
             max_turns=req.max_turns,
             agents=subagents or None,
             mcp_servers=mcp_servers,
-            hooks=build_hooks(req.role, req.cwd, req.protected_paths, req.observe_only),
+            hooks=build_hooks(req.role, req.cwd, req.protected_paths, req.observe_only, on_deny),
             plugins=plugins_for(plugin_home or self.factory_home, req),
             skills=skill_refs(req),
             setting_sources=["project"],  # product CLAUDE.md -> AGENTS.md conventions
@@ -215,8 +221,25 @@ class ClaudeAgentRunner:
                     for block in msg.content:
                         if isinstance(block, TextBlock) and block.text.strip():
                             await sink("agent", {"text": block.text[:2000]})
+                            await sink("transcript", {"type": "text", "text": block.text[:TRANSCRIPT_CHARS]})
                         elif isinstance(block, ToolUseBlock):
                             await sink("tool", {"tool": block.name, "input": _brief(block.input)})
+                            await sink(
+                                "transcript",
+                                {"type": "tool_use", "id": block.id, "tool": block.name, "input": _full(block.input)},
+                            )
+                elif isinstance(msg, UserMessage) and isinstance(msg.content, list):
+                    for block in msg.content:
+                        if isinstance(block, ToolResultBlock):
+                            await sink(
+                                "transcript",
+                                {
+                                    "type": "tool_result",
+                                    "id": block.tool_use_id,
+                                    "is_error": bool(block.is_error),
+                                    "content": _content(block.content),
+                                },
+                            )
                 elif isinstance(msg, RateLimitEvent):
                     info = msg.rate_limit_info
                     result.limit_utilization = info.utilization
@@ -232,6 +255,10 @@ class ClaudeAgentRunner:
                 elif isinstance(msg, ResultMessage):
                     result.cost_usd = msg.total_cost_usd or 0.0
                     result.turns = msg.num_turns
+                    await sink(
+                        "transcript",
+                        {"type": "result", "turns": msg.num_turns, "cost_usd": result.cost_usd, "error": msg.is_error},
+                    )
                     result.text = msg.result or ""
                     result.structured = msg.structured_output
                     result.ok = not msg.is_error
@@ -246,6 +273,29 @@ class ClaudeAgentRunner:
                 result.ok = False
                 result.error = "agent returned no structured output (missing evidence)"
         return result
+
+
+TRANSCRIPT_CHARS = 4000  # per transcript entry; long tool output keeps its head and tail
+
+
+def _clip(text: str, limit: int = TRANSCRIPT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    return f"{text[:half]}\n… [{len(text) - limit} characters cut] …\n{text[-half:]}"
+
+
+def _full(tool_input: dict[str, Any]) -> str:
+    return _clip(json.dumps(tool_input, ensure_ascii=False, default=str))
+
+
+def _content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return _clip(content)
+    parts = [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
+    return _clip("\n".join(p for p in parts if p))
 
 
 def _brief(tool_input: dict[str, Any]) -> str:

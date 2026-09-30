@@ -162,6 +162,18 @@ class WeekPoint(BaseModel):
     lead_time_median_s: float | None = None
 
 
+class StationEffort(BaseModel):
+    """Agent effort per station over the Outcomes window (ADR-0022)."""
+
+    station: str
+    calls: int
+    cost_usd: float
+    turns_median: float | None = None
+    duration_median_s: float | None = None
+    tool_calls: int = 0
+    denied: int = 0
+
+
 class OutcomesView(BaseModel):
     window_days: int
     since: datetime
@@ -193,6 +205,9 @@ class OutcomesView(BaseModel):
     requirements_verified_live: int = 0
     # who needs to act now
     waiting: list[WaitingItem] = Field(default_factory=list)
+    # agent effort (ADR-0022)
+    effort_by_station: list[StationEffort] = Field(default_factory=list)
+    guardrail_denials: int = 0
     by_workflow: list[WorkflowOutcome] = Field(default_factory=list)
     weekly: list[WeekPoint] = Field(default_factory=list)
 
@@ -295,6 +310,39 @@ class WorkflowSettingsInput(BaseModel):
 
     spec_review: Literal["off", "first", "always"] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
+
+
+class AgentCallView(BaseModel):
+    """One agent call in a run (ADR-0022)."""
+
+    station: str
+    role: str
+    model: str
+    ok: bool
+    error: str = ""
+    turns: int = 0
+    duration_s: float = 0.0
+    cost_usd: float = 0.0
+    tool_calls: int = 0
+    tools: dict[str, int] = Field(default_factory=dict)
+    denied: int = 0
+    transcript: str | None = None
+    transcript_truncated: bool = False
+    at: datetime
+
+
+class DenialView(BaseModel):
+    station: str
+    role: str
+    tool: str
+    input: str
+    reason: str
+    at: datetime
+
+
+class RunCallsView(BaseModel):
+    calls: list[AgentCallView] = Field(default_factory=list)
+    denials: list[DenialView] = Field(default_factory=list)
 
 
 class LearningProposal(BaseModel):

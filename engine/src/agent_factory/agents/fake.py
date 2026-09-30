@@ -21,11 +21,23 @@ class FakeAgentRunner:
     # questions intake asks on its first call (simulates needs_input)
     intake_questions: list[str] = field(default_factory=list)
     rate_limit_once: bool = False
+    # roles whose first call tries something a guardrail refuses (simulates a denial)
+    deny_once: list[str] = field(default_factory=list)
     calls: list[AgentRequest] = field(default_factory=list)
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
         self.calls.append(req)
         await sink("agent", {"text": f"[dry-run] {req.role} working on {req.station}"})
+        await sink("transcript", {"type": "text", "text": f"[dry-run] {req.role} reads AGENTS.md first"})
+        await sink("tool", {"tool": "Read", "input": "AGENTS.md"})
+        read = {"type": "tool_use", "id": "t1", "tool": "Read", "input": '{"file_path": "AGENTS.md"}'}
+        await sink("transcript", read)
+        await sink("transcript", {"type": "tool_result", "id": "t1", "is_error": False, "content": "# AGENTS.md"})
+        if req.role in self.deny_once:
+            self.deny_once.remove(req.role)
+            reason = "blocked: pushing is done by the engine after checks"
+            await sink("denied", {"tool": "Bash", "input": "git push origin main", "reason": reason})
+            await sink("transcript", {"type": "denied", "tool": "Bash", "input": "git push", "reason": reason})
         await asyncio.sleep(0.05)
 
         if self.rate_limit_once:

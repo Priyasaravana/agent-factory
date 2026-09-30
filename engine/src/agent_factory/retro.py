@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_factory.agents.runner import AgentRequest
 from agent_factory.models import Event, EventKind, LearningProposal, Order, Run
+from agent_factory.observe import AgentCall
 from agent_factory.workflow import MAX_LEARNINGS_CHARS, WorkflowDoc
 
 if TYPE_CHECKING:
@@ -64,15 +65,22 @@ class Signals:
     routed: list[dict[str, Any]] = field(default_factory=list)  # {from, to, evidence}: a fix loop
     held: list[str] = field(default_factory=list)  # evidence of holds a person resolved
     questions: list[str] = field(default_factory=list)  # blocking intake questions a person answered
+    denied: list[dict[str, Any]] = field(default_factory=list)  # actions a guardrail refused (ADR-0022)
+    calls: list[dict[str, Any]] = field(default_factory=list)  # every agent call: turns, tools, cost
 
     def needs_retro(self) -> bool:
-        return bool(self.routed or self.held or self.questions)
+        # call stats alone never trigger a retro: they are context for the lessons
+        return bool(self.routed or self.held or self.questions or self.denied)
 
 
 def signals(run: Run, events: list[Event]) -> Signals:
     s = Signals()
     for e in events:
-        if isinstance(e.data.get("routed"), dict):
+        if isinstance(e.data.get("denied"), dict):
+            s.denied.append(e.data["denied"])
+        elif isinstance(e.data.get("agent_call"), dict) and e.data["agent_call"].get("station") != "retro":
+            s.calls.append(e.data["agent_call"])
+        elif isinstance(e.data.get("routed"), dict):
             s.routed.append(e.data["routed"])
         elif e.kind == EventKind.status and e.message.startswith("held at"):
             s.held.append(f"{e.message}\n{e.data.get('evidence', '')}".strip())
@@ -139,6 +147,15 @@ def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc) -> str:
     )
     held = "\n\n".join(h[-1500:] for h in sig.held)
     questions = "\n".join(f"- {q}" for q in sig.questions)
+    denied = "\n".join(
+        f"- {d.get('role')} at {d.get('station')}: {d.get('tool')} `{d.get('input')}` -> {d.get('reason')}"
+        for d in sig.denied
+    )
+    calls = "\n".join(
+        f"- {c.get('station')} / {c.get('role')}: {c.get('turns')} turns, {c.get('duration_s')}s, "
+        f"{c.get('tool_calls')} tool calls {c.get('tools')}" + (" FAILED" if not c.get("ok", True) else "")
+        for c in sig.calls
+    )
     return f"""You run the retrospective for a delivered run of the software factory. The run
 needed help. Suggest at most {MAX_PROPOSALS} lessons that would have prevented that help being
 needed, each for the ONE agent whose work caused the problem. A person will review every
@@ -167,6 +184,12 @@ Iteration {run.iteration}; fix loops: {run.loops}.
 
 ## Blocking questions intake had to ask
 {questions or "none"}
+
+## Actions a guardrail refused (the agent tried something it must not do)
+{denied or "none"}
+
+## Agent calls in this run (spot wasted effort, e.g. many turns spent searching)
+{calls or "none"}
 
 For each lesson give `agent`, `lesson`, `why` (the pattern it prevents) and `evidence`
 (quote the evidence above that shows it)."""
@@ -198,11 +221,16 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
         subagent_model=mgr.cfg.models.fast,
     )
 
-    async def sink(kind: str, data: dict[str, Any]) -> None:  # the retro's chatter is not run evidence
+    async def quiet(kind: str, data: dict[str, Any]) -> None:  # the retro's chatter is not run evidence
         return None
 
-    res = await mgr.agents.run(req, sink)
+    async def emit(kind: EventKind, message: str, data: dict[str, Any]) -> None:
+        mgr.store.add_event(run.id, kind, message, station="retro", data=data)
+
+    call = AgentCall(mgr.ws.data_dir / "artifacts" / run.id, "retro", "retro", req.model, emit)
+    res = await mgr.agents.run(req, call.wrap(quiet))
     run.cost_usd += res.cost_usd
+    await call.finish(res)
     if not res.ok or not isinstance(res.structured, dict):
         mgr.store.add_event(run.id, EventKind.log, "retro: no suggestions (the retro agent gave no answer)")
         return []

@@ -59,10 +59,12 @@ Desktop VM (or the Linux host).
 | 7 | Insecure inter-agent communication | One agent's output misleads another | Agents never talk directly: the engine passes evidence only. The builder gets observed behaviour, never holdout text | — |
 | 8 | Cascading failures | Fix loops burn budget or corrupt the repo; a run starts against a broken dependency | Attempt and loop budgets, wall-clock limit, usage-limit pause, HOLD on missing evidence, fresh worktree per run. Preflight refuses orders and iterations while a guarding check fails (ADR-0015) | — |
 | 9 | Human-agent trust exploitation | A plausible summary hides a failure | Every decision carries evidence (commands, outputs, scorecards). Publishing and merging follow policy; the feedback gate needs a person | Approval gate before shared-environment deploys (remote providers) |
-| 10 | Rogue agents | An agent keeps working outside its task | Sandboxes are per session and removed afterwards; runs cancel their containers; archiving removes the app and any leftover sandboxes, with an audit event; `max_turns` per spec | Per-run egress log in the run view |
+| 10 | Rogue agents | An agent keeps working outside its task, or keeps trying forbidden actions | Sandboxes are per session and removed afterwards; runs cancel their containers; archiving removes the app and any leftover sandboxes, with an audit event; `max_turns` per spec. Every guardrail denial is a recorded decision, every agent call has a record and a redacted transcript, and Outcomes counts denials (ADR-0022) | Per-run egress log in the run view; OpenTelemetry export |
 
 ## How to verify
 - `make sandbox-check` runs the isolation probe inside a real sandbox.
+- A run's **Agent calls** panel lists every agent call and every guardrail
+  denial, with a redacted transcript per call (ADR-0022).
 - `make privilege-check` proves that factory, auth and web run as non-root with
   no capabilities and `no-new-privileges`, that factory-init succeeded, and that
   only dind is privileged. CI e2e runs it on every change.

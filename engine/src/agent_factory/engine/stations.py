@@ -22,6 +22,7 @@ from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
 from agent_factory.models import EventKind, Order, Run, StationOutcome
+from agent_factory.observe import AgentCall
 from agent_factory.providers import LocalProvider, ProviderSet
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
@@ -161,9 +162,14 @@ class StationContext:
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
         )
-        res = await self.agents.run(req, sink)
+        call = AgentCall(self.ws.data_dir / "artifacts" / self.run.id, self.station_id, spec.id, req.model, self._emit)
+        res = await self.agents.run(req, call.wrap(sink))
         self.run.cost_usd += res.cost_usd
+        await call.finish(res)
         return res
+
+    async def _emit(self, kind: EventKind, message: str, data: dict[str, Any]) -> None:
+        await self.emit(kind, message, data)
 
 
 def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:

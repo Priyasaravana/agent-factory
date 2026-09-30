@@ -90,6 +90,7 @@ export default function OutcomesPage() {
           <Waiting o={o} />
           <TimeSplit o={o} />
           <Weekly weeks={o.weekly ?? []} />
+          <Effort o={o} />
           <ByWorkflow o={o} />
         </>
       )}
@@ -562,3 +563,58 @@ function ByWorkflow({ o }: { o: Outcomes }) {
 const Num = ({ children }: { children: ReactNode }) => (
   <td className="tabular-nums">{children}</td>
 );
+
+// ---------------------------------------------------------------- effort --
+function Effort({ o }: { o: Outcomes }) {
+  const rows = o.effort_by_station ?? [];
+  if (!rows.length) return null;
+  return (
+    <Card data-testid="effort">
+      <CardHeader>
+        <div>
+          <CardTitle>Agent effort by station</CardTitle>
+          <CardDescription>
+            Every agent call in this window: where the money and time go, and
+            what the guardrails refused. Open a run's Agent calls for
+            transcripts.
+          </CardDescription>
+        </div>
+        <span className={cn("pill", o.guardrail_denials ? "bad" : "ok")}>
+          {o.guardrail_denials
+            ? `${o.guardrail_denials} guardrail denials`
+            : "no guardrail denials"}
+        </span>
+      </CardHeader>
+      <CardContent>
+        <table className="wide">
+          <thead>
+            <tr>
+              <td>station</td>
+              <td>calls</td>
+              <td>cost</td>
+              <td>median turns</td>
+              <td>median time</td>
+              <td>tool calls</td>
+              <td>denied</td>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.station}>
+                <td className="font-mono text-xs">{r.station}</td>
+                <Num>{r.calls}</Num>
+                <Num>{usd(r.cost_usd)}</Num>
+                <Num>{r.turns_median ?? "—"}</Num>
+                <Num>{duration(r.duration_median_s)}</Num>
+                <Num>{r.tool_calls}</Num>
+                <Num>
+                  {r.denied ? <span className="text-bad">{r.denied}</span> : 0}
+                </Num>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}

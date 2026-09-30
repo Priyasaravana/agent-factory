@@ -20,7 +20,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 | Docs & instructions | ✅ AGENTS.md, README | ✅ AGENTS.md, ADRs, runbook |
 | Environment & sandbox | ✅ reproducible; agents and `make verify` run in a sandbox (ADR-0014) | ✅ compose; sandbox per agent session |
 | Code quality | ✅ small golden-path modules | 🟡 `actions.py` > 500 lines |
-| Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per run and egress log; no metrics/tracing yet |
+| Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per run, egress log, per-agent-call records, transcripts and denials (ADR-0022); no OpenTelemetry export yet |
 | Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model |
 
 **Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
@@ -62,7 +62,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - ✅ Deterministic orchestration and LLM work only inside stations ("workflows before agents").
 - ✅ Smallest tool set per role; skills preloaded only where measured.
 - ⬜ **Evaluation harness:** a fixed set of orders run per workflow version. Track pass rate, cost, loops and lead time. Gate publishing a workflow version on no regression.
-- ⬜ Trace every agent turn (OpenTelemetry GenAI conventions) for debugging and cost attribution.
+- 🟡 Trace every agent call: ✅ per-call records (turns, time, cost, tools, denials) and redacted transcripts, with effort by station on Outcomes (ADR-0022); ⬜ export as OpenTelemetry GenAI spans.
 
 ## 6. Enterprise governance (when a company adopts it)
 - NIST SSDF (secure development practices) and ISO/IEC 42001 (AI management system) are the frameworks auditors will ask about.
@@ -78,6 +78,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - outcomes change: status transition log; Outcomes page with deliveries, lead time, change failure rate, recovery, autonomy, cost per delivered change, Level 3 share, requirements verified live, where the time goes and who the factory is waiting on (ADR-0019).
   - spec review change: built-in review station after verify/readiness; the reviewer reports on every requirement and the engine judges (partial/missing or blocker/major findings go back to build; incomplete reviews are held); review evidence per requirement in the traceability view (ADR-0020).
   - learning change: after runs that needed help, an observe-only retro suggests lessons per agent; the engine vets them (no check-weakening, no duplicates, evidence required); an admin accepts them into the workflow draft; they apply only when published (ADR-0021).
+  - agent observability change: every guardrail denial recorded as a decision; one record per agent call (turns, time, cost, tools, denials); redacted transcripts per call; Agent calls panel and effort by station; the retro learns from denials and call stats (ADR-0022).
 - **Next:**
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.

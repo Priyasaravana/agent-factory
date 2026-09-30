@@ -224,6 +224,22 @@ class SqliteStateStore:
                 return datetime.fromisoformat(ts), value
         return None
 
+    def events_with_key(self, run_ids: list[str], key: str) -> list[tuple[str, datetime, Any]]:
+        """(run id, time, data[key]) of every event in these runs whose data carries `key`, oldest first."""
+        out: list[tuple[str, datetime, Any]] = []
+        for i in range(0, len(run_ids), 500):
+            chunk = run_ids[i : i + 500]
+            marks = ",".join("?" * len(chunk))
+            rows = self._exec(
+                f"SELECT run_id, ts, data FROM events WHERE run_id IN ({marks}) AND data LIKE ? ORDER BY id",  # noqa: S608
+                (*chunk, f'%"{key}"%'),
+            )
+            for rid, ts, data in rows:
+                value = json.loads(data).get(key)
+                if value is not None:
+                    out.append((rid, datetime.fromisoformat(ts), value))
+        return out
+
     def first_event_time(self, run_id: str, message_prefix: str) -> datetime | None:
         row = self._exec(
             "SELECT ts FROM events WHERE run_id=? AND message LIKE ? ORDER BY id LIMIT 1",

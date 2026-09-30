@@ -71,6 +71,18 @@ Every run that can't continue until someone acts:
 Longest wait first. The usage-window pause is listed last, with "system" as its
 owner, since nobody needs to act.
 
+## Agent effort by station
+
+Every agent call in the window, grouped by station (ADR-0022): the number of
+calls, their total **cost**, the **median turns** and **median time** per call,
+the number of **tool calls**, and **denied** actions (tool calls a guardrail
+refused). The retro's own calls appear as the `retro` station.
+**Guardrail denials** counts every refused action in the window.
+
+Use it to see where model spend goes, which station is slow, and which agent
+keeps attempting things it must not. Open a run's **Agent calls** panel to read
+the transcripts.
+
 ## Quality of what is live
 
 | Metric | Definition |
