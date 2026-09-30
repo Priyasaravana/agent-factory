@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,24 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class _Result:
+    """Rows of a finished statement (see SqliteStateStore._exec)."""
+
+    __slots__ = ("lastrowid", "rowcount", "rows")
+
+    def __init__(self, rows: list[tuple[Any, ...]], rowcount: int, lastrowid: int | None) -> None:
+        self.rows, self.rowcount, self.lastrowid = rows, rowcount, lastrowid
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self.rows
+
+    def __iter__(self) -> Iterator[tuple[Any, ...]]:
+        return iter(self.rows)
+
+
 class SqliteStateStore:
     def __init__(self, path: str | Path) -> None:
         if str(path) != ":memory:":
@@ -66,9 +85,15 @@ class SqliteStateStore:
                 self._db.execute(f"ALTER TABLE {old} RENAME TO {new}")
                 self._db.execute(f"ALTER TABLE {new} RENAME COLUMN line_id TO workflow_id")
 
-    def _exec(self, sql: str, args: tuple[Any, ...] = ()) -> sqlite3.Cursor:
+    def _exec(self, sql: str, args: tuple[Any, ...] = ()) -> _Result:
+        """Run one statement and read its rows while holding the lock. The
+        connection is shared by the event loop (runs writing events) and the API's
+        worker threads: a cursor read after the lock is released interleaves with
+        other statements ("bad parameter or other API misuse", rows from another
+        query), which surfaced as intermittent 500s in CI e2e."""
         with self._lock:
-            return self._db.execute(sql, args)
+            cur = self._db.execute(sql, args)
+            return _Result(cur.fetchall(), cur.rowcount, cur.lastrowid)
 
     # -- orders --------------------------------------------------------------
     def create_order(self, order: Order) -> Order:
