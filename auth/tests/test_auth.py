@@ -124,3 +124,34 @@ def test_passwords_are_hashed(env):
     _, store = env
     row = store._db.execute("SELECT pw FROM users WHERE username='admin'").fetchone()[0]
     assert row.startswith("scrypt$") and ADMIN_PW not in row and verify_password(ADMIN_PW, row)
+
+
+def test_concurrent_checks_share_the_connection_safely(tmp_path):
+    """The gateway asks /auth/check for every API call, several at once, and the
+    server answers from a thread pool on one SQLite connection. Rows used to be
+    read after the lock was released: "bad parameter or other API misuse",
+    scrambled rows and valid sessions seen as missing, which the gateway
+    returned as 500s (CI e2e) or spurious 401s."""
+    import threading
+    from datetime import timedelta
+
+    st = Store(tmp_path / "auth.db")
+    st.create_user("admin", ADMIN_PW, "admin")
+    sid = st.create_session("admin", timedelta(hours=1))
+    errors: list[str] = []
+
+    def check() -> None:
+        for _ in range(300):
+            try:
+                user = st.session_user(sid)
+                assert user is not None and user.username == "admin", "valid session seen as missing"
+                assert st.get_user("admin") is not None
+            except Exception as exc:
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=check) for _ in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, f"{len(errors)} failures, e.g. {sorted(set(errors))[:3]}"

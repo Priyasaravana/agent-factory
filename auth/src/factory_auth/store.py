@@ -87,6 +87,21 @@ class Token:
     last_used_at: str | None
 
 
+class _Result:
+    """Rows of a finished statement (see Store._q)."""
+
+    __slots__ = ("rowcount", "rows")
+
+    def __init__(self, rows: list[tuple], rowcount: int) -> None:
+        self.rows, self.rowcount = rows, rowcount
+
+    def fetchone(self) -> tuple | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[tuple]:
+        return self.rows
+
+
 class Store:
     def __init__(self, path: str | Path) -> None:
         if str(path) != ":memory:":
@@ -97,9 +112,15 @@ class Store:
         # a dummy hash so login timing does not reveal whether a user exists
         self._dummy = hash_password(secrets.token_hex(8))
 
-    def _q(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
+    def _q(self, sql: str, args: tuple = ()) -> _Result:
+        """Run one statement and read its rows while holding the lock. The
+        connection is shared by the server's worker threads: a cursor read after
+        the lock is released interleaves with other threads' statements
+        ("bad parameter or other API misuse", rows from another query, valid
+        sessions seen as missing), and the gateway turns that into 500/401."""
         with self._lock:
-            return self._db.execute(sql, args)
+            cur = self._db.execute(sql, args)
+            return _Result(cur.fetchall(), cur.rowcount)
 
     # ----------------------------------------------------------------- users --
     def count_users(self) -> int:
