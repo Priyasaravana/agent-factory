@@ -252,6 +252,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
+         * @description Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
+         */
+        get: operations["get_run_calls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/calls/{name}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)
+         * @description One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)
+         */
+        get: operations["get_call_transcript"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/spec/approve": {
         parameters: {
             query?: never;
@@ -982,6 +1022,66 @@ export interface components {
             /** Position */
             position?: number | null;
         };
+        /**
+         * AgentCallView
+         * @description One agent call in a run (ADR-0022).
+         */
+        AgentCallView: {
+            /** Station */
+            station: string;
+            /** Role */
+            role: string;
+            /** Model */
+            model: string;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
+            /**
+             * Turns
+             * @default 0
+             */
+            turns: number;
+            /**
+             * Duration S
+             * @default 0
+             */
+            duration_s: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Tool Calls
+             * @default 0
+             */
+            tool_calls: number;
+            /** Tools */
+            tools?: {
+                [key: string]: number;
+            };
+            /**
+             * Denied
+             * @default 0
+             */
+            denied: number;
+            /** Transcript */
+            transcript?: string | null;
+            /**
+             * Transcript Truncated
+             * @default false
+             */
+            transcript_truncated: boolean;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
         /** AgentSpec */
         AgentSpec: {
             /** Id */
@@ -1174,6 +1274,24 @@ export interface components {
             integrations: components["schemas"]["IntegrationView"][];
             /** Environments */
             environments: components["schemas"]["EnvironmentView"][];
+        };
+        /** DenialView */
+        DenialView: {
+            /** Station */
+            station: string;
+            /** Role */
+            role: string;
+            /** Tool */
+            tool: string;
+            /** Input */
+            input: string;
+            /** Reason */
+            reason: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
         };
         /** DraftView */
         DraftView: {
@@ -1574,6 +1692,13 @@ export interface components {
             requirements_verified_live: number;
             /** Waiting */
             waiting?: components["schemas"]["WaitingItem"][];
+            /** Effort By Station */
+            effort_by_station?: components["schemas"]["StationEffort"][];
+            /**
+             * Guardrail Denials
+             * @default 0
+             */
+            guardrail_denials: number;
             /** By Workflow */
             by_workflow?: components["schemas"]["WorkflowOutcome"][];
             /** Weekly */
@@ -1746,6 +1871,13 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** RunCallsView */
+        RunCallsView: {
+            /** Calls */
+            calls?: components["schemas"]["AgentCallView"][];
+            /** Denials */
+            denials?: components["schemas"]["DenialView"][];
         };
         /** RunDetail */
         RunDetail: {
@@ -1940,6 +2072,32 @@ export interface components {
         StationAgentInput: {
             /** Agent */
             agent: string;
+        };
+        /**
+         * StationEffort
+         * @description Agent effort per station over the Outcomes window (ADR-0022).
+         */
+        StationEffort: {
+            /** Station */
+            station: string;
+            /** Calls */
+            calls: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Turns Median */
+            turns_median?: number | null;
+            /** Duration Median S */
+            duration_median_s?: number | null;
+            /**
+             * Tool Calls
+             * @default 0
+             */
+            tool_calls: number;
+            /**
+             * Denied
+             * @default 0
+             */
+            denied: number;
         };
         /** StationView */
         StationView: {
@@ -2621,6 +2779,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpecView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_calls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCallsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_call_transcript: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */

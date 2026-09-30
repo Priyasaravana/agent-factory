@@ -27,6 +27,7 @@ from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
 from agent_factory.models import (
     AddStationInput,
+    AgentCallView,
     AgentView,
     AnswersInput,
     CatalogView,
@@ -35,6 +36,7 @@ from agent_factory.models import (
     DecisionInput,
     DeliveryBinding,
     DeliveryView,
+    DenialView,
     DraftView,
     DuplicateAgentInput,
     EnvironmentView,
@@ -59,6 +61,7 @@ from agent_factory.models import (
     ReviewRequirement,
     ReviewView,
     Run,
+    RunCallsView,
     RunDetail,
     ScenarioView,
     SkillDetail,
@@ -371,6 +374,38 @@ def _review_view(ev: dict[str, Any] | None) -> ReviewView | None:
             for f in report.get("findings", [])
         ],
     )
+
+
+@action(
+    "get_run_calls",
+    "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) "
+    "and every guardrail denial (ADR-0022)",
+    "GET",
+    "/api/runs/{run_id}/calls",
+)
+def get_run_calls(f: Factory, run_id: str) -> RunCallsView:
+    if not f.store.get_run(run_id):
+        raise FactoryError("run not found")
+    calls = [AgentCallView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "agent_call")]
+    denials = [DenialView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "denied")]
+    return RunCallsView(calls=calls, denials=denials)
+
+
+@action(
+    "get_call_transcript",
+    "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
+    "GET",
+    "/api/runs/{run_id}/calls/{name}/transcript",
+)
+def get_call_transcript(f: Factory, run_id: str, name: str) -> list[dict[str, Any]]:
+    from agent_factory.observe import read_transcript
+
+    if not f.store.get_run(run_id):
+        raise FactoryError("run not found")
+    try:
+        return read_transcript(f.manager.ws.data_dir / "artifacts" / run_id, name)
+    except (ValueError, FileNotFoundError) as exc:
+        raise FactoryError(f"transcript not found: {name}") from exc
 
 
 @action(

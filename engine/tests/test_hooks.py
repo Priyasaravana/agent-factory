@@ -71,3 +71,23 @@ def test_reviewers_may_read_git(cmd: str) -> None:
 )
 def test_reviewers_cannot_change_anything_with_git(cmd: str) -> None:
     assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True)
+
+
+async def test_every_denial_is_reported() -> None:
+    """ADR-0022: a refusal is run evidence, not only something the agent sees."""
+    from agent_factory.agents.hooks import build_hooks
+
+    seen: list[tuple] = []
+
+    async def on_deny(tool, tool_input, reason):  # noqa: ANN001
+        seen.append((tool, tool_input, reason))
+
+    guard = build_hooks("developer", CWD, [], False, on_deny)["PreToolUse"][0].hooks[0]
+    denied = await guard({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}}, None, None)
+    allowed = await guard({"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}, None, None)
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny" and allowed == {}
+    assert (
+        len(seen) == 1
+        and seen[0][0] == "Bash"
+        and seen[0][2] == denied["hookSpecificOutput"]["permissionDecisionReason"]
+    )

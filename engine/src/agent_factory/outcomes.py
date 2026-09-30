@@ -25,6 +25,7 @@ from agent_factory.models import (
     OutcomesView,
     Run,
     RunStatus,
+    StationEffort,
     TimeSplit,
     Transition,
     WaitingItem,
@@ -61,6 +62,8 @@ class Facts:
     delivered_fallback: dict[str, datetime] = field(default_factory=dict)  # runs without a timeline
     readiness_level: dict[str, int] = field(default_factory=dict)  # run id -> Level
     traceability: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> matrix rows
+    calls: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, agent_call)
+    denials: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, denied)
 
     @property
     def since(self) -> datetime:
@@ -285,9 +288,32 @@ def compute(f: Facts) -> OutcomesView:
         requirements_total=req_total,
         requirements_verified_live=req_live,
         waiting=waiting,
+        effort_by_station=_effort(f),
+        guardrail_denials=sum(1 for _, ts, _d in f.denials if since <= ts <= now),
         by_workflow=workflows,
         weekly=weekly,
     )
+
+
+def _effort(f: Facts) -> list[StationEffort]:
+    """Agent calls in the window, per station: how many, what they cost, how long (ADR-0022)."""
+    by: dict[str, list[dict[str, Any]]] = {}
+    for _, ts, c in f.calls:
+        if f.since <= ts <= f.now:
+            by.setdefault(str(c.get("station", "?")), []).append(c)
+    out = [
+        StationEffort(
+            station=st,
+            calls=len(cs),
+            cost_usd=round(sum(float(c.get("cost_usd", 0)) for c in cs), 4),
+            turns_median=_stat(float(c.get("turns", 0)) for c in cs).median_s,
+            duration_median_s=_stat(float(c.get("duration_s", 0)) for c in cs).median_s,
+            tool_calls=sum(int(c.get("tool_calls", 0)) for c in cs),
+            denied=sum(int(c.get("denied", 0)) for c in cs),
+        )
+        for st, cs in by.items()
+    ]
+    return sorted(out, key=lambda e: -e.cost_usd)
 
 
 # ------------------------------------------------------------------- gather --
@@ -307,6 +333,9 @@ def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
         if r.order_id in orders and not orders[r.order_id].archived_at and delivered_at(r, f):
             if r.order_id not in latest or r.iteration > latest[r.order_id].iteration:
                 latest[r.order_id] = r
+    active = [r.id for r in runs if r.created_at >= f.since or r.updated_at >= f.since]
+    f.calls = store.events_with_key(active, "agent_call")
+    f.denials = store.events_with_key(active, "denied")
     for r in latest.values():
         if got := store.last_event_data(r.id, "readiness"):
             f.readiness_level[r.id] = int(got[1].get("level", 0))

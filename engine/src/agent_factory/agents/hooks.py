@@ -4,6 +4,7 @@ without a model; `build_hooks` adapts them to the Agent SDK hook API."""
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -94,20 +95,28 @@ def evaluate(
     return None
 
 
-def build_hooks(role: str, cwd: Path, protected_paths: list[str], observe_only: bool = False) -> dict[str, Any]:
+OnDeny = Callable[[str, dict[str, Any], str], Awaitable[None]]
+
+
+def build_hooks(
+    role: str,
+    cwd: Path,
+    protected_paths: list[str],
+    observe_only: bool = False,
+    on_deny: OnDeny | None = None,
+) -> dict[str, Any]:
+    """PreToolUse guardrails. Every denial is reported through `on_deny` (tool,
+    input, reason) so it becomes run evidence (ADR-0022), not just a refusal the
+    agent sees."""
     from claude_agent_sdk import HookMatcher
 
     async def guard(input_data: dict[str, Any], tool_use_id: str | None, context: Any) -> dict[str, Any]:
-        reason = evaluate(
-            role,
-            input_data.get("tool_name", ""),
-            input_data.get("tool_input", {}) or {},
-            cwd,
-            protected_paths,
-            observe_only,
-        )
+        tool, tool_input = input_data.get("tool_name", ""), input_data.get("tool_input", {}) or {}
+        reason = evaluate(role, tool, tool_input, cwd, protected_paths, observe_only)
         if reason is None:
             return {}
+        if on_deny is not None:
+            await on_deny(tool, tool_input, reason)
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

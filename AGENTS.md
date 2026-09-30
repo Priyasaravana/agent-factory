@@ -52,4 +52,7 @@
 - Nothing an agent suggests changes another agent's prompt without a person
   (ADR-0021): suggested learnings are vetted by `retro.vet`, accepted by an admin
   into the workflow draft, and apply only once published.
+- Every agent call goes through `observe.AgentCall` (ADR-0022): station agents via
+  `ctx.agent(...)`, engine-owned agents (like the retro) explicitly. Guardrails
+  report denials through `on_deny`; never drop them.
 - Record significant decisions as ADRs in `docs/adr/`.

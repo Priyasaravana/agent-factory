@@ -613,6 +613,106 @@
         }
       }
     },
+    "/api/runs/{run_id}/calls": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
+        "description": "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
+        "operationId": "get_run_calls",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCallsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/calls/{name}/transcript": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
+        "description": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted)",
+        "operationId": "get_call_transcript",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Call Transcript"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/spec/approve": {
       "post": {
         "tags": [
@@ -2540,6 +2640,94 @@
         ],
         "title": "AddStationInput"
       },
+      "AgentCallView": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "default": ""
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns",
+            "default": 0
+          },
+          "duration_s": {
+            "type": "number",
+            "title": "Duration S",
+            "default": 0.0
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "tool_calls": {
+            "type": "integer",
+            "title": "Tool Calls",
+            "default": 0
+          },
+          "tools": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tools"
+          },
+          "denied": {
+            "type": "integer",
+            "title": "Denied",
+            "default": 0
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript"
+          },
+          "transcript_truncated": {
+            "type": "boolean",
+            "title": "Transcript Truncated",
+            "default": false
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "role",
+          "model",
+          "ok",
+          "at"
+        ],
+        "title": "AgentCallView",
+        "description": "One agent call in a run (ADR-0022)."
+      },
       "AgentSpec": {
         "properties": {
           "id": {
@@ -3000,6 +3188,45 @@
           "environments"
         ],
         "title": "DeliveryView"
+      },
+      "DenialView": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "input": {
+            "type": "string",
+            "title": "Input"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "role",
+          "tool",
+          "input",
+          "reason",
+          "at"
+        ],
+        "title": "DenialView"
       },
       "DraftView": {
         "properties": {
@@ -3936,6 +4163,18 @@
             "type": "array",
             "title": "Waiting"
           },
+          "effort_by_station": {
+            "items": {
+              "$ref": "#/components/schemas/StationEffort"
+            },
+            "type": "array",
+            "title": "Effort By Station"
+          },
+          "guardrail_denials": {
+            "type": "integer",
+            "title": "Guardrail Denials",
+            "default": 0
+          },
           "by_workflow": {
             "items": {
               "$ref": "#/components/schemas/WorkflowOutcome"
@@ -4360,6 +4599,26 @@
           "updated_at"
         ],
         "title": "Run"
+      },
+      "RunCallsView": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCallView"
+            },
+            "type": "array",
+            "title": "Calls"
+          },
+          "denials": {
+            "items": {
+              "$ref": "#/components/schemas/DenialView"
+            },
+            "type": "array",
+            "title": "Denials"
+          }
+        },
+        "type": "object",
+        "title": "RunCallsView"
       },
       "RunDetail": {
         "properties": {
@@ -4894,6 +5153,62 @@
           "agent"
         ],
         "title": "StationAgentInput"
+      },
+      "StationEffort": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "turns_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turns Median"
+          },
+          "duration_median_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Median S"
+          },
+          "tool_calls": {
+            "type": "integer",
+            "title": "Tool Calls",
+            "default": 0
+          },
+          "denied": {
+            "type": "integer",
+            "title": "Denied",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "calls",
+          "cost_usd"
+        ],
+        "title": "StationEffort",
+        "description": "Agent effort per station over the Outcomes window (ADR-0022)."
       },
       "StationView": {
         "properties": {
