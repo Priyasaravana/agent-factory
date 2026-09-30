@@ -20,8 +20,8 @@ ADMIN = {"X-Auth-User": "saravana", "X-Auth-Role": "admin"}
 MEMBER = {"X-Auth-User": "priya", "X-Auth-Role": "member"}
 OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 
-# mutating actions any signed-in member may call (some further limited to the
-# order's creator or an admin inside the action, e.g. spec decisions and archive)
+# mutating actions any signed-in member may call; those that steer an existing
+# order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
     "create_order",
     "submit_feedback",
@@ -34,6 +34,16 @@ MEMBER_ACTIONS = {
     "archive_order",
     "run_preflight",
     "log_decision",
+}
+STEERING = {
+    "submit_feedback",
+    "answer_questions",
+    "resume_run",
+    "cancel_run",
+    "approve_spec",
+    "request_spec_changes",
+    "edit_spec",
+    "archive_order",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
 
@@ -76,3 +86,38 @@ async def test_transcripts_are_for_the_orders_creator_or_an_admin(make_factory):
         assert (await c.get(url, headers=MEMBER)).status_code == 200, "the order's creator"
         assert (await c.get(url, headers=ADMIN)).status_code == 200
     await ctx.__aexit__(None, None, None)
+
+
+async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
+    """Feedback, answers, resume and cancel on someone else's order are refused (403)."""
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    async with c:
+        order = (await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)).json()["order"]
+        run_id, oid = order["latest_run_id"], order["id"]
+        assert await wait_run(f, run_id) == RunStatus.awaiting_feedback
+        attempts = [
+            ("POST", f"/api/orders/{oid}/feedback", {"text": "add a reset endpoint"}),
+            ("POST", f"/api/runs/{run_id}/answers", {"answers": ["x"]}),
+            ("POST", f"/api/runs/{run_id}/resume", None),
+            ("POST", f"/api/runs/{run_id}/cancel", None),
+            ("POST", f"/api/orders/{oid}/archive", None),
+        ]
+        for method, url, body in attempts:
+            r = await c.request(method, url, json=body, headers=OTHER)
+            assert r.status_code == 403, f"{url}: {r.status_code}"
+            assert r.json()["detail"] == "only the order's creator or an admin can do this"
+        r = await c.post(f"/api/orders/{oid}/feedback", json={"text": "add a reset endpoint"}, headers=MEMBER)
+        assert r.status_code == 201, "the creator can"
+        run2 = r.json()["id"]
+        assert (await c.post(f"/api/runs/{run2}/cancel", headers=ADMIN)).status_code == 200, "an admin can"
+    await ctx.__aexit__(None, None, None)
+
+
+def test_every_steering_action_checks_the_order():
+    import inspect
+
+    for name in STEERING:
+        src = inspect.getsource(actions.REGISTRY[name].fn)
+        assert "_may_steer" in src, f"{name} must check the order's creator or an admin"
