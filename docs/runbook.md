@@ -42,6 +42,7 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **No free app port** | Open an order you no longer need → **Archive**. The app is removed from the cluster and its port freed; its repo and history are kept. |
 | Want all 20 app ports (installs from before ADR-0015) | `make reset-cluster`, then re-deliver apps you still need (new order or feedback). Until then the readiness page shows how many ports the cluster maps. |
 | **Upgrade the factory** | `make upgrade` (backup → pull → rebuild → check). Details and rollback: [upgrading.md](upgrading.md). |
+| Check least privilege | `make privilege-check`: factory, auth and web are non-root with no capabilities; only dind is privileged (ADR-0018). |
 | Back up / restore | `make backup` (safe while running) · `make restore BACKUP=backups/agent-factory-<ts>` |
 | Start over completely | `docker compose down -v && rm -rf .factory-data` |
 
@@ -49,8 +50,15 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 - **kind fails to create inside dind.** Give Docker Desktop at least 6 CPUs and
   12 GB of memory. On Rancher Desktop, use the dockerd (moby) engine.
   `make reset-cluster` recreates the cluster.
-- **`docker info` fails in the factory container.** The dind certs may not be
-  ready yet. Run `docker compose restart factory`.
+- **`docker info` fails in the factory container.** The factory reads dind's
+  client certs from the `factory-certs` volume, which factory-init fills. Run
+  `docker compose up -d`: it reruns factory-init and then the factory.
+  `docker compose logs factory-init` shows what it copied.
+- **"refusing to run as root".** The factory image runs as uid 10001 (ADR-0018).
+  Start it with `docker compose up`, not `docker run --user root`.
+- **Permission denied under `/data`.** Something wrote files as another user.
+  `docker compose up -d` reruns factory-init, which hands `/data` back to uid
+  10001. `make privilege-check` shows each container's user and capabilities.
 - **The scan step is slow the first time.** The Package station runs the scanner
   (`scan_command` in `config.yaml`) as a container inside dind. The first run
   pulls the image and downloads its vulnerability DB into the `trivy-cache`

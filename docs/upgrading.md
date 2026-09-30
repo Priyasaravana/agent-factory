@@ -39,3 +39,12 @@ make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your
   Not included: the kind cluster and images inside dind; they are rebuilt or re-delivered.
 - **Rolling back code:** `git checkout <previous commit>`, then `make up`. If that version's data format differs, restore the backup taken before the upgrade. `backups/<…>/factory-version.txt` records which commit a backup came from.
 - **Runs are safe across upgrades.** Each run is pinned to a workflow version and its pinned skills. Interrupted runs are marked on restart and resumed by a person.
+
+## Version notes
+- **No root in the factory's containers (ADR-0018).** Nothing to do:
+  - `make upgrade` (or `make up`) adds the one-shot `factory-init` step. It hands
+    `/data` and dind's client certs to uid 10001, which also fixes files earlier
+    root CLI calls left behind.
+  - The web gateway now listens on 8080 inside its container. The host URL
+    stays `http://localhost:8080`.
+  - Afterwards, `make privilege-check` should report `least privilege: OK`.

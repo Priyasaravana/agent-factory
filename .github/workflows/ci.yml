@@ -81,11 +81,21 @@ jobs:
           docker build -t af-web:ci web
       - name: engine tests on the Python the factory image ships
         run: |
-          docker run --rm --entrypoint "" -v "$PWD:/src" -w /src/engine \
+          # as the image's own user (uid 10001), on a copy: the checkout stays read-only
+          docker run --rm --entrypoint "" -v "$PWD:/src:ro" \
             -e UV_PROJECT_ENVIRONMENT=/tmp/venv af-factory:ci sh -c '
+              cp -r /src /tmp/src && cd /tmp/src/engine &&
               git config --global user.email ci@example.com && git config --global user.name ci &&
               git config --global --add safe.directory "*" &&
               uv run --python "$(command -v python3)" --extra dev pytest -q'
+      - name: images run as non-root users (ADR-0018)
+        run: |
+          for img in af-factory:ci af-auth:ci af-web:ci; do
+            uid=$(docker run --rm --entrypoint id "$img" -u)
+            echo "$img runs as uid $uid"
+            test "$uid" != 0
+          done
+          test "$(docker run --rm --entrypoint id af-factory:ci -u)" = 10001
       - name: build the sandbox image
         run: |
           cd engine && FACTORY_HOME=.. uv run --python 3.12 agent-factory sandbox context --out /tmp/sandbox-ctx
@@ -116,6 +126,8 @@ jobs:
         run: docker compose up -d --build --wait --wait-timeout 900
       - name: sandbox isolation (make sandbox-check)
         run: docker compose exec -T -u factory factory agent-factory sandbox check
+      - name: least privilege (make privilege-check)
+        run: scripts/privilege-check.sh
       - name: browser smoke test
         run: |
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium

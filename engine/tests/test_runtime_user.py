@@ -71,6 +71,8 @@ def test_every_exec_into_the_factory_container_uses_the_runtime_user():
     files = [ROOT / "Makefile", *(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / "scripts").glob("*.sh")]
     files += [*(ROOT / "docs").glob("*.md"), ROOT / "README.md"]
     exec_factory = re.compile(r"docker compose exec\b((?:\s+-\S+(?:\s+(?!factory\b)\S+)?)*)\s+factory\b")
+    # privilege-check.sh omits -u on purpose: it proves the image's default user is not root
+    files = [f for f in files if f.name != "privilege-check.sh"]
     bad = []
     for f in files:
         for n, line in enumerate(f.read_text().splitlines(), 1):

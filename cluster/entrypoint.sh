@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Phase 1 (root): hand the dind TLS client certs and /data to the factory user, then drop privileges.
-if [ "$(id -u)" = "0" ]; then
-  if [ -d /certs/client ]; then
-    mkdir -p /home/factory/.docker/certs
-    cp /certs/client/*.pem /home/factory/.docker/certs/ 2>/dev/null || true
-    chown -R factory:factory /home/factory/.docker
-    chmod 600 /home/factory/.docker/certs/key.pem 2>/dev/null || true
-  fi
-  mkdir -p /data && chown -R factory:factory /data
-  # setpriv does not reset the environment: set HOME/USER explicitly, otherwise
-  # git/claude would try to write to /root and the container would exit.
-  exec env HOME=/home/factory USER=factory LOGNAME=factory \
-    setpriv --reuid=10001 --regid=10001 --init-groups "$0" "$@"
+# Runs as the unprivileged factory user (uid 10001, ADR-0018). The root steps
+# (dind client certs, /data ownership) happen once in the factory-init container.
+if [ "$(id -u)" = "0" ] && [ "${AGENT_FACTORY_ALLOW_ROOT:-}" != "1" ]; then
+  echo "[entrypoint] refusing to run as root: the factory runs as uid 10001." >&2
+  echo "[entrypoint] start it with 'docker compose up' (factory-init prepares certs and /data)." >&2
+  exit 1
 fi
 
-# Phase 2 (factory user)
 git config --global init.defaultBranch main
 if [ "${FACTORY_MODE:-dry-run}" = "live" ]; then
   git config --global user.name "${GIT_AUTHOR_NAME:-Agent Factory}"
