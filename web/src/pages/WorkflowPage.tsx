@@ -6,6 +6,7 @@ import { useIsAdmin } from "../auth";
 import AgentCard from "../components/AgentCard";
 import StationStrip from "../components/StationStrip";
 import DeliveryCard from "../components/DeliveryCard";
+import LearningsCard from "../components/LearningsCard";
 
 export default function WorkflowPage() {
   const { workflowId = "" } = useParams();
@@ -13,10 +14,18 @@ export default function WorkflowPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const p = { workflow_id: workflowId };
-  const cfg = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });
+  const cfg = useQuery({
+    queryKey: ["config"],
+    queryFn: () => unwrap(api.GET("/api/config")),
+  });
   const versions = useQuery({
     queryKey: ["wf-versions", workflowId],
-    queryFn: () => unwrap(api.GET("/api/workflows/{workflow_id}/versions", { params: { path: p } })),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/workflows/{workflow_id}/versions", {
+          params: { path: p },
+        }),
+      ),
   });
   const wf = useQuery({
     queryKey: ["workflow", workflowId, selected],
@@ -27,7 +36,9 @@ export default function WorkflowPage() {
               params: { path: { ...p, version: selected } },
             }),
           )
-        : unwrap(api.GET("/api/workflows/{workflow_id}", { params: { path: p } })),
+        : unwrap(
+            api.GET("/api/workflows/{workflow_id}", { params: { path: p } }),
+          ),
   });
   const activate = useMutation({
     mutationFn: (version: number) =>
@@ -37,7 +48,9 @@ export default function WorkflowPage() {
         }),
       ),
     onSuccess: () => {
-      ["workflow", "wf-versions", "workflows", "config"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      ["workflow", "wf-versions", "workflows", "config"].forEach((k) =>
+        qc.invalidateQueries({ queryKey: [k] }),
+      );
     },
   });
 
@@ -50,12 +63,20 @@ export default function WorkflowPage() {
       <section className="card">
         <div className="row spread">
           <h2>
-            <Link to="/workflows">Workflows</Link> / {workflowId} <span className="pill info">v{w.version}</span>{" "}
-            {w.active ? <span className="pill ok">active</span> : <span className="pill muted">inactive</span>}
+            <Link to="/workflows">Workflows</Link> / {workflowId}{" "}
+            <span className="pill info">v{w.version}</span>{" "}
+            {w.active ? (
+              <span className="pill ok">active</span>
+            ) : (
+              <span className="pill muted">inactive</span>
+            )}
           </h2>
           <div className="row">
             {isAdmin && !w.active && (
-              <button onClick={() => activate.mutate(w.version)} disabled={activate.isPending}>
+              <button
+                onClick={() => activate.mutate(w.version)}
+                disabled={activate.isPending}
+              >
                 Make v{w.version} active
               </button>
             )}
@@ -70,20 +91,28 @@ export default function WorkflowPage() {
           {w.description} · template <code>{w.template}</code> · {w.note}
         </p>
         {w.template_update_available && (
-          <p className="note">The shipped template has changed since this workflow was seeded.</p>
+          <p className="note">
+            The shipped template has changed since this workflow was seeded.
+          </p>
         )}
         <StationStrip stations={w.stations} />
         {(w.warnings?.length ?? 0) > 0 && (
           <details className="warnings">
             <summary>{w.warnings!.length} suggestion(s)</summary>
-            <ul>{w.warnings!.map((x) => <li key={x}>{x}</li>)}</ul>
+            <ul>
+              {w.warnings!.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
           </details>
         )}
         <p className="muted small">
-          Orders on the <code>{workflowId}</code> product line run the active version. Runs in flight keep the version
-          they started with.
+          Orders on the <code>{workflowId}</code> product line run the active
+          version. Runs in flight keep the version they started with.
         </p>
       </section>
+
+      <LearningsCard workflowId={workflowId} isAdmin={isAdmin} />
 
       <DeliveryCard w={w} />
 
@@ -125,7 +154,9 @@ export default function WorkflowPage() {
                     </button>
                   </td>
                   <td>{v.active && <span className="pill ok">active</span>}</td>
-                  <td className="small muted">{new Date(v.created_at).toLocaleString()}</td>
+                  <td className="small muted">
+                    {new Date(v.created_at).toLocaleString()}
+                  </td>
                   <td className="small">{v.note}</td>
                 </tr>
               ))}
@@ -140,14 +171,22 @@ export default function WorkflowPage() {
                 <tr key={k}>
                   <td>{k}</td>
                   <td>
-                    <span className={`pill ${v === "auto" ? "ok" : v === "off" ? "muted" : "warn"}`}>{v}</span>
+                    <span
+                      className={`pill ${v === "auto" ? "ok" : v === "off" ? "muted" : "warn"}`}
+                    >
+                      {v}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <h3>Human gates</h3>
-          <ul>{c.gates.map((g) => <li key={g}>{g}</li>)}</ul>
+          <ul>
+            {c.gates.map((g) => (
+              <li key={g}>{g}</li>
+            ))}
+          </ul>
         </div>
       </section>
     </div>

@@ -10,6 +10,7 @@ from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
+    MAX_LEARNINGS_CHARS,
     STATION_ID,
     AgentSpec,
     RefDoc,
@@ -240,6 +241,29 @@ class Draft:
     def set_spec_review(self, mode: str) -> None:
         _, doc, _ = self.get()
         doc.spec_review = mode  # type: ignore[assignment]
+        self._save(doc)
+
+    def set_learn_from_runs(self, on: bool) -> None:
+        _, doc, _ = self.get()
+        doc.learn_from_runs = on
+        self._save(doc)
+
+    def add_learning(self, agent_id: str, lesson: str) -> None:
+        """Append an accepted lesson to an agent's learnings in the draft (ADR-0021)."""
+        _, doc, _ = self.get()
+        spec = doc.agents.get(agent_id)
+        if spec is None:
+            raise WorkflowError(f"agent '{agent_id}' is not in this workflow's draft")
+        line = f"- {lesson.strip()}"
+        if line in spec.learnings.splitlines():
+            return
+        text = (spec.learnings.rstrip() + "\n" + line).strip()
+        if len(text) > MAX_LEARNINGS_CHARS:
+            raise WorkflowError(
+                f"agent '{agent_id}' learnings would exceed {MAX_LEARNINGS_CHARS} characters: "
+                "condense its learnings in the editor first"
+            )
+        spec.learnings = text
         self._save(doc)
 
     # -------------------------------------------------------------- agents --

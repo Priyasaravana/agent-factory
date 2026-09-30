@@ -92,6 +92,17 @@ class FakeAgentRunner:
 
     def _structured(self, req: AgentRequest) -> Any:
         props = (req.output_schema or {}).get("properties", {})
+        if "proposals" in props:  # retro (ADR-0021): one lesson for the builder
+            return {
+                "proposals": [
+                    {
+                        "agent": "developer",
+                        "lesson": "Run the full test suite, including acceptance scenarios, before finishing a build.",
+                        "why": "the build was sent back after a downstream station failed",
+                        "evidence": "routing failure from verify to build",
+                    }
+                ]
+            }
         if "findings" in props and "requirements" in props:  # spec review (ADR-0020)
             reqs = yaml.safe_load((Path(req.cwd) / "docs" / "requirements.yaml").read_text()) or []
             return {

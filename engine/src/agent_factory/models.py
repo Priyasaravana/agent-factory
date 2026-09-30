@@ -291,7 +291,29 @@ class SpecView(BaseModel):
 
 
 class WorkflowSettingsInput(BaseModel):
-    spec_review: Literal["off", "first", "always"]
+    """Draft settings; a field left out is unchanged."""
+
+    spec_review: Literal["off", "first", "always"] | None = None
+    learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
+
+
+class LearningProposal(BaseModel):
+    """A lesson the retro suggests for one agent after a run that needed help (ADR-0021).
+    Nothing changes until an admin accepts it into the workflow draft and publishes."""
+
+    id: str
+    workflow_id: str
+    workflow_version: int
+    agent: str
+    lesson: str
+    why: str
+    evidence: str
+    run_id: str
+    order_id: str
+    status: Literal["pending", "accepted", "rejected"] = "pending"
+    created_at: datetime
+    decided_by: str | None = None
+    decided_at: datetime | None = None
 
 
 class AnswersInput(BaseModel):
@@ -378,6 +400,7 @@ class WorkflowView(BaseModel):
     docs: list[RefDoc] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     spec_review: str = "off"  # off | first | always
+    learn_from_runs: bool = True
     environment: str = "local"  # where this product line's delivery steps run
     delivery: list[DeliveryBinding] = Field(default_factory=list)
 
@@ -397,6 +420,7 @@ class DraftView(BaseModel):
     agents: list[AgentView]
     docs: list[RefDoc]
     spec_review: str = "off"
+    learn_from_runs: bool = True
 
 
 class SkillInfo(BaseModel):

@@ -714,8 +714,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Workflow settings in the draft (spec review gate: off | first | always)",
-        "description": "Workflow settings in the draft (spec review gate: off | first | always)",
+        "summary": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
+        "description": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
         "operationId": "set_workflow_settings",
         "parameters": [
           {
@@ -745,6 +745,174 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/learnings": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Lessons suggested after runs that needed help, for an admin to accept or reject",
+        "description": "Lessons suggested after runs that needed help, for an admin to accept or reject",
+        "operationId": "list_learning_proposals",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "pending",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LearningProposal"
+                  },
+                  "title": "Response List Learning Proposals"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/accept": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Accept a suggested lesson: it is added to the agent's learnings in the workflow draft (publish to use it)",
+        "description": "Accept a suggested lesson: it is added to the agent's learnings in the workflow draft (publish to use it)",
+        "operationId": "accept_learning",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/reject": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Reject a suggested lesson",
+        "description": "Reject a suggested lesson",
+        "operationId": "reject_learning",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningProposal"
                 }
               }
             }
@@ -2923,6 +3091,11 @@
             "type": "string",
             "title": "Spec Review",
             "default": "off"
+          },
+          "learn_from_runs": {
+            "type": "boolean",
+            "title": "Learn From Runs",
+            "default": true
           }
         },
         "type": "object",
@@ -3352,6 +3525,99 @@
           "readiness"
         ],
         "title": "IntegrationView"
+      },
+      "LearningProposal": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "workflow_version": {
+            "type": "integer",
+            "title": "Workflow Version"
+          },
+          "agent": {
+            "type": "string",
+            "title": "Agent"
+          },
+          "lesson": {
+            "type": "string",
+            "title": "Lesson"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workflow_id",
+          "workflow_version",
+          "agent",
+          "lesson",
+          "why",
+          "evidence",
+          "run_id",
+          "order_id",
+          "created_at"
+        ],
+        "title": "LearningProposal",
+        "description": "A lesson the retro suggests for one agent after a run that needed help (ADR-0021).\nNothing changes until an admin accepts it into the workflow draft and publishes."
       },
       "Order": {
         "properties": {
@@ -5047,20 +5313,36 @@
       "WorkflowSettingsInput": {
         "properties": {
           "spec_review": {
-            "type": "string",
-            "enum": [
-              "off",
-              "first",
-              "always"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "first",
+                  "always"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Spec Review"
+          },
+          "learn_from_runs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Learn From Runs"
           }
         },
         "type": "object",
-        "required": [
-          "spec_review"
-        ],
-        "title": "WorkflowSettingsInput"
+        "title": "WorkflowSettingsInput",
+        "description": "Draft settings; a field left out is unchanged."
       },
       "WorkflowSummary": {
         "properties": {
@@ -5238,6 +5520,11 @@
             "type": "string",
             "title": "Spec Review",
             "default": "off"
+          },
+          "learn_from_runs": {
+            "type": "boolean",
+            "title": "Learn From Runs",
+            "default": true
           },
           "environment": {
             "type": "string",

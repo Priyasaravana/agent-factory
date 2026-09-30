@@ -178,6 +178,32 @@ export default function WorkflowEditPage() {
         </div>
       </section>
 
+      <section className="card" data-testid="learn-setting">
+        <h3>Learn from runs</h3>
+        <p className="muted small">
+          After a run that needed help, suggest short lessons for the agent that caused it. Suggestions appear on the
+          workflow page for an admin to accept into this draft or reject; nothing changes until you publish.
+        </p>
+        <label className="flex w-fit items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={d.learn_from_runs ?? true}
+            disabled={m.isPending}
+            onChange={(e) =>
+              m.mutate(() =>
+                unwrap(
+                  api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                    params: { path: wid },
+                    body: { learn_from_runs: e.target.checked },
+                  }),
+                ),
+              )
+            }
+          />
+          Suggest learnings after runs that needed help
+        </label>
+      </section>
+
       <section className="card">
         <h3>Start from a template</h3>
         <p className="muted small">

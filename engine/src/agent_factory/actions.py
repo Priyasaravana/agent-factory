@@ -14,6 +14,7 @@ import inspect
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -45,6 +46,7 @@ from agent_factory.models import (
     HealthView,
     InstallSkillInput,
     IntegrationView,
+    LearningProposal,
     Order,
     OrderDetail,
     OutcomesView,
@@ -422,13 +424,67 @@ async def edit_spec(f: Factory, run_id: str, body: SpecEditInput) -> SpecView:
 
 @action(
     "set_workflow_settings",
-    "Workflow settings in the draft (spec review gate: off | first | always)",
+    "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
     "PATCH",
     "/api/workflows/{workflow_id}/draft/settings",
 )
 def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsInput) -> DraftView:
-    f.workflows[workflow_id].draft.set_spec_review(body.spec_review)
+    draft = f.workflows[workflow_id].draft
+    if body.spec_review is not None:
+        draft.set_spec_review(body.spec_review)
+    if body.learn_from_runs is not None:
+        draft.set_learn_from_runs(body.learn_from_runs)
     return get_draft(f, workflow_id)
+
+
+# ------------------------------------------------------ learnings (ADR-0021) --
+@action(
+    "list_learning_proposals",
+    "Lessons suggested after runs that needed help, for an admin to accept or reject",
+    "GET",
+    "/api/workflows/{workflow_id}/learnings",
+)
+def list_learning_proposals(f: Factory, workflow_id: str, status: str | None = "pending") -> list[LearningProposal]:
+    f.workflows[workflow_id]  # 404 for an unknown workflow
+    return f.store.list_proposals(workflow_id, status or None)
+
+
+def _decide(f: Factory, workflow_id: str, proposal_id: str) -> LearningProposal:
+    if not current_identity().is_admin:
+        raise PermissionError("only an admin can change what agents are taught")
+    p = f.store.get_proposal(proposal_id)
+    if not p or p.workflow_id != workflow_id:
+        raise FactoryError("learning proposal not found")
+    if p.status != "pending":
+        raise FactoryError(f"learning proposal already {p.status}")
+    return p
+
+
+@action(
+    "accept_learning",
+    "Accept a suggested lesson: it is added to the agent's learnings in the workflow draft (publish to use it)",
+    "POST",
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/accept",
+)
+def accept_learning(f: Factory, workflow_id: str, proposal_id: str) -> LearningProposal:
+    p = _decide(f, workflow_id, proposal_id)
+    f.workflows[workflow_id].draft.add_learning(p.agent, p.lesson)  # WorkflowError (409) when full
+    p.status, p.decided_by, p.decided_at = "accepted", current_identity().user, datetime.now(UTC)
+    f.store.save_proposal(p)
+    return p
+
+
+@action(
+    "reject_learning",
+    "Reject a suggested lesson",
+    "POST",
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/reject",
+)
+def reject_learning(f: Factory, workflow_id: str, proposal_id: str) -> LearningProposal:
+    p = _decide(f, workflow_id, proposal_id)
+    p.status, p.decided_by, p.decided_at = "rejected", current_identity().user, datetime.now(UTC)
+    f.store.save_proposal(p)
+    return p
 
 
 @action("get_preflight", "Readiness checks per product line (cached; see ADR-0015)", "GET", "/api/preflight")
@@ -534,6 +590,7 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         docs=list(doc.docs.values()),
         warnings=workflow_warnings(doc),
         spec_review=doc.spec_review,
+        learn_from_runs=doc.learn_from_runs,
         environment=f.cfg.product_lines[workflow_id].environment,
         delivery=_bindings(f, workflow_id),
     )
@@ -684,6 +741,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
         spec_review=doc.spec_review,
+        learn_from_runs=doc.learn_from_runs,
     )
 
 

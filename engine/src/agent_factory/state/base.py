@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol
 
-from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus, Transition
+from agent_factory.models import (
+    Event,
+    EventKind,
+    Feedback,
+    LearningProposal,
+    Order,
+    Run,
+    RunStatus,
+    Transition,
+)
 from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
 
@@ -40,6 +49,12 @@ class StateStore(Protocol):
     def list_events(self, run_id: str, after_id: int = 0) -> list[Event]: ...
     def last_event_data(self, run_id: str, key: str) -> tuple[datetime, Any] | None: ...
     def first_event_time(self, run_id: str, message_prefix: str) -> datetime | None: ...
+
+    # learning proposals (ADR-0021): suggested by the retro, decided by an admin
+    def add_proposal(self, p: LearningProposal) -> LearningProposal: ...
+    def save_proposal(self, p: LearningProposal) -> None: ...
+    def get_proposal(self, proposal_id: str) -> LearningProposal | None: ...
+    def list_proposals(self, workflow_id: str, status: str | None = None) -> list[LearningProposal]: ...
 
     # feedback
     def add_feedback(self, order_id: str, run_id: str | None, text: str) -> Feedback: ...

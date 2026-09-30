@@ -49,4 +49,7 @@
 - The `review` station (ADR-0020) is judged by the engine (`review.judge`), not by
   the agent's own verdict. Keep that rule for any new judging station: the agent
   reports evidence, deterministic code decides.
+- Nothing an agent suggests changes another agent's prompt without a person
+  (ADR-0021): suggested learnings are vetted by `retro.vet`, accepted by an admin
+  into the workflow draft, and apply only once published.
 - Record significant decisions as ADRs in `docs/adr/`.

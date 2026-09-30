@@ -11,7 +11,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus, Transition
+from agent_factory.models import (
+    Event,
+    EventKind,
+    Feedback,
+    LearningProposal,
+    Order,
+    Run,
+    RunStatus,
+    Transition,
+)
 from agent_factory.secret_refs import REDACTOR
 from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
@@ -31,6 +40,10 @@ CREATE TABLE IF NOT EXISTS run_transitions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, ts TEXT NOT NULL,
   from_status TEXT, to_status TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS run_transitions_run ON run_transitions(run_id, id);
+-- lessons the retro suggests after runs that needed help; an admin decides (ADR-0021)
+CREATE TABLE IF NOT EXISTS learning_proposals (
+  id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS learning_proposals_wf ON learning_proposals(workflow_id, status);
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -175,6 +188,30 @@ class SqliteStateStore:
                 )
             )
         return out
+
+    # -- learning proposals (ADR-0021) ---------------------------------------
+    def add_proposal(self, p: LearningProposal) -> LearningProposal:
+        self._exec(
+            "INSERT INTO learning_proposals(id, workflow_id, status, created_at, doc) VALUES (?,?,?,?,?)",
+            (p.id, p.workflow_id, p.status, p.created_at.isoformat(), REDACTOR.text(p.model_dump_json())),
+        )
+        return p
+
+    def save_proposal(self, p: LearningProposal) -> None:
+        self._exec(
+            "UPDATE learning_proposals SET status=?, doc=? WHERE id=?",
+            (p.status, REDACTOR.text(p.model_dump_json()), p.id),
+        )
+
+    def get_proposal(self, proposal_id: str) -> LearningProposal | None:
+        row = self._exec("SELECT doc FROM learning_proposals WHERE id=?", (proposal_id,)).fetchone()
+        return LearningProposal.model_validate_json(row[0]) if row else None
+
+    def list_proposals(self, workflow_id: str, status: str | None = None) -> list[LearningProposal]:
+        sql, args = "SELECT doc FROM learning_proposals WHERE workflow_id=?", (workflow_id,)
+        if status:
+            sql, args = sql + " AND status=?", (workflow_id, status)
+        return [LearningProposal.model_validate_json(r[0]) for r in self._exec(sql + " ORDER BY created_at DESC", args)]
 
     def last_event_data(self, run_id: str, key: str) -> tuple[datetime, Any] | None:
         """(time, data[key]) of the run's latest event whose data carries `key`."""
