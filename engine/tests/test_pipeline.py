@@ -25,7 +25,7 @@ async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
 
     stations = [s for s, _ in _finished(f, run.id)]
     assert stations == [
-        "intake", "design", "build", "verify", "readiness", "package", "deploy", "acceptance", "deliver"
+        "intake", "design", "build", "verify", "readiness", "review", "package", "deploy", "acceptance", "deliver"
     ]  # fmt: skip
     order = f.store.get_order(order.id)
     assert order.latest_status == RunStatus.awaiting_feedback

@@ -1533,6 +1533,56 @@ export interface components {
              */
             detail: string;
         };
+        /** ReviewFinding */
+        ReviewFinding: {
+            /** Severity */
+            severity: string;
+            /** Message */
+            message: string;
+            /**
+             * File
+             * @default
+             */
+            file: string;
+            /**
+             * Requirement
+             * @default
+             */
+            requirement: string;
+        };
+        /** ReviewRequirement */
+        ReviewRequirement: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /**
+             * Where
+             * @default
+             */
+            where: string;
+        };
+        /**
+         * ReviewView
+         * @description The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's.
+         */
+        ReviewView: {
+            /** Passed */
+            passed: boolean;
+            /** Implemented */
+            implemented: number;
+            /** Total */
+            total: number;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Requirements */
+            requirements?: components["schemas"]["ReviewRequirement"][];
+            /** Findings */
+            findings?: components["schemas"]["ReviewFinding"][];
+        };
         /** Run */
         Run: {
             /** Id */
@@ -1779,6 +1829,7 @@ export interface components {
             review_notes?: string[];
             /** Traceability */
             traceability?: components["schemas"]["TraceRow"][];
+            review?: components["schemas"]["ReviewView"] | null;
         };
         /** StationAgentInput */
         StationAgentInput: {

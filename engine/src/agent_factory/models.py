@@ -249,6 +249,30 @@ class TraceRow(BaseModel):
     holdout: list[dict[str, Any]] = Field(default_factory=list)  # {scenario, passed} from the latest acceptance
 
 
+class ReviewRequirement(BaseModel):
+    id: str
+    status: str  # implemented | partial | missing
+    where: str = ""
+
+
+class ReviewFinding(BaseModel):
+    severity: str  # blocker | major | minor
+    message: str
+    file: str = ""
+    requirement: str = ""
+
+
+class ReviewView(BaseModel):
+    """The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's."""
+
+    passed: bool
+    implemented: int
+    total: int
+    summary: str = ""
+    requirements: list[ReviewRequirement] = Field(default_factory=list)
+    findings: list[ReviewFinding] = Field(default_factory=list)
+
+
 class SpecView(BaseModel):
     run_id: str
     status: str
@@ -263,6 +287,7 @@ class SpecView(BaseModel):
     changes: dict[str, list[str]] = Field(default_factory=dict)  # added / changed / removed requirement ids
     review_notes: list[str] = Field(default_factory=list)
     traceability: list[TraceRow] = Field(default_factory=list)
+    review: ReviewView | None = None  # latest spec review; None when the workflow has no review station
 
 
 class WorkflowSettingsInput(BaseModel):

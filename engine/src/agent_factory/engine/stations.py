@@ -25,6 +25,7 @@ from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.providers import LocalProvider, ProviderSet
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
+from agent_factory.review import REVIEW_SCHEMA, judge
 from agent_factory.secret_refs import SecretError, SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
@@ -687,6 +688,81 @@ async def deliver(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.order.app_url}")
 
 
+# ------------------------------------------------------------------ review --
+async def review(ctx: StationContext) -> StationResult:
+    """Spec-conformance review (ADR-0020): the reviewer reports per requirement;
+    the engine judges. See agent_factory.review for the rules."""
+    reqs = traceability.requirements(ctx.worktree)
+    ids = [r["id"] for r in reqs]
+    diff = await ctx.ws.git("diff --stat main...HEAD", ctx.worktree)
+    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    earlier = _previous_review(out / "review.json")
+    listing = "\n".join(f"- {r['id']}: {r['title']}: {r['detail']}" for r in reqs) or "(none)"
+    prompt = f"""Review this iteration's change against the specification before it is packaged.
+You are observe-only: read files and use read-only git (`git diff main...HEAD`, `git log`,
+`git show`); never modify anything.
+
+## Numbered requirements (docs/requirements.yaml): review EVERY one
+{listing}
+
+## What changed in this iteration (`git diff --stat main...HEAD`)
+{diff.output.strip()[-3000:] or "(no changes)"}
+
+## Change request for this iteration
+{ctx.run.change_request or "none (first build)"}
+{_review_notes(ctx)}
+## Your earlier review of this iteration sent it back for (check each is fixed)
+{earlier or "nothing: this is the first review of this iteration"}
+
+For each requirement report `implemented`, `partial` or `missing`, and `where`: the file
+and function that implement it and the test tagged @pytest.mark.req("<id>") that covers
+it. Read docs/spec.md and docs/design.md for intent.
+Findings: `blocker` or `major` only for concrete defects that break a requirement, the
+design or the API contract (docs/openapi.yaml); style and nice-to-haves are `minor`.
+Each finding names the file and says what to change."""
+    report: dict[str, Any] = {}
+    verdict = None
+    for attempt in (1, 2):
+        res = await ctx.agent(prompt, REVIEW_SCHEMA)
+        if lim := _limit_result(res):
+            return lim
+        if not res.ok or not isinstance(res.structured, dict):
+            return StationResult(StationOutcome.failed, "reviewer produced no report", res.error)
+        report = res.structured
+        verdict = judge(ids, report)
+        if verdict.complete:
+            break
+        if attempt == 1:
+            prompt += "\n\nYOUR PREVIOUS REPORT WAS INCOMPLETE:\n- " + "\n- ".join(verdict.problems)
+    assert verdict is not None
+    out.mkdir(parents=True, exist_ok=True)
+    evidence = {"iteration": ctx.run.iteration, "report": report, "judgement": verdict.as_data()}
+    (out / "review.json").write_text(json.dumps(evidence, indent=2))
+    await ctx.emit(EventKind.decision, verdict.headline(), {"review": evidence})
+    if not verdict.complete:
+        # the reviewer's fault, not the builder's: hold for a person rather than loop build
+        return StationResult(StationOutcome.held, verdict.headline(), "\n".join(verdict.problems))
+    if verdict.passed:
+        return StationResult(StationOutcome.passed, verdict.headline())
+    return StationResult(
+        StationOutcome.failed,
+        verdict.headline(),
+        "Spec review found problems to fix:\n- " + "\n- ".join(verdict.blocking),
+    )
+
+
+def _previous_review(path: Path) -> str:
+    """Blocking items of this run's last review, if it sent the change back. The
+    evidence file is read (not run.last_failure, which is cleared once build passes)."""
+    try:
+        judgement = json.loads(path.read_text()).get("judgement", {})
+    except (OSError, ValueError):
+        return ""
+    if judgement.get("passed") or not judgement.get("blocking"):
+        return ""
+    return "\n".join(f"- {b}" for b in judgement["blocking"])
+
+
 # --------------------------------------------------- generic agent station --
 GENERIC_VERDICT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -747,6 +823,7 @@ STATIONS: dict[str, Station] = {
     "package": package,
     "deploy": deploy,
     "deploy_fix": deploy_fix,
+    "review": review,
     "acceptance": acceptance,
     "deliver": deliver,
     "agent": generic_agent,

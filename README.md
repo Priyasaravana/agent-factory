@@ -27,7 +27,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   hidden scenario. An optional per-workflow gate lets a person approve, edit or
   send back the spec before build. You can also bring your own spec
   ([ADR-0017](docs/adr/0017-spec-driven-development.md)).
-- **Evidence over claims.** Checks are deterministic. Acceptance is done by an
+- **Evidence over claims.** Checks are deterministic. A **spec review** checks
+  every requirement against the change before packaging, and the engine (not the
+  reviewer) decides whether it passes
+  ([ADR-0020](docs/adr/0020-spec-review-station.md)). Acceptance is done by an
   independent verifier agent. It runs **holdout scenarios** that the builder
   never sees against the live app.
 - **Sandboxed agents.** Every agent session, and every run of code the agents

@@ -53,6 +53,9 @@ from agent_factory.models import (
     ReadinessView,
     ReorderStationsInput,
     RequirementView,
+    ReviewFinding,
+    ReviewRequirement,
+    ReviewView,
     Run,
     RunDetail,
     ScenarioView,
@@ -323,6 +326,7 @@ def get_run_spec(f: Factory, run_id: str) -> SpecView:
     events = f.store.list_events(run.id)
     changes = next((e.data["spec_changes"] for e in reversed(events) if "spec_changes" in e.data), {})
     trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
+    rev = next((e.data["review"] for e in reversed(events) if isinstance(e.data.get("review"), dict)), None)
     holdout = f.manager.ws.holdout_dir(order.product_slug) / "scenarios.yaml" if order else None
     return SpecView(
         run_id=run.id,
@@ -338,6 +342,32 @@ def get_run_spec(f: Factory, run_id: str) -> SpecView:
         changes=changes,
         review_notes=run.review_notes,
         traceability=[TraceRow(**r) for r in (trace if trace is not None else tr.matrix(wt))],
+        review=_review_view(rev),
+    )
+
+
+def _review_view(ev: dict[str, Any] | None) -> ReviewView | None:
+    if not ev or not ev.get("judgement", {}).get("complete"):
+        return None
+    report, j = ev.get("report", {}), ev["judgement"]
+    return ReviewView(
+        passed=bool(j.get("passed")),
+        implemented=int(j.get("implemented", 0)),
+        total=int(j.get("total", 0)),
+        summary=str(report.get("summary", "")),
+        requirements=[
+            ReviewRequirement(id=str(r.get("id")), status=str(r.get("status")), where=str(r.get("where", "")))
+            for r in report.get("requirements", [])
+        ],
+        findings=[
+            ReviewFinding(
+                severity=str(f.get("severity", "minor")),
+                message=str(f.get("message", "")),
+                file=str(f.get("file", "")),
+                requirement=str(f.get("requirement", "")),
+            )
+            for f in report.get("findings", [])
+        ],
     )
 
 
