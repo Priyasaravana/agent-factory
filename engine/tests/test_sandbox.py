@@ -293,3 +293,28 @@ async def test_package_cache_volume_is_handed_to_the_sandbox_user(tmp_path):
     create, chown = ex.calls[-2:]
     assert create.startswith("docker volume create") and "factory-sandbox-cache" in create
     assert "--user 0" in chown and "os.chown" in chown and "10001" in chown and "--network none" in chown
+
+
+async def _build(tmp_path: Path, monkeypatch, fail_builds: int) -> tuple[str | None, FakeExecutor]:
+    from agent_factory.sandbox import manager as m
+
+    cli = tmp_path / "claude"
+    cli.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(m, "bundled_cli", lambda: cli)
+    ex = FakeExecutor(fail_on=["docker image inspect"] + ["docker build"] * fail_builds)
+    mgr = SandboxManager(SandboxConfig(), REPO_ROOT, tmp_path, ex=ex)
+    mgr.build_retry_delay = 0
+    return await mgr._image(), ex
+
+
+async def test_image_build_keeps_step_output_and_retries_once(tmp_path, monkeypatch):
+    """CI e2e: a failed `uv python install` inside dind showed only the Dockerfile
+    excerpt (docker build -q drops step output), and one network blip failed the run."""
+    problem, ex = await _build(tmp_path, monkeypatch, fail_builds=1)
+    builds = [c for c in ex.calls if c.startswith("docker build")]
+    assert problem is None and len(builds) == 2, "a transient failure is retried"
+    assert all("--progress=plain" in c and " -q " not in c for c in builds), "step output is kept"
+
+    problem, ex = await _build(tmp_path, monkeypatch, fail_builds=2)
+    assert problem and problem.startswith("sandbox image build failed after 2 attempts")
+    assert "simulated failure" in problem, "the build's own output is in the reason"

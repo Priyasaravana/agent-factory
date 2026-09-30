@@ -81,6 +81,9 @@ def assemble_context(factory_home: Path, dest: Path) -> str | None:
 
 
 class SandboxManager:
+    build_attempts = 2
+    build_retry_delay = 20.0  # seconds between image build attempts
+
     def __init__(
         self,
         cfg: SandboxConfig,
@@ -157,9 +160,21 @@ class SandboxManager:
         if problem:
             return problem
         log.info("building sandbox image %s (first start only)", self.image)
-        res = await self._sh(f"docker build -q -t {self.image} {ctx}", timeout=1800)
+        # --progress=plain (not -q): a failing step's own output (e.g. a download
+        # error) is kept, not just the Dockerfile excerpt. One retry covers a
+        # transient network failure; the layer cache makes it cheap.
+        cmd = f"docker build --progress=plain -t {self.image} {ctx}"
+        for attempt in range(1, self.build_attempts + 1):
+            res = await self._sh(cmd, timeout=1800)
+            if res.ok:
+                break
+            log.warning("sandbox image build failed (attempt %d/%d):\n%s", attempt, self.build_attempts, res.output)
+            if attempt < self.build_attempts:
+                await asyncio.sleep(self.build_retry_delay)
         shutil.rmtree(ctx, ignore_errors=True)
-        return None if res.ok else f"sandbox image build failed:\n{res.output[-2000:]}"
+        if res.ok:
+            return None
+        return f"sandbox image build failed after {self.build_attempts} attempts:\n{res.output[-4000:]}"
 
     async def _cache(self) -> str | None:
         """A new named volume is root-owned; sandboxes run as SANDBOX_UID. Hand the
