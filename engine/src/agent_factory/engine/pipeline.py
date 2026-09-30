@@ -362,11 +362,11 @@ class RunManager:
         asyncio.create_task(wake())
 
     async def _execute(self, run_id: str) -> None:
+        cancelled = False
         async with self._sem:
             run = self._get(run_id)
             order = self.store.get_order(run.order_id)
             assert order is not None
-            cancelled = False
             try:
                 await self._drive(run, order)
             except asyncio.CancelledError:
@@ -383,6 +383,20 @@ class RunManager:
                     self.store.save_run(run)
                     self.store.save_order(order)
                     self._sync_order(run, order)
+        # after the slot is released: learning never delays or fails a delivery (ADR-0021)
+        if not cancelled and run.status == RunStatus.awaiting_feedback:
+            await self._retro(run, order)
+
+    async def _retro(self, run: Run, order: Order) -> None:
+        from agent_factory.retro import run_retro
+
+        cost = run.cost_usd
+        try:
+            await run_retro(self, run, order)
+        except Exception as exc:  # noqa: BLE001 - a failed retro is logged, never raised into the run
+            self.store.add_event(run.id, EventKind.log, f"retro failed: {type(exc).__name__}: {exc}")
+        if run.cost_usd != cost:
+            self.store.save_run(run)  # the retro's model spend belongs to this run
 
     async def _drive(self, run: Run, order: Order) -> None:
         run.status = RunStatus.running
@@ -469,7 +483,13 @@ class RunManager:
                     return self._hold(run, sid, "fix-loop budget exhausted", result.failure_evidence)
                 run.last_failure = result.failure_evidence or result.summary
                 run.current_station = target
-                self.store.add_event(run.id, EventKind.decision, f"routing failure from {sid} to {target}", station=sid)
+                self.store.add_event(
+                    run.id,
+                    EventKind.decision,
+                    f"routing failure from {sid} to {target}",
+                    station=sid,
+                    data={"routed": {"from": sid, "to": target, "evidence": run.last_failure[-3000:]}},
+                )
                 self.store.save_run(run)
                 continue
 

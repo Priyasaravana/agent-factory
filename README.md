@@ -53,6 +53,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   Docker, cluster, free ports and credentials. They refuse an order in seconds,
   before any model usage, if something it needs is broken
   ([ADR-0015](docs/adr/0015-readiness-and-preflight.md)).
+- **Gets better with use.** After a run that needed help, the factory suggests
+  short lessons for the agent that caused it. An admin accepts them into the
+  workflow, versioned like any other change
+  ([ADR-0021](docs/adr/0021-learning-from-runs.md)).
 - **Outcomes, not activity.** The Outcomes page shows:
   - deliveries, lead time, change failure rate and recovery time;
   - autonomy (deliveries with no unplanned human help) and cost per delivered change;

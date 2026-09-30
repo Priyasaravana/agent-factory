@@ -306,10 +306,70 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Workflow settings in the draft (spec review gate: off | first | always)
-         * @description Workflow settings in the draft (spec review gate: off | first | always)
+         * Workflow settings in the draft: spec review gate (off | first | always), learn from runs
+         * @description Workflow settings in the draft: spec review gate (off | first | always), learn from runs
          */
         patch: operations["set_workflow_settings"];
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/learnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lessons suggested after runs that needed help, for an admin to accept or reject
+         * @description Lessons suggested after runs that needed help, for an admin to accept or reject
+         */
+        get: operations["list_learning_proposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a suggested lesson: it is added to the agent's learnings in the workflow draft (publish to use it)
+         * @description Accept a suggested lesson: it is added to the agent's learnings in the workflow draft (publish to use it)
+         */
+        post: operations["accept_learning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/learnings/{proposal_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a suggested lesson
+         * @description Reject a suggested lesson
+         */
+        post: operations["reject_learning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/preflight": {
@@ -1150,6 +1210,11 @@ export interface components {
              * @default off
              */
             spec_review: string;
+            /**
+             * Learn From Runs
+             * @default true
+             */
+            learn_from_runs: boolean;
         };
         /** DuplicateAgentInput */
         DuplicateAgentInput: {
@@ -1343,6 +1408,46 @@ export interface components {
             readiness: components["schemas"]["ReadinessView"];
             /** Used By */
             used_by?: string[];
+        };
+        /**
+         * LearningProposal
+         * @description A lesson the retro suggests for one agent after a run that needed help (ADR-0021).
+         *     Nothing changes until an admin accepts it into the workflow draft and publishes.
+         */
+        LearningProposal: {
+            /** Id */
+            id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Version */
+            workflow_version: number;
+            /** Agent */
+            agent: string;
+            /** Lesson */
+            lesson: string;
+            /** Why */
+            why: string;
+            /** Evidence */
+            evidence: string;
+            /** Run Id */
+            run_id: string;
+            /** Order Id */
+            order_id: string;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided By */
+            decided_by?: string | null;
+            /** Decided At */
+            decided_at?: string | null;
         };
         /** Order */
         Order: {
@@ -1988,13 +2093,15 @@ export interface components {
             /** Lead Time Median S */
             lead_time_median_s?: number | null;
         };
-        /** WorkflowSettingsInput */
+        /**
+         * WorkflowSettingsInput
+         * @description Draft settings; a field left out is unchanged.
+         */
         WorkflowSettingsInput: {
-            /**
-             * Spec Review
-             * @enum {string}
-             */
-            spec_review: "off" | "first" | "always";
+            /** Spec Review */
+            spec_review?: ("off" | "first" | "always") | null;
+            /** Learn From Runs */
+            learn_from_runs?: boolean | null;
         };
         /** WorkflowSummary */
         WorkflowSummary: {
@@ -2077,6 +2184,11 @@ export interface components {
              * @default off
              */
             spec_review: string;
+            /**
+             * Learn From Runs
+             * @default true
+             */
+            learn_from_runs: boolean;
             /**
              * Environment
              * @default local
@@ -2610,6 +2722,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_learning_proposals: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningProposal"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_learning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningProposal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_learning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningProposal"];
                 };
             };
             /** @description Validation Error */

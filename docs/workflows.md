@@ -154,6 +154,28 @@ The order's creator or an admin then chooses:
 spec or load a `.md` file. Its numbered items become R1, R2, … with their
 wording kept.
 
+## Learning from runs
+
+After a run that **needed help**, the factory suggests short lessons for the agent
+whose work caused it ([ADR-0021](adr/0021-learning-from-runs.md)). A run needed
+help if it had a fix loop, a hold a person resolved, or blocking intake questions.
+
+1. A retro agent reads the recorded evidence. It is observe-only and sandboxed,
+   and runs after delivery, so it never delays a run. It suggests up to 3 lessons.
+2. The engine discards a suggestion that names an unknown agent, is too short or
+   too long, cites no evidence, repeats an existing or pending lesson, or would
+   weaken a check (e.g. "skip flaky tests"). Discarded ones are listed on the
+   run's `retro:` event.
+3. The rest appear under **Suggested learnings** on the workflow page, each with
+   its reason and evidence.
+4. An **admin** accepts one (it is added to that agent's learnings in the
+   **draft**) or rejects it.
+5. The lesson reaches agents only when the draft is **published**. To undo it,
+   activate the previous version.
+
+Turn it off per workflow with `learn_from_runs: false` in `workflow.yaml`, or the
+**Learn from runs** switch in the editor.
+
 ## Spec review station
 
 A station with id `review` runs the built-in spec review

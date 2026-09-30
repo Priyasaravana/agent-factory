@@ -164,6 +164,8 @@ class WorkflowDoc(BaseModel):
     # spec review gate (ADR-0017): pause after design until a person approves the spec
     #   off: never · first: the first iteration of an order · always: every iteration
     spec_review: Literal["off", "first", "always"] = "off"
+    # after a run that needed help, suggest learnings for an admin to accept (ADR-0021)
+    learn_from_runs: bool = True
 
     @field_validator("spec_review", mode="before")
     @classmethod
