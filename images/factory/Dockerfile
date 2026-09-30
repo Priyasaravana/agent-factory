@@ -63,11 +63,13 @@ ENV FACTORY_HOME=/opt/factory \
     FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml \
     DATA_DIR=/data \
     KUBECONFIG=/data/kube/config \
-    DOCKER_CERT_PATH=/home/factory/.docker/certs \
+    DOCKER_CERT_PATH=/factory-certs \
     PYTHONUNBUFFERED=1
 
-# Starts as root only to copy the dind client certs and fix volume ownership,
-# then the entrypoint drops to the unprivileged `factory` user (setpriv).
+# Runs as the unprivileged factory user; nothing in this container is root
+# (ADR-0018). Certs and /data ownership are prepared by the factory-init service.
+USER 10001:10001
+ENV HOME=/home/factory USER=factory
 EXPOSE 8000
 ENTRYPOINT ["/opt/factory/cluster/entrypoint.sh"]
 CMD ["agent-factory", "serve"]

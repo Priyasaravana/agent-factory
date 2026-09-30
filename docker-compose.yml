@@ -27,6 +27,28 @@ services:
       interval: 5s
       retries: 30
 
+  # One-shot root step (ADR-0018): hands dind's client certs and /data to uid 10001,
+  # then exits. No network, only the three capabilities it needs.
+  factory-init:
+    build:
+      context: .
+      dockerfile: images/factory/Dockerfile
+    user: "0:0"
+    entrypoint: ["/opt/factory/cluster/init.sh"]
+    command: []
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - dind-certs:/certs:ro
+      - factory-certs:/factory-certs
+      - ./.factory-data:/data
+    depends_on:
+      dind:
+        condition: service_healthy     # dind has generated its TLS certs
+    restart: "no"
+
   factory:
     build:
       context: .
@@ -40,12 +62,18 @@ services:
       # agents + generated code run in throw-away sandboxes inside dind (ADR-0014);
       # AGENT_SANDBOX=off in .env is for development only
       AGENT_SANDBOX: ${AGENT_SANDBOX:-container}
+    # Least privilege (ADR-0018): never root, no capabilities, no privilege escalation.
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     volumes:
-      - dind-certs:/certs:ro
+      - factory-certs:/factory-certs:ro  # dind client certs, owned by uid 10001 (factory-init)
       - ./.factory-data:/data            # the ONLY host path mounted: state, product repos, run worktrees
     depends_on:
       dind:
         condition: service_healthy
+      factory-init:
+        condition: service_completed_successfully
     # No published port: every API call goes through the web gateway (8080), which
     # asks the auth service first. API docs: http://localhost:8080/api/docs
     healthcheck:
@@ -66,6 +94,8 @@ services:
       FACTORY_ADMIN_PASSWORD: ${FACTORY_ADMIN_PASSWORD:-}   # first start only; else a one-time password is generated
       AUTH_SESSION_HOURS: ${AUTH_SESSION_HOURS:-12}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}      # true behind HTTPS
+    cap_drop: [ALL]                      # runs as uid 10002 (image USER), needs no capabilities
+    security_opt: ["no-new-privileges:true"]
     volumes:
       - auth-data:/data                  # its own database: users, sessions, token hashes, audit
     restart: unless-stopped
@@ -78,10 +108,13 @@ services:
       auth:
         condition: service_started
     ports:
-      - "127.0.0.1:8080:80"              # the factory UI
+      - "127.0.0.1:8080:8080"            # the factory UI (unprivileged nginx listens on 8080)
+    cap_drop: [ALL]                      # nginx runs as uid 101, needs no capabilities
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
 volumes:
   dind-certs:
+  factory-certs:                         # dind client certs for uid 10001 (written by factory-init)
   dind-data:
   auth-data:

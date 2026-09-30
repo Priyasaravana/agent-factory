@@ -34,6 +34,12 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   wrote, gets a throw-away container that can write only its worktree, holds no
   factory secrets, and reaches only an egress allowlist
   ([ADR-0014](docs/adr/0014-agent-sandbox.md)). Check it with `make sandbox-check`.
+- **No root in the factory's containers.** The factory, auth and web gateway
+  run as non-root users with no Linux capabilities. The single root step is a
+  one-shot, offline init container. Privileged dind (needed for the local kind
+  cluster) is a documented, accepted risk
+  ([ADR-0018](docs/adr/0018-least-privilege-containers.md)). Check it with
+  `make privilege-check`.
 - **Level 3 by default.** Generated apps start at agent-readiness Level 3:
   - CI, CODEOWNERS and pre-commit;
   - JSON logs, metrics and tracing;

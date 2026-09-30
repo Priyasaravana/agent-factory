@@ -35,8 +35,11 @@
   `docs/requirements.yaml` is covered by a scenario (`covers`) and a test tagged
   `@pytest.mark.req("R1")`. Coverage checks live in `traceability.py`; keep
   them pure functions of the repo's files.
-- Data under `/data` belongs to the runtime user (uid 10001). Exec into the
-  factory container with `docker compose exec -u factory factory …`; the
-  `agent-factory` console script also drops root itself (`cli.run`). Directories
-  the engine creates for a sandbox go through `hand_to_sandbox`.
+- No root in the factory's containers (ADR-0018). The factory image runs as uid
+  10001 with no capabilities; the only root step is `cluster/init.sh` in the
+  one-shot `factory-init` service. Dockerfile build steps that run the CLI set
+  `AGENT_FACTORY_ALLOW_ROOT=1`. A new service gets `cap_drop: [ALL]` and
+  `no-new-privileges`, and is added to `tests/test_least_privilege.py` and
+  `scripts/privilege-check.sh`. Directories the engine creates for a sandbox go
+  through `hand_to_sandbox`.
 - Record significant decisions as ADRs in `docs/adr/`.

@@ -33,7 +33,7 @@ def via_proxy(target: str) -> str:
 
 bad = [k for k in os.environ if any(s in k.upper() for s in FORBIDDEN)]
 check("no factory secrets in env", not bad, bad)
-docker_bits = ["/var/run/docker.sock", "/certs", "/home/factory/.docker"]
+docker_bits = ["/var/run/docker.sock", "/certs", "/factory-certs", "/home/factory/.docker"]
 check("no Docker socket or TLS keys", not any(pathlib.Path(p).exists() for p in docker_bits))
 check("no kubeconfig", not pathlib.Path("/data/kube/config").exists())
 check("holdout scenarios not mounted", not pathlib.Path("/data/holdout").exists())

@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check backup restore upgrade test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -19,6 +19,9 @@ down: ## stop everything (keeps cluster, images and data)
 
 sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist)
 	docker compose exec -u factory factory agent-factory sandbox check
+
+privilege-check: ## prove least privilege: no root, no capabilities, only dind privileged (ADR-0018)
+	scripts/privilege-check.sh
 
 backup: ## consistent snapshot of all factory + auth data into backups/ (safe while running)
 	./scripts/backup.sh
