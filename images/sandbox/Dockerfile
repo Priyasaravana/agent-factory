@@ -18,7 +18,15 @@ COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
 # checks the golden path's pin is on this list.
 ARG APP_PYTHONS="3.12 3.13 3.14"
 ENV UV_PYTHON_INSTALL_DIR=/opt/python
-RUN uv python install ${APP_PYTHONS} && chmod -R a+rX /opt/python && uv python list --only-installed
+# The interpreters are downloaded from GitHub releases: retry with backoff so a
+# transient network or rate-limit error does not fail the whole image build.
+RUN set -e; \
+    for attempt in 1 2 3 4; do \
+      if UV_HTTP_TIMEOUT=120 uv python install ${APP_PYTHONS}; then break; fi; \
+      if [ "$attempt" = 4 ]; then echo "uv python install failed 4 times" >&2; exit 1; fi; \
+      echo "uv python install failed (attempt $attempt/4), retrying" >&2; sleep $((attempt * 15)); \
+    done; \
+    chmod -R a+rX /opt/python && uv python list --only-installed
 
 COPY claude /usr/local/bin/claude
 COPY plugin /opt/factory/plugin
