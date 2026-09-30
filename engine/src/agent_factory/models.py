@@ -20,6 +20,7 @@ class RunStatus(StrEnum):
     held = "held"  # budget exhausted / missing evidence -> human
     interrupted = "interrupted"  # process restarted mid-run
     awaiting_feedback = "awaiting_feedback"  # delivered; the feedback gate is open
+    awaiting_approval = "awaiting_approval"  # spec review gate: a person approves the spec before build
     cancelled = "cancelled"
     failed = "failed"  # engine error
 
@@ -52,6 +53,8 @@ class Order(BaseModel):
     id: str
     title: str
     requirements: str
+    # "spec": the requirements are an existing specification (keep its wording/numbering)
+    requirements_format: Literal["prose", "spec"] = "prose"
     product_line: str
     product_slug: str
     created_at: datetime
@@ -85,6 +88,8 @@ class Run(BaseModel):
     resume_at: datetime | None = None
     summary: str | None = None
     cost_usd: float = 0.0
+    spec_approved_by: str | None = None  # spec review gate
+    review_notes: list[str] = Field(default_factory=list)  # requested spec changes, fed to intake/design
     created_at: datetime
     updated_at: datetime
 
@@ -110,8 +115,65 @@ class Feedback(BaseModel):
 # ------------------------------------------------------------- API inputs --
 class CreateOrderInput(BaseModel):
     title: str = Field(min_length=3, max_length=120)
-    requirements: str = Field(min_length=10, max_length=20_000)
+    requirements: str = Field(min_length=10, max_length=60_000)
     product_line: str = "fastapi-service"
+    requirements_format: Literal["prose", "spec"] = "prose"
+
+
+class SpecReviewInput(BaseModel):
+    comment: str = Field(min_length=3, max_length=5_000)
+
+
+class SpecEditInput(BaseModel):
+    """Direct edits while the spec awaits review (requirements change via request-changes,
+    so intake keeps scenarios and requirement ids consistent)."""
+
+    product: str | None = Field(default=None, max_length=60_000)  # docs/spec.md
+    technical: str | None = Field(default=None, max_length=60_000)  # docs/design.md
+
+
+class RequirementView(BaseModel):
+    id: str
+    title: str
+    detail: str = ""
+
+
+class ScenarioView(BaseModel):
+    id: str
+    given: str
+    when: str
+    then: str
+    covers: list[str] = Field(default_factory=list)
+
+
+class TraceRow(BaseModel):
+    """One requirement, traced: scenarios -> tagged tests -> live acceptance."""
+
+    id: str
+    title: str
+    scenarios: list[str] = Field(default_factory=list)
+    tests: int = 0
+    holdout: list[dict[str, Any]] = Field(default_factory=list)  # {scenario, passed} from the latest acceptance
+
+
+class SpecView(BaseModel):
+    run_id: str
+    status: str
+    gate: str  # off | first | always (the run's workflow version)
+    approved_by: str | None = None
+    product: str = ""  # docs/spec.md
+    technical: str = ""  # docs/design.md
+    openapi: str = ""
+    requirements: list[RequirementView] = Field(default_factory=list)
+    acceptance: list[ScenarioView] = Field(default_factory=list)
+    holdout_count: int = 0  # hidden scenarios are counted, never shown
+    changes: dict[str, list[str]] = Field(default_factory=dict)  # added / changed / removed requirement ids
+    review_notes: list[str] = Field(default_factory=list)
+    traceability: list[TraceRow] = Field(default_factory=list)
+
+
+class WorkflowSettingsInput(BaseModel):
+    spec_review: Literal["off", "first", "always"]
 
 
 class AnswersInput(BaseModel):
@@ -197,6 +259,7 @@ class WorkflowView(BaseModel):
     agents: list[AgentView]
     docs: list[RefDoc] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    spec_review: str = "off"  # off | first | always
     environment: str = "local"  # where this product line's delivery steps run
     delivery: list[DeliveryBinding] = Field(default_factory=list)
 
@@ -215,6 +278,7 @@ class DraftView(BaseModel):
     stations: list[StationView]
     agents: list[AgentView]
     docs: list[RefDoc]
+    spec_review: str = "off"
 
 
 class SkillInfo(BaseModel):

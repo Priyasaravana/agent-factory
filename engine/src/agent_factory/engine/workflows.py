@@ -237,6 +237,11 @@ class Draft:
         self.discard()
         return next(i for i in self.s.versions() if i.version == version)
 
+    def set_spec_review(self, mode: str) -> None:
+        _, doc, _ = self.get()
+        doc.spec_review = mode  # type: ignore[assignment]
+        self._save(doc)
+
     # -------------------------------------------------------------- agents --
     def upsert_agent(self, spec: AgentSpec) -> None:
         _, doc, _ = self.get()

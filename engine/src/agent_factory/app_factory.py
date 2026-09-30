@@ -217,9 +217,11 @@ def create_app(factory: Factory | None = None) -> FastAPI:
                         "event": "status",
                         "data": json.dumps({"status": run.status, "station": run.current_station}),
                     }
-                    if run.status in TERMINAL | {RunStatus.held, RunStatus.needs_input} and not f.manager.is_active(
-                        run_id
-                    ):
+                    if run.status in TERMINAL | {
+                        RunStatus.held,
+                        RunStatus.needs_input,
+                        RunStatus.awaiting_approval,
+                    } and not f.manager.is_active(run_id):
                         break
                 await asyncio.sleep(1.0)
 

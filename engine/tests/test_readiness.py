@@ -24,7 +24,14 @@ def _generated_repo(tmp_path: Path) -> Path:
     (repo / "docs").mkdir()
     for f in ("spec.md", "design.md", "openapi.yaml"):
         (repo / "docs" / f).write_text("x")
-    (repo / "tests" / "test_acceptance.py").write_text("def test_a() -> None:\n    assert True\n")
+    (repo / "docs" / "requirements.yaml").write_text("- {id: R1, title: Save, detail: d}\n")
+    (repo / "tests" / "acceptance").mkdir(parents=True)
+    (repo / "tests" / "acceptance" / "scenarios.yaml").write_text(
+        "- {id: A1, given: g, when: w, then: t, covers: [R1]}\n"
+    )
+    (repo / "tests" / "test_acceptance.py").write_text(
+        'import pytest\n\n\n@pytest.mark.req("R1")\ndef test_a() -> None:\n    assert True\n'
+    )
     return repo
 
 
@@ -36,7 +43,7 @@ def test_the_golden_path_template_is_level_3_once_the_run_adds_its_docs(tmp_path
     # the bare template (before Intake/Design/Build) is Level 2: docs and acceptance tests come from the run
     bare = score(TEMPLATE, secret_scan_ok=True)
     assert bare.level == 2
-    assert {s.id for s in bare.missing()} == {"acceptance_tests", "design_docs"}
+    assert {s.id for s in bare.missing()} == {"acceptance_tests", "design_docs", "requirements_traced"}
 
 
 def test_each_missing_signal_drops_the_level_and_says_how_to_fix_it(tmp_path):

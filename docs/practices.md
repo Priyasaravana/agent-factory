@@ -73,8 +73,8 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Readiness station; SBOM + provenance; threat model.
   - readiness + preflight change: provider `check()`; readiness page and header pill; order/iteration preflight; archive; 20 app ports; OpenSSF Scorecard; Dependabot; least-privilege CI.
   - upgrade-safety change: CI builds all images and tests the engine on the image's Python; the sandbox verifies the golden path offline; a dry-run end-to-end browser smoke test; engine on the next Python (advisory); a weekly run; app Python decoupled from the factory's; `make backup` / `restore` / `upgrade`.
+  - spec-driven change: numbered requirements; requirement → scenario → test → live-result traceability with a Level 3 signal; optional spec review gate (off by default); spec diff on feedback; bring your own spec (ADR-0017).
 - **Next:**
-  - spec-driven development (candidate 2 below);
   - Outcomes page (DORA + autonomy ratio + cost per change + share of apps at Level 3 + waiting on whom);
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.
@@ -89,9 +89,9 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 ## Candidates to consider (from Warp's Cloud Software Factory)
 Highest value only; each fits data or hooks we already have.
 1. **"Waiting on whom" metric**: split every run's time into agent-working vs waiting-for-a-human, and show the factory as a board by state. Warp's own dashboard shows humans, not agents, are the bottleneck. → part of the Outcomes page.
-2. **Spec-driven development** (decided: next):
+2. ✅ **Spec-driven development** (done, ADR-0017):
    - an optional spec review gate after design, with approve, request changes or edit (per workflow: always, first iteration or off; **off by default**);
-   - `PRODUCT.md` with numbered requirements plus `TECH.md`;
+   - numbered requirements (`docs/requirements.yaml`) plus the product spec and technical design (`docs/spec.md`, `docs/design.md`);
    - requirement → scenario → test → acceptance traceability, with a readiness signal;
    - feedback updates the spec first, and the gate shows the spec diff;
    - an order can bring its own spec.

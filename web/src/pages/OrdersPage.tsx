@@ -54,7 +54,13 @@ export default function OrdersPage() {
         <Stat label="Orders" value={live.length} />
         <Stat label="In progress" value={count((s) => ACTIVE.has(s))} tone="info" />
         <Stat label="Awaiting feedback" value={count((s) => s === "awaiting_feedback")} tone="ok" />
-        <Stat label="Need attention" value={count((s) => ["held", "failed", "needs_input", "interrupted", "paused_limits"].includes(s))} tone="bad" />
+        <Stat
+          label="Need attention"
+          value={count((s) =>
+            ["held", "failed", "needs_input", "interrupted", "paused_limits", "awaiting_approval"].includes(s),
+          )}
+          tone="bad"
+        />
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
@@ -125,8 +131,18 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
   const [title, setTitle] = useState("");
   const [requirements, setRequirements] = useState("");
   const [line, setLine] = useState("fastapi-service");
+  const [format, setFormat] = useState<"prose" | "spec">("prose");
+  const loadSpec = async (file: File | undefined) => {
+    if (!file) return;
+    setRequirements(await file.text());
+    setFormat("spec");
+    if (!title) setTitle(file.name.replace(/\.(md|markdown|txt)$/i, "").replace(/[-_]+/g, " "));
+  };
   const create = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/orders", { body: { title, requirements, product_line: line } })),
+    mutationFn: () =>
+      unwrap(
+        api.POST("/api/orders", { body: { title, requirements, product_line: line, requirements_format: format } }),
+      ),
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["orders"] });
       toast.success("Order started", { description: d.order.title });
@@ -175,18 +191,57 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
               ))}
             </select>
           </label>
-          <label>
-            Requirements
+          <div className="grid gap-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium" id="req-label">
+                {format === "spec" ? "Specification" : "Requirements"}
+              </span>
+              <div className="flex gap-1 rounded-lg border bg-card p-0.5" role="radiogroup" aria-label="How you describe it">
+                {(
+                  [
+                    ["prose", "Describe it"],
+                    ["spec", "I have a spec"],
+                  ] as const
+                ).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={format === v}
+                    className={`tab ${format === v ? "active" : ""}`}
+                    onClick={() => setFormat(v)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <textarea
-              rows={9}
+              aria-labelledby="req-label"
+              rows={format === "spec" ? 14 : 9}
               value={requirements}
               onChange={(e) => setRequirements(e.target.value)}
-              placeholder="A REST service to save bookmarks and notes with tags. Filter by tag, search notes…"
+              placeholder={
+                format === "spec"
+                  ? "Paste your specification (Markdown). Its wording and numbering are kept; intake only fills gaps."
+                  : "A REST service to save bookmarks and notes with tags. Filter by tag, search notes…"
+              }
               required
               minLength={10}
               className="font-sans text-sm"
             />
-          </label>
+            {format === "spec" && (
+              <label className="text-xs font-normal text-muted-foreground">
+                or load a Markdown file
+                <input
+                  type="file"
+                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                  onChange={(e) => void loadSpec(e.target.files?.[0])}
+                  className="text-xs"
+                />
+              </label>
+            )}
+          </div>
           <Button disabled={create.isPending} size="lg">
             <Rocket /> {create.isPending ? "Submitting…" : "Start the line"}
           </Button>

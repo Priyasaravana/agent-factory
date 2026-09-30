@@ -14,7 +14,12 @@ from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 
 REPO = Path(__file__).resolve().parents[2]
-WAIT_STATES = TERMINAL | {RunStatus.held, RunStatus.needs_input, RunStatus.paused_limits}
+WAIT_STATES = TERMINAL | {
+    RunStatus.held,
+    RunStatus.needs_input,
+    RunStatus.paused_limits,
+    RunStatus.awaiting_approval,
+}
 
 
 @pytest.fixture

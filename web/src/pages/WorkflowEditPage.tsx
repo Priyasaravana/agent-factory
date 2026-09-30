@@ -140,6 +140,44 @@ export default function WorkflowEditPage() {
         </p>
       </section>
 
+      <section className="card" data-testid="spec-review-setting">
+        <h3>Spec review gate</h3>
+        <p className="muted small">
+          Pause each run after design until a person approves the specification (product spec, technical design,
+          numbered requirements and acceptance scenarios). Reviewers can approve, request changes or edit the spec.
+        </p>
+        <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="Spec review">
+          {(
+            [
+              ["off", "Off", "never pause (fully automatic)"],
+              ["first", "First iteration", "new orders pause; feedback iterations continue"],
+              ["always", "Every iteration", "every run pauses after design"],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={d.spec_review === value}
+              title={hint}
+              className={`tab ${d.spec_review === value ? "active" : ""}`}
+              disabled={m.isPending}
+              onClick={() =>
+                m.mutate(() =>
+                  unwrap(
+                    api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                      params: { path: wid },
+                      body: { spec_review: value },
+                    }),
+                  ),
+                )
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="card">
         <h3>Start from a template</h3>
         <p className="muted small">

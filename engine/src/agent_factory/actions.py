@@ -49,16 +49,23 @@ from agent_factory.models import (
     PublishInput,
     ReadinessView,
     ReorderStationsInput,
+    RequirementView,
     Run,
     RunDetail,
+    ScenarioView,
     SkillDetail,
     SkillInfo,
     SkillSourceInput,
     SkillVersionInfo,
+    SpecEditInput,
+    SpecReviewInput,
+    SpecView,
     StationAgentInput,
     StationView,
     TemplateInfo,
+    TraceRow,
     UpdateStationInput,
+    WorkflowSettingsInput,
     WorkflowSummary,
     WorkflowView,
 )
@@ -267,11 +274,114 @@ async def _gate(f: Factory, product_line: str, what: str) -> None:
     "/api/orders/{order_id}/archive",
 )
 async def archive_order(f: Factory, order_id: str) -> Order:
+    _may_steer(f, order_id)
+    return await f.manager.archive(order_id, current_identity().user)
+
+
+def _may_steer(f: Factory, order_id: str) -> None:
+    """Spec decisions and archiving: the order's creator or an admin."""
     who = current_identity()
     order = f.store.get_order(order_id)
     if order and not who.is_admin and order.created_by and order.created_by != who.user:
-        raise PermissionError("only the order's creator or an admin can archive it")
-    return await f.manager.archive(order_id, who.user)
+        raise PermissionError("only the order's creator or an admin can do this")
+
+
+@action(
+    "get_run_spec",
+    "The run's specification: product spec, technical design, API, numbered requirements, "
+    "acceptance scenarios, changes and traceability",
+    "GET",
+    "/api/runs/{run_id}/spec",
+)
+def get_run_spec(f: Factory, run_id: str) -> SpecView:
+    from agent_factory import traceability as tr
+
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    order = f.store.get_order(run.order_id)
+    wt = f.manager.ws.run_dir(run.id)
+    read = lambda rel: (wt / rel).read_text(errors="replace") if (wt / rel).is_file() else ""  # noqa: E731
+    flow = f.workflows[run.workflow_id or (order.product_line if order else "")].get(run.workflow_version)
+    events = f.store.list_events(run.id)
+    changes = next((e.data["spec_changes"] for e in reversed(events) if "spec_changes" in e.data), {})
+    trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
+    holdout = f.manager.ws.holdout_dir(order.product_slug) / "scenarios.yaml" if order else None
+    return SpecView(
+        run_id=run.id,
+        status=run.status,
+        gate=flow.spec_review,
+        approved_by=run.spec_approved_by,
+        product=read("docs/spec.md"),
+        technical=read("docs/design.md"),
+        openapi=read("docs/openapi.yaml"),
+        requirements=[RequirementView(**r) for r in tr.requirements(wt)],
+        acceptance=[ScenarioView(**s) for s in tr.acceptance_scenarios(wt)],
+        holdout_count=len(tr.scenarios(holdout)) if holdout else 0,
+        changes=changes,
+        review_notes=run.review_notes,
+        traceability=[TraceRow(**r) for r in (trace if trace is not None else tr.matrix(wt))],
+    )
+
+
+@action(
+    "approve_spec",
+    "Spec review gate: approve the spec; the run continues to build",
+    "POST",
+    "/api/runs/{run_id}/spec/approve",
+)
+async def approve_spec(f: Factory, run_id: str) -> Run:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    _may_steer(f, run.order_id)
+    order = f.store.get_order(run.order_id)
+    if order:
+        await _gate(f, order.product_line, "iteration")
+    return f.manager.approve_spec(run_id, current_identity().user)
+
+
+@action(
+    "request_spec_changes",
+    "Spec review gate: send the spec back to intake and design with your notes",
+    "POST",
+    "/api/runs/{run_id}/spec/changes",
+)
+async def request_spec_changes(f: Factory, run_id: str, body: SpecReviewInput) -> Run:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    _may_steer(f, run.order_id)
+    order = f.store.get_order(run.order_id)
+    if order:
+        await _gate(f, order.product_line, "iteration")
+    return f.manager.request_spec_changes(run_id, current_identity().user, body.comment)
+
+
+@action(
+    "edit_spec",
+    "Spec review gate: edit the product spec or technical design directly",
+    "PUT",
+    "/api/runs/{run_id}/spec",
+)
+async def edit_spec(f: Factory, run_id: str, body: SpecEditInput) -> SpecView:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    _may_steer(f, run.order_id)
+    await f.manager.edit_spec(run_id, current_identity().user, body.product, body.technical)
+    return get_run_spec(f, run_id)
+
+
+@action(
+    "set_workflow_settings",
+    "Workflow settings in the draft (spec review gate: off | first | always)",
+    "PATCH",
+    "/api/workflows/{workflow_id}/draft/settings",
+)
+def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsInput) -> DraftView:
+    f.workflows[workflow_id].draft.set_spec_review(body.spec_review)
+    return get_draft(f, workflow_id)
 
 
 @action("get_preflight", "Readiness checks per product line (cached; see ADR-0015)", "GET", "/api/preflight")
@@ -376,6 +486,7 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
         warnings=workflow_warnings(doc),
+        spec_review=doc.spec_review,
         environment=f.cfg.product_lines[workflow_id].environment,
         delivery=_bindings(f, workflow_id),
     )
@@ -525,6 +636,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         stations=_station_views_for(doc),
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
+        spec_review=doc.spec_review,
     )
 
 
