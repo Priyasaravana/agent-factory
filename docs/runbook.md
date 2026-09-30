@@ -31,7 +31,7 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **Needs your answers** | Answer in the run panel; the run continues. |
 | **Paused (usage limit)** | Nothing. It resumes when the window resets, or you can click Resume. |
 | **Interrupted** after a restart | Click Resume. The run continues in its own worktree. |
-| App not reachable on :8081 | `docker compose exec factory kubectl get pods -A` |
+| App not reachable on :8081 | `docker compose exec -u factory factory kubectl get pods -A` |
 | **Locked out** / forgot the admin password | `make reset-admin` prints a one-time password (must be changed at sign-in). |
 | Add a person | Admin → Add user (member or admin) with a temporary password; they choose their own at first sign-in. |
 | Script or CI access | Account → API tokens; send `Authorization: Bearer <token>` to `http://localhost:8080/api/...` |

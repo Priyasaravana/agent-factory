@@ -18,7 +18,7 @@ down: ## stop everything (keeps cluster, images and data)
 	docker compose down
 
 sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist)
-	docker compose exec factory agent-factory sandbox check
+	docker compose exec -u factory factory agent-factory sandbox check
 
 backup: ## consistent snapshot of all factory + auth data into backups/ (safe while running)
 	./scripts/backup.sh
@@ -30,7 +30,7 @@ upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.
 	./scripts/backup.sh
 	git pull --ff-only
 	docker compose up -d --build --wait
-	docker compose exec -T factory agent-factory sandbox check
+	docker compose exec -T -u factory factory agent-factory sandbox check
 
 reset-admin: ## break-glass: print a one-time password for the admin user
 	docker compose exec auth factory-auth reset-password $${FACTORY_ADMIN_USER:-admin}
@@ -42,7 +42,7 @@ ps:
 	docker compose ps
 
 reset-cluster: ## delete and recreate the kind cluster inside dind
-	docker compose exec factory kind delete cluster --name factory || true
+	docker compose exec -u factory factory kind delete cluster --name factory || true
 	docker compose restart factory
 
 test: ## engine + auth tests (dry-run, no model usage)

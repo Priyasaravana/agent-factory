@@ -18,7 +18,7 @@ aws = ["boto3>=1.34"]  # aws-sm:// secret references
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11", "types-PyYAML"]
 
 [project.scripts]
-agent-factory = "agent_factory.cli:main"
+agent-factory = "agent_factory.cli:run"
 agent-factory-sandbox-claude = "agent_factory.sandbox.wrapper:main"
 
 [build-system]

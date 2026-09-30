@@ -115,7 +115,7 @@ jobs:
       - name: start the stack
         run: docker compose up -d --build --wait --wait-timeout 900
       - name: sandbox isolation (make sandbox-check)
-        run: docker compose exec -T factory agent-factory sandbox check
+        run: docker compose exec -T -u factory factory agent-factory sandbox check
       - name: browser smoke test
         run: |
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium

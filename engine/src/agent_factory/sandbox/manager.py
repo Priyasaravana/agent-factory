@@ -263,6 +263,7 @@ class SandboxManager:
             return [{"check": "sandbox ready", "ok": False, "detail": "; ".join(ready.reasons)}]
         work = self.data_dir / "sandbox" / "probe"
         work.mkdir(parents=True, exist_ok=True)
+        hand_to_sandbox(work)
         spec = self.base_spec(container_name("probe", uuid.uuid4().hex[:6]), work, {"af.run": "probe"})
         spec.pass_env = forwarded_env_names(dict(os.environ))
         script = Path(__file__).with_name("probe.py").read_text().replace("__PROXY__", f"{self.cfg.proxy}:{PROXY_PORT}")
@@ -271,6 +272,14 @@ class SandboxManager:
             return json.loads(res.output.strip().splitlines()[-1])
         except (ValueError, IndexError):
             return [{"check": "probe ran", "ok": False, "detail": res.output[-1500:]}]
+
+
+def hand_to_sandbox(path: Path) -> None:
+    """A directory the engine creates for a sandbox must be writable by SANDBOX_UID.
+    As the normal runtime user (10001) it already is; when run as root (a CLI call
+    through `docker compose exec`), hand it over explicitly."""
+    if os.geteuid() == 0:
+        os.chown(path, SANDBOX_UID, SANDBOX_UID)
 
 
 class SandboxExecutor:

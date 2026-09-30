@@ -4,7 +4,43 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import pwd
+import shutil
+import sys
 from pathlib import Path
+
+RUNTIME_USER = "factory"
+
+
+def drop_root(user: str = RUNTIME_USER) -> list[str] | None:
+    """`docker compose exec factory agent-factory …` runs as root: the image starts
+    as root so its entrypoint can fix ownership, and only the main process drops to
+    `factory`. Anything the CLI then writes under /data (worktrees, exports, the
+    sandbox probe dir) would be root-owned and unwritable for the server and the
+    sandbox (uid 10001). Re-exec as the runtime user. Returns the argv it would
+    exec (None when nothing to do); outside the image there is no such user."""
+    if os.geteuid() != 0 or os.environ.get("AGENT_FACTORY_ALLOW_ROOT") == "1":
+        return None
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        return None
+    setpriv = shutil.which("setpriv")
+    if not setpriv:
+        return None
+    return [setpriv, f"--reuid={pw.pw_uid}", f"--regid={pw.pw_gid}", "--init-groups", sys.argv[0], *sys.argv[1:]]
+
+
+def run() -> None:
+    """Console-script entry point: drop root first, then run the CLI. (main() stays
+    side-effect free so tests and callers can use it in-process.)"""
+    argv = drop_root()
+    if argv:
+        pw = pwd.getpwnam(RUNTIME_USER)
+        env = {**os.environ, "HOME": pw.pw_dir, "USER": RUNTIME_USER, "LOGNAME": RUNTIME_USER}
+        os.execve(argv[0], argv, env)  # noqa: S606 - fixed argv: setpriv + our own argv
+    main()
 
 
 def main() -> None:
@@ -160,4 +196,4 @@ def _workflow(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run()
