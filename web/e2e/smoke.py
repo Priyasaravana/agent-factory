@@ -38,6 +38,11 @@ def main() -> int:
             "console",
             lambda m: m.type == "error" and "401" not in m.text and errors.append(f"console: {m.text}"),
         )
+        # the console only says "status of 500"; record which request it was
+        page.on(
+            "response",
+            lambda r: r.status >= 500 and errors.append(f"server {r.status}: {r.request.method} {r.url}"),
+        )
         try:
             step("sign in")
             page.goto(BASE + "/")

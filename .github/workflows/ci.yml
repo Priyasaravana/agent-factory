@@ -121,6 +121,11 @@ jobs:
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium
           BASE_URL=http://localhost:8080 SMOKE_SCREENSHOTS=smoke-screenshots \
             uv run --python 3.12 --with playwright python web/e2e/smoke.py
+      - name: server errors (tracebacks from the stack's logs)
+        if: failure()
+        run: |
+          docker compose logs --no-color factory auth web 2>&1 \
+            | grep -E -B3 -A40 "Traceback|\" 5[0-9][0-9] |level=error" | tail -250 || echo "no server errors logged"
       - name: collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true
