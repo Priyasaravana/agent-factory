@@ -58,4 +58,6 @@
 - Every mutating action is classified in `tests/test_access.py`: admin-only (under
   `/api/workflows` or `/api/skills`, enforced by the identity middleware) or in
   `MEMBER_ACTIONS`. A new action must be added deliberately to one of the two.
+  An action on an existing order or run also goes in `STEERING` and calls
+  `_may_steer` (the order's creator or an admin).
 - Record significant decisions as ADRs in `docs/adr/`.

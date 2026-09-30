@@ -252,6 +252,7 @@ def get_order(f: Factory, order_id: str) -> OrderDetail:
     status_code=201,
 )
 async def submit_feedback(f: Factory, order_id: str, body: FeedbackInput) -> Run:
+    _may_steer(f, order_id)
     order = f.store.get_order(order_id)
     if order:
         await _gate(f, order.product_line, "iteration")
@@ -275,11 +276,13 @@ def list_events(f: Factory, run_id: str, after: int = 0) -> list[Event]:
 
 @action("answer_questions", "Answer intake's blocking questions", "POST", "/api/runs/{run_id}/answers")
 def answer_questions(f: Factory, run_id: str, body: AnswersInput) -> Run:
+    _may_steer_run(f, run_id)
     return f.manager.answer(run_id, body.answers)
 
 
 @action("resume_run", "Resume a held, interrupted or paused run", "POST", "/api/runs/{run_id}/resume")
 async def resume_run(f: Factory, run_id: str) -> Run:
+    _may_steer_run(f, run_id)
     run = f.store.get_run(run_id)
     order = f.store.get_order(run.order_id) if run else None
     if order:
@@ -303,8 +306,15 @@ async def archive_order(f: Factory, order_id: str) -> Order:
     return await f.manager.archive(order_id, current_identity().user)
 
 
+def _may_steer_run(f: Factory, run_id: str) -> None:
+    run = f.store.get_run(run_id)
+    if run:
+        _may_steer(f, run.order_id)
+
+
 def _may_steer(f: Factory, order_id: str) -> None:
-    """Spec decisions and archiving: the order's creator or an admin."""
+    """Steering an order (feedback, answers, resume, cancel, spec decisions,
+    archive, transcripts): the order's creator or an admin."""
     who = current_identity()
     order = f.store.get_order(order_id)
     if order and not who.is_admin and order.created_by and order.created_by != who.user:
@@ -539,6 +549,7 @@ async def run_preflight(f: Factory) -> list[PreflightView]:
 
 @action("cancel_run", "Cancel a run", "POST", "/api/runs/{run_id}/cancel")
 def cancel_run(f: Factory, run_id: str) -> Run:
+    _may_steer_run(f, run_id)
     return f.manager.cancel(run_id)
 
 
