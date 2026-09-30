@@ -37,6 +37,7 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
         "build",
         "verify",
         "readiness",
+        "review",
         "package",
         "deploy",
         "acceptance",
@@ -61,7 +62,7 @@ def test_agent_md_roundtrip() -> None:
         (lambda d: d.stations[0].__setattr__("agent", "ghost"), "unknown agent"),
         (lambda d: d.agents["verifier"].__setattr__("tools", "builder"), "observe-only"),
         (lambda d: d.agents["intake"].skills.append("no-such-skill"), "unknown skill"),
-        (lambda d: d.stations[7].__setattr__("next", None), "needs `next`"),
+        (lambda d: next(s for s in d.stations if s.id == "deploy_fix").__setattr__("next", None), "needs `next`"),
     ],
 )
 def test_validation_catches_broken_lines(mutate, problem) -> None:

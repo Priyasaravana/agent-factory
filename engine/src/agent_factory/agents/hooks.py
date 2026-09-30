@@ -39,6 +39,13 @@ VERIFIER_BASH_PREFIXES = (
     "kubectl get",
     "kubectl logs",
     "kubectl describe",
+    # read-only git, for reviewers reading the iteration's change
+    "git diff",
+    "git log",
+    "git show",
+    "git status",
+    "git ls-files",
+    "git blame",
 )
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -70,6 +77,8 @@ def evaluate(
                 part = part.strip()
                 if part and not part.startswith(VERIFIER_BASH_PREFIXES):
                     return f"'{role}' is observe-only; '{part[:60]}' is not allowed"
+                if part.startswith("git ") and re.search(r"(^|\s)(--output|-o)(=|\s|$)|>", part):
+                    return f"'{role}' is observe-only; git output to a file is not allowed"
         return None
 
     if tool_name in WRITE_TOOLS:

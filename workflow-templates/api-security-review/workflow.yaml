@@ -11,6 +11,7 @@ stations:
   - {id: security-review, kind: agent, agent: security-reviewer, on_fail: build}
   - {id: verify,          kind: check, on_fail: build}
   - {id: readiness,       kind: check, on_fail: build}
+  - {id: review,          kind: agent, agent: reviewer, on_fail: build}  # spec review (ADR-0020)
   - {id: package,         kind: check, on_fail: build}
   - {id: deploy,          kind: check, on_fail: deploy_fix}
   - {id: deploy_fix,      kind: agent, agent: devops, next: deploy, only_on_fail: true}

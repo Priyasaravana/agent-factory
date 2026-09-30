@@ -46,4 +46,7 @@
   ADR-0019): always save runs through `store.save_run`. Outcome metrics are pure
   functions in `outcomes.py`; a new metric gets a definition in
   `docs/outcomes.md` and an exact-value test in `tests/test_outcomes.py`.
+- The `review` station (ADR-0020) is judged by the engine (`review.judge`), not by
+  the agent's own verdict. Keep that rule for any new judging station: the agent
+  reports evidence, deterministic code decides.
 - Record significant decisions as ADRs in `docs/adr/`.

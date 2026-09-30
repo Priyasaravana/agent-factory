@@ -76,6 +76,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - spec-driven change: numbered requirements; requirement → scenario → test → live-result traceability with a Level 3 signal; optional spec review gate (off by default); spec diff on feedback; bring your own spec (ADR-0017).
   - least-privilege change: no root in the factory's containers (one-shot offline init step; factory, auth and web without capabilities); runtime proof in CI; privileged dind documented as an accepted risk (ADR-0018).
   - outcomes change: status transition log; Outcomes page with deliveries, lead time, change failure rate, recovery, autonomy, cost per delivered change, Level 3 share, requirements verified live, where the time goes and who the factory is waiting on (ADR-0019).
+  - spec review change: built-in review station after verify/readiness; the reviewer reports on every requirement and the engine judges (partial/missing or blocker/major findings go back to build; incomplete reviews are held); review evidence per requirement in the traceability view (ADR-0020).
 - **Next:**
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.
@@ -99,7 +100,7 @@ Highest value only; each fits data or hooks we already have.
 
    Warp calls spec review the highest-leverage checkpoint.
 3. **Self-improving loop**: after feedback or a fix loop, an agent proposes changes to the relevant skill or learnings as a workflow draft that an admin approves. Corrections then become better future runs.
-4. **Review station**: a reviewer agent checks the diff against spec and design before packaging and records its findings as evidence. Part of the default template.
+4. ✅ **Review station** (done, ADR-0020): a reviewer agent checks the diff against spec and design before packaging and records its findings as evidence. Part of the default template.
 
 ## Sources
 - Factory.ai, *Software Factory: An Autonomy Maturity Model for the enterprise* (white paper, 2026)

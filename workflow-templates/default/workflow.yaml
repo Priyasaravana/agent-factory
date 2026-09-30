@@ -3,7 +3,7 @@
 # check (deterministic, engine-implemented). on_fail routes failure evidence;
 # repair stations (only_on_fail) are reached only through on_fail and go to `next`.
 name: default
-description: Spec → design → build → verify → readiness → package → deploy → independent acceptance → deliver
+description: Spec → design → build → verify → readiness → spec review → package → deploy → independent acceptance → deliver
 # Spec review gate (ADR-0017): pause after design until a person approves the spec.
 #   off (default) · first: the first iteration of an order · always: every iteration
 spec_review: "off"
@@ -13,6 +13,7 @@ stations:
   - {id: build,      kind: agent, agent: developer}
   - {id: verify,     kind: check, on_fail: build}
   - {id: readiness,  kind: check, on_fail: build}   # agent-readiness Level 3 + secret scan
+  - {id: review,     kind: agent, agent: reviewer, on_fail: build}  # spec review of the change (ADR-0020)
   - {id: package,    kind: check, on_fail: build}
   - {id: deploy,     kind: check, on_fail: deploy_fix}
   - {id: deploy_fix, kind: agent, agent: devops, next: deploy, only_on_fail: true}

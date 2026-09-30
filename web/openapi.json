@@ -3841,6 +3841,100 @@
         ],
         "title": "RequirementView"
       },
+      "ReviewFinding": {
+        "properties": {
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "file": {
+            "type": "string",
+            "title": "File",
+            "default": ""
+          },
+          "requirement": {
+            "type": "string",
+            "title": "Requirement",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "message"
+        ],
+        "title": "ReviewFinding"
+      },
+      "ReviewRequirement": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "where": {
+            "type": "string",
+            "title": "Where",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "ReviewRequirement"
+      },
+      "ReviewView": {
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "implemented": {
+            "type": "integer",
+            "title": "Implemented"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewRequirement"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewFinding"
+            },
+            "type": "array",
+            "title": "Findings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passed",
+          "implemented",
+          "total"
+        ],
+        "title": "ReviewView",
+        "description": "The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's."
+      },
       "Run": {
         "properties": {
           "id": {
@@ -4502,6 +4596,16 @@
             },
             "type": "array",
             "title": "Traceability"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

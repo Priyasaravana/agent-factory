@@ -21,7 +21,7 @@ Built-in templates:
 
 | Template | Stations |
 |---|---|
-| `default` | intake → design → build → verify → package → deploy (→ deploy_fix) → acceptance → deliver |
+| `default` | intake → design → build → verify → readiness → **review** → package → deploy (→ deploy_fix) → acceptance → deliver |
 | `api-security-review` | as `default`, plus an observe-only **security-review** after build, with a secure-coding standard |
 
 ## Agent spec (`agents/<id>.md`)
@@ -67,6 +67,7 @@ Publishing is **blocked** when an agent can't do its station's job safely:
 | design | must be able to write files | it produces the design docs |
 | build, deploy_fix | must write files and use the shell | they change code and run checks |
 | acceptance | observe-only, with shell (curl) | it sees the hidden scenarios, so it must never write |
+| review | observe-only, with shell (read-only git) | it judges the change; fixing is the builder's job |
 
 **Warnings** don't block publishing. They are raised for:
 - a recommended skill that's missing (e.g. `agent-watchdog` at acceptance);
@@ -152,6 +153,40 @@ The order's creator or an admin then chooses:
 **Bring your own spec.** On the order form, choose **I have a spec**. Paste the
 spec or load a `.md` file. Its numbered items become R1, R2, … with their
 wording kept.
+
+## Spec review station
+
+A station with id `review` runs the built-in spec review
+([ADR-0020](adr/0020-spec-review-station.md)). Put it after `verify` and
+`readiness`, so the review only looks at code that already passes its tests,
+and route `on_fail` to `build`.
+
+**What the reviewer gets:**
+- every numbered requirement;
+- what changed in this iteration (`git diff --stat main...HEAD`);
+- the change request and any spec review notes;
+- on a re-review, its own earlier blocking items, so it checks they were fixed.
+
+**What it reports:** for **every** requirement, `implemented`, `partial` or
+`missing` plus where it is implemented and tested. It also lists findings as
+`blocker`, `major` or `minor`.
+
+**How the engine judges the report:**
+
+| Report | Result |
+|---|---|
+| every requirement implemented; only minor findings | passes (minor findings are recorded) |
+| a requirement partial or missing, or a blocker/major finding | back to `build`, with the findings as evidence |
+| a requirement skipped or an unknown id cited | the reviewer retries once; then the run is **held** for a person |
+
+**Where to see it:** the Specification panel's **Traceability** tab has a
+*review* column per requirement and the findings list. The evidence file is
+`artifacts/<run>/review.json`.
+
+**Existing workflows:** they keep their version and show "template updated".
+To adopt the review, open **Edit workflow** and either start again from the
+`default` template, or add a `review` station after `readiness` using a
+`reviewer` agent with `tools: reviewer`.
 
 ## Editing in the UI
 

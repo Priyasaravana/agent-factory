@@ -6,7 +6,10 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from agent_factory.agents.runner import AgentRequest, AgentResult, EventSink
 
@@ -88,6 +91,17 @@ class FakeAgentRunner:
                 fh.write(f"- {req.role} pass for {req.station}\n")
 
     def _structured(self, req: AgentRequest) -> Any:
+        props = (req.output_schema or {}).get("properties", {})
+        if "findings" in props and "requirements" in props:  # spec review (ADR-0020)
+            reqs = yaml.safe_load((Path(req.cwd) / "docs" / "requirements.yaml").read_text()) or []
+            return {
+                "summary": "every requirement is implemented and tested",
+                "requirements": [
+                    {"id": r["id"], "status": "implemented", "where": f"app/main.py, test tagged {r['id']}"}
+                    for r in reqs
+                ],
+                "findings": [{"severity": "minor", "message": "consider pagination later", "file": "app/main.py"}],
+            }
         if req.output_schema and "findings" in req.output_schema.get("properties", {}):
             return {"passed": True, "summary": f"{req.role} checks passed", "findings": []}
         if req.role == "intake":

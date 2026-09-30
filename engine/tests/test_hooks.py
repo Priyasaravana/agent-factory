@@ -55,3 +55,19 @@ def test_observe_only_follows_preset_not_name() -> None:
     assert evaluate("security-reviewer", "Bash", {"command": "make verify"}, CWD, HOLD, True)
     # and a builder named "verifier" would not (names carry no privileges)
     assert evaluate("verifier", "Bash", {"command": "make verify"}, CWD, HOLD, False) is None
+
+
+# Reviewers (observe-only) read the iteration's change with git, and nothing else (ADR-0020).
+@pytest.mark.parametrize(
+    "cmd", ["git diff main...HEAD", "git log --oneline -5", "git show HEAD:app/main.py", "git diff --stat main...HEAD"]
+)
+def test_reviewers_may_read_git(cmd: str) -> None:
+    assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True) is None
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["git commit -am x", "git checkout main", "git diff --output=/tmp/x", "git diff -o x", "git log > notes.txt"],
+)
+def test_reviewers_cannot_change_anything_with_git(cmd: str) -> None:
+    assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True)

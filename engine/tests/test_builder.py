@@ -63,11 +63,11 @@ async def test_add_station_guardrails(make_factory):
 
 async def test_agent_station_without_agent_blocks_publish(make_factory):
     d = make_factory().workflows[WF].draft
-    d.add_station(WorkflowStation(id="review", kind="agent"), position=3)
+    d.add_station(WorkflowStation(id="second-look", kind="agent"), position=3)
     assert any("must name an agent" in p for p in d.problems())
     with pytest.raises(WorkflowError):
         d.publish("incomplete")
-    d.update_station("review", {"agent": "verifier"})
+    d.update_station("second-look", {"agent": "verifier"})
     assert d.problems() == []
 
 
@@ -91,9 +91,8 @@ async def test_reorder_and_update_routes(make_factory):
     ids = [s.id for s in d.get()[1].stations]
     with pytest.raises(WorkflowError, match="exactly once"):
         d.reorder_stations(ids[:-1])
-    swapped = ids.copy()
-    i, j = swapped.index("package"), swapped.index("verify")
-    swapped[i], swapped[j] = swapped[j], swapped[i]
+    swapped = [s for s in ids if s != "verify"]
+    swapped.insert(swapped.index("package") + 1, "verify")  # a check may run anywhere, e.g. after package
     d.reorder_stations(swapped)
     assert [s.id for s in d.get()[1].stations] == swapped
     assert d.problems() == [], "verify may run anywhere"
