@@ -473,6 +473,249 @@
         }
       }
     },
+    "/api/runs/{run_id}/spec": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
+        "description": "The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
+        "operationId": "get_run_spec",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Spec review gate: edit the product spec or technical design directly",
+        "description": "Spec review gate: edit the product spec or technical design directly",
+        "operationId": "edit_spec",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecEditInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/spec/approve": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Spec review gate: approve the spec; the run continues to build",
+        "description": "Spec review gate: approve the spec; the run continues to build",
+        "operationId": "approve_spec",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/spec/changes": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Spec review gate: send the spec back to intake and design with your notes",
+        "description": "Spec review gate: send the spec back to intake and design with your notes",
+        "operationId": "request_spec_changes",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecReviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/settings": {
+      "patch": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Workflow settings in the draft (spec review gate: off | first | always)",
+        "description": "Workflow settings in the draft (spec review gate: off | first | always)",
+        "operationId": "set_workflow_settings",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/preflight": {
       "get": {
         "tags": [
@@ -2442,7 +2685,7 @@
           },
           "requirements": {
             "type": "string",
-            "maxLength": 20000,
+            "maxLength": 60000,
             "minLength": 10,
             "title": "Requirements"
           },
@@ -2450,6 +2693,15 @@
             "type": "string",
             "title": "Product Line",
             "default": "fastapi-service"
+          },
+          "requirements_format": {
+            "type": "string",
+            "enum": [
+              "prose",
+              "spec"
+            ],
+            "title": "Requirements Format",
+            "default": "prose"
           }
         },
         "type": "object",
@@ -2620,6 +2872,11 @@
             },
             "type": "array",
             "title": "Docs"
+          },
+          "spec_review": {
+            "type": "string",
+            "title": "Spec Review",
+            "default": "off"
           }
         },
         "type": "object",
@@ -3005,6 +3262,15 @@
             "type": "string",
             "title": "Requirements"
           },
+          "requirements_format": {
+            "type": "string",
+            "enum": [
+              "prose",
+              "spec"
+            ],
+            "title": "Requirements Format",
+            "default": "prose"
+          },
           "product_line": {
             "type": "string",
             "title": "Product Line"
@@ -3275,6 +3541,29 @@
         ],
         "title": "ReorderStationsInput"
       },
+      "RequirementView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "RequirementView"
+      },
       "Run": {
         "properties": {
           "id": {
@@ -3395,6 +3684,24 @@
             "title": "Cost Usd",
             "default": 0.0
           },
+          "spec_approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec Approved By"
+          },
+          "review_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Notes"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3451,10 +3758,46 @@
           "held",
           "interrupted",
           "awaiting_feedback",
+          "awaiting_approval",
           "cancelled",
           "failed"
         ],
         "title": "RunStatus"
+      },
+      "ScenarioView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "given": {
+            "type": "string",
+            "title": "Given"
+          },
+          "when": {
+            "type": "string",
+            "title": "When"
+          },
+          "then": {
+            "type": "string",
+            "title": "Then"
+          },
+          "covers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Covers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "given",
+          "when",
+          "then"
+        ],
+        "title": "ScenarioView"
       },
       "SkillDetail": {
         "properties": {
@@ -3754,6 +4097,144 @@
         ],
         "title": "SkillVersionInfo"
       },
+      "SpecEditInput": {
+        "properties": {
+          "product": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "technical": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical"
+          }
+        },
+        "type": "object",
+        "title": "SpecEditInput",
+        "description": "Direct edits while the spec awaits review (requirements change via request-changes,\nso intake keeps scenarios and requirement ids consistent)."
+      },
+      "SpecReviewInput": {
+        "properties": {
+          "comment": {
+            "type": "string",
+            "maxLength": 5000,
+            "minLength": 3,
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "comment"
+        ],
+        "title": "SpecReviewInput"
+      },
+      "SpecView": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "gate": {
+            "type": "string",
+            "title": "Gate"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "product": {
+            "type": "string",
+            "title": "Product",
+            "default": ""
+          },
+          "technical": {
+            "type": "string",
+            "title": "Technical",
+            "default": ""
+          },
+          "openapi": {
+            "type": "string",
+            "title": "Openapi",
+            "default": ""
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementView"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "acceptance": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioView"
+            },
+            "type": "array",
+            "title": "Acceptance"
+          },
+          "holdout_count": {
+            "type": "integer",
+            "title": "Holdout Count",
+            "default": 0
+          },
+          "changes": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Changes"
+          },
+          "review_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Notes"
+          },
+          "traceability": {
+            "items": {
+              "$ref": "#/components/schemas/TraceRow"
+            },
+            "type": "array",
+            "title": "Traceability"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "gate"
+        ],
+        "title": "SpecView"
+      },
       "StationAgentInput": {
         "properties": {
           "agent": {
@@ -3881,6 +4362,45 @@
         ],
         "title": "TemplateInfo"
       },
+      "TraceRow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "scenarios": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scenarios"
+          },
+          "tests": {
+            "type": "integer",
+            "title": "Tests",
+            "default": 0
+          },
+          "holdout": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Holdout"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "TraceRow",
+        "description": "One requirement, traced: scenarios -> tagged tests -> live acceptance."
+      },
       "UpdateStationInput": {
         "properties": {
           "on_fail": {
@@ -3982,6 +4502,24 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkflowSettingsInput": {
+        "properties": {
+          "spec_review": {
+            "type": "string",
+            "enum": [
+              "off",
+              "first",
+              "always"
+            ],
+            "title": "Spec Review"
+          }
+        },
+        "type": "object",
+        "required": [
+          "spec_review"
+        ],
+        "title": "WorkflowSettingsInput"
       },
       "WorkflowSummary": {
         "properties": {
@@ -4154,6 +4692,11 @@
             },
             "type": "array",
             "title": "Warnings"
+          },
+          "spec_review": {
+            "type": "string",
+            "title": "Spec Review",
+            "default": "off"
           },
           "environment": {
             "type": "string",

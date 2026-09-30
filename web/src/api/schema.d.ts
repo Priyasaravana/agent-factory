@@ -208,6 +208,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/spec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
+         * @description The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
+         */
+        get: operations["get_run_spec"];
+        /**
+         * Spec review gate: edit the product spec or technical design directly
+         * @description Spec review gate: edit the product spec or technical design directly
+         */
+        put: operations["edit_spec"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/spec/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Spec review gate: approve the spec; the run continues to build
+         * @description Spec review gate: approve the spec; the run continues to build
+         */
+        post: operations["approve_spec"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/spec/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Spec review gate: send the spec back to intake and design with your notes
+         * @description Spec review gate: send the spec back to intake and design with your notes
+         */
+        post: operations["request_spec_changes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Workflow settings in the draft (spec review gate: off | first | always)
+         * @description Workflow settings in the draft (spec review gate: off | first | always)
+         */
+        patch: operations["set_workflow_settings"];
+        trace?: never;
+    };
     "/api/preflight": {
         parameters: {
             query?: never;
@@ -974,6 +1058,12 @@ export interface components {
              * @default fastapi-service
              */
             product_line: string;
+            /**
+             * Requirements Format
+             * @default prose
+             * @enum {string}
+             */
+            requirements_format: "prose" | "spec";
         };
         /** DecisionInput */
         DecisionInput: {
@@ -1035,6 +1125,11 @@ export interface components {
             agents: components["schemas"]["AgentView"][];
             /** Docs */
             docs: components["schemas"]["RefDoc"][];
+            /**
+             * Spec Review
+             * @default off
+             */
+            spec_review: string;
         };
         /** DuplicateAgentInput */
         DuplicateAgentInput: {
@@ -1202,6 +1297,12 @@ export interface components {
             title: string;
             /** Requirements */
             requirements: string;
+            /**
+             * Requirements Format
+             * @default prose
+             * @enum {string}
+             */
+            requirements_format: "prose" | "spec";
             /** Product Line */
             product_line: string;
             /** Product Slug */
@@ -1284,6 +1385,18 @@ export interface components {
             /** Order */
             order: string[];
         };
+        /** RequirementView */
+        RequirementView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
         /** Run */
         Run: {
             /** Id */
@@ -1328,6 +1441,10 @@ export interface components {
              * @default 0
              */
             cost_usd: number;
+            /** Spec Approved By */
+            spec_approved_by?: string | null;
+            /** Review Notes */
+            review_notes?: string[];
             /**
              * Created At
              * Format: date-time
@@ -1350,7 +1467,20 @@ export interface components {
          * RunStatus
          * @enum {string}
          */
-        RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "cancelled" | "failed";
+        RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "cancelled" | "failed";
+        /** ScenarioView */
+        ScenarioView: {
+            /** Id */
+            id: string;
+            /** Given */
+            given: string;
+            /** When */
+            when: string;
+            /** Then */
+            then: string;
+            /** Covers */
+            covers?: string[];
+        };
         /** SkillDetail */
         SkillDetail: {
             skill: components["schemas"]["SkillInfo"];
@@ -1455,6 +1585,65 @@ export interface components {
             /** Current */
             current: boolean;
         };
+        /**
+         * SpecEditInput
+         * @description Direct edits while the spec awaits review (requirements change via request-changes,
+         *     so intake keeps scenarios and requirement ids consistent).
+         */
+        SpecEditInput: {
+            /** Product */
+            product?: string | null;
+            /** Technical */
+            technical?: string | null;
+        };
+        /** SpecReviewInput */
+        SpecReviewInput: {
+            /** Comment */
+            comment: string;
+        };
+        /** SpecView */
+        SpecView: {
+            /** Run Id */
+            run_id: string;
+            /** Status */
+            status: string;
+            /** Gate */
+            gate: string;
+            /** Approved By */
+            approved_by?: string | null;
+            /**
+             * Product
+             * @default
+             */
+            product: string;
+            /**
+             * Technical
+             * @default
+             */
+            technical: string;
+            /**
+             * Openapi
+             * @default
+             */
+            openapi: string;
+            /** Requirements */
+            requirements?: components["schemas"]["RequirementView"][];
+            /** Acceptance */
+            acceptance?: components["schemas"]["ScenarioView"][];
+            /**
+             * Holdout Count
+             * @default 0
+             */
+            holdout_count: number;
+            /** Changes */
+            changes?: {
+                [key: string]: string[];
+            };
+            /** Review Notes */
+            review_notes?: string[];
+            /** Traceability */
+            traceability?: components["schemas"]["TraceRow"][];
+        };
         /** StationAgentInput */
         StationAgentInput: {
             /** Agent */
@@ -1495,6 +1684,27 @@ export interface components {
             docs: string[];
         };
         /**
+         * TraceRow
+         * @description One requirement, traced: scenarios -> tagged tests -> live acceptance.
+         */
+        TraceRow: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Scenarios */
+            scenarios?: string[];
+            /**
+             * Tests
+             * @default 0
+             */
+            tests: number;
+            /** Holdout */
+            holdout?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
          * UpdateStationInput
          * @description Only the fields that are sent are changed; send null to clear a route.
          */
@@ -1522,6 +1732,14 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorkflowSettingsInput */
+        WorkflowSettingsInput: {
+            /**
+             * Spec Review
+             * @enum {string}
+             */
+            spec_review: "off" | "first" | "always";
         };
         /** WorkflowSummary */
         WorkflowSummary: {
@@ -1599,6 +1817,11 @@ export interface components {
             docs?: components["schemas"]["RefDoc"][];
             /** Warnings */
             warnings?: string[];
+            /**
+             * Spec Review
+             * @default off
+             */
+            spec_review: string;
             /**
              * Environment
              * @default local
@@ -1934,6 +2157,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Order"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_spec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpecView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_spec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpecEditInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpecView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_spec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_spec_changes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpecReviewInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_workflow_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSettingsInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
                 };
             };
             /** @description Validation Error */

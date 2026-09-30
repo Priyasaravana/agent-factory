@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_factory.traceability import untraced
+
 POINTS = {1: 1, 2: 2, 3: 4}
 
 
@@ -146,6 +148,14 @@ SIGNALS: list[Signal] = [
         "distributed tracing hook",
         lambda r: "opentelemetry" in _app_text(r),
         "keep OpenTelemetry setup (app/observability.py)",
+    ),
+    Signal(
+        "requirements_traced",
+        3,
+        "every requirement traced to a scenario and a test",
+        lambda r: not untraced(r),
+        "cover each requirement in docs/requirements.yaml with an acceptance scenario and a test "
+        'tagged @pytest.mark.req("R…")',
     ),
     Signal(
         "design_docs",

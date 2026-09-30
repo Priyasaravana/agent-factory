@@ -9,8 +9,11 @@ Verify, Package and Deploy stations depend on them.
 - `app/` — add routers as `app/routers/<resource>.py`, models in `app/models.py`,
   schemas (pydantic v2) in `app/schemas.py`.
 - `tests/` — pytest; tests run against SQLite (`DATABASE_URL=sqlite://`).
-- `tests/acceptance/scenarios.yaml` — acceptance scenarios from Intake. Turn each
-  into at least one test in `tests/test_acceptance.py`.
+- `docs/requirements.yaml` — the numbered requirements (R1, R2, …) from Intake; the
+  product spec is `docs/spec.md`, the technical design `docs/design.md`.
+- `tests/acceptance/scenarios.yaml` — acceptance scenarios from Intake, each listing
+  the requirements it `covers`. Turn each into at least one test in
+  `tests/test_acceptance.py`.
 - `app/observability.py` — JSON logs with request ids, Prometheus `/metrics`,
   OpenTelemetry tracing (on when `OTEL_EXPORTER_OTLP_ENDPOINT` is set). Keep it wired
   in `app/main.py`; log with `logging.getLogger(__name__)`, never `print`.
@@ -20,6 +23,8 @@ Verify, Package and Deploy stations depend on them.
 - `docs/` — spec, design, openapi, tasks (written by Intake/Design).
 
 ## Rules
+- Traceability: tag every test with the requirements it covers,
+  `@pytest.mark.req("R1", "R3")`. Every requirement needs a scenario and a tagged test.
 - `make verify` must pass: ruff (lint + format), pytest with coverage >= 80%, bandit.
 - This repo starts at agent-readiness Level 3. The factory's Readiness station fails the
   run if a signal goes missing: keep README, AGENTS.md, lockfile, Dockerfile, CI workflow,

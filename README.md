@@ -21,6 +21,12 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   *inside* the stations. An LLM never picks the route.
 - **Two human touchpoints.** You give requirements (and answer questions only
   when intake has no safe assumption). After deploy, you give feedback.
+  Optionally, a third: review the spec before anything is built.
+- **Spec-driven.** Requirements become numbered items (R1, R2, …). Each one is
+  traced to its scenarios, to its tagged tests and to a live result from a
+  hidden scenario. An optional per-workflow gate lets a person approve, edit or
+  send back the spec before build. You can also bring your own spec
+  ([ADR-0017](docs/adr/0017-spec-driven-development.md)).
 - **Evidence over claims.** Checks are deterministic. Acceptance is done by an
   independent verifier agent. It runs **holdout scenarios** that the builder
   never sees against the live app.

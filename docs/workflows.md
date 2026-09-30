@@ -113,6 +113,46 @@ stations:
 
 Older `line.yaml` files are still read.
 
+## Spec-driven development
+
+Details and rationale: [ADR-0017](adr/0017-spec-driven-development.md).
+
+**What intake produces.** Intake turns the order into three things:
+- numbered requirements in `docs/requirements.yaml` (`R1`, `R2`, …);
+- a product spec, `docs/spec.md`;
+- acceptance and hidden scenarios, each listing the requirements it `covers`.
+
+Design then writes the technical design (`docs/design.md`). The build station
+tags tests with `@pytest.mark.req("R1")`.
+
+**What the factory checks.**
+- Each requirement must be covered by at least one scenario. Intake gets one
+  correction attempt, then the run is held.
+- The Readiness station checks that every requirement has a scenario and a
+  tagged test (`requirements_traced`).
+- Acceptance records which hidden scenarios verified which requirement live.
+
+**Seeing it.** The run page's **Specification** panel has tabs for
+Requirements, Product spec, Technical design, API and **Traceability**
+(requirement → scenarios → tagged tests → live result). On later iterations,
+chips such as `+R3 ~R1` show how feedback changed the requirements.
+
+**Spec review gate.** Set it in `workflow.yaml` (`spec_review: "off" | "first" | "always"`,
+default `"off"`; quote the value) or in the editor's **Spec review gate** card.
+When the gate applies, the run stops after design with **spec ready for review**.
+The order's creator or an admin then chooses:
+- **Approve & build:** the run continues to build.
+- **Request changes:** the run goes back through intake and design with your
+  notes.
+- **Edit:** fix the product spec or technical design directly; the edit is
+  committed under your name.
+
+`first` gates only iteration 1. `always` also gates every feedback iteration.
+
+**Bring your own spec.** On the order form, choose **I have a spec**. Paste the
+spec or load a `.md` file. Its numbered items become R1, R2, … with their
+wording kept.
+
 ## Editing in the UI
 
 **Workflows → (product line) → Edit workflow** opens the product line's draft.
@@ -134,6 +174,7 @@ The draft saves as you go and never runs.
   tool preset and narrowing, skills, reference docs, earlier-iteration recall,
   learnings, turn budget, promised outputs and prompt.
 - **Reference docs:** create, edit and delete.
+- **Spec review gate:** Off, First iteration or Every iteration (see above).
 - **Publish** validates the draft (problems and suggestions are listed live)
   and stores it as the next active version. **Discard** drops the draft.
 

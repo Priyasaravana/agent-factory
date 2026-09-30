@@ -4,6 +4,7 @@ Lets you exercise a whole workflow (UI, gates, loops, resume) for free."""
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,7 +78,11 @@ class FakeAgentRunner:
         if req.role == "developer":
             tests = req.cwd / "tests"
             tests.mkdir(exist_ok=True)
-            (tests / "test_acceptance.py").write_text("def test_acceptance_dry_run() -> None:\n    assert True\n")
+            reqs = req.cwd / "docs" / "requirements.yaml"
+            ids = re.findall(r"id: (R\d+)", reqs.read_text()) if reqs.exists() else ["R1"]
+            tags = ", ".join(f'"{i}"' for i in ids)
+            body = f"@pytest.mark.req({tags})\ndef test_acceptance_dry_run() -> None:\n    assert True\n"
+            (tests / "test_acceptance.py").write_text("import pytest\n\n\n" + body)
         if req.role in ("developer", "devops"):
             with (docs / "build-log.md").open("a") as fh:
                 fh.write(f"- {req.role} pass for {req.station}\n")
@@ -102,12 +107,24 @@ class FakeAgentRunner:
 _SPEC: dict[str, Any] = {
     "product_name": "Bookmarks",
     "spec_markdown": "# Bookmarks service\n\nSave, tag and search bookmarks and notes.\n",
+    "requirements": [
+        {"id": "R1", "title": "Save a bookmark", "detail": "POST /bookmarks with url and title returns it with an id"},
+        {"id": "R2", "title": "Filter by tag", "detail": "GET /bookmarks?tag=x returns only bookmarks tagged x"},
+    ],
     "acceptance_scenarios": [
         {
             "id": "A1",
             "given": "an empty store",
             "when": "POST /bookmarks with url+title",
             "then": "201 and the bookmark is returned with an id",
+            "covers": ["R1"],
+        },
+        {
+            "id": "A2",
+            "given": "a bookmark tagged 'x'",
+            "when": "GET /bookmarks?tag=x",
+            "then": "it is listed",
+            "covers": ["R2"],
         },
     ],
     "holdout_scenarios": [
@@ -116,6 +133,7 @@ _SPEC: dict[str, Any] = {
             "given": "two bookmarks tagged 'x' and 'y'",
             "when": "GET /bookmarks?tag=x",
             "then": "only the 'x' bookmark is returned",
+            "covers": ["R2"],
         },
     ],
     "assumptions": ["No authentication in v0 (single user, local cluster)."],

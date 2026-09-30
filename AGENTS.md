@@ -31,4 +31,8 @@
   keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's
   Python (factory/auth images, CI) is one version; apps pick theirs from the
   sandbox's `APP_PYTHONS` (`tests/test_python_versions.py`).
+- Generated apps are spec-driven (ADR-0017): every requirement in
+  `docs/requirements.yaml` is covered by a scenario (`covers`) and a test tagged
+  `@pytest.mark.req("R1")`. Coverage checks live in `traceability.py`; keep
+  them pure functions of the repo's files.
 - Record significant decisions as ADRs in `docs/adr/`.

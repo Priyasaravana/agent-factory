@@ -4,6 +4,9 @@
 # repair stations (only_on_fail) are reached only through on_fail and go to `next`.
 name: default
 description: Spec → design → build → verify → readiness → package → deploy → independent acceptance → deliver
+# Spec review gate (ADR-0017): pause after design until a person approves the spec.
+#   off (default) · first: the first iteration of an order · always: every iteration
+spec_review: "off"
 stations:
   - {id: intake,     kind: agent, agent: intake}
   - {id: design,     kind: agent, agent: architect}

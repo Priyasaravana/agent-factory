@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from agent_factory import traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
@@ -245,6 +246,7 @@ SPEC_SCHEMA: dict[str, Any] = {
     "required": [
         "product_name",
         "spec_markdown",
+        "requirements",
         "acceptance_scenarios",
         "holdout_scenarios",
         "assumptions",
@@ -253,6 +255,18 @@ SPEC_SCHEMA: dict[str, Any] = {
     "properties": {
         "product_name": {"type": "string"},
         "spec_markdown": {"type": "string"},
+        "requirements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "title", "detail"],
+                "properties": {
+                    "id": {"type": "string", "pattern": "^R[0-9]+$"},
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                },
+            },
+        },
         "acceptance_scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
         "holdout_scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
         "assumptions": {"type": "array", "items": {"type": "string"}},
@@ -261,17 +275,48 @@ SPEC_SCHEMA: dict[str, Any] = {
     "$defs": {
         "scenario": {
             "type": "object",
-            "required": ["id", "given", "when", "then"],
-            "properties": {k: {"type": "string"} for k in ("id", "given", "when", "then")},
+            "required": ["id", "given", "when", "then", "covers"],
+            "properties": {
+                **{k: {"type": "string"} for k in ("id", "given", "when", "then")},
+                "covers": {"type": "array", "items": {"type": "string", "pattern": "^R[0-9]+$"}},
+            },
         }
     },
 }
 
 
+def _review_notes(ctx: StationContext) -> str:
+    notes = ctx.run.review_notes
+    if not notes:
+        return ""
+    return "## Reviewer notes on the spec (address every point)\n" + "\n".join(f"- {n}" for n in notes) + "\n"
+
+
+def _validate_spec(spec: dict[str, Any]) -> list[str]:
+    reqs = spec.get("requirements") or []
+    problems = [] if reqs else ["no numbered requirements (R1, R2, …)"]
+    problems += traceability.coverage_problems(reqs, spec.get("acceptance_scenarios") or [], "acceptance")
+    problems += [
+        p
+        for p in traceability.coverage_problems(reqs, spec.get("holdout_scenarios") or [], "holdout")
+        if "unknown requirement" in p or "duplicate" in p  # hidden coverage may be partial
+    ]
+    return problems
+
+
 async def intake(ctx: StationContext) -> StationResult:
     spec_path = ctx.worktree / "docs" / "spec.md"
+    old_reqs = traceability.requirements(ctx.worktree)
     qa = "\n".join(f"Q: {q}\nA: {a}" for q, a in zip(ctx.run.questions, ctx.run.answers, strict=False))
-    prompt = f"""Turn these requirements into a build-ready specification.
+    given = (
+        "The requirements below are an EXISTING SPECIFICATION written by the customer. Preserve its "
+        "structure and wording; map its numbered items 1:1 to requirement ids; only add what is missing "
+        "(record each addition as an assumption)."
+        if ctx.order.requirements_format == "spec"
+        else "Turn these requirements into a build-ready specification."
+    )
+    current_reqs = yaml.safe_dump(old_reqs, sort_keys=False) if old_reqs else "none"
+    prompt = f"""{given}
 
 ## Order: {ctx.order.title}
 {ctx.order.requirements}
@@ -279,27 +324,48 @@ async def intake(ctx: StationContext) -> StationResult:
 ## Change request for this iteration (from human feedback)
 {ctx.run.change_request or "none — first iteration"}
 
+{_review_notes(ctx)}
 ## Answers to your earlier questions
 {qa or "none"}
 
 ## Current spec (update it, do not start over, when present)
 {_read(spec_path) or "none"}
 
+## Current numbered requirements (keep ids stable; new ones get the next number; drop removed ones)
+{current_reqs}
+
 Product line: {ctx.order.product_line} — {ctx.product_line.description}.
+Write the spec for a product reader (user journeys, behaviour, rules), not implementation.
+Number every requirement (R1, R2, …). Every acceptance and holdout scenario lists in `covers`
+the requirement ids it checks; every requirement needs at least one acceptance scenario.
 Only put a question in blocking_questions if no reasonable assumption exists.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
     res = await ctx.agent(prompt, SPEC_SCHEMA)
     if lim := _limit_result(res):
         return lim
-    if not res.ok:
+    if res.ok and isinstance(res.structured, dict) and (problems := _validate_spec(res.structured)):
+        # one in-station correction: the contract must be traceable before anyone builds on it
+        await ctx.emit(EventKind.log, "spec incomplete, asking intake to fix it", {"problems": problems})
+        res = await ctx.agent(
+            prompt + "\n\n## Your previous spec had these problems — fix all of them\n" + "\n".join(problems),
+            SPEC_SCHEMA,
+        )
+        if lim := _limit_result(res):
+            return lim
+    if not res.ok or not isinstance(res.structured, dict):
         return StationResult(StationOutcome.failed, "intake agent failed", res.error)
     spec = res.structured
+    problems = _validate_spec(spec)
+    if problems:
+        return StationResult(StationOutcome.failed, "spec is not traceable", "\n".join(problems))
     questions = [q for q in spec.get("blocking_questions", []) if q.strip()]
     if questions and not ctx.run.answers:
         return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
 
     (ctx.worktree / "docs").mkdir(exist_ok=True)
     spec_path.write_text(spec["spec_markdown"])
+    reqs = [{"id": r["id"], "title": r["title"], "detail": r.get("detail", "")} for r in spec["requirements"]]
+    (ctx.worktree / "docs" / "requirements.yaml").write_text(yaml.safe_dump(reqs, sort_keys=False))
     acc = ctx.worktree / "tests" / "acceptance"
     acc.mkdir(parents=True, exist_ok=True)
     (acc / "scenarios.yaml").write_text(yaml.safe_dump(spec["acceptance_scenarios"], sort_keys=False))
@@ -308,25 +374,38 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     (hold / "scenarios.yaml").write_text(yaml.safe_dump(spec["holdout_scenarios"], sort_keys=False))
     for a in spec.get("assumptions", []):
         await ctx.emit(EventKind.decision, f"assumption: {a}")
-    await ctx.ws.commit_all(ctx.worktree, "docs: specification and acceptance scenarios")
+    change = traceability.diff(old_reqs, reqs)
+    if old_reqs:
+        parts = [f"+{', +'.join(change['added'])}" if change["added"] else ""]
+        parts += [f"~{', ~'.join(change['changed'])}" if change["changed"] else ""]
+        parts += [f"−{', −'.join(change['removed'])}" if change["removed"] else ""]
+        summary = " ".join(p for p in parts if p) or "no requirement changes"
+        await ctx.emit(EventKind.decision, f"spec updated: {summary}", {"spec_changes": change})
+    else:
+        await ctx.emit(EventKind.decision, f"spec: {len(reqs)} numbered requirements", {"spec_changes": {}})
+    await ctx.ws.commit_all(ctx.worktree, "docs: specification, requirements and acceptance scenarios")
     return StationResult(
         StationOutcome.passed,
-        f"spec written; {len(spec['acceptance_scenarios'])} acceptance, "
+        f"spec written; {len(reqs)} requirements, {len(spec['acceptance_scenarios'])} acceptance, "
         f"{len(spec['holdout_scenarios'])} holdout scenarios",
     )
 
 
 # ------------------------------------------------------------------ design --
 async def design(ctx: StationContext) -> StationResult:
-    prompt = f"""Design the implementation for the spec in docs/spec.md, following the
-golden path already in this repo (read AGENTS.md first).
+    prompt = f"""Design the implementation for the spec in docs/spec.md and the numbered
+requirements in docs/requirements.yaml, following the golden path already in this
+repo (read AGENTS.md first).
 
 Write:
-  docs/design.md   — architecture, data model, key decisions (ADR style)
+  docs/design.md   — architecture, data model, key decisions (ADR style); cite the
+                     requirement ids (R1, …) each decision serves
   docs/openapi.yaml — the HTTP contract
-  docs/tasks.md    — ordered implementation tasks, each with its test
+  docs/tasks.md    — ordered implementation tasks, each with its test and the
+                     requirement ids it implements
 
-Change request this iteration: {ctx.run.change_request or "none"}"""
+Change request this iteration: {ctx.run.change_request or "none"}
+{_review_notes(ctx)}"""
     res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
@@ -343,6 +422,9 @@ async def build(ctx: StationContext) -> StationResult:
     prompt = f"""Implement docs/tasks.md against docs/design.md and docs/openapi.yaml.
 Read AGENTS.md first. Write tests alongside code. `{ctx.product_line.verify_command}` must pass.
 Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
+Traceability: tag every test with the requirement ids it covers, e.g.
+`@pytest.mark.req("R1", "R3")` (ids from docs/requirements.yaml). Every requirement
+needs at least one tagged test; the Readiness station checks this.
 
 {"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
     res = await ctx.agent(prompt)
@@ -543,6 +625,7 @@ scenarios. Exercise each one with real HTTP calls (curl). Record concrete eviden
     if not res.ok or not isinstance(res.structured, dict):
         return StationResult(StationOutcome.failed, "verifier produced no verdict", res.error)
     verdict = res.structured
+    await _record_traceability(ctx, hold, verdict.get("results", []))
     failed = [r for r in verdict.get("results", []) if not r.get("passed")]
     all_passed = bool(verdict.get("passed")) and not failed and verdict.get("results")
     if all_passed:
@@ -553,6 +636,22 @@ scenarios. Exercise each one with real HTTP calls (curl). Record concrete eviden
         StationOutcome.failed,
         f"{len(failed)} holdout scenario(s) failed",
         "Live acceptance found incorrect behaviour:\n" + evidence,
+    )
+
+
+async def _record_traceability(ctx: StationContext, holdout_file: Path, results: list[dict[str, Any]]) -> None:
+    """Requirement -> scenarios -> tests -> live result, as evidence and as a file."""
+    rows = traceability.matrix(ctx.worktree, traceability.scenarios(holdout_file), results)
+    if not rows:
+        return
+    verified = [r for r in rows if r["holdout"] and all(h["passed"] for h in r["holdout"])]
+    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "traceability.json").write_text(json.dumps(rows, indent=2))
+    await ctx.emit(
+        EventKind.decision,
+        f"traceability: {len(verified)}/{len(rows)} requirements verified live by hidden scenarios",
+        {"traceability": rows},
     )
 
 

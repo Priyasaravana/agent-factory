@@ -113,6 +113,7 @@ class RunManager:
             requirements=data.requirements,
             product_line=data.product_line,
             product_slug=slug,
+            requirements_format=data.requirements_format,
             created_at=_now(),
             node_port=node_port,
             host_port=self.settings.app_host_port_base + line.node_ports.index(node_port),
@@ -225,6 +226,62 @@ class RunManager:
         self.store.save_run(run)
         self.store.add_event(run.id, EventKind.decision, "run resumed by human", station=run.current_station)
         self._schedule(run.id)
+        return run
+
+    # ------------------------------------------------------- spec review ---
+    def _awaiting_spec(self, run_id: str) -> Run:
+        run = self._get(run_id)
+        if run.status != RunStatus.awaiting_approval:
+            raise FactoryError(f"run is '{run.status}', not waiting for spec review")
+        return run
+
+    def approve_spec(self, run_id: str, by: str) -> Run:
+        run = self._awaiting_spec(run_id)
+        run.spec_approved_by = by
+        run.status = RunStatus.queued
+        run.summary = None
+        self.store.save_run(run)
+        self._sync_order(run)
+        self.store.add_event(run.id, EventKind.decision, f"spec approved by {by}", data={"approved_by": by})
+        self._schedule(run.id)
+        return run
+
+    def request_spec_changes(self, run_id: str, by: str, comment: str) -> Run:
+        """Back to intake with the reviewer's notes; design follows, then the gate again."""
+        run = self._awaiting_spec(run_id)
+        order = self.store.get_order(run.order_id)
+        flow = self.workflows[run.workflow_id or (order.product_line if order else "")].get(run.workflow_version)
+        first = flow.forward_stations()[0].id
+        run.review_notes.append(f"{comment} (by {by})")
+        for sid in [s.id for s in flow.forward_stations()]:
+            run.attempts.pop(sid, None)
+            if flow.station(sid).resolved_handler() == "design":
+                break
+        run.current_station = first
+        run.status = RunStatus.queued
+        run.summary = None
+        self.store.save_run(run)
+        self._sync_order(run)
+        self.store.add_event(
+            run.id, EventKind.decision, f"spec changes requested by {by}: {comment}", data={"requested_by": by}
+        )
+        self._schedule(run.id)
+        return run
+
+    async def edit_spec(self, run_id: str, by: str, product: str | None, technical: str | None) -> Run:
+        run = self._awaiting_spec(run_id)
+        wt = self.ws.run_dir(run.id)
+        changed = []
+        for rel, text in (("docs/spec.md", product), ("docs/design.md", technical)):
+            if text is not None and text != ((wt / rel).read_text() if (wt / rel).exists() else None):
+                (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+                (wt / rel).write_text(text)
+                changed.append(rel)
+        if changed:
+            await self.ws.commit_all(wt, f"docs: spec edited in review by {by}")
+            self.store.add_event(
+                run.id, EventKind.decision, f"spec edited by {by}: {', '.join(changed)}", data={"files": changed}
+            )
         return run
 
     def cancel(self, run_id: str) -> Run:
@@ -385,6 +442,21 @@ class RunManager:
                     run.status = RunStatus.awaiting_feedback
                     run.summary = result.summary
                     self.store.add_event(run.id, EventKind.status, "delivered — feedback gate open", station=sid)
+                elif (
+                    station.resolved_handler() == "design"
+                    and flow.spec_gate_applies(run.iteration)
+                    and not run.spec_approved_by
+                ):
+                    run.status = RunStatus.awaiting_approval
+                    run.summary = "specification ready for your review"
+                    self.store.save_run(run)
+                    self.store.add_event(
+                        run.id,
+                        EventKind.status,
+                        "spec review gate: waiting for a person to approve the spec before build",
+                        station=sid,
+                    )
+                    return None
                 self.store.save_run(run)
                 continue
 

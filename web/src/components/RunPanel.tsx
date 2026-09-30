@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
+import SpecPanel from "./SpecPanel";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
 import { Button } from "./ui/button";
@@ -38,6 +39,12 @@ export default function RunPanel({
     mutationFn: () => unwrap(api.POST("/api/runs/{run_id}/cancel", { params: { path: { run_id: runId } } })),
     onSuccess: refresh,
   });
+
+  // the order header (status, archive) follows the run: refresh it whenever the run changes state
+  const status = run.data?.run.status;
+  useEffect(() => {
+    if (status) qc.invalidateQueries({ queryKey: ["order", orderId] });
+  }, [status, orderId, qc]);
 
   if (!run.data) return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
   const { run: r, stations } = run.data;
@@ -81,6 +88,7 @@ export default function RunPanel({
         )}
         <Problems error={resume.error} />
         <StationStrip stations={stations} />
+        <SpecPanel runId={runId} runStatus={r.status} />
         {r.summary && (
           <p className={cn("m-0 text-sm", r.status === "held" ? "error" : "text-muted-foreground")}>{r.summary}</p>
         )}

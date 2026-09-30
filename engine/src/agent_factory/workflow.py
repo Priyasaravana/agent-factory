@@ -160,6 +160,18 @@ class WorkflowDoc(BaseModel):
     docs: dict[str, RefDoc] = Field(default_factory=dict)
     # imported skill -> commit sha, fixed when the version is published
     skill_pins: dict[str, str] = Field(default_factory=dict)
+    # spec review gate (ADR-0017): pause after design until a person approves the spec
+    #   off: never · first: the first iteration of an order · always: every iteration
+    spec_review: Literal["off", "first", "always"] = "off"
+
+    @field_validator("spec_review", mode="before")
+    @classmethod
+    def _yaml_off(cls, v: object) -> object:
+        # YAML 1.1 reads a bare `off` as false (and `on` as true)
+        return {False: "off", True: "always"}.get(v, v) if isinstance(v, bool) else v
+
+    def spec_gate_applies(self, iteration: int) -> bool:
+        return self.spec_review == "always" or (self.spec_review == "first" and iteration == 1)
 
     def stations_using(self, agent_id: str) -> list[str]:
         return [s.id for s in self.stations if s.agent == agent_id]
