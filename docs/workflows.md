@@ -181,12 +181,12 @@ The draft saves as you go and never runs.
 ## CLI (inside the factory container)
 
 ```bash
-docker compose exec factory agent-factory workflow list
-docker compose exec factory agent-factory workflow templates
-docker compose exec factory agent-factory workflow --id fastapi-service versions
-docker compose exec factory agent-factory workflow --id fastapi-service export --out /data/wf-edit
-docker compose exec factory agent-factory workflow --id fastapi-service import /data/wf-edit --note "tweak"
-docker compose exec factory agent-factory workflow --id fastapi-service activate 1      # rollback
+docker compose exec -u factory factory agent-factory workflow list
+docker compose exec -u factory factory agent-factory workflow templates
+docker compose exec -u factory factory agent-factory workflow --id fastapi-service versions
+docker compose exec -u factory factory agent-factory workflow --id fastapi-service export --out /data/wf-edit
+docker compose exec -u factory factory agent-factory workflow --id fastapi-service import /data/wf-edit --note "tweak"
+docker compose exec -u factory factory agent-factory workflow --id fastapi-service activate 1      # rollback
 ```
 
 ## Upgrading from "lines"

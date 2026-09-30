@@ -11,7 +11,7 @@ out="backups/agent-factory-$ts"
 mkdir -p "$out"
 
 snapshot='import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); print("ok", sys.argv[1])'
-docker compose exec -T factory python3 -c "$snapshot" /data/factory.db /data/.backup-factory.db
+docker compose exec -T -u factory factory python3 -c "$snapshot" /data/factory.db /data/.backup-factory.db
 docker compose exec -T auth python3 -c "$snapshot" /data/auth.db /data/.backup-auth.db
 docker compose cp auth:/data/.backup-auth.db "$out/auth.db"
 docker compose exec -T auth rm -f /data/.backup-auth.db

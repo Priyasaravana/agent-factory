@@ -35,4 +35,8 @@
   `docs/requirements.yaml` is covered by a scenario (`covers`) and a test tagged
   `@pytest.mark.req("R1")`. Coverage checks live in `traceability.py`; keep
   them pure functions of the repo's files.
+- Data under `/data` belongs to the runtime user (uid 10001). Exec into the
+  factory container with `docker compose exec -u factory factory …`; the
+  `agent-factory` console script also drops root itself (`cli.run`). Directories
+  the engine creates for a sandbox go through `hand_to_sandbox`.
 - Record significant decisions as ADRs in `docs/adr/`.
