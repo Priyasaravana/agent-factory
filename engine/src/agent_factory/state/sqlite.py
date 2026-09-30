@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus
+from agent_factory.models import Event, EventKind, Feedback, Order, Run, RunStatus, Transition
 from agent_factory.secret_refs import REDACTOR
 from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, ts TEXT NOT NULL,
   station TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, data TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_run ON events(run_id, id);
+-- every run status change, with its time: the basis of the Outcomes page (ADR-0019)
+CREATE TABLE IF NOT EXISTS run_transitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, ts TEXT NOT NULL,
+  from_status TEXT, to_status TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS run_transitions_run ON run_transitions(run_id, id);
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -116,10 +121,12 @@ class SqliteStateStore:
 
     # -- runs ----------------------------------------------------------------
     def create_run(self, run: Run) -> Run:
-        self._exec(
-            "INSERT INTO runs(id, order_id, status, created_at, doc) VALUES (?,?,?,?,?)",
-            (run.id, run.order_id, run.status, run.created_at.isoformat(), REDACTOR.text(run.model_dump_json())),
-        )
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO runs(id, order_id, status, created_at, doc) VALUES (?,?,?,?,?)",
+                (run.id, run.order_id, run.status, run.created_at.isoformat(), REDACTOR.text(run.model_dump_json())),
+            )
+            self._record_transition(run.id, None, run.status, run.created_at)
         return run
 
     def get_run(self, run_id: str) -> Run | None:
@@ -127,11 +134,65 @@ class SqliteStateStore:
         return Run.model_validate_json(row[0]) if row else None
 
     def save_run(self, run: Run) -> None:
+        """Every status change is recorded here, the one place all runs are saved,
+        so no call site can forget it (ADR-0019)."""
         run.updated_at = _now()
-        self._exec(
-            "UPDATE runs SET status=?, doc=? WHERE id=?",
-            (run.status, REDACTOR.text(run.model_dump_json()), run.id),
+        with self._lock:
+            row = self._db.execute("SELECT status FROM runs WHERE id=?", (run.id,)).fetchone()
+            self._db.execute(
+                "UPDATE runs SET status=?, doc=? WHERE id=?",
+                (run.status, REDACTOR.text(run.model_dump_json()), run.id),
+            )
+            if row and row[0] != run.status:
+                self._record_transition(run.id, RunStatus(row[0]), run.status, run.updated_at)
+
+    def _record_transition(self, run_id: str, old: RunStatus | None, new: RunStatus, ts: datetime) -> None:
+        # caller holds the lock
+        self._db.execute(
+            "INSERT INTO run_transitions(run_id, ts, from_status, to_status) VALUES (?,?,?,?)",
+            (run_id, ts.isoformat(), old.value if old else None, RunStatus(new).value),
         )
+
+    def all_runs(self) -> list[Run]:
+        return [Run.model_validate_json(r[0]) for r in self._exec("SELECT doc FROM runs ORDER BY created_at")]
+
+    def transitions(self, run_ids: list[str] | None = None) -> dict[str, list[Transition]]:
+        """Status changes per run, oldest first (all runs when run_ids is None)."""
+        sql, args = "SELECT run_id, ts, from_status, to_status FROM run_transitions", ()
+        if run_ids is not None:
+            if not run_ids:
+                return {}
+            sql += f" WHERE run_id IN ({','.join('?' * len(run_ids))})"  # noqa: S608 - placeholders only
+            args = tuple(run_ids)
+        out: dict[str, list[Transition]] = {}
+        for rid, ts, old, new in self._exec(sql + " ORDER BY id", args):
+            out.setdefault(rid, []).append(
+                Transition(
+                    run_id=rid,
+                    ts=datetime.fromisoformat(ts),
+                    from_status=RunStatus(old) if old else None,
+                    to_status=RunStatus(new),
+                )
+            )
+        return out
+
+    def last_event_data(self, run_id: str, key: str) -> tuple[datetime, Any] | None:
+        """(time, data[key]) of the run's latest event whose data carries `key`."""
+        for ts, data in self._exec(
+            "SELECT ts, data FROM events WHERE run_id=? AND data LIKE ? ORDER BY id DESC LIMIT 20",
+            (run_id, f'%"{key}"%'),
+        ):
+            value = json.loads(data).get(key)
+            if value is not None:
+                return datetime.fromisoformat(ts), value
+        return None
+
+    def first_event_time(self, run_id: str, message_prefix: str) -> datetime | None:
+        row = self._exec(
+            "SELECT ts FROM events WHERE run_id=? AND message LIKE ? ORDER BY id LIMIT 1",
+            (run_id, message_prefix.replace("%", "") + "%"),
+        ).fetchone()
+        return datetime.fromisoformat(row[0]) if row else None
 
     def list_runs(self, order_id: str) -> list[Run]:
         rows = self._exec("SELECT doc FROM runs WHERE order_id=? ORDER BY created_at DESC", (order_id,)).fetchall()

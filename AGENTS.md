@@ -42,4 +42,8 @@
   `no-new-privileges`, and is added to `tests/test_least_privilege.py` and
   `scripts/privilege-check.sh`. Directories the engine creates for a sandbox go
   through `hand_to_sandbox`.
+- Run status changes are recorded by the state store itself (`run_transitions`,
+  ADR-0019): always save runs through `store.save_run`. Outcome metrics are pure
+  functions in `outcomes.py`; a new metric gets a definition in
+  `docs/outcomes.md` and an exact-value test in `tests/test_outcomes.py`.
 - Record significant decisions as ADRs in `docs/adr/`.

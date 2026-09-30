@@ -9,13 +9,15 @@ Agents never click the UI; UI and agents share one action layer.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
+from fastapi import Query
 from pydantic import BaseModel
 
 from agent_factory.engine.pipeline import FactoryError
@@ -45,6 +47,7 @@ from agent_factory.models import (
     IntegrationView,
     Order,
     OrderDetail,
+    OutcomesView,
     PreflightView,
     PublishInput,
     ReadinessView,
@@ -194,6 +197,20 @@ def get_config(f: Factory) -> ConfigView:
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
         gates=[f"{g.kind} after {g.after}" for g in f.cfg.gates],
     )
+
+
+@action(
+    "get_outcomes",
+    "Outcomes: deliveries, lead time, change failure rate, autonomy, cost per change, "
+    "where the time goes and who the factory is waiting on (ADR-0019)",
+    "GET",
+    "/api/outcomes",
+)
+async def get_outcomes(f: Factory, days: Annotated[int, Query(ge=1, le=365)] = 30) -> OutcomesView:
+    from agent_factory.outcomes import outcomes
+
+    # reads every run and its timeline: off the event loop (the store is thread-safe)
+    return await asyncio.to_thread(outcomes, f.store, days)
 
 
 @action("list_orders", "List orders, newest first", "GET", "/api/orders")

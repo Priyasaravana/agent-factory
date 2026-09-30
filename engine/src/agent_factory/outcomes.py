@@ -1,0 +1,319 @@
+"""Outcome metrics (ADR-0019): is the factory delivering, how autonomously, at what
+cost, and who is it waiting on?
+
+`gather()` reads the store; `compute()` is a pure function of those facts, so every
+definition is tested exactly (tests/test_outcomes.py). Definitions, in plain words,
+are in docs/outcomes.md and in the UI next to each number.
+
+Time comes from the status transition log (`run_transitions`). Runs from before that
+log existed still count for deliveries (their "delivered" event gives the time),
+cost and quality, but not for the time split; `runs_with_timeline` says how many do.
+"""
+
+from __future__ import annotations
+
+import statistics
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from agent_factory.models import (
+    DurationStat,
+    HumanTouches,
+    Order,
+    OutcomesView,
+    Run,
+    RunStatus,
+    TimeSplit,
+    Transition,
+    WaitingItem,
+    WeekPoint,
+    WorkflowOutcome,
+)
+from agent_factory.state.base import StateStore
+
+AGENTS = {RunStatus.queued, RunStatus.running}
+PERSON = {RunStatus.needs_input, RunStatus.held, RunStatus.awaiting_approval, RunStatus.interrupted}
+SYSTEM = {RunStatus.paused_limits}
+DONE = {RunStatus.awaiting_feedback, RunStatus.cancelled, RunStatus.failed}
+# leaving one of these states means a person acted; spec review is a planned touch
+UNPLANNED = {RunStatus.needs_input: "answered_questions", RunStatus.held: "rescued", RunStatus.interrupted: "restarts"}
+PLANNED = {RunStatus.awaiting_approval: "spec_reviews"}
+
+ACTIONS = {
+    RunStatus.needs_input: "Answer the intake questions",
+    RunStatus.held: "Read the evidence, then resume or change the order",
+    RunStatus.awaiting_approval: "Review the spec: approve, edit or request changes",
+    RunStatus.interrupted: "Resume the run (the factory restarted)",
+    RunStatus.paused_limits: "Nothing: resumes when the model usage window resets",
+}
+DELIVERED_EVENT = "delivered"  # message prefix of the delivery event (fallback for runs without a timeline)
+
+
+@dataclass
+class Facts:
+    now: datetime
+    days: int
+    orders: dict[str, Order]
+    runs: list[Run]
+    transitions: dict[str, list[Transition]]
+    delivered_fallback: dict[str, datetime] = field(default_factory=dict)  # runs without a timeline
+    readiness_level: dict[str, int] = field(default_factory=dict)  # run id -> Level
+    traceability: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> matrix rows
+
+    @property
+    def since(self) -> datetime:
+        return self.now - timedelta(days=self.days)
+
+
+# ------------------------------------------------------------------ helpers --
+def _stat(seconds: Iterable[float]) -> DurationStat:
+    xs = sorted(s for s in seconds if s >= 0)
+    if not xs:
+        return DurationStat()
+    p90 = xs[min(len(xs) - 1, max(0, round(0.9 * len(xs)) - 1))]
+    return DurationStat(median_s=statistics.median(xs), p90_s=p90, n=len(xs))
+
+
+def _ratio(num: int | float, den: int | float) -> float | None:
+    return round(num / den, 4) if den else None
+
+
+def delivered_at(run: Run, f: Facts) -> datetime | None:
+    for t in f.transitions.get(run.id, []):
+        if t.to_status == RunStatus.awaiting_feedback:
+            return t.ts
+    return f.delivered_fallback.get(run.id)
+
+
+def finished_at(run: Run, f: Facts) -> datetime | None:
+    for t in f.transitions.get(run.id, []):
+        if t.to_status in DONE:
+            return t.ts
+    if run.status in DONE and run.id not in f.transitions:
+        return delivered_at(run, f) or run.updated_at
+    return None
+
+
+def _first(run: Run, f: Facts, status: RunStatus) -> datetime | None:
+    return next((t.ts for t in f.transitions.get(run.id, []) if t.to_status == status), None)
+
+
+def _touches(run: Run, f: Facts, since: datetime | None = None) -> HumanTouches:
+    h = HumanTouches()
+    for t in f.transitions.get(run.id, []):
+        if since and t.ts < since:
+            continue
+        kind = UNPLANNED.get(t.from_status) or PLANNED.get(t.from_status)  # type: ignore[arg-type]
+        if kind and t.to_status in AGENTS:
+            setattr(h, kind, getattr(h, kind) + 1)
+    return h
+
+
+def _unplanned(h: HumanTouches) -> int:
+    return h.answered_questions + h.rescued + h.restarts
+
+
+def _split(run: Run, f: Facts, start: datetime, end: datetime) -> TimeSplit:
+    """Seconds this run spent per bucket, clipped to [start, end]."""
+    out = TimeSplit()
+    ts = f.transitions.get(run.id, [])
+    for i, t in enumerate(ts):
+        seg_end = ts[i + 1].ts if i + 1 < len(ts) else (end if t.to_status not in DONE else t.ts)
+        a, b = max(t.ts, start), min(seg_end, end)
+        if b <= a:
+            continue
+        secs = (b - a).total_seconds()
+        if t.to_status in AGENTS:
+            out.agents_s += secs
+        elif t.to_status in PERSON:
+            out.person_s += secs
+        elif t.to_status in SYSTEM:
+            out.system_s += secs
+    return out
+
+
+def _owner(order: Order | None, status: RunStatus) -> str:
+    if status in SYSTEM:
+        return "system"
+    return (order.created_by if order and order.created_by else None) or "an admin"
+
+
+# ------------------------------------------------------------------ compute --
+def compute(f: Facts) -> OutcomesView:
+    since, now = f.since, f.now
+    live_orders = {oid: o for oid, o in f.orders.items() if not o.archived_at}
+
+    delivered = [(r, d) for r in f.runs if (d := delivered_at(r, f)) and since <= d <= now]
+    deliveries = len(delivered)
+    lead = _stat((d - r.created_at).total_seconds() for r, d in delivered)
+
+    # change failure rate: of the iterations that finished (delivered or failed) in the
+    # window, the share that failed or needed a person to rescue them from "held"
+    finished = [
+        r for r in f.runs if (fa := finished_at(r, f)) and since <= fa <= now and r.status != RunStatus.cancelled
+    ]
+    failed_or_rescued = [r for r in finished if r.status == RunStatus.failed or _first(r, f, RunStatus.held)]
+    recovery = _stat(
+        (d - held).total_seconds() for r, d in delivered if (held := _first(r, f, RunStatus.held)) and held < d
+    )
+
+    # autonomy: deliveries that needed no unplanned human touch in their whole life
+    per_run_touches = {r.id: _touches(r, f) for r, _ in delivered}
+    autonomous = sum(1 for r, _ in delivered if _unplanned(per_run_touches[r.id]) == 0)
+
+    in_window = [r for r in f.runs if r.created_at >= since or (finished_at(r, f) or now) >= since]
+    touches = HumanTouches()
+    for r in in_window:
+        h = _touches(r, f, since)
+        for k in HumanTouches.model_fields:
+            setattr(touches, k, getattr(touches, k) + getattr(h, k))
+
+    created = [r for r in f.runs if since <= r.created_at <= now]
+    cost_total = round(sum(r.cost_usd for r in created), 4)
+
+    split = TimeSplit()
+    with_timeline = [r for r in in_window if r.id in f.transitions]
+    for r in with_timeline:
+        s = _split(r, f, since, now)
+        split.agents_s += s.agents_s
+        split.person_s += s.person_s
+        split.system_s += s.system_s
+
+    # quality of what is live: each product's latest delivered iteration
+    products = level3 = req_total = req_live = 0
+    latest_delivered: dict[str, Run] = {}
+    for r in f.runs:
+        if r.order_id in live_orders and delivered_at(r, f):
+            cur = latest_delivered.get(r.order_id)
+            if cur is None or r.iteration > cur.iteration:
+                latest_delivered[r.order_id] = r
+    products = len(live_orders)
+    for r in latest_delivered.values():
+        if f.readiness_level.get(r.id, 0) >= 3:
+            level3 += 1
+        for row in f.traceability.get(r.id, []):
+            req_total += 1
+            hold = row.get("holdout") or []
+            if hold and all(h.get("passed") is True for h in hold):
+                req_live += 1
+
+    waiting = []
+    for r in f.runs:
+        if r.status in PERSON | SYSTEM and r.order_id in live_orders:
+            order = live_orders[r.order_id]
+            last = f.transitions.get(r.id, [])
+            since_state = last[-1].ts if last else r.updated_at
+            waiting.append(
+                WaitingItem(
+                    order_id=order.id,
+                    order_title=order.title,
+                    run_id=r.id,
+                    iteration=r.iteration,
+                    status=r.status,
+                    since=since_state,
+                    waiting_s=max(0.0, (now - since_state).total_seconds()),
+                    owner=_owner(order, r.status),
+                    action=ACTIONS[r.status],
+                )
+            )
+    waiting.sort(key=lambda w: (w.owner == "system", -w.waiting_s))
+
+    by_wf: dict[str, list[tuple[Run, datetime]]] = {}
+    for r, d in delivered:
+        wf = r.workflow_id or (f.orders[r.order_id].product_line if r.order_id in f.orders else "unknown")
+        by_wf.setdefault(wf, []).append((r, d))
+    workflows = []
+    for wf, items in sorted(by_wf.items()):
+        runs_wf = {r.id for r, _ in items}
+        cost_wf = sum(
+            r.cost_usd
+            for r in created
+            if (r.workflow_id or (f.orders[r.order_id].product_line if r.order_id in f.orders else "")) == wf
+        )
+        workflows.append(
+            WorkflowOutcome(
+                workflow_id=wf,
+                deliveries=len(items),
+                autonomy_ratio=_ratio(sum(1 for rid in runs_wf if _unplanned(per_run_touches[rid]) == 0), len(items)),
+                cost_per_delivery_usd=_ratio(cost_wf, len(items)),
+                lead_time_median_s=_stat((d - r.created_at).total_seconds() for r, d in items).median_s,
+            )
+        )
+
+    weeks = max(1, -(-f.days // 7))
+    weekly = []
+    for k in range(weeks - 1, -1, -1):
+        a, b = now - timedelta(days=7 * (k + 1)), now - timedelta(days=7 * k)
+
+        def in_week(ts: datetime, a: datetime = a, b: datetime = b, last: bool = k == 0) -> bool:
+            return a <= ts < b or (last and ts == b)
+
+        dels = [(r, d) for r, d in delivered if in_week(d)]
+        weekly.append(
+            WeekPoint(
+                week_start=a.date().isoformat(),
+                deliveries=len(dels),
+                cost_usd=round(sum(r.cost_usd for r in created if in_week(r.created_at)), 4),
+                lead_time_median_s=_stat((d - r.created_at).total_seconds() for r, d in dels).median_s,
+            )
+        )
+
+    return OutcomesView(
+        window_days=f.days,
+        since=since,
+        generated_at=now,
+        deliveries=deliveries,
+        deliveries_per_week=round(deliveries / (f.days / 7), 2),
+        lead_time=lead,
+        change_failure_rate=_ratio(len(failed_or_rescued), len(finished)),
+        finished=len(finished),
+        failed_or_rescued=len(failed_or_rescued),
+        recovery_time=recovery,
+        autonomy_ratio=_ratio(autonomous, deliveries),
+        touches=touches,
+        unplanned_touches_per_delivery=_ratio(sum(_unplanned(per_run_touches[r.id]) for r, _ in delivered), deliveries),
+        cost_total_usd=cost_total,
+        cost_per_delivery_usd=_ratio(cost_total, deliveries),
+        fix_loops_per_delivery=_ratio(sum(r.loops for r, _ in delivered), deliveries),
+        time_split=TimeSplit(**{k: round(v, 1) for k, v in split.model_dump().items()}),
+        runs_with_timeline=len(with_timeline),
+        runs_in_window=len(in_window),
+        products=products,
+        products_level3=level3,
+        requirements_total=req_total,
+        requirements_verified_live=req_live,
+        waiting=waiting,
+        by_workflow=workflows,
+        weekly=weekly,
+    )
+
+
+# ------------------------------------------------------------------- gather --
+def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
+    now = now or datetime.now(UTC)
+    orders = {o.id: o for o in store.list_orders()}
+    runs = store.all_runs()
+    transitions = store.transitions()
+    f = Facts(now=now, days=days, orders=orders, runs=runs, transitions=transitions)
+    for r in runs:
+        if r.id not in transitions and r.status == RunStatus.awaiting_feedback:
+            t = store.first_event_time(r.id, DELIVERED_EVENT)
+            if t:
+                f.delivered_fallback[r.id] = t
+    latest: dict[str, Run] = {}
+    for r in runs:
+        if r.order_id in orders and not orders[r.order_id].archived_at and delivered_at(r, f):
+            if r.order_id not in latest or r.iteration > latest[r.order_id].iteration:
+                latest[r.order_id] = r
+    for r in latest.values():
+        if got := store.last_event_data(r.id, "readiness"):
+            f.readiness_level[r.id] = int(got[1].get("level", 0))
+        if got := store.last_event_data(r.id, "traceability"):
+            f.traceability[r.id] = list(got[1])
+    return f
+
+
+def outcomes(store: StateStore, days: int = 30, now: datetime | None = None) -> OutcomesView:
+    return compute(gather(store, days, now))

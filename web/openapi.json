@@ -50,6 +50,52 @@
         }
       }
     },
+    "/api/outcomes": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Outcomes: deliveries, lead time, change failure rate, autonomy, cost per change, where the time goes and who the factory is waiting on (ADR-0019)",
+        "description": "Outcomes: deliveries, lead time, change failure rate, autonomy, cost per change, where the time goes and who the factory is waiting on (ADR-0019)",
+        "operationId": "get_outcomes",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutcomesView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orders": {
       "get": {
         "tags": [
@@ -2907,6 +2953,39 @@
         ],
         "title": "DuplicateAgentInput"
       },
+      "DurationStat": {
+        "properties": {
+          "median_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median S"
+          },
+          "p90_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P90 S"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "DurationStat"
+      },
       "EnvironmentView": {
         "properties": {
           "name": {
@@ -3155,6 +3234,32 @@
           "active_runs"
         ],
         "title": "HealthView"
+      },
+      "HumanTouches": {
+        "properties": {
+          "answered_questions": {
+            "type": "integer",
+            "title": "Answered Questions",
+            "default": 0
+          },
+          "rescued": {
+            "type": "integer",
+            "title": "Rescued",
+            "default": 0
+          },
+          "restarts": {
+            "type": "integer",
+            "title": "Restarts",
+            "default": 0
+          },
+          "spec_reviews": {
+            "type": "integer",
+            "title": "Spec Reviews",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "HumanTouches"
       },
       "InstallSkillInput": {
         "properties": {
@@ -3422,6 +3527,178 @@
           "feedback"
         ],
         "title": "OrderDetail"
+      },
+      "OutcomesView": {
+        "properties": {
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "deliveries": {
+            "type": "integer",
+            "title": "Deliveries"
+          },
+          "deliveries_per_week": {
+            "type": "number",
+            "title": "Deliveries Per Week"
+          },
+          "lead_time": {
+            "$ref": "#/components/schemas/DurationStat"
+          },
+          "change_failure_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Failure Rate"
+          },
+          "finished": {
+            "type": "integer",
+            "title": "Finished",
+            "default": 0
+          },
+          "failed_or_rescued": {
+            "type": "integer",
+            "title": "Failed Or Rescued",
+            "default": 0
+          },
+          "recovery_time": {
+            "$ref": "#/components/schemas/DurationStat"
+          },
+          "autonomy_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autonomy Ratio"
+          },
+          "touches": {
+            "$ref": "#/components/schemas/HumanTouches"
+          },
+          "unplanned_touches_per_delivery": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unplanned Touches Per Delivery"
+          },
+          "cost_total_usd": {
+            "type": "number",
+            "title": "Cost Total Usd"
+          },
+          "cost_per_delivery_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Delivery Usd"
+          },
+          "fix_loops_per_delivery": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix Loops Per Delivery"
+          },
+          "time_split": {
+            "$ref": "#/components/schemas/TimeSplit"
+          },
+          "runs_with_timeline": {
+            "type": "integer",
+            "title": "Runs With Timeline",
+            "default": 0
+          },
+          "runs_in_window": {
+            "type": "integer",
+            "title": "Runs In Window",
+            "default": 0
+          },
+          "products": {
+            "type": "integer",
+            "title": "Products",
+            "default": 0
+          },
+          "products_level3": {
+            "type": "integer",
+            "title": "Products Level3",
+            "default": 0
+          },
+          "requirements_total": {
+            "type": "integer",
+            "title": "Requirements Total",
+            "default": 0
+          },
+          "requirements_verified_live": {
+            "type": "integer",
+            "title": "Requirements Verified Live",
+            "default": 0
+          },
+          "waiting": {
+            "items": {
+              "$ref": "#/components/schemas/WaitingItem"
+            },
+            "type": "array",
+            "title": "Waiting"
+          },
+          "by_workflow": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowOutcome"
+            },
+            "type": "array",
+            "title": "By Workflow"
+          },
+          "weekly": {
+            "items": {
+              "$ref": "#/components/schemas/WeekPoint"
+            },
+            "type": "array",
+            "title": "Weekly"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_days",
+          "since",
+          "generated_at",
+          "deliveries",
+          "deliveries_per_week",
+          "lead_time",
+          "recovery_time",
+          "touches",
+          "cost_total_usd",
+          "time_split"
+        ],
+        "title": "OutcomesView"
       },
       "PreflightView": {
         "properties": {
@@ -4362,6 +4639,28 @@
         ],
         "title": "TemplateInfo"
       },
+      "TimeSplit": {
+        "properties": {
+          "agents_s": {
+            "type": "number",
+            "title": "Agents S",
+            "default": 0.0
+          },
+          "person_s": {
+            "type": "number",
+            "title": "Person S",
+            "default": 0.0
+          },
+          "system_s": {
+            "type": "number",
+            "title": "System S",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "TimeSplit",
+        "description": "Seconds of run time in the window, by who the run was waiting on."
+      },
       "TraceRow": {
         "properties": {
           "id": {
@@ -4502,6 +4801,144 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WaitingItem": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "order_title": {
+            "type": "string",
+            "title": "Order Title"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "waiting_s": {
+            "type": "number",
+            "title": "Waiting S"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "order_title",
+          "run_id",
+          "iteration",
+          "status",
+          "since",
+          "waiting_s",
+          "owner",
+          "action"
+        ],
+        "title": "WaitingItem"
+      },
+      "WeekPoint": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "deliveries": {
+            "type": "integer",
+            "title": "Deliveries"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "lead_time_median_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Median S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "deliveries",
+          "cost_usd"
+        ],
+        "title": "WeekPoint"
+      },
+      "WorkflowOutcome": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "deliveries": {
+            "type": "integer",
+            "title": "Deliveries"
+          },
+          "autonomy_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autonomy Ratio"
+          },
+          "cost_per_delivery_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Delivery Usd"
+          },
+          "lead_time_median_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Median S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "deliveries"
+        ],
+        "title": "WorkflowOutcome"
       },
       "WorkflowSettingsInput": {
         "properties": {

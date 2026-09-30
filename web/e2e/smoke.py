@@ -8,7 +8,7 @@ locally against any running factory:
 
 Covers the path every change must keep working: sign-in through the auth gateway,
 readiness, placing an order, the station timeline to delivery, feedback starting a
-second iteration, archiving, and no errors in the browser console.
+second iteration, the Outcomes page, archiving, and no errors in the browser console.
 """
 
 from __future__ import annotations
@@ -74,6 +74,17 @@ def main() -> int:
             page.get_by_role("button", name=re.compile("Send feedback")).click()
             expect(page.get_by_role("tab", name="iteration 2")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
+
+            step("outcomes")
+            page.get_by_role("link", name="Outcomes").click()
+            expect(page.get_by_role("heading", name="Outcomes")).to_be_visible()
+            kpis = page.get_by_test_id("kpis")
+            expect(kpis).to_contain_text("Deliveries")
+            # two delivered iterations, no unplanned human help
+            expect(kpis.get_by_text("100%").first).to_be_visible()
+            expect(page.get_by_test_id("waiting")).to_contain_text("Nobody is blocking")
+            page.screenshot(path=f"{SHOTS}/outcomes.png", full_page=True)
+            page.go_back()
 
             step("archive")
             page.get_by_role("button", name="Archive").click()

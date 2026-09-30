@@ -104,6 +104,99 @@ class Event(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class Transition(BaseModel):
+    """One run status change (ADR-0019)."""
+
+    run_id: str
+    ts: datetime
+    from_status: RunStatus | None = None
+    to_status: RunStatus
+
+
+# ----------------------------------------------------------- outcomes (ADR-0019) --
+class DurationStat(BaseModel):
+    median_s: float | None = None
+    p90_s: float | None = None
+    n: int = 0
+
+
+class TimeSplit(BaseModel):
+    """Seconds of run time in the window, by who the run was waiting on."""
+
+    agents_s: float = 0.0  # queued or running: the factory is working
+    person_s: float = 0.0  # questions, held, spec review, interrupted: a person must act
+    system_s: float = 0.0  # paused for the model usage window
+
+
+class HumanTouches(BaseModel):
+    answered_questions: int = 0  # unplanned: intake could not assume safely
+    rescued: int = 0  # unplanned: a held run was resumed
+    restarts: int = 0  # unplanned: resumed after the factory restarted
+    spec_reviews: int = 0  # planned: the spec review gate (approve or request changes)
+
+
+class WaitingItem(BaseModel):
+    order_id: str
+    order_title: str
+    run_id: str
+    iteration: int
+    status: RunStatus
+    since: datetime
+    waiting_s: float
+    owner: str  # who should act: the order's creator, "an admin", or "system"
+    action: str
+
+
+class WorkflowOutcome(BaseModel):
+    workflow_id: str
+    deliveries: int
+    autonomy_ratio: float | None = None
+    cost_per_delivery_usd: float | None = None
+    lead_time_median_s: float | None = None
+
+
+class WeekPoint(BaseModel):
+    week_start: str  # ISO date
+    deliveries: int
+    cost_usd: float
+    lead_time_median_s: float | None = None
+
+
+class OutcomesView(BaseModel):
+    window_days: int
+    since: datetime
+    generated_at: datetime
+    # delivery (DORA-style, see docs/outcomes.md for the exact definitions)
+    deliveries: int
+    deliveries_per_week: float
+    lead_time: DurationStat
+    change_failure_rate: float | None = None
+    finished: int = 0
+    failed_or_rescued: int = 0
+    recovery_time: DurationStat
+    # autonomy
+    autonomy_ratio: float | None = None
+    touches: HumanTouches
+    unplanned_touches_per_delivery: float | None = None
+    # cost and effort
+    cost_total_usd: float
+    cost_per_delivery_usd: float | None = None
+    fix_loops_per_delivery: float | None = None
+    # where the time goes
+    time_split: TimeSplit
+    runs_with_timeline: int = 0
+    runs_in_window: int = 0
+    # quality of what is live
+    products: int = 0
+    products_level3: int = 0
+    requirements_total: int = 0
+    requirements_verified_live: int = 0
+    # who needs to act now
+    waiting: list[WaitingItem] = Field(default_factory=list)
+    by_workflow: list[WorkflowOutcome] = Field(default_factory=list)
+    weekly: list[WeekPoint] = Field(default_factory=list)
+
+
 class Feedback(BaseModel):
     id: int
     order_id: str
