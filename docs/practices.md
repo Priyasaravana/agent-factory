@@ -21,7 +21,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 | Environment & sandbox | ✅ reproducible; agents and `make verify` run in a sandbox (ADR-0014) | ✅ compose; sandbox per agent session |
 | Code quality | ✅ small golden-path modules | 🟡 `actions.py` > 500 lines |
 | Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per run, egress log, per-agent-call records, transcripts and denials (ADR-0022); no OpenTelemetry export yet |
-| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model |
+| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model, sealed evidence per run (ADR-0023) |
 
 **Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
 🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
@@ -79,6 +79,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - spec review change: built-in review station after verify/readiness; the reviewer reports on every requirement and the engine judges (partial/missing or blocker/major findings go back to build; incomplete reviews are held); review evidence per requirement in the traceability view (ADR-0020).
   - learning change: after runs that needed help, an observe-only retro suggests lessons per agent; the engine vets them (no check-weakening, no duplicates, evidence required); an admin accepts them into the workflow draft; they apply only when published (ADR-0021).
   - agent observability change: every guardrail denial recorded as a decision; one record per agent call (turns, time, cost, tools, denials); redacted transcripts per call; Agent calls panel and effort by station; the retro learns from denials and call stats (ADR-0022).
+  - evidence manifest change: every stopped run sealed (events, spec, review, traceability, SBOM, provenance, transcripts, each with SHA-256); re-verified on every view; one-zip download for the order's creator or an admin; checkable with `sha256sum -c` (ADR-0023).
 - **Next:**
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.

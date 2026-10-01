@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import os
 import re
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,8 +22,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Query
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
+from agent_factory import evidence
 from agent_factory.engine.pipeline import FactoryError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
@@ -42,6 +48,8 @@ from agent_factory.models import (
     EnvironmentView,
     Event,
     EventKind,
+    EvidenceFile,
+    EvidenceView,
     FeedbackInput,
     FromGitHubInput,
     FromTemplateInput,
@@ -399,6 +407,68 @@ def get_run_calls(f: Factory, run_id: str) -> RunCallsView:
     calls = [AgentCallView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "agent_call")]
     denials = [DenialView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "denied")]
     return RunCallsView(calls=calls, denials=denials)
+
+
+@action(
+    "get_run_evidence",
+    "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added "
+    "files are reported)",
+    "GET",
+    "/api/runs/{run_id}/evidence",
+)
+def get_run_evidence(f: Factory, run_id: str) -> EvidenceView:
+    if not f.store.get_run(run_id):
+        raise FactoryError("run not found")
+    folder = f.manager.ws.data_dir / "artifacts" / run_id
+    seal = evidence.latest_seal(f.store, run_id)
+    v = evidence.verify(folder, seal["sha256"] if seal else None)
+    if not v.sealed or seal is None:
+        return EvidenceView(sealed=False)
+    try:
+        m = json.loads((folder / evidence.MANIFEST).read_text())
+    except ValueError:
+        m = {}
+    files = [EvidenceFile(**x) for x in m.get("files", [])]
+    return EvidenceView(
+        sealed=True,
+        sealed_at=m.get("sealed_at"),
+        sha256=seal["sha256"],
+        status_at_seal=seal.get("status"),
+        commit=(m.get("source") or {}).get("commit"),
+        files=files,
+        total_bytes=sum(x.bytes for x in files),
+        intact=v.intact,
+        manifest_ok=v.manifest_ok,
+        changed=v.changed,
+        missing=v.missing,
+        added=v.added,
+    )
+
+
+@action(
+    "download_run_evidence",
+    "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, "
+    "traceability, SBOM, provenance); the order's creator or an admin",
+    "GET",
+    "/api/runs/{run_id}/evidence/bundle",
+)
+def download_run_evidence(f: Factory, run_id: str) -> Response:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    _may_steer(f, run.order_id)  # transcripts hold full tool output (ADR-0022)
+    folder = f.manager.ws.data_dir / "artifacts" / run_id
+    if not evidence.latest_seal(f.store, run_id) or not (folder / evidence.MANIFEST).is_file():
+        raise FactoryError("no sealed evidence yet: it is sealed when the run stops")
+    fd, tmp = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    evidence.write_bundle(folder, Path(tmp))
+    return FileResponse(
+        tmp,
+        media_type="application/zip",
+        filename=f"evidence-{run_id}.zip",
+        background=BackgroundTask(os.unlink, tmp),
+    )
 
 
 @action(

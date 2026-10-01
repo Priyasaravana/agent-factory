@@ -40,6 +40,10 @@ class FactoryError(Exception):
     """A request the factory refuses (surfaced as HTTP 409/404)."""
 
 
+# a run in one of these states has stopped: feedback may start the next iteration
+FEEDBACK_OPEN = {RunStatus.awaiting_feedback, RunStatus.held, RunStatus.failed, RunStatus.cancelled}
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -135,7 +139,9 @@ class RunManager:
         if order.archived_at:
             return order
         runs = self.store.list_runs(order.id)
-        if any(self.is_active(r.id) for r in runs):
+        # a stopped run may still be finishing post-run work (retro, evidence seal);
+        # that never blocks the next iteration
+        if any(self.is_active(r.id) and r.status not in FEEDBACK_OPEN for r in runs):
             raise FactoryError("a run for this order is in progress: cancel it first")
         latest = self.store.get_run(order.latest_run_id) if order.latest_run_id else (runs[0] if runs else None)
         if latest is not None:
@@ -174,7 +180,9 @@ class RunManager:
         if order.archived_at:
             raise FactoryError("this order is archived: place a new order instead")
         runs = self.store.list_runs(order.id)
-        if any(self.is_active(r.id) for r in runs):
+        # a stopped run may still be finishing post-run work (retro, evidence seal);
+        # that never blocks the next iteration
+        if any(self.is_active(r.id) and r.status not in FEEDBACK_OPEN for r in runs):
             raise FactoryError("a run for this order is already in progress")
         now = _now()
         run = Run(
@@ -295,6 +303,9 @@ class RunManager:
         self.store.save_run(run)
         self._sync_order(run)
         self.store.add_event(run.id, EventKind.status, "run cancelled by human")
+        self._tasks[run_id] = asyncio.get_running_loop().create_task(
+            self._seal_after_cancel(run_id, task), name=f"seal-{run_id}"
+        )
         return run
 
     def feedback(self, order_id: str, text: str) -> Run:
@@ -302,12 +313,7 @@ class RunManager:
         if not order:
             raise FactoryError("order not found")
         latest = self.store.get_run(order.latest_run_id) if order.latest_run_id else None
-        if latest and latest.status not in {
-            RunStatus.awaiting_feedback,
-            RunStatus.held,
-            RunStatus.failed,
-            RunStatus.cancelled,
-        }:
+        if latest and latest.status not in FEEDBACK_OPEN:
             raise FactoryError(f"latest run is '{latest.status}'; feedback opens after delivery")
         self.store.add_feedback(order_id, latest.id if latest else None, text)
         run = self.start_run(order, change_request=text)
@@ -386,6 +392,25 @@ class RunManager:
         # after the slot is released: learning never delays or fails a delivery (ADR-0021)
         if not cancelled and run.status == RunStatus.awaiting_feedback:
             await self._retro(run, order)
+        if not cancelled:
+            await self._seal(run, order)
+
+    async def _seal(self, run: Run, order: Order) -> None:
+        """Seal the run's evidence at every stop (ADR-0023); never fails the run."""
+        from agent_factory.evidence import seal
+
+        try:
+            await seal(self, run, order)
+        except Exception as exc:  # noqa: BLE001 - a failed seal is visible, never raised into the run
+            self.store.add_event(run.id, EventKind.log, f"evidence seal failed: {type(exc).__name__}: {exc}")
+
+    async def _seal_after_cancel(self, run_id: str, task: asyncio.Task[None] | None) -> None:
+        if task is not None:
+            await asyncio.gather(task, return_exceptions=True)  # let the station stop first
+        run = self.store.get_run(run_id)
+        order = self.store.get_order(run.order_id) if run else None
+        if run and order:
+            await self._seal(run, order)
 
     async def _retro(self, run: Run, order: Order) -> None:
         from agent_factory.retro import run_retro

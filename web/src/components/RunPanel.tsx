@@ -13,6 +13,7 @@ import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
+import EvidencePanel from "./EvidencePanel";
 import SpecPanel from "./SpecPanel";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
@@ -152,6 +153,7 @@ export default function RunPanel({
           <FeedbackForm orderId={orderId} onDone={refresh} />
         )}
         <AgentCallsPanel runId={runId} runStatus={r.status} />
+        <EvidencePanel runId={runId} runStatus={r.status} />
         <EventLog events={events} live={ACTIVE.has(r.status)} />
       </CardContent>
     </Card>

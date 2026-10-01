@@ -60,4 +60,8 @@
   `MEMBER_ACTIONS`. A new action must be added deliberately to one of the two.
   An action on an existing order or run also goes in `STEERING` and calls
   `_may_steer` (the order's creator or an admin).
+- Run evidence is sealed by the engine when a run stops (ADR-0023). New evidence
+  goes under `artifacts/<run>/` before the seal, so the manifest covers it; never
+  write there after a run has stopped, and never put holdout text or secret
+  values there.
 - Record significant decisions as ADRs in `docs/adr/`.

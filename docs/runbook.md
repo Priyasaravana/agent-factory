@@ -45,6 +45,7 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 | **Is the factory delivering? Who is it waiting on?** | **Outcomes** page (or `GET /api/outcomes?days=30`). Definitions: [outcomes.md](outcomes.md). The "Waiting on a person now" board lists every run that needs someone, and who. |
 | **What did an agent actually do?** | Open the run → **Agent calls**: every call with model, turns, time, cost and tools, plus a transcript for the order's creator or an admin (what it said, each tool call and what came back; secrets redacted). Refused actions are listed at the top. |
 | **Who may do what?** | Any signed-in member can place orders and see everything. Only the order's creator or an admin can steer it: feedback, answers, resume, cancel, spec decisions, archive, transcripts. Workflows and skills are changed by admins only. Everyone else gets 403. |
+| **Hand over a run's evidence** | Open the run → **Evidence** → **Download bundle**: events, spec, review, traceability, SBOM, provenance and transcripts in one zip. Check it with `unzip` then `sha256sum -c SHA256SUMS`. The panel says **intact** while every file still matches its seal. |
 | Check least privilege | `make privilege-check`: factory, auth and web are non-root with no capabilities; only dind is privileged (ADR-0018). |
 | Back up / restore | `make backup` (safe while running) · `make restore BACKUP=backups/agent-factory-<ts>` |
 | Start over completely | `docker compose down -v && rm -rf .factory-data` |

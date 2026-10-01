@@ -11,7 +11,8 @@ It is structured on the [OWASP Top 10 for Agentic Applications (2026)](https://g
 - **Integrity of delivered software:**
   - the product repos;
   - the images;
-  - the evidence records (events, readiness scorecards, SBOM, provenance).
+  - the evidence records (events, readiness scorecards, SBOM, provenance), sealed
+    per run with SHA-256 hashes (ADR-0023).
 - **Independence of verification:** the holdout scenarios, which the builder
   must never see.
 - **Boundaries:**
@@ -58,13 +59,15 @@ Desktop VM (or the Linux host).
 | 6 | Memory & context poisoning | Earlier iterations, learnings or docs steer later runs | Learnings are human-approved; context docs are versioned with the workflow; iteration history is summarised from engine records. Suggested learnings (ADR-0021) come from an observe-only retro, are vetted (no check-weakening lessons, evidence required), and reach agents only after an admin accepts them into a draft that is then published as a new version | Review learnings in the UI before publishing (workflow changes are admin-only: ADR-0012 middleware, pinned per action by `test_access.py`) |
 | 7 | Insecure inter-agent communication | One agent's output misleads another | Agents never talk directly: the engine passes evidence only. The builder gets observed behaviour, never holdout text | — |
 | 8 | Cascading failures | Fix loops burn budget or corrupt the repo; a run starts against a broken dependency | Attempt and loop budgets, wall-clock limit, usage-limit pause, HOLD on missing evidence, fresh worktree per run. Preflight refuses orders and iterations while a guarding check fails (ADR-0015) | — |
-| 9 | Human-agent trust exploitation | A plausible summary hides a failure | Every decision carries evidence (commands, outputs, scorecards). Publishing and merging follow policy; the feedback gate needs a person | Approval gate before shared-environment deploys (remote providers) |
+| 9 | Human-agent trust exploitation | A plausible summary hides a failure | Every decision carries evidence (commands, outputs, scorecards). Each stopped run's evidence is sealed with SHA-256 hashes and re-verified on every view; changed, missing or added files are shown (ADR-0023). Publishing and merging follow policy; the feedback gate needs a person | Approval gate before shared-environment deploys (remote providers); signed manifests (someone with write access to both the data folder and the database could re-seal) |
 | 10 | Rogue agents | An agent keeps working outside its task, or keeps trying forbidden actions | Sandboxes are per session and removed afterwards; runs cancel their containers; archiving removes the app and any leftover sandboxes, with an audit event; `max_turns` per spec. Every guardrail denial is a recorded decision, every agent call has a record and a redacted transcript, and Outcomes counts denials (ADR-0022) | Per-run egress log in the run view; OpenTelemetry export |
 
 ## How to verify
 - `make sandbox-check` runs the isolation probe inside a real sandbox.
 - A run's **Agent calls** panel lists every agent call and every guardrail
   denial, with a redacted transcript per call (ADR-0022).
+- A run's **Evidence** panel says whether its sealed evidence is intact; a
+  downloaded bundle checks with `sha256sum -c SHA256SUMS` (ADR-0023).
 - `make privilege-check` proves that factory, auth and web run as non-root with
   no capabilities and `no-new-privileges`, that factory-init succeeded, and that
   only dind is privileged. CI e2e runs it on every change.

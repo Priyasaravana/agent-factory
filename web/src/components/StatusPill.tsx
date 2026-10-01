@@ -14,7 +14,7 @@ const TONE: Record<string, string> = {
   failed: "bad",
 };
 
-const LABEL: Record<string, string> = {
+export const LABEL: Record<string, string> = {
   needs_input: "needs your answers",
   paused_limits: "paused (usage limit)",
   awaiting_feedback: "delivered · awaiting feedback",

@@ -345,6 +345,29 @@ class RunCallsView(BaseModel):
     denials: list[DenialView] = Field(default_factory=list)
 
 
+class EvidenceFile(BaseModel):
+    path: str
+    sha256: str
+    bytes: int
+
+
+class EvidenceView(BaseModel):
+    """A run's sealed evidence (ADR-0023) and whether it still matches its seal."""
+
+    sealed: bool
+    sealed_at: datetime | None = None
+    sha256: str | None = None  # of manifest.json, as recorded in the event log
+    status_at_seal: str | None = None
+    commit: str | None = None
+    files: list[EvidenceFile] = Field(default_factory=list)
+    total_bytes: int = 0
+    intact: bool = False
+    manifest_ok: bool = False
+    changed: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    added: list[str] = Field(default_factory=list)
+
+
 class LearningProposal(BaseModel):
     """A lesson the retro suggests for one agent after a run that needed help (ADR-0021).
     Nothing changes until an admin accepts it into the workflow draft and publishes."""
