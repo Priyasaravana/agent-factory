@@ -153,7 +153,7 @@ async def test_learning_can_be_turned_off_per_workflow(make_factory):
     f = make_factory(FakeExecutor(fail_on=["make verify"]))
     app, ctx, c = await _client(f)
     async with c:
-        r = await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})
+        r = await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False, "eval_gate": "off"})
         assert r.status_code == 200 and r.json()["learn_from_runs"] is False and r.json()["spec_review"] == "off"
         assert (await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "no learning"})).status_code == 201
     await ctx.__aexit__(None, None, None)

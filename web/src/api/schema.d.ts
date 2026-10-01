@@ -72,8 +72,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List orders, newest first
-         * @description List orders, newest first
+         * List orders, newest first (evaluation orders are not listed)
+         * @description List orders, newest first (evaluation orders are not listed)
          */
         get: operations["list_orders"];
         put?: never;
@@ -386,10 +386,94 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Workflow settings in the draft: spec review gate (off | first | always), learn from runs
-         * @description Workflow settings in the draft: spec review gate (off | first | always), learn from runs
+         * Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)
+         * @description Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)
          */
         patch: operations["set_workflow_settings"];
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/evals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the draft's evaluation suite: the fixed orders a new version is measured on
+         * @description Replace the draft's evaluation suite: the fixed orders a new version is measured on
+         */
+        put: operations["put_draft_evals"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/evals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evaluations of this workflow's versions, newest first
+         * @description Evaluations of this workflow's versions, newest first
+         */
+        get: operations["list_evals"];
+        put?: never;
+        /**
+         * Run the version's evaluation suite (default: the newest version) against the active version
+         * @description Run the version's evaluation suite (default: the newest version) against the active version
+         */
+        post: operations["start_eval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/evals/{eval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One evaluation: per-case results, summaries of candidate and baseline, and the verdict
+         * @description One evaluation: per-case results, summaries of candidate and baseline, and the verdict
+         */
+        get: operations["get_eval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/evals/{eval_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated
+         * @description Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated
+         */
+        post: operations["cancel_eval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/workflows/{workflow_id}/learnings": {
@@ -1037,6 +1121,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivateInput */
+        ActivateInput: {
+            /** Override Reason */
+            override_reason?: string | null;
+        };
         /** AddStationInput */
         AddStationInput: {
             /** Id */
@@ -1357,6 +1446,11 @@ export interface components {
             active_version: number;
             /** Stale */
             stale: boolean;
+            /**
+             * Next Version
+             * @default 0
+             */
+            next_version: number;
             /** Dirty */
             dirty: boolean;
             /** Updated At */
@@ -1387,6 +1481,13 @@ export interface components {
              * @default true
              */
             learn_from_runs: boolean;
+            /**
+             * Eval Gate
+             * @default off
+             */
+            eval_gate: string;
+            /** Evals */
+            evals?: components["schemas"]["EvalCase"][];
         };
         /** DuplicateAgentInput */
         DuplicateAgentInput: {
@@ -1415,6 +1516,181 @@ export interface components {
             };
             /** Product Lines */
             product_lines?: string[];
+        };
+        /**
+         * EvalCase
+         * @description One fixed order of a workflow's evaluation suite (ADR-0025).
+         */
+        EvalCase: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Requirements */
+            requirements: string;
+            /** Answers */
+            answers?: string[];
+        };
+        /**
+         * EvalCaseResult
+         * @description One evaluation case on one workflow version (ADR-0025).
+         */
+        EvalCaseResult: {
+            /** Case Id */
+            case_id: string;
+            /** Title */
+            title: string;
+            /** Order Id */
+            order_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Status
+             * @default queued
+             */
+            status: string;
+            /**
+             * Final
+             * @default false
+             */
+            final: boolean;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Fix Loops
+             * @default 0
+             */
+            fix_loops: number;
+            /** Lead Time S */
+            lead_time_s?: number | null;
+            /** Readiness Level */
+            readiness_level?: number | null;
+            /**
+             * Requirements
+             * @default 0
+             */
+            requirements: number;
+            /**
+             * Requirements Verified
+             * @default 0
+             */
+            requirements_verified: number;
+            /**
+             * Unplanned Touch
+             * @default false
+             */
+            unplanned_touch: boolean;
+            /** Note */
+            note?: string | null;
+        };
+        /** EvalOverride */
+        EvalOverride: {
+            /** By */
+            by: string;
+            /** Reason */
+            reason: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
+        /**
+         * EvalRun
+         * @description Evaluation of a workflow version against a baseline version on the fixed suite (ADR-0025).
+         */
+        EvalRun: {
+            /** Id */
+            id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Suite Hash */
+            suite_hash: string;
+            /**
+             * Trigger
+             * @default manual
+             * @enum {string}
+             */
+            trigger: "publish" | "manual";
+            /** Started By */
+            started_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Status
+             * @default running
+             * @enum {string}
+             */
+            status: "running" | "done" | "cancelled";
+            candidate: components["schemas"]["EvalSide"];
+            baseline?: components["schemas"]["EvalSide"] | null;
+            /** Baseline From */
+            baseline_from?: string | null;
+            verdict?: components["schemas"]["EvalVerdict"] | null;
+            /**
+             * Activated
+             * @default false
+             */
+            activated: boolean;
+            override?: components["schemas"]["EvalOverride"] | null;
+        };
+        /** EvalSide */
+        EvalSide: {
+            /** Version */
+            version: number;
+            /** Results */
+            results?: components["schemas"]["EvalCaseResult"][];
+            summary?: components["schemas"]["EvalSummary"] | null;
+        };
+        /** EvalSuiteInput */
+        EvalSuiteInput: {
+            /** Cases */
+            cases: components["schemas"]["EvalCase"][];
+        };
+        /**
+         * EvalSummary
+         * @description What a version scored on the suite. Ratios are None when undefined.
+         */
+        EvalSummary: {
+            /** Cases */
+            cases: number;
+            /** Delivered */
+            delivered: number;
+            /** Pass Rate */
+            pass_rate: number;
+            /** Autonomy */
+            autonomy?: number | null;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Cost Per Delivery Usd */
+            cost_per_delivery_usd?: number | null;
+            /** Fix Loops Per Case */
+            fix_loops_per_case: number;
+            /** Lead Time Median S */
+            lead_time_median_s?: number | null;
+            /** Level3 Share */
+            level3_share?: number | null;
+            /** Verified Live Share */
+            verified_live_share?: number | null;
+        };
+        /** EvalVerdict */
+        EvalVerdict: {
+            /** Passed */
+            passed: boolean;
+            /** Compared To */
+            compared_to?: number | null;
+            /** Regressions */
+            regressions?: string[];
+            /** Warnings */
+            warnings?: string[];
         };
         /** Event */
         Event: {
@@ -1709,6 +1985,8 @@ export interface components {
             archived_at?: string | null;
             /** Archived By */
             archived_by?: string | null;
+            /** Eval Run Id */
+            eval_run_id?: string | null;
         };
         /** OrderDetail */
         OrderDetail: {
@@ -2207,6 +2485,11 @@ export interface components {
             traceability?: components["schemas"]["TraceRow"][];
             review?: components["schemas"]["ReviewView"] | null;
         };
+        /** StartEvalInput */
+        StartEvalInput: {
+            /** Version */
+            version?: number | null;
+        };
         /** StationAgentInput */
         StationAgentInput: {
             /** Agent */
@@ -2399,6 +2682,8 @@ export interface components {
             spec_review?: ("off" | "first" | "always") | null;
             /** Learn From Runs */
             learn_from_runs?: boolean | null;
+            /** Eval Gate */
+            eval_gate?: ("off" | "warn" | "block") | null;
         };
         /** WorkflowSummary */
         WorkflowSummary: {
@@ -2449,6 +2734,8 @@ export interface components {
              * @default 0
              */
             agents: number;
+            /** Evaluation */
+            evaluation?: string | null;
         };
         /** WorkflowView */
         WorkflowView: {
@@ -2486,6 +2773,13 @@ export interface components {
              * @default true
              */
             learn_from_runs: boolean;
+            /**
+             * Eval Gate
+             * @default off
+             */
+            eval_gate: string;
+            /** Evals */
+            evals?: components["schemas"]["EvalCase"][];
             /**
              * Environment
              * @default local
@@ -3159,6 +3453,171 @@ export interface operations {
             };
         };
     };
+    put_draft_evals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalSuiteInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_evals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_eval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartEvalInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_eval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                eval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_eval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+                eval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_learning_proposals: {
         parameters: {
             query?: {
@@ -3484,7 +3943,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ActivateInput"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -365,9 +365,11 @@ def _effort(f: Facts) -> list[StationEffort]:
 # ------------------------------------------------------------------- gather --
 def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     now = now or datetime.now(UTC)
-    orders = {o.id: o for o in store.list_orders()}
-    runs = store.all_runs()
-    transitions = store.transitions()
+    # evaluation orders (ADR-0025) measure workflow versions, not the factory's real work
+    orders = {o.id: o for o in store.list_orders() if not o.eval_run_id}
+    runs = [r for r in store.all_runs() if r.order_id in orders]
+    ids = {r.id for r in runs}
+    transitions = {k: v for k, v in store.transitions().items() if k in ids}
     f = Facts(now=now, days=days, orders=orders, runs=runs, transitions=transitions)
     for r in runs:
         if r.id not in transitions and r.status == RunStatus.awaiting_feedback:

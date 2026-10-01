@@ -1,6 +1,6 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-10-01 (after the quality pillars change).
+Status: living reference · last reviewed 2026-10-01 (after the evaluation harness change).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
 The factory is judged twice:
@@ -61,7 +61,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 ## 5. Agent engineering
 - ✅ Deterministic orchestration and LLM work only inside stations ("workflows before agents").
 - ✅ Smallest tool set per role; skills preloaded only where measured.
-- ⬜ **Evaluation harness:** a fixed set of orders run per workflow version. Track pass rate, cost, loops and lead time. Gate publishing a workflow version on no regression.
+- ✅ **Evaluation harness** (ADR-0025): a fixed suite of orders per workflow, run on every new version against the active one (pass rate, autonomy, Level 3, verified live, cost, loops, lead time). `block` keeps a version a candidate until nothing regressed; overrides need a recorded reason; rollback is never gated · ⬜ repeated runs per case, scheduled re-evaluation for model drift.
 - 🟡 Trace every agent call: ✅ per-call records (turns, time, cost, tools, denials) and redacted transcripts, with effort by station on Outcomes (ADR-0022); ⬜ export as OpenTelemetry GenAI spans.
 
 ## 6. Enterprise governance (when a company adopts it)
@@ -135,8 +135,8 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
   - agent observability change: every guardrail denial recorded as a decision; one record per agent call (turns, time, cost, tools, denials); redacted transcripts per call; Agent calls panel and effort by station; the retro learns from denials and call stats (ADR-0022).
   - evidence manifest change: every stopped run sealed (events, spec, review, traceability, SBOM, provenance, transcripts, each with SHA-256); re-verified on every view; one-zip download for the order's creator or an admin; checkable with `sha256sum -c` (ADR-0023).
   - quality pillars change: ten pillars (Well-Architected + ISO/IEC 25010); every readiness signal tagged with one pillar; readiness report, run page, Outcomes and the sealed evidence grouped by pillar; uncovered pillars shown as uncovered (ADR-0024).
+  - evaluation harness change: a fixed evaluation suite per workflow; every new version measured against the active one before it serves real orders; the `block` gate keeps it a candidate until nothing regressed, with recorded overrides (ADR-0025).
 - **Next:**
-  - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.
 - **Then:** phase 5, generic `registry/oci` + `deploy/helm` providers (any dev cluster, ingress hosts instead of NodePorts), then ECR + Argo CD.
 - **Later:**

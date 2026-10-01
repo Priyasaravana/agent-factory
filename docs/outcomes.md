@@ -7,6 +7,7 @@ The **Outcomes** page (and `GET /api/outcomes?days=7|30|90`) answers four questi
 - Who is it waiting on right now?
 
 Every number has one definition, written here and shown next to it in the UI.
+Evaluation orders (ADR-0025) measure workflow versions, so they are never counted here.
 Decision record: [ADR-0019](adr/0019-outcome-metrics.md).
 
 An **iteration** is one run: the first build of an order, or one round of
@@ -104,8 +105,8 @@ Apps delivered before the Readiness station existed have no scorecard and are no
 
 ## Using it
 - **Before and after a workflow change:** compare the **By workflow** table
-  across windows. The evaluation harness (next on the roadmap) will make this a
-  publish gate.
+  across windows. The evaluation harness (ADR-0025) measures each new version
+  on fixed orders before it goes live; see the workflow page's Evaluation card.
 - **When autonomy drops:** the touches line under "Where the time goes" says
   which kind of help was needed. Questions point to intake prompts; rescues
   point to templates, skills or budgets.

@@ -7,6 +7,7 @@ import AgentCard from "../components/AgentCard";
 import StationStrip from "../components/StationStrip";
 import DeliveryCard from "../components/DeliveryCard";
 import LearningsCard from "../components/LearningsCard";
+import EvaluationCard from "../components/EvaluationCard";
 
 export default function WorkflowPage() {
   const { workflowId = "" } = useParams();
@@ -40,19 +41,29 @@ export default function WorkflowPage() {
             api.GET("/api/workflows/{workflow_id}", { params: { path: p } }),
           ),
   });
+  const [reason, setReason] = useState("");
   const activate = useMutation({
-    mutationFn: (version: number) =>
+    mutationFn: ({
+      version,
+      override,
+    }: {
+      version: number;
+      override?: string;
+    }) =>
       unwrap(
         api.POST("/api/workflows/{workflow_id}/versions/{version}/activate", {
           params: { path: { ...p, version } },
+          body: override ? { override_reason: override } : undefined,
         }),
       ),
     onSuccess: () => {
-      ["workflow", "wf-versions", "workflows", "config"].forEach((k) =>
+      setReason("");
+      ["workflow", "wf-versions", "workflows", "config", "evals"].forEach((k) =>
         qc.invalidateQueries({ queryKey: [k] }),
       );
     },
   });
+  const needsReason = /override reason/.test(activate.error?.message ?? "");
 
   if (wf.error) return <p className="error">{wf.error.message}</p>;
   if (!wf.data || !cfg.data) return <p className="muted">Loading…</p>;
@@ -74,7 +85,7 @@ export default function WorkflowPage() {
           <div className="row">
             {isAdmin && !w.active && (
               <button
-                onClick={() => activate.mutate(w.version)}
+                onClick={() => activate.mutate({ version: w.version })}
                 disabled={activate.isPending}
               >
                 Make v{w.version} active
@@ -87,6 +98,33 @@ export default function WorkflowPage() {
             )}
           </div>
         </div>
+        {activate.error && (
+          <div className="grid gap-2">
+            <p className="error m-0">{activate.error.message}</p>
+            {needsReason && (
+              <div className="row">
+                <input
+                  aria-label="Override reason"
+                  placeholder="Why activate despite the regression? (recorded)"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="min-w-[24rem]"
+                />
+                <button
+                  disabled={reason.trim().length < 10 || activate.isPending}
+                  onClick={() =>
+                    activate.mutate({
+                      version: w.version,
+                      override: reason.trim(),
+                    })
+                  }
+                >
+                  Activate anyway
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <p className="muted">
           {w.description} · template <code>{w.template}</code> · {w.note}
         </p>
@@ -111,6 +149,14 @@ export default function WorkflowPage() {
           version. Runs in flight keep the version they started with.
         </p>
       </section>
+
+      <EvaluationCard
+        workflowId={workflowId}
+        isAdmin={isAdmin}
+        versions={versions.data?.map((v) => v.version) ?? []}
+        suiteSize={w.evals?.length ?? 0}
+        gate={w.eval_gate ?? "off"}
+      />
 
       <LearningsCard workflowId={workflowId} isAdmin={isAdmin} />
 
@@ -153,7 +199,16 @@ export default function WorkflowPage() {
                       v{v.version}
                     </button>
                   </td>
-                  <td>{v.active && <span className="pill ok">active</span>}</td>
+                  <td>
+                    {v.active && <span className="pill ok">active</span>}
+                    {v.evaluation && (
+                      <span
+                        className={`pill ${/passed/.test(v.evaluation) ? "ok" : /failed/.test(v.evaluation) ? "bad" : "muted"}`}
+                      >
+                        {v.evaluation}
+                      </span>
+                    )}
+                  </td>
                   <td className="small muted">
                     {new Date(v.created_at).toLocaleString()}
                   </td>

@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { api, unwrap, type AgentSpec, type DraftView, type RefDoc } from "../api/client";
+import type { components } from "../api/schema";
 import AgentCard from "../components/AgentCard";
 import AgentEditor from "../components/AgentEditor";
 import LaneBuilder, { type LaneOps } from "../components/LaneBuilder";
@@ -38,10 +40,11 @@ export default function WorkflowEditPage() {
   const publish = useMutation({
     mutationFn: () =>
       unwrap(api.POST("/api/workflows/{workflow_id}/draft/publish", { params: { path: wid }, body: { note } })),
-    onSuccess: () => {
-      ["draft", "workflow", "wf-versions", "workflows", "config"].forEach((k) =>
+    onSuccess: (info) => {
+      ["draft", "workflow", "wf-versions", "workflows", "config", "evals"].forEach((k) =>
         qc.invalidateQueries({ queryKey: [k] }),
       );
+      if (info.evaluation) toast(`v${info.version} published: ${info.evaluation}`);
       nav(`/workflows/${workflowId}`);
     },
   });
@@ -123,7 +126,7 @@ export default function WorkflowEditPage() {
             disabled={(!d.dirty && Object.keys(d.skill_updates ?? {}).length === 0) || d.problems.length > 0 || note.trim().length < 3 || publish.isPending}
             onClick={() => publish.mutate()}
           >
-            Publish as v{Math.max(d.active_version, d.base_version) + 1}
+            Publish as v{d.next_version || Math.max(d.active_version, d.base_version) + 1}
           </button>
           <button
             className="secondary"
@@ -137,6 +140,13 @@ export default function WorkflowEditPage() {
         <p className="muted small">
           Changes are saved to the draft as you go. Publishing validates the workflow (including each station's role and
           tool needs) and makes it the active version for new runs; runs in flight keep their version.
+          {d.eval_gate === "block" && (d.evals?.length ?? 0) > 0 && (
+            <>
+              {" "}
+              <strong>Evaluation gate is on:</strong> the new version is first measured on {d.evals!.length} fixed
+              orders against the active version, and activates only if nothing regressed. This draft is kept until then.
+            </>
+          )}
         </p>
       </section>
 
@@ -177,6 +187,26 @@ export default function WorkflowEditPage() {
           ))}
         </div>
       </section>
+
+      <EvalSettings
+        d={d}
+        busy={m.isPending}
+        setGate={(value) =>
+          m.mutate(() =>
+            unwrap(
+              api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                params: { path: wid },
+                body: { eval_gate: value },
+              }),
+            ),
+          )
+        }
+        saveCases={(cases) =>
+          m.mutate(() =>
+            unwrap(api.PUT("/api/workflows/{workflow_id}/draft/evals", { params: { path: wid }, body: { cases } })),
+          )
+        }
+      />
 
       <section className="card" data-testid="learn-setting">
         <h3>Learn from runs</h3>
@@ -455,5 +485,108 @@ function DocEditor({
         </button>
       </div>
     </form>
+  );
+}
+
+type EvalCaseIn = components["schemas"]["EvalCase"];
+
+/** Evaluation gate and suite (ADR-0025): the fixed orders every new version is measured on. */
+function EvalSettings({
+  d,
+  busy,
+  setGate,
+  saveCases,
+}: {
+  d: DraftView;
+  busy: boolean;
+  setGate: (g: "off" | "warn" | "block") => void;
+  saveCases: (cases: EvalCaseIn[]) => void;
+}) {
+  const [cases, setCases] = useState<EvalCaseIn[] | null>(null);
+  const shown = cases ?? d.evals ?? [];
+  const edit = (i: number, patch: Partial<EvalCaseIn>) =>
+    setCases(shown.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <section className="card" data-testid="eval-setting">
+      <h3>Evaluation gate</h3>
+      <p className="muted small">
+        Measure every new version on fixed orders against the active version before it serves real ones: pass rate,
+        autonomy, Level 3, requirements verified live, cost and fix loops. Each case is a full build, test and deploy.
+      </p>
+      <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="Evaluation gate">
+        {(
+          [
+            ["off", "Off", "publish activates at once; evaluate by hand"],
+            ["warn", "Warn", "publish activates at once, then evaluates and reports"],
+            ["block", "Block", "a new version stays a candidate until it shows no regression"],
+          ] as const
+        ).map(([value, label, hint]) => (
+          <button
+            key={value}
+            role="radio"
+            aria-checked={d.eval_gate === value}
+            title={hint}
+            className={`tab ${d.eval_gate === value ? "active" : ""}`}
+            disabled={busy}
+            onClick={() => setGate(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <h4 className="mt-3">Suite ({shown.length} cases)</h4>
+      <div className="grid gap-2">
+        {shown.map((c, i) => (
+          <div key={i} className="grid gap-1 rounded-lg border p-2">
+            <div className="row">
+              <input
+                aria-label="Case id"
+                value={c.id}
+                onChange={(e) => edit(i, { id: e.target.value })}
+                className="w-40 font-mono text-xs"
+              />
+              <input
+                aria-label="Case title"
+                value={c.title}
+                onChange={(e) => edit(i, { title: e.target.value })}
+                className="flex-1"
+              />
+              <button className="secondary" onClick={() => setCases(shown.filter((_, j) => j !== i))}>
+                Remove
+              </button>
+            </div>
+            <textarea
+              aria-label="Case requirements"
+              rows={3}
+              value={c.requirements}
+              onChange={(e) => edit(i, { requirements: e.target.value })}
+            />
+            <input
+              aria-label="Answers if intake asks"
+              placeholder="answer if intake asks blocking questions (optional; counts as needing help)"
+              value={(c.answers ?? []).join(" | ")}
+              onChange={(e) =>
+                edit(i, { answers: e.target.value ? e.target.value.split("|").map((x) => x.trim()) : [] })
+              }
+            />
+          </div>
+        ))}
+      </div>
+      <div className="row mt-2">
+        <button
+          className="secondary"
+          disabled={shown.length >= 8}
+          onClick={() =>
+            setCases([...shown, { id: `case-${shown.length + 1}`, title: "New case", requirements: "", answers: [] }])
+          }
+        >
+          Add case
+        </button>
+        <button disabled={busy || cases === null} onClick={() => { saveCases(shown); setCases(null); }}>
+          Save suite to draft
+        </button>
+        {cases !== null && <span className="muted small">unsaved suite changes</span>}
+      </div>
+    </section>
   );
 }

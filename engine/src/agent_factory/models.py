@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
-from agent_factory.workflow import AgentSpec, RefDoc
+from agent_factory.workflow import AgentSpec, EvalCase, RefDoc
 
 
 class RunStatus(StrEnum):
@@ -67,6 +67,7 @@ class Order(BaseModel):
     created_by: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
+    eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from orders and Outcomes
 
 
 class Run(BaseModel):
@@ -335,6 +336,7 @@ class WorkflowSettingsInput(BaseModel):
 
     spec_review: Literal["off", "first", "always"] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
+    eval_gate: Literal["off", "warn", "block"] | None = None  # evaluation gate (ADR-0025)
 
 
 class AgentCallView(BaseModel):
@@ -391,6 +393,92 @@ class EvidenceView(BaseModel):
     changed: list[str] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
     added: list[str] = Field(default_factory=list)
+
+
+class EvalCaseResult(BaseModel):
+    """One evaluation case on one workflow version (ADR-0025)."""
+
+    case_id: str
+    title: str
+    order_id: str | None = None
+    run_id: str | None = None
+    # queued/running until the run stops; then delivered | failed | held | needed_input | cancelled
+    status: str = "queued"
+    final: bool = False
+    cost_usd: float = 0.0
+    fix_loops: int = 0
+    lead_time_s: float | None = None
+    readiness_level: int | None = None
+    requirements: int = 0
+    requirements_verified: int = 0
+    unplanned_touch: bool = False  # canned answers were needed
+    note: str | None = None
+
+
+class EvalSummary(BaseModel):
+    """What a version scored on the suite. Ratios are None when undefined."""
+
+    cases: int
+    delivered: int
+    pass_rate: float
+    autonomy: float | None = None  # delivered with no unplanned touch / delivered
+    cost_usd: float
+    cost_per_delivery_usd: float | None = None
+    fix_loops_per_case: float
+    lead_time_median_s: float | None = None
+    level3_share: float | None = None  # of delivered cases
+    verified_live_share: float | None = None  # requirements verified live / requirements, delivered cases
+
+
+class EvalSide(BaseModel):
+    version: int
+    results: list[EvalCaseResult] = Field(default_factory=list)
+    summary: EvalSummary | None = None
+
+
+class EvalVerdict(BaseModel):
+    passed: bool
+    compared_to: int | None = None  # baseline version
+    regressions: list[str] = Field(default_factory=list)  # block a gated activation
+    warnings: list[str] = Field(default_factory=list)  # reported, never blocking
+
+
+class EvalOverride(BaseModel):
+    by: str
+    reason: str
+    at: datetime
+
+
+class EvalRun(BaseModel):
+    """Evaluation of a workflow version against a baseline version on the fixed suite (ADR-0025)."""
+
+    id: str
+    workflow_id: str
+    suite_hash: str
+    trigger: Literal["publish", "manual"] = "manual"
+    started_by: str
+    created_at: datetime
+    finished_at: datetime | None = None
+    status: Literal["running", "done", "cancelled"] = "running"
+    candidate: EvalSide
+    baseline: EvalSide | None = None  # run alongside, when no earlier result of the same suite exists
+    baseline_from: str | None = None  # id of the earlier evaluation whose result is the baseline
+    verdict: EvalVerdict | None = None
+    activated: bool = False  # the gate promoted the candidate
+    override: EvalOverride | None = None
+
+
+class EvalSuiteInput(BaseModel):
+    cases: list[EvalCase] = Field(max_length=8)
+
+
+class StartEvalInput(BaseModel):
+    version: int | None = None  # default: the newest version
+
+
+class ActivateInput(BaseModel):
+    # activating a newer version whose gate is `block` without a passing evaluation
+    override_reason: str | None = Field(default=None, min_length=10, max_length=500)
 
 
 class LearningProposal(BaseModel):
@@ -497,6 +585,8 @@ class WorkflowView(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     spec_review: str = "off"  # off | first | always
     learn_from_runs: bool = True
+    eval_gate: str = "off"  # off | warn | block (ADR-0025)
+    evals: list[EvalCase] = Field(default_factory=list)
     environment: str = "local"  # where this product line's delivery steps run
     delivery: list[DeliveryBinding] = Field(default_factory=list)
 
@@ -506,6 +596,7 @@ class DraftView(BaseModel):
     base_version: int
     active_version: int
     stale: bool  # the active version moved on since this draft was started
+    next_version: int = 0  # the number publishing will give it
     dirty: bool  # the draft differs from its base version
     updated_at: str | None
     template: str | None = None
@@ -517,6 +608,8 @@ class DraftView(BaseModel):
     docs: list[RefDoc]
     spec_review: str = "off"
     learn_from_runs: bool = True
+    eval_gate: str = "off"  # off | warn | block (ADR-0025)
+    evals: list[EvalCase] = Field(default_factory=list)
 
 
 class SkillInfo(BaseModel):
