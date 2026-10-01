@@ -104,3 +104,4 @@ async def test_a_failed_secret_scan_sends_redacted_evidence_back_to_build(make_f
     assert finished.index(("readiness", "failed")) < max(i for i, (s, _) in enumerate(finished) if s == "build")
     build_calls = [c for c in f.manager.agents.calls if c.role == "developer"]
     assert "Secret scan" in build_calls[-1].prompt and "no secrets in the repo" in build_calls[-1].prompt
+    assert "Security:\n- [L3] no secrets in the repo" in build_calls[-1].prompt, "missing signals grouped by pillar"

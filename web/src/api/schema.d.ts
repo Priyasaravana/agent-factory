@@ -1192,6 +1192,20 @@ export interface components {
             /** Answers */
             answers: string[];
         };
+        /**
+         * AppQuality
+         * @description A live app's pillar scores, from its latest delivered iteration.
+         */
+        AppQuality: {
+            /** Order Id */
+            order_id: string;
+            /** Order Title */
+            order_title: string;
+            /** Run Id */
+            run_id: string;
+            /** Pillars */
+            pillars?: components["schemas"]["PillarScore"][];
+        };
         /** CatalogView */
         CatalogView: {
             /** Presets */
@@ -1780,6 +1794,10 @@ export interface components {
             requirements_verified_live: number;
             /** Waiting */
             waiting?: components["schemas"]["WaitingItem"][];
+            /** Quality Pillars */
+            quality_pillars?: components["schemas"]["PillarScore"][];
+            /** Quality By App */
+            quality_by_app?: components["schemas"]["AppQuality"][];
             /** Effort By Station */
             effort_by_station?: components["schemas"]["StationEffort"][];
             /**
@@ -1791,6 +1809,39 @@ export interface components {
             by_workflow?: components["schemas"]["WorkflowOutcome"][];
             /** Weekly */
             weekly?: components["schemas"]["WeekPoint"][];
+        };
+        /**
+         * PillarScore
+         * @description One quality pillar (ADR-0024): readiness signals passed out of applicable.
+         *     `signals` = distinct signals tagged with the pillar; 0 means uncovered (never 100%).
+         */
+        PillarScore: {
+            /** Pillar */
+            pillar: string;
+            /** Title */
+            title: string;
+            /**
+             * Signals
+             * @default 0
+             */
+            signals: number;
+            /**
+             * Passed
+             * @default 0
+             */
+            passed: number;
+            /**
+             * Applicable
+             * @default 0
+             */
+            applicable: number;
+            /** Coverage */
+            coverage?: number | null;
+            /**
+             * Apps Full
+             * @default 0
+             */
+            apps_full: number;
         };
         /** PreflightView */
         PreflightView: {

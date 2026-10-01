@@ -13,16 +13,19 @@ cost and quality, but not for the time split; `runs_with_timeline` says how many
 from __future__ import annotations
 
 import statistics
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from agent_factory.models import (
+    AppQuality,
     DurationStat,
     HumanTouches,
     Order,
     OutcomesView,
+    PillarScore,
     Run,
     RunStatus,
     StationEffort,
@@ -32,6 +35,8 @@ from agent_factory.models import (
     WeekPoint,
     WorkflowOutcome,
 )
+from agent_factory.pillars import BY_ID, IDS, tally
+from agent_factory.readiness import PILLAR_OF
 from agent_factory.state.base import StateStore
 
 AGENTS = {RunStatus.queued, RunStatus.running}
@@ -61,6 +66,7 @@ class Facts:
     transitions: dict[str, list[Transition]]
     delivered_fallback: dict[str, datetime] = field(default_factory=dict)  # runs without a timeline
     readiness_level: dict[str, int] = field(default_factory=dict)  # run id -> Level
+    readiness_signals: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> signals
     traceability: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> matrix rows
     calls: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, agent_call)
     denials: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, denied)
@@ -288,11 +294,51 @@ def compute(f: Facts) -> OutcomesView:
         requirements_total=req_total,
         requirements_verified_live=req_live,
         waiting=waiting,
+        **_quality(f, latest_delivered, live_orders),
         effort_by_station=_effort(f),
         guardrail_denials=sum(1 for _, ts, _d in f.denials if since <= ts <= now),
         by_workflow=workflows,
         weekly=weekly,
     )
+
+
+def _quality(f: Facts, latest: dict[str, Run], live: dict[str, Order]) -> dict[str, Any]:
+    """Pillar coverage of live apps' latest delivered iterations (ADR-0024)."""
+    signals_per_pillar = Counter(PILLAR_OF.values())
+    totals = {p: {"passed": 0, "applicable": 0, "apps_full": 0} for p in IDS}
+    apps = []
+    for oid, r in sorted(latest.items(), key=lambda kv: live[kv[0]].title.lower()):
+        if r.id not in f.readiness_signals:
+            continue  # delivered before the Readiness station existed
+        t = tally(f.readiness_signals[r.id], PILLAR_OF)
+        scores = []
+        for p in IDS:
+            passed, appl = t[p]["passed"], t[p]["applicable"]
+            totals[p]["passed"] += passed
+            totals[p]["applicable"] += appl
+            totals[p]["apps_full"] += 1 if appl and passed == appl else 0
+            scores.append(
+                PillarScore(
+                    pillar=p,
+                    title=BY_ID[p].title,
+                    signals=signals_per_pillar.get(p, 0),
+                    passed=passed,
+                    applicable=appl,
+                    coverage=_ratio(passed, appl),
+                )
+            )
+        apps.append(AppQuality(order_id=oid, order_title=live[oid].title, run_id=r.id, pillars=scores))
+    pillars = [
+        PillarScore(
+            pillar=p,
+            title=BY_ID[p].title,
+            signals=signals_per_pillar.get(p, 0),
+            coverage=_ratio(totals[p]["passed"], totals[p]["applicable"]),
+            **totals[p],
+        )
+        for p in IDS
+    ]
+    return {"quality_pillars": pillars, "quality_by_app": apps}
 
 
 def _effort(f: Facts) -> list[StationEffort]:
@@ -339,6 +385,7 @@ def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     for r in latest.values():
         if got := store.last_event_data(r.id, "readiness"):
             f.readiness_level[r.id] = int(got[1].get("level", 0))
+            f.readiness_signals[r.id] = list(got[1].get("signals", []))
         if got := store.last_event_data(r.id, "traceability"):
             f.traceability[r.id] = list(got[1])
     return f

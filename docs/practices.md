@@ -1,6 +1,6 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-09-29 (after the upgrade-safety change).
+Status: living reference · last reviewed 2026-10-01 (after the quality pillars change).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
 The factory is judged twice:
@@ -27,7 +27,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
 ⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
 
-**Headline metric:** share of delivered apps at Level 3+. ✅ The Readiness station scores every run (20 signals + secret scan) and fails the run below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
+**Headline metric:** share of delivered apps at Level 3+. ✅ The Readiness station scores every run (21 signals + secret scan, each tagged with a quality pillar, §7) and fails the run below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
 
 ## 2. DORA: four keys and the 2025 AI Capabilities Model
 - **Measure outcomes, not activity:**
@@ -68,6 +68,60 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - NIST SSDF (secure development practices) and ISO/IEC 42001 (AI management system) are the frameworks auditors will ask about.
 - Our audit log, versioned workflows, approvals and evidence records are the raw material. ⬜ Map them when a real customer needs it; don't build for it now.
 
+## 7. Quality pillars (ADR-0024)
+
+Ten pillars: the Well-Architected pillars plus the ISO/IEC 25010 qualities that Well-Architected misses. As in §1, they judge the factory twice: the apps it produces, and the factory itself.
+
+The Autonomy Maturity Model (§1) scores the repository; these pillars score the running product. Every readiness signal carries one primary pillar, and the Level 3 gate is unchanged. A pillar with no signals is **uncovered**, never 100%. See them on **Outcomes → Quality pillars of what is live**, on each run, and in its sealed evidence (`pillars.json`).
+
+### Signal → pillar mapping
+Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Trivy, SBOM, provenance and the review are station evidence: they appear in the evidence pillar index by file, but are not counted as signals.
+
+| Pillar | Signals |
+|---|---|
+| security | `secret_scan`, `container_nonroot`, `codeowners`, `dependency_updates` |
+| reliability | `health_endpoints` |
+| performance | — uncovered |
+| operability | `structured_logs`, `metrics`, `tracing` |
+| cost | — uncovered |
+| interoperability | `design_docs` (spec, design, OpenAPI contract) |
+| usability | — uncovered (`e2e_tests` checks behaviour, not usability) |
+| maintainability | `readme`, `linter`, `formatter`, `unit_tests`, `agents_md`, `verify_target`, `precommit`, `ci`, `coverage_gate` |
+| portability | `lockfile` |
+| compliance | `acceptance_tests`, `requirements_traced`, `e2e_tests` |
+
+### Generated apps
+
+| Pillar | State | Have | Next signals (proposed ids) → phase |
+|---|---|---|---|
+| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; Trivy, SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
+| Reliability | 🟡 | liveness and readiness endpoints | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
+| Performance & scalability | ⬜ | — | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
+| Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
+| Cost | ⬜ | factory-side cost per change only | `resource_requests` (runtime cost estimable) → phase 5 |
+| Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
+| Usability | ⬜ | — | `a11y` (axe in Playwright), UI golden path with screenshots |
+| Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules | — |
+| Portability | 🟡 | uv.lock, Dockerfile, app chooses its Python | `chart_lint` (helm) → phase 5 |
+| Compliance & evidence | ✅ | acceptance tests, traceability, e2e, review evidence, SBOM, provenance, sealed evidence with a pillar index (ADR-0023) | — |
+
+### The factory itself
+
+| Pillar | State | Notes |
+|---|---|---|
+| Security | ✅ | secret refs + redaction, auth + audit, access rules, sandbox + egress allowlist, no root, threat model · ⬜ model token behind an auth proxy |
+| Reliability | 🟡 | `make backup` / `restore` / `upgrade`, loop and usage limits, SQLite reads under the lock · ⬜ single node, no HA, Postgres deferred |
+| Performance & scalability | ⬜ | no measured capacity · parallel tasks (DAG) later |
+| Operability & observability | 🟡 | event log, per-call records, transcripts, Outcomes, runbook · ⬜ OpenTelemetry GenAI export |
+| Cost | ✅ | cost per delivered change (failed runs included), usage limits, model tiers per agent |
+| Interoperability | 🟡 | OpenAPI-first API, API tokens · ⬜ MCP integrations, issue intake, Backstage/Port plugin |
+| Usability | 🟡 | new UI, themes, ⌘K · ⬜ accessibility check on the factory UI |
+| Maintainability | 🟡 | ruff, mypy, tsc, engine + e2e tests · `actions.py` > 500 lines |
+| Portability | 🟡 | docker compose only · ⬜ any cluster via `deploy/helm` (phase 5) |
+| Compliance & evidence | ✅ | audit log, versioned workflows, approvals, sealed evidence manifest (ADR-0023) · ⬜ SSDF / ISO 42001 mapping on demand |
+
+**Headline:** generated apps are strong on security, maintainability and evidence, partial on reliability, operability, interoperability and portability, and uncovered on performance, cost and usability. Phase 5 (helm) closes most of reliability, performance, cost and portability; `a11y` and `openapi_valid` follow.
+
 ## Roadmap
 - **Done:**
   - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Readiness station; SBOM + provenance; threat model.
@@ -80,6 +134,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - learning change: after runs that needed help, an observe-only retro suggests lessons per agent; the engine vets them (no check-weakening, no duplicates, evidence required); an admin accepts them into the workflow draft; they apply only when published (ADR-0021).
   - agent observability change: every guardrail denial recorded as a decision; one record per agent call (turns, time, cost, tools, denials); redacted transcripts per call; Agent calls panel and effort by station; the retro learns from denials and call stats (ADR-0022).
   - evidence manifest change: every stopped run sealed (events, spec, review, traceability, SBOM, provenance, transcripts, each with SHA-256); re-verified on every view; one-zip download for the order's creator or an admin; checkable with `sha256sum -c` (ADR-0023).
+  - quality pillars change: ten pillars (Well-Architected + ISO/IEC 25010); every readiness signal tagged with one pillar; readiness report, run page, Outcomes and the sealed evidence grouped by pillar; uncovered pillars shown as uncovered (ADR-0024).
 - **Next:**
   - evaluation harness gating workflow publishes;
   - model token behind an auth proxy.

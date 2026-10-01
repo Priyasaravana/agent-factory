@@ -64,4 +64,7 @@
   goes under `artifacts/<run>/` before the seal, so the manifest covers it; never
   write there after a run has stopped, and never put holdout text or secret
   values there.
+- Every readiness signal has exactly one primary quality pillar (ADR-0024,
+  `pillars.py`); a new signal also updates the mapping pinned in
+  `tests/test_pillars.py` and practices §7. Pillars never change the Level gate.
 - Record significant decisions as ADRs in `docs/adr/`.
