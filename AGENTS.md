@@ -67,4 +67,8 @@
 - Every readiness signal has exactly one primary quality pillar (ADR-0024,
   `pillars.py`); a new signal also updates the mapping pinned in
   `tests/test_pillars.py` and practices §7. Pillars never change the Level gate.
+- Workflow changes are measured by the evaluation harness (ADR-0025, `evals.py`):
+  the verdict is the pure `evals.judge`; evaluation orders carry `eval_run_id`
+  and stay out of the orders list and Outcomes. A new run-stopping path must
+  still reach `RunManager._after_stop`.
 - Record significant decisions as ADRs in `docs/adr/`.

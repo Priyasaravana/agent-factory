@@ -126,6 +126,9 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             f.sandbox.start()  # image, network and egress proxy; the first build takes a few minutes
         f.manager.preflight.start()  # readiness checks now and every preflight.interval_minutes
         interrupted = f.manager.recover_on_startup()
+        from agent_factory.evals import recover_on_startup as recover_evals
+
+        await recover_evals(f.manager)  # evaluations cut short by a restart are cancelled (ADR-0025)
         if interrupted:
             app.state.interrupted = interrupted
         yield

@@ -60,6 +60,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   quality pillars (Well-Architected + ISO/IEC 25010). Runs, Outcomes and the sealed
   evidence show coverage per pillar, and pillars with no signals say so
   ([ADR-0024](docs/adr/0024-quality-pillars.md)).
+- **Measured before it ships.** Every new workflow version runs a fixed set of
+  orders against the active version: pass rate, autonomy, Level 3, cost and fix
+  loops. With the `block` gate a version only goes live if nothing regressed
+  ([ADR-0025](docs/adr/0025-evaluation-harness.md)).
 - **Evidence you can hand over.** Every stopped run is sealed: events, spec,
   review, traceability, SBOM, provenance and transcripts, each with its SHA-256.
   The seal is re-checked on every view, and the whole set downloads as one zip

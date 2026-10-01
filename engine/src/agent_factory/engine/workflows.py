@@ -13,6 +13,7 @@ from agent_factory.workflow import (
     MAX_LEARNINGS_CHARS,
     STATION_ID,
     AgentSpec,
+    EvalCase,
     RefDoc,
     WorkflowDoc,
     WorkflowStation,
@@ -230,13 +231,35 @@ class Draft:
         WorkflowDoc.model_validate(doc.model_dump())
         self.s.store.save_workflow_draft(self.s.workflow_id, base, doc)
 
-    def publish(self, note: str) -> WorkflowVersionInfo:
+    def publish(self, note: str, activate: bool = True) -> WorkflowVersionInfo:
+        """Store the draft as the next version. With `activate=False` (an evaluation gate,
+        ADR-0025) the version is a candidate and the draft is kept, so a failed
+        candidate can be fixed and published again; it is discarded on activation."""
         _, doc, stamp = self.get()
         if not self.dirty() and not self.skill_updates():
             raise WorkflowError("nothing to publish: the draft has no changes")
-        version = self.s.create_version(doc, note, activate=True)  # raises with problems
-        self.discard()
+        version = self.s.create_version(doc, note, activate=activate)  # raises with problems
+        if activate:
+            self.discard()
         return next(i for i in self.s.versions() if i.version == version)
+
+    def discard_if_published_as(self, version: int) -> None:
+        """Drop the draft once `version` (published from it) is active, unless it changed since."""
+        _, doc, stamp = self.get()
+        if stamp is not None and doc.model_dump(exclude={"skill_pins"}) == self.s.get(version).model_dump(
+            exclude={"skill_pins"}
+        ):
+            self.discard()
+
+    def set_eval_gate(self, gate: str) -> None:
+        _, doc, _ = self.get()
+        doc.eval_gate = gate  # type: ignore[assignment]
+        self._save(doc)
+
+    def set_evals(self, cases: list[EvalCase]) -> None:
+        _, doc, _ = self.get()
+        doc.evals = list(cases)
+        self._save(doc)
 
     def set_spec_review(self, mode: str) -> None:
         _, doc, _ = self.get()

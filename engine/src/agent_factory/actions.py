@@ -32,6 +32,7 @@ from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
 from agent_factory.models import (
+    ActivateInput,
     AddStationInput,
     AgentCallView,
     AgentView,
@@ -46,6 +47,8 @@ from agent_factory.models import (
     DraftView,
     DuplicateAgentInput,
     EnvironmentView,
+    EvalRun,
+    EvalSuiteInput,
     Event,
     EventKind,
     EvidenceFile,
@@ -79,6 +82,7 @@ from agent_factory.models import (
     SpecEditInput,
     SpecReviewInput,
     SpecView,
+    StartEvalInput,
     StationAgentInput,
     StationView,
     TemplateInfo,
@@ -229,9 +233,9 @@ async def get_outcomes(f: Factory, days: Annotated[int, Query(ge=1, le=365)] = 3
     return await asyncio.to_thread(outcomes, f.store, days)
 
 
-@action("list_orders", "List orders, newest first", "GET", "/api/orders")
+@action("list_orders", "List orders, newest first (evaluation orders are not listed)", "GET", "/api/orders")
 def list_orders(f: Factory, include_archived: bool = False) -> list[Order]:
-    return [o for o in f.store.list_orders() if include_archived or not o.archived_at]
+    return [o for o in f.store.list_orders() if (include_archived or not o.archived_at) and not o.eval_run_id]
 
 
 @action("create_order", "Submit requirements; starts the first run", "POST", "/api/orders", status_code=201)
@@ -543,7 +547,8 @@ async def edit_spec(f: Factory, run_id: str, body: SpecEditInput) -> SpecView:
 
 @action(
     "set_workflow_settings",
-    "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
+    "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, "
+    "evaluation gate (off | warn | block)",
     "PATCH",
     "/api/workflows/{workflow_id}/draft/settings",
 )
@@ -553,7 +558,74 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
         draft.set_spec_review(body.spec_review)
     if body.learn_from_runs is not None:
         draft.set_learn_from_runs(body.learn_from_runs)
+    if body.eval_gate is not None:
+        draft.set_eval_gate(body.eval_gate)
     return get_draft(f, workflow_id)
+
+
+# ------------------------------------------------------ evaluation (ADR-0025) --
+@action(
+    "put_draft_evals",
+    "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
+    "PUT",
+    "/api/workflows/{workflow_id}/draft/evals",
+)
+def put_draft_evals(f: Factory, workflow_id: str, body: EvalSuiteInput) -> DraftView:
+    f.workflows[workflow_id].draft.set_evals(body.cases)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "list_evals",
+    "Evaluations of this workflow's versions, newest first",
+    "GET",
+    "/api/workflows/{workflow_id}/evals",
+)
+def list_evals(f: Factory, workflow_id: str) -> list[EvalRun]:
+    f.workflows[workflow_id]  # 404 for an unknown workflow
+    return f.store.list_evals(workflow_id)
+
+
+@action(
+    "get_eval",
+    "One evaluation: per-case results, summaries of candidate and baseline, and the verdict",
+    "GET",
+    "/api/workflows/{workflow_id}/evals/{eval_id}",
+)
+def get_eval(f: Factory, workflow_id: str, eval_id: str) -> EvalRun:
+    e = f.store.get_eval(eval_id)
+    if e is None or e.workflow_id != workflow_id:
+        raise FactoryError("evaluation not found")
+    return e
+
+
+@action(
+    "start_eval",
+    "Run the version's evaluation suite (default: the newest version) against the active version",
+    "POST",
+    "/api/workflows/{workflow_id}/evals",
+    status_code=201,
+)
+async def start_eval(f: Factory, workflow_id: str, body: StartEvalInput) -> EvalRun:
+    from agent_factory import evals
+
+    w = f.workflows[workflow_id]
+    version = body.version or max(i.version for i in w.versions())
+    await _gate(f, workflow_id, "order")
+    return evals.start(f.manager, workflow_id, version, current_identity().user)
+
+
+@action(
+    "cancel_eval",
+    "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
+    "POST",
+    "/api/workflows/{workflow_id}/evals/{eval_id}/cancel",
+)
+async def cancel_eval(f: Factory, workflow_id: str, eval_id: str) -> EvalRun:
+    from agent_factory import evals
+
+    e = get_eval(f, workflow_id, eval_id)
+    return await evals.cancel(f.manager, e)
 
 
 # ------------------------------------------------------ learnings (ADR-0021) --
@@ -679,7 +751,11 @@ def get_workflow_version(f: Factory, workflow_id: str, version: int) -> Workflow
     "list_workflow_versions", "All versions of a workflow, newest first", "GET", "/api/workflows/{workflow_id}/versions"
 )
 def list_workflow_versions(f: Factory, workflow_id: str) -> list[WorkflowVersionInfo]:
-    return f.workflows[workflow_id].versions()
+    from agent_factory import evals
+
+    infos = f.workflows[workflow_id].versions()
+    states = evals.version_states(f.manager, workflow_id)
+    return [i.model_copy(update={"evaluation": states.get(i.version)}) for i in infos]
 
 
 @action(
@@ -688,8 +764,18 @@ def list_workflow_versions(f: Factory, workflow_id: str) -> list[WorkflowVersion
     "POST",
     "/api/workflows/{workflow_id}/versions/{version}/activate",
 )
-def activate_workflow_version(f: Factory, workflow_id: str, version: int) -> WorkflowVersionInfo:
-    return f.workflows[workflow_id].activate(version)
+def activate_workflow_version(
+    f: Factory, workflow_id: str, version: int, body: ActivateInput | None = None
+) -> WorkflowVersionInfo:
+    from agent_factory import evals
+
+    f.workflows[workflow_id].get(version)  # 404 first
+    evals.gate_activation(
+        f.manager, workflow_id, version, current_identity().user, body.override_reason if body else None
+    )
+    info = f.workflows[workflow_id].activate(version)
+    f.workflows[workflow_id].draft.discard_if_published_as(version)
+    return info
 
 
 def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
@@ -711,6 +797,8 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         warnings=workflow_warnings(doc),
         spec_review=doc.spec_review,
         learn_from_runs=doc.learn_from_runs,
+        eval_gate=doc.eval_gate,
+        evals=doc.evals,
         environment=f.cfg.product_lines[workflow_id].environment,
         delivery=_bindings(f, workflow_id),
     )
@@ -851,6 +939,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         base_version=base,
         active_version=active,
         stale=base != active,
+        next_version=max(i.version for i in w.versions()) + 1,
         dirty=w.draft.dirty(),
         updated_at=stamp,
         template=doc.template,
@@ -862,6 +951,8 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         docs=list(doc.docs.values()),
         spec_review=doc.spec_review,
         learn_from_runs=doc.learn_from_runs,
+        eval_gate=doc.eval_gate,
+        evals=doc.evals,
     )
 
 
@@ -985,8 +1076,27 @@ def delete_draft_doc(f: Factory, workflow_id: str, doc_id: str) -> DraftView:
     "/api/workflows/{workflow_id}/draft/publish",
     status_code=201,
 )
-def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> WorkflowVersionInfo:
-    return f.workflows[workflow_id].draft.publish(f"{body.note} (by {current_identity().user})")
+async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> WorkflowVersionInfo:
+    """With an evaluation gate (ADR-0025) the new version is evaluated against the active
+    one: `block` keeps it a candidate until it passes; `warn` activates it and reports."""
+    from agent_factory import evals
+    from agent_factory.engine.preflight import PreflightFailed
+
+    w = f.workflows[workflow_id]
+    _, doc, _ = w.draft.get()
+    gate = doc.eval_gate if doc.evals and workflow_id in f.cfg.product_lines else "off"
+    before = w.active_version()
+    who = current_identity().user
+    info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")
+    if gate == "off":
+        return info
+    try:
+        await _gate(f, workflow_id, "order")
+        e = evals.start(f.manager, workflow_id, info.version, who, trigger="publish", baseline=before)
+        note = f"evaluation {e.id} running against version {before}"
+    except (FactoryError, PreflightFailed) as exc:
+        note = f"evaluation not started: {exc}"
+    return info.model_copy(update={"evaluation": note})
 
 
 @action("discard_draft", "Throw the draft away", "DELETE", "/api/workflows/{workflow_id}/draft")

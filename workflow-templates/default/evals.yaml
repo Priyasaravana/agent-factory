@@ -1,0 +1,23 @@
+# Evaluation suite (ADR-0025): fixed orders every new version of this workflow is
+# measured on before it serves real ones (see eval_gate in workflow.yaml).
+# Keep cases small and representative: each one is a full build, test and deploy.
+# `answers` are given if intake asks blocking questions; that counts as needing help.
+- id: bookmarks
+  title: Bookmarks service
+  requirements: >-
+    Save bookmarks with a URL, a title, optional notes and tags. List bookmarks,
+    filter them by tag, and delete a bookmark. Reject invalid URLs.
+  answers: ["Use your best judgement and record it as an assumption."]
+- id: todo
+  title: To-do list API
+  requirements: >-
+    Create tasks with a title and an optional due date, mark a task done, and list
+    open tasks sorted by due date (tasks without a due date last).
+  answers: ["Use your best judgement and record it as an assumption."]
+- id: shortener
+  title: URL shortener
+  requirements: >-
+    POST a long URL to get a short code. GET /{code} redirects to the long URL with
+    a 307. Count visits per code and return the count from GET /{code}/stats.
+    Unknown codes return 404.
+  answers: ["Use your best judgement and record it as an assumption."]

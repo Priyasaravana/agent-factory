@@ -176,7 +176,7 @@ class RunManager:
         self.store.save_order(order)
         return order
 
-    def start_run(self, order: Order, change_request: str | None = None) -> Run:
+    def start_run(self, order: Order, change_request: str | None = None, version: int | None = None) -> Run:
         if order.archived_at:
             raise FactoryError("this order is archived: place a new order instead")
         runs = self.store.list_runs(order.id)
@@ -191,7 +191,7 @@ class RunManager:
             iteration=len(runs) + 1,
             status=RunStatus.queued,
             workflow_id=order.product_line,
-            workflow_version=(version := self.workflows[order.product_line].active_version()),
+            workflow_version=(version := version or self.workflows[order.product_line].active_version()),
             current_station=self.workflows[order.product_line].get(version).forward_stations()[0].id,
             change_request=change_request,
             created_at=now,
@@ -213,14 +213,14 @@ class RunManager:
         return run
 
     # ----------------------------------------------------- human actions ---
-    def answer(self, run_id: str, answers: list[str]) -> Run:
+    def answer(self, run_id: str, answers: list[str], by: str = "human") -> Run:
         run = self._get(run_id)
         if run.status != RunStatus.needs_input:
             raise FactoryError("run is not waiting for answers")
         run.answers = answers
         run.status = RunStatus.queued
         self.store.save_run(run)
-        self.store.add_event(run.id, EventKind.decision, "human answered intake questions", data={"answers": answers})
+        self.store.add_event(run.id, EventKind.decision, f"{by} answered intake questions", data={"answers": answers})
         self._schedule(run.id)
         return run
 
@@ -394,6 +394,18 @@ class RunManager:
             await self._retro(run, order)
         if not cancelled:
             await self._seal(run, order)
+            self._after_stop(run, order)
+
+    def _after_stop(self, run: Run, order: Order) -> None:
+        """Evaluation runs report to their evaluation (ADR-0025); never fails the run."""
+        if not order.eval_run_id:
+            return
+        from agent_factory.evals import on_run_stopped
+
+        try:
+            on_run_stopped(self, self._get(run.id), self.store.get_order(order.id) or order)
+        except Exception as exc:  # noqa: BLE001
+            self.store.add_event(run.id, EventKind.log, f"evaluation update failed: {type(exc).__name__}: {exc}")
 
     async def _seal(self, run: Run, order: Order) -> None:
         """Seal the run's evidence at every stop (ADR-0023); never fails the run."""
@@ -411,6 +423,7 @@ class RunManager:
         order = self.store.get_order(run.order_id) if run else None
         if run and order:
             await self._seal(run, order)
+            self._after_stop(run, order)
 
     async def _retro(self, run: Run, order: Order) -> None:
         from agent_factory.retro import run_retro

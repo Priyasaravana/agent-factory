@@ -127,6 +127,8 @@ async def test_draft_over_http(make_factory):
             "/api/workflows/fastapi-service/draft/stations/acceptance/agent", json={"agent": "strict-verifier"}
         )
         assert next(s for s in r.json()["stations"] if s["id"] == "acceptance")["role"] == "strict-verifier"
+        # no evaluation gate here: publishing activates at once (gated publishing: test_evals.py)
+        await c.patch("/api/workflows/fastapi-service/draft/settings", json={"eval_gate": "off"})
         pub = await c.post("/api/workflows/fastapi-service/draft/publish", json={"note": "strict acceptance"})
         assert pub.status_code == 201 and pub.json()["version"] == 2
         after = (await c.get("/api/workflows/fastapi-service/draft")).json()

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_factory.models import (
+    EvalRun,
     Event,
     EventKind,
     Feedback,
@@ -44,6 +45,10 @@ CREATE INDEX IF NOT EXISTS run_transitions_run ON run_transitions(run_id, id);
 CREATE TABLE IF NOT EXISTS learning_proposals (
   id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS learning_proposals_wf ON learning_proposals(workflow_id, status);
+-- evaluations of workflow versions on their fixed suite (ADR-0025)
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS eval_runs_wf ON eval_runs(workflow_id, created_at);
 CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -188,6 +193,23 @@ class SqliteStateStore:
                 )
             )
         return out
+
+    # -- evaluations (ADR-0025) -----------------------------------------------
+    def save_eval(self, e: EvalRun) -> EvalRun:
+        self._exec(
+            "INSERT INTO eval_runs(id, workflow_id, created_at, doc) VALUES (?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET doc=excluded.doc",
+            (e.id, e.workflow_id, e.created_at.isoformat(), REDACTOR.text(e.model_dump_json())),
+        )
+        return e
+
+    def get_eval(self, eval_id: str) -> EvalRun | None:
+        row = self._exec("SELECT doc FROM eval_runs WHERE id=?", (eval_id,)).fetchone()
+        return EvalRun.model_validate_json(row[0]) if row else None
+
+    def list_evals(self, workflow_id: str) -> list[EvalRun]:
+        rows = self._exec("SELECT doc FROM eval_runs WHERE workflow_id=? ORDER BY created_at DESC", (workflow_id,))
+        return [EvalRun.model_validate_json(r[0]) for r in rows]
 
     # -- learning proposals (ADR-0021) ---------------------------------------
     def add_proposal(self, p: LearningProposal) -> LearningProposal:

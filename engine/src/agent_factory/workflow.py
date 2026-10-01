@@ -15,6 +15,7 @@ with. Versions export back to the same folder format.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Collection
 from pathlib import Path
@@ -150,6 +151,21 @@ class WorkflowStation(BaseModel):
         return self.id if self.id in known else ("agent" if self.kind == "agent" else self.id)
 
 
+EVAL_CASE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+MAX_EVAL_CASES = 8
+
+
+class EvalCase(BaseModel):
+    """One fixed order of a workflow's evaluation suite (ADR-0025)."""
+
+    id: str
+    title: str = Field(min_length=3, max_length=120)
+    requirements: str = Field(min_length=10, max_length=20_000)
+    # answers given automatically if intake asks blocking questions; the case then
+    # counts as "needed help" (an unplanned touch) in the evaluation
+    answers: list[str] = Field(default_factory=list)
+
+
 class WorkflowDoc(BaseModel):
     name: str = "default"
     description: str = ""
@@ -166,12 +182,22 @@ class WorkflowDoc(BaseModel):
     spec_review: Literal["off", "first", "always"] = "off"
     # after a run that needed help, suggest learnings for an admin to accept (ADR-0021)
     learn_from_runs: bool = True
+    # evaluation harness (ADR-0025): fixed orders run against a new version before it
+    # becomes active. off: no gate · warn: activate, then evaluate and report ·
+    # block: a published version stays a candidate until its evaluation shows no regression
+    evals: list[EvalCase] = Field(default_factory=list)
+    eval_gate: Literal["off", "warn", "block"] = "off"
 
     @field_validator("spec_review", mode="before")
     @classmethod
     def _yaml_off(cls, v: object) -> object:
         # YAML 1.1 reads a bare `off` as false (and `on` as true)
         return {False: "off", True: "always"}.get(v, v) if isinstance(v, bool) else v
+
+    def eval_suite_hash(self) -> str:
+        """Identity of the suite: results are only compared across the same cases."""
+        body = json.dumps([c.model_dump() for c in self.evals], sort_keys=True).encode()
+        return hashlib.sha256(body).hexdigest()[:12]
 
     def spec_gate_applies(self, iteration: int) -> bool:
         return self.spec_review == "always" or (self.spec_review == "first" and iteration == 1)
@@ -214,6 +240,7 @@ class WorkflowVersionInfo(BaseModel):
     active: bool = False
     stations: int = 0
     agents: int = 0
+    evaluation: str | None = None  # gate state (ADR-0025): candidate, evaluating, passed, failed …
 
 
 # ------------------------------------------------------------ validate ----
@@ -269,6 +296,16 @@ def validate_workflow(
             for sk in spec.skills:
                 if sk not in imported_skills and not (skills_dir / sk / "SKILL.md").exists():
                     errors.append(f"agent '{aid}' uses unknown skill '{sk}'")
+    case_ids = [c.id for c in doc.evals]
+    if len(case_ids) != len(set(case_ids)):
+        errors.append("evaluation case ids must be unique")
+    for cid in case_ids:
+        if not EVAL_CASE_ID.match(cid):
+            errors.append(f"evaluation case id '{cid}' must be lowercase letters, digits or '-' (max 31)")
+    if len(case_ids) > MAX_EVAL_CASES:
+        errors.append(f"at most {MAX_EVAL_CASES} evaluation cases (each one is a full build)")
+    if doc.eval_gate != "off" and not doc.evals:
+        errors.append(f"eval_gate '{doc.eval_gate}' needs at least one evaluation case")
     return errors
 
 
@@ -407,12 +444,16 @@ def load_workflow_dir(path: Path) -> WorkflowDoc:
     for f in sorted((path / "docs").glob("*.md")):
         d = parse_doc_md(f.read_text())
         docs[d.id] = d
+    evals_file = path / "evals.yaml"
+    evals = (yaml.safe_load(evals_file.read_text()) or []) if evals_file.is_file() else raw.get("evals", [])
     digest = hashlib.sha256()
-    for f in [wf_file, *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md"))]:
+    extra = [evals_file] if evals_file.is_file() else []
+    for f in [wf_file, *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md")), *extra]:
         digest.update(f.read_bytes())
     return WorkflowDoc.model_validate(
         {
             **raw,
+            "evals": evals,
             "agents": agents,
             "docs": docs,
             "template": raw.get("template") or raw.get("blueprint") or path.name,
@@ -431,9 +472,15 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
             s.model_dump(exclude_none=True, exclude_defaults=True) | {"id": s.id, "kind": s.kind} for s in doc.stations
         ],
     }
+    if doc.eval_gate != "off":
+        data["eval_gate"] = doc.eval_gate
     if doc.skill_pins:
         data["skill_pins"] = dict(doc.skill_pins)  # imported skills this version was published with
     (path / "workflow.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    if doc.evals:
+        (path / "evals.yaml").write_text(
+            yaml.safe_dump([c.model_dump(exclude_defaults=True) for c in doc.evals], sort_keys=False)
+        )
     for spec in doc.agents.values():
         (path / "agents" / f"{spec.id}.md").write_text(render_agent_md(spec))
     if doc.docs:

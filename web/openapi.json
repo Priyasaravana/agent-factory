@@ -101,8 +101,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "List orders, newest first",
-        "description": "List orders, newest first",
+        "summary": "List orders, newest first (evaluation orders are not listed)",
+        "description": "List orders, newest first (evaluation orders are not listed)",
         "operationId": "list_orders",
         "parameters": [
           {
@@ -898,8 +898,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
-        "description": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs",
+        "summary": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)",
+        "description": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)",
         "operationId": "set_workflow_settings",
         "parameters": [
           {
@@ -929,6 +929,261 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/evals": {
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
+        "description": "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
+        "operationId": "put_draft_evals",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalSuiteInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/evals": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Evaluations of this workflow's versions, newest first",
+        "description": "Evaluations of this workflow's versions, newest first",
+        "operationId": "list_evals",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EvalRun"
+                  },
+                  "title": "Response List Evals"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Run the version's evaluation suite (default: the newest version) against the active version",
+        "description": "Run the version's evaluation suite (default: the newest version) against the active version",
+        "operationId": "start_eval",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartEvalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/evals/{eval_id}": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "One evaluation: per-case results, summaries of candidate and baseline, and the verdict",
+        "description": "One evaluation: per-case results, summaries of candidate and baseline, and the verdict",
+        "operationId": "get_eval",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "eval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Eval Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/evals/{eval_id}/cancel": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
+        "description": "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
+        "operationId": "cancel_eval",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "eval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Eval Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRun"
                 }
               }
             }
@@ -1445,6 +1700,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ActivateInput"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2642,6 +2914,25 @@
   },
   "components": {
     "schemas": {
+      "ActivateInput": {
+        "properties": {
+          "override_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Reason"
+          }
+        },
+        "type": "object",
+        "title": "ActivateInput"
+      },
       "AddStationInput": {
         "properties": {
           "id": {
@@ -3361,6 +3652,11 @@
             "type": "boolean",
             "title": "Stale"
           },
+          "next_version": {
+            "type": "integer",
+            "title": "Next Version",
+            "default": 0
+          },
           "dirty": {
             "type": "boolean",
             "title": "Dirty"
@@ -3438,6 +3734,18 @@
             "type": "boolean",
             "title": "Learn From Runs",
             "default": true
+          },
+          "eval_gate": {
+            "type": "string",
+            "title": "Eval Gate",
+            "default": "off"
+          },
+          "evals": {
+            "items": {
+              "$ref": "#/components/schemas/EvalCase"
+            },
+            "type": "array",
+            "title": "Evals"
           }
         },
         "type": "object",
@@ -3528,6 +3836,464 @@
           "bindings"
         ],
         "title": "EnvironmentView"
+      },
+      "EvalCase": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Title"
+          },
+          "requirements": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 10,
+            "title": "Requirements"
+          },
+          "answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "requirements"
+        ],
+        "title": "EvalCase",
+        "description": "One fixed order of a workflow's evaluation suite (ADR-0025)."
+      },
+      "EvalCaseResult": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "queued"
+          },
+          "final": {
+            "type": "boolean",
+            "title": "Final",
+            "default": false
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "fix_loops": {
+            "type": "integer",
+            "title": "Fix Loops",
+            "default": 0
+          },
+          "lead_time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time S"
+          },
+          "readiness_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Level"
+          },
+          "requirements": {
+            "type": "integer",
+            "title": "Requirements",
+            "default": 0
+          },
+          "requirements_verified": {
+            "type": "integer",
+            "title": "Requirements Verified",
+            "default": 0
+          },
+          "unplanned_touch": {
+            "type": "boolean",
+            "title": "Unplanned Touch",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "title"
+        ],
+        "title": "EvalCaseResult",
+        "description": "One evaluation case on one workflow version (ADR-0025)."
+      },
+      "EvalOverride": {
+        "properties": {
+          "by": {
+            "type": "string",
+            "title": "By"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "by",
+          "reason",
+          "at"
+        ],
+        "title": "EvalOverride"
+      },
+      "EvalRun": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "suite_hash": {
+            "type": "string",
+            "title": "Suite Hash"
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "publish",
+              "manual"
+            ],
+            "title": "Trigger",
+            "default": "manual"
+          },
+          "started_by": {
+            "type": "string",
+            "title": "Started By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "cancelled"
+            ],
+            "title": "Status",
+            "default": "running"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/EvalSide"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalSide"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "baseline_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline From"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalVerdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activated": {
+            "type": "boolean",
+            "title": "Activated",
+            "default": false
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalOverride"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workflow_id",
+          "suite_hash",
+          "started_by",
+          "created_at",
+          "candidate"
+        ],
+        "title": "EvalRun",
+        "description": "Evaluation of a workflow version against a baseline version on the fixed suite (ADR-0025)."
+      },
+      "EvalSide": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EvalCaseResult"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "EvalSide"
+      },
+      "EvalSuiteInput": {
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/EvalCase"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Cases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cases"
+        ],
+        "title": "EvalSuiteInput"
+      },
+      "EvalSummary": {
+        "properties": {
+          "cases": {
+            "type": "integer",
+            "title": "Cases"
+          },
+          "delivered": {
+            "type": "integer",
+            "title": "Delivered"
+          },
+          "pass_rate": {
+            "type": "number",
+            "title": "Pass Rate"
+          },
+          "autonomy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autonomy"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "cost_per_delivery_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Delivery Usd"
+          },
+          "fix_loops_per_case": {
+            "type": "number",
+            "title": "Fix Loops Per Case"
+          },
+          "lead_time_median_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Median S"
+          },
+          "level3_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level3 Share"
+          },
+          "verified_live_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Live Share"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cases",
+          "delivered",
+          "pass_rate",
+          "cost_usd",
+          "fix_loops_per_case"
+        ],
+        "title": "EvalSummary",
+        "description": "What a version scored on the suite. Ratios are None when undefined."
+      },
+      "EvalVerdict": {
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "compared_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared To"
+          },
+          "regressions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Regressions"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passed"
+        ],
+        "title": "EvalVerdict"
       },
       "Event": {
         "properties": {
@@ -4220,6 +4986,17 @@
               }
             ],
             "title": "Archived By"
+          },
+          "eval_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Run Id"
           }
         },
         "type": "object",
@@ -5445,6 +6222,23 @@
         ],
         "title": "SpecView"
       },
+      "StartEvalInput": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "title": "StartEvalInput"
+      },
       "StationAgentInput": {
         "properties": {
           "agent": {
@@ -5957,6 +6751,22 @@
               }
             ],
             "title": "Learn From Runs"
+          },
+          "eval_gate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "warn",
+                  "block"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Gate"
           }
         },
         "type": "object",
@@ -6055,6 +6865,17 @@
             "type": "integer",
             "title": "Agents",
             "default": 0
+          },
+          "evaluation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation"
           }
         },
         "type": "object",
@@ -6144,6 +6965,18 @@
             "type": "boolean",
             "title": "Learn From Runs",
             "default": true
+          },
+          "eval_gate": {
+            "type": "string",
+            "title": "Eval Gate",
+            "default": "off"
+          },
+          "evals": {
+            "items": {
+              "$ref": "#/components/schemas/EvalCase"
+            },
+            "type": "array",
+            "title": "Evals"
           },
           "environment": {
             "type": "string",

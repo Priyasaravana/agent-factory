@@ -210,6 +210,35 @@ To adopt the review, open **Edit workflow** and either start again from the
 `default` template, or add a `review` station after `readiness` using a
 `reviewer` agent with `tools: reviewer`.
 
+## Evaluation gate
+
+A workflow carries a fixed **evaluation suite**: up to 8 small orders, in `evals.yaml`
+next to `workflow.yaml`, edited under **Edit workflow → Evaluation gate**. Every new
+version is measured on it against the active version ([ADR-0025](adr/0025-evaluation-harness.md)):
+
+- **Metrics:** pass rate, autonomy (no unplanned help), Level 3 share,
+  requirements verified live, cost per delivery, fix loops per case and median
+  lead time.
+- **`eval_gate: block`** (the default template): publishing creates a
+  *candidate*. It activates by itself when nothing regressed. If it regressed,
+  the workflow page shows why. Fix the draft (it is kept) and publish again, or
+  activate anyway with a recorded reason.
+- **`warn`:** activate at once, evaluate and report. **`off`:** run evaluations by
+  hand from the workflow page.
+- Rolling back to an older version is never gated.
+
+```yaml
+# workflow-templates/<name>/evals.yaml
+- id: bookmarks
+  title: Bookmarks service
+  requirements: Save bookmarks with a URL, a title and tags; list and filter by tag.
+  answers: ["Use your best judgement and record it as an assumption."]  # if intake asks
+```
+
+Each case is a full build, test and deploy, so keep the suite small and
+representative. Evaluation orders are hidden from the orders list and Outcomes,
+and archived when the evaluation ends.
+
 ## Editing in the UI
 
 **Workflows → (product line) → Edit workflow** opens the product line's draft.
