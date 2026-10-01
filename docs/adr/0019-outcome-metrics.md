@@ -54,3 +54,14 @@ trace, as free-text event messages.
   endpoint.
 - **This is the baseline for the evaluation harness.** It will gate a workflow
   publish on these metrics not regressing on a fixed set of orders.
+
+## Amendment (2026-10-01): host sleep is not agent time
+The first live check on a laptop delivered in 41 minutes, of which the agents
+worked about 6: the Mac slept twice during design and build, and Outcomes counted
+that as "agents working". The engine now watches for host suspension
+(`hostclock.py`: the monotonic clock stops during suspend, the wall clock jumps on
+wake; a gap over 30 seconds is a suspension). Suspensions are stored
+(`host_pauses`), every active run gets an event, agent calls record
+`suspended_s`, and the time split gains a **Host asleep** bucket that takes the
+overlapping time out of whichever bucket it fell in. Lead time is unchanged: the
+requester did wait.

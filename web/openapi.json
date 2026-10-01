@@ -6438,6 +6438,11 @@
             "type": "number",
             "title": "System S",
             "default": 0.0
+          },
+          "suspended_s": {
+            "type": "number",
+            "title": "Suspended S",
+            "default": 0.0
           }
         },
         "type": "object",

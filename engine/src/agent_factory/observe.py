@@ -51,6 +51,7 @@ class AgentCall:
         self.bytes = 0
         self.truncated = False
         self.started = time.monotonic()
+        self.started_wall = time.time()
 
     def _write(self, entry: dict[str, Any]) -> None:
         if self.truncated:
@@ -99,7 +100,9 @@ class AgentCall:
             "ok": res.ok,
             "error": (res.error or "")[:500],
             "turns": res.turns,
-            "duration_s": round(time.monotonic() - self.started, 1),
+            "duration_s": round(time.monotonic() - self.started, 1),  # time the host was awake
+            # the host slept during the call (wall clock ran on, the monotonic clock did not)
+            "suspended_s": max(0.0, round((time.time() - self.started_wall) - (time.monotonic() - self.started), 1)),
             "cost_usd": round(res.cost_usd, 4),
             "tool_calls": sum(self.tools.values()),
             "tools": dict(self.tools.most_common()),
@@ -111,7 +114,8 @@ class AgentCall:
             EventKind.log,
             f"agent call: {self.role} ({self.model}) {res.turns} turns, {_dur(summary['duration_s'])}, "
             f"${summary['cost_usd']:.2f}, {summary['tool_calls']} tool calls"
-            + (f", {len(self.denied)} denied" if self.denied else ""),
+            + (f", {len(self.denied)} denied" if self.denied else "")
+            + (f"; host asleep {_dur(summary['suspended_s'])} during it" if summary["suspended_s"] >= 30 else ""),
             {"agent_call": summary},
         )
         return summary

@@ -53,6 +53,14 @@ Each run's time in the window is split by who it was waiting on:
 | **Agents working** | queued, running |
 | **Waiting on a person** | needs answers, held, spec ready for review, interrupted |
 | **Waiting on the system** | paused for the model usage window |
+| **Host asleep** | any state, while the machine running the factory was suspended (a laptop slept, Docker Desktop paused). Nothing ran, so this time is moved out of the other buckets |
+
+The factory notices host sleep by itself: the monotonic clock stops while the
+host is suspended and the wall clock jumps when it wakes, and a gap over 30
+seconds is recorded. Runs active at the time get an event saying so, and each
+agent call records the sleep that fell inside it (`suspended_s`). Lead time still
+includes it, because the requester waited; on a laptop, keep the machine awake
+during runs (for example `caffeinate -i` on macOS).
 
 Time after delivery is not counted: the run is done, and the next iteration is a
 new run.

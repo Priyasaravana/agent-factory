@@ -45,6 +45,9 @@ CREATE INDEX IF NOT EXISTS run_transitions_run ON run_transitions(run_id, id);
 CREATE TABLE IF NOT EXISTS learning_proposals (
   id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS learning_proposals_wf ON learning_proposals(workflow_id, status);
+-- periods the factory host was suspended (the computer slept): not agent time
+CREATE TABLE IF NOT EXISTS host_pauses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, start TEXT NOT NULL, end TEXT NOT NULL, seconds REAL NOT NULL);
 -- evaluations of workflow versions on their fixed suite (ADR-0025)
 CREATE TABLE IF NOT EXISTS eval_runs (
   id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
@@ -193,6 +196,18 @@ class SqliteStateStore:
                 )
             )
         return out
+
+    # -- host suspensions ------------------------------------------------------
+    def add_host_pause(self, start: datetime, end: datetime) -> None:
+        self._exec(
+            "INSERT INTO host_pauses(start, end, seconds) VALUES (?,?,?)",
+            (start.isoformat(), end.isoformat(), (end - start).total_seconds()),
+        )
+
+    def host_pauses(self, since: datetime | None = None) -> list[tuple[datetime, datetime]]:
+        rows = self._exec("SELECT start, end FROM host_pauses ORDER BY start")
+        out = [(datetime.fromisoformat(s), datetime.fromisoformat(e)) for s, e in rows]
+        return [p for p in out if since is None or p[1] >= since]
 
     # -- evaluations (ADR-0025) -----------------------------------------------
     def save_eval(self, e: EvalRun) -> EvalRun:

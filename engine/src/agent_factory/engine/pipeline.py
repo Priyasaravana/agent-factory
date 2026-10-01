@@ -77,6 +77,9 @@ class RunManager:
 
         self.preflight = Preflight(self)  # readiness checks + order gate (ADR-0015)
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        from agent_factory.hostclock import SuspendWatcher
+
+        self.host_watcher = SuspendWatcher(self.host_suspended)
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_runs)
 
     # ------------------------------------------------------------ queries --
@@ -86,6 +89,23 @@ class RunManager:
     def is_active(self, run_id: str) -> bool:
         t = self._tasks.get(run_id)
         return bool(t and not t.done())
+
+    def host_suspended(self, start: datetime, end: datetime) -> None:
+        """The factory host slept (hostclock.py): record it, and tell every active run."""
+        from agent_factory.hostclock import human
+
+        self.store.add_host_pause(start, end)
+        secs = (end - start).total_seconds()
+        for run_id, task in list(self._tasks.items()):
+            if task.done() or not self.store.get_run(run_id):
+                continue  # finished, or not a run (evaluation and seal tasks)
+            self.store.add_event(
+                run_id,
+                EventKind.decision,
+                f"factory host was asleep for {human(secs)} (the computer slept or Docker was paused): "
+                "nothing ran, and this time is not counted as agent time",
+                data={"host_suspended": {"start": start.isoformat(), "end": end.isoformat(), "seconds": secs}},
+            )
 
     async def shutdown(self) -> None:
         """Stop in-flight runs; they are marked interrupted on next startup."""
