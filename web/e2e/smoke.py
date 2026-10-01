@@ -91,6 +91,9 @@ def main() -> int:
             # two delivered iterations, no unplanned human help
             expect(kpis.get_by_text("100%").first).to_be_visible()
             expect(page.get_by_test_id("waiting")).to_contain_text("Nobody is blocking")
+            quality = page.get_by_test_id("quality")
+            expect(quality).to_contain_text("uncovered")  # pillars with no signals are never shown as 100%
+            expect(quality.get_by_test_id("quality-by-app")).to_contain_text(title)
             page.screenshot(path=f"{SHOTS}/outcomes.png", full_page=True)
             page.go_back()
 

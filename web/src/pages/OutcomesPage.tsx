@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { api, unwrap } from "../api/client";
 import type { components } from "../api/schema";
 import Problems from "../components/Problems";
+import PillarBars from "../components/QualityPillars";
 import StatusPill from "../components/StatusPill";
 import {
   Card,
@@ -90,6 +91,7 @@ export default function OutcomesPage() {
           <Waiting o={o} />
           <TimeSplit o={o} />
           <Weekly weeks={o.weekly ?? []} />
+          <Quality o={o} />
           <Effort o={o} />
           <ByWorkflow o={o} />
         </>
@@ -565,6 +567,91 @@ const Num = ({ children }: { children: ReactNode }) => (
 );
 
 // ---------------------------------------------------------------- effort --
+function Quality({ o }: { o: Outcomes }) {
+  const pillars = o.quality_pillars ?? [];
+  const apps = o.quality_by_app ?? [];
+  if (!pillars.length) return null;
+  const uncovered = pillars.filter((p) => !p.signals);
+  const covered = pillars.filter((p) => p.signals);
+  return (
+    <Card data-testid="quality">
+      <CardHeader>
+        <div>
+          <CardTitle>Quality pillars of what is live</CardTitle>
+          <CardDescription>
+            Readiness signals passing per pillar, across live apps' latest
+            deliveries ({apps.length} assessed). Each signal counts for one
+            pillar; a pillar with no signals is uncovered, not 100%. The Level 3
+            gate is unchanged.
+          </CardDescription>
+        </div>
+        {uncovered.length > 0 && (
+          <span className="pill warn" title="pillars with no signals yet">
+            {uncovered.length} uncovered
+          </span>
+        )}
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <PillarBars
+          rows={pillars.map((p) => ({
+            id: p.pillar,
+            title: p.title,
+            passed: p.passed ?? 0,
+            applicable: p.applicable ?? 0,
+            signals: p.signals ?? 0,
+          }))}
+        />
+        {apps.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="wide" data-testid="quality-by-app">
+              <thead>
+                <tr>
+                  <td>app</td>
+                  {covered.map((p) => (
+                    <td key={p.pillar} title={p.title}>
+                      {p.pillar}
+                    </td>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {apps.map((a) => (
+                  <tr key={a.run_id}>
+                    <td>
+                      <Link to={`/orders/${a.order_id}`}>{a.order_title}</Link>
+                    </td>
+                    {covered.map((c) => {
+                      const p = (a.pillars ?? []).find(
+                        (x) => x.pillar === c.pillar,
+                      );
+                      const gap = p && (p.passed ?? 0) < (p.applicable ?? 0);
+                      return (
+                        <Num key={c.pillar}>
+                          <span className={cn(gap && "font-semibold")}>
+                            {p?.applicable
+                              ? `${p.passed}/${p.applicable}`
+                              : "—"}
+                          </span>
+                        </Num>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {uncovered.length > 0 && (
+              <p className="mt-2 mb-0 text-xs text-muted-foreground">
+                Uncovered, so not shown as columns:{" "}
+                {uncovered.map((p) => p.title).join(", ")}.
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function Effort({ o }: { o: Outcomes }) {
   const rows = o.effort_by_station ?? [];
   if (!rows.length) return null;

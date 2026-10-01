@@ -174,6 +174,28 @@ class StationEffort(BaseModel):
     denied: int = 0
 
 
+class PillarScore(BaseModel):
+    """One quality pillar (ADR-0024): readiness signals passed out of applicable.
+    `signals` = distinct signals tagged with the pillar; 0 means uncovered (never 100%)."""
+
+    pillar: str
+    title: str
+    signals: int = 0
+    passed: int = 0
+    applicable: int = 0
+    coverage: float | None = None  # passed / applicable; None when uncovered or nothing assessed
+    apps_full: int = 0  # apps passing every applicable signal of this pillar
+
+
+class AppQuality(BaseModel):
+    """A live app's pillar scores, from its latest delivered iteration."""
+
+    order_id: str
+    order_title: str
+    run_id: str
+    pillars: list[PillarScore] = Field(default_factory=list)
+
+
 class OutcomesView(BaseModel):
     window_days: int
     since: datetime
@@ -205,6 +227,9 @@ class OutcomesView(BaseModel):
     requirements_verified_live: int = 0
     # who needs to act now
     waiting: list[WaitingItem] = Field(default_factory=list)
+    # quality pillars of what is live (ADR-0024)
+    quality_pillars: list[PillarScore] = Field(default_factory=list)
+    quality_by_app: list[AppQuality] = Field(default_factory=list)
     # agent effort (ADR-0022)
     effort_by_station: list[StationEffort] = Field(default_factory=list)
     guardrail_denials: int = 0

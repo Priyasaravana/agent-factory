@@ -23,6 +23,7 @@ from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
 from agent_factory.models import EventKind, Order, Run, StationOutcome
 from agent_factory.observe import AgentCall
+from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
@@ -471,15 +472,28 @@ async def readiness(ctx: StationContext) -> StationResult:
         await ctx.emit(EventKind.decision, "secret scan NOT run: no secret_scan_command configured")
         scan_ok = False
     card = score(ctx.worktree, scan_ok)
+    data = card.as_data()
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "readiness.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023)
+    pillars = data["pillars"]
+    uncovered = [p["id"] for p in pillars if not p["applicable"]]
+    by_pillar = ", ".join(f"{p['id']} {p['passed']}/{p['applicable']}" for p in pillars if p["applicable"])
     await ctx.emit(
         EventKind.decision,
-        f"agent readiness: Level {card.level} ({card.points}/{card.max_points} points)",
-        {"readiness": card.as_data()},
+        f"agent readiness: Level {card.level} ({card.points}/{card.max_points} points) · pillars: {by_pillar}"
+        + (f" · uncovered: {', '.join(uncovered)}" if uncovered else ""),
+        {"readiness": data},
     )
     need = line.min_readiness_level
     if card.level >= need:
         return StationResult(StationOutcome.passed, f"agent-ready: Level {card.level}, {card.points} points")
-    missing = "\n".join(f"- [L{s.level}] {s.title}: {s.hint}" for s in card.missing(need))
+    gaps = card.missing(need)
+    missing = "\n".join(
+        f"{BY_ID[pid].title}:\n" + "\n".join(f"- [L{s.level}] {s.title}: {s.hint}" for s in gaps if s.pillar == pid)
+        for pid in IDS
+        if any(s.pillar == pid for s in gaps)
+    )
     return StationResult(
         StationOutcome.failed,
         f"below agent-readiness Level {need} (at Level {card.level})",

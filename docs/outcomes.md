@@ -83,6 +83,18 @@ Use it to see where model spend goes, which station is slow, and which agent
 keeps attempting things it must not. Open a run's **Agent calls** panel to read
 the transcripts.
 
+## Quality pillars of what is live
+
+The ten quality pillars (ADR-0024, [practices §7](practices.md#7-quality-pillars-adr-0024)) for every live app's latest delivered iteration.
+
+| Number | Definition |
+|---|---|
+| **Coverage** | Of the readiness signals tagged with a pillar, passed ÷ applicable, summed across apps. Each signal counts for exactly one pillar. |
+| **Uncovered** | A pillar with no signals at all. Shown as uncovered, never as 100%. |
+| **Per app** | Each app's passed/applicable per covered pillar. |
+
+Apps delivered before the Readiness station existed have no scorecard and are not assessed. Older scorecards without pillar tags are tallied by signal id. Pillars don't change the Level 3 gate.
+
 ## Quality of what is live
 
 | Metric | Definition |

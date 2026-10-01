@@ -6,9 +6,10 @@ engine **seals** its evidence folder `artifacts/<run>/`:
 1. `events.jsonl`: the run's full event log, exactly as stored (already redacted).
 2. `spec/`: the spec the run worked to (`docs/spec.md`, `docs/requirements.yaml`),
    so the bundle shows what was promised next to what was proven.
-3. `manifest.json`: run, order, workflow version, commit, image, outcome, and every
+3. `pillars.json`: the evidence grouped by quality pillar (ADR-0024).
+4. `manifest.json`: run, order, workflow version, commit, image, outcome, and every
    file with its SHA-256 and size.
-4. `SHA256SUMS`: the same hashes in coreutils format, so anyone can check a
+5. `SHA256SUMS`: the same hashes in coreutils format, so anyone can check a
    downloaded bundle with `sha256sum -c SHA256SUMS`, without our tools.
 
 The manifest's own SHA-256 is recorded as a decision event in the database. On
@@ -36,6 +37,7 @@ from typing import Any
 
 MANIFEST = "manifest.json"
 SUMS = "SHA256SUMS"
+PILLAR_INDEX = "pillars.json"  # evidence grouped by quality pillar (ADR-0024)
 SCHEMA = "agent-factory/evidence-manifest/v1"
 _NOT_HASHED = {MANIFEST, SUMS}  # written last; they describe the others
 
@@ -70,6 +72,33 @@ def build_manifest(folder: Path, facts: dict[str, Any], sealed_at: datetime) -> 
         "files": files,
         "totals": {"files": len(files), "bytes": sum(f["bytes"] for f in files)},
     }
+
+
+def build_pillar_index(folder: Path) -> dict[str, Any]:
+    """Evidence grouped by quality pillar (ADR-0024): each pillar's readiness signals
+    (from readiness.json, when the run reached the Readiness station) and its files."""
+    from agent_factory.pillars import BY_ID, IDS, evidence_pillar
+    from agent_factory.readiness import PILLAR_OF
+
+    try:
+        signals = json.loads((folder / "readiness.json").read_text()).get("signals", [])
+    except (OSError, ValueError):
+        signals = []
+    index: dict[str, dict[str, Any]] = {p: {"id": p, "title": BY_ID[p].title, "signals": [], "files": []} for p in IDS}
+    for sig in signals:
+        p = sig.get("pillar") or PILLAR_OF.get(str(sig.get("id")))
+        if p in index:
+            index[p]["signals"].append({"id": sig.get("id"), "ok": bool(sig.get("ok"))})
+    other = []
+    for f in list_files(folder):
+        if f["path"] == PILLAR_INDEX:
+            continue
+        p = evidence_pillar(f["path"])
+        (index[p]["files"] if p in index else other).append(f["path"])
+    for v in index.values():
+        v["passed"] = sum(1 for x in v["signals"] if x["ok"])
+        v["applicable"] = len(v["signals"])
+    return {"_type": "agent-factory/pillar-index/v1", "pillars": list(index.values()), "other_files": other}
 
 
 def write_manifest(folder: Path, manifest: dict[str, Any]) -> str:
@@ -181,6 +210,7 @@ async def seal(mgr: Any, run: Any, order: Any) -> str:
         "image": images[-1][2] if images else None,
         "events": len(events),
     }
+    (folder / PILLAR_INDEX).write_text(json.dumps(build_pillar_index(folder), indent=2) + "\n")
     manifest = build_manifest(folder, facts, datetime.now(UTC))
     digest = write_manifest(folder, manifest)
     t = manifest["totals"]

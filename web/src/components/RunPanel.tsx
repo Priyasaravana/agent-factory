@@ -14,6 +14,7 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
 import EvidencePanel from "./EvidencePanel";
+import PillarBars, { type PillarRow } from "./QualityPillars";
 import SpecPanel from "./SpecPanel";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
@@ -152,6 +153,7 @@ export default function RunPanel({
         {r.status === "awaiting_feedback" && !archived && (
           <FeedbackForm orderId={orderId} onDone={refresh} />
         )}
+        <RunPillars events={events} />
         <AgentCallsPanel runId={runId} runStatus={r.status} />
         <EvidencePanel runId={runId} runStatus={r.status} />
         <EventLog events={events} live={ACTIVE.has(r.status)} />
@@ -373,5 +375,36 @@ function FeedbackForm({
       </Button>
       <Problems error={send.error} />
     </form>
+  );
+}
+
+/** The latest readiness scorecard of this run, by quality pillar (ADR-0024). */
+function RunPillars({ events }: { events: FactoryEvent[] }) {
+  const card = [...events]
+    .reverse()
+    .map(
+      (e) =>
+        (e.data as { readiness?: { level?: number; pillars?: PillarRow[] } })
+          .readiness,
+    )
+    .find((x) => x?.pillars);
+  if (!card?.pillars) return null;
+  const uncovered = card.pillars.filter((p) => !p.applicable).length;
+  return (
+    <details
+      className="rounded-xl border bg-card p-4"
+      data-testid="run-pillars"
+    >
+      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
+        <span className="font-semibold">Quality pillars</span>
+        <span className="pill muted">Level {card.level}</span>
+        {uncovered > 0 && (
+          <span className="pill muted">{uncovered} uncovered</span>
+        )}
+      </summary>
+      <div className="mt-3">
+        <PillarBars rows={card.pillars} />
+      </div>
+    </details>
   );
 }

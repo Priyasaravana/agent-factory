@@ -2969,6 +2969,37 @@
         ],
         "title": "AnswersInput"
       },
+      "AppQuality": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "order_title": {
+            "type": "string",
+            "title": "Order Title"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "pillars": {
+            "items": {
+              "$ref": "#/components/schemas/PillarScore"
+            },
+            "type": "array",
+            "title": "Pillars"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "order_title",
+          "run_id"
+        ],
+        "title": "AppQuality",
+        "description": "A live app's pillar scores, from its latest delivered iteration."
+      },
       "CatalogView": {
         "properties": {
           "presets": {
@@ -4372,6 +4403,20 @@
             "type": "array",
             "title": "Waiting"
           },
+          "quality_pillars": {
+            "items": {
+              "$ref": "#/components/schemas/PillarScore"
+            },
+            "type": "array",
+            "title": "Quality Pillars"
+          },
+          "quality_by_app": {
+            "items": {
+              "$ref": "#/components/schemas/AppQuality"
+            },
+            "type": "array",
+            "title": "Quality By App"
+          },
           "effort_by_station": {
             "items": {
               "$ref": "#/components/schemas/StationEffort"
@@ -4413,6 +4458,56 @@
           "time_split"
         ],
         "title": "OutcomesView"
+      },
+      "PillarScore": {
+        "properties": {
+          "pillar": {
+            "type": "string",
+            "title": "Pillar"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "signals": {
+            "type": "integer",
+            "title": "Signals",
+            "default": 0
+          },
+          "passed": {
+            "type": "integer",
+            "title": "Passed",
+            "default": 0
+          },
+          "applicable": {
+            "type": "integer",
+            "title": "Applicable",
+            "default": 0
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "apps_full": {
+            "type": "integer",
+            "title": "Apps Full",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "pillar",
+          "title"
+        ],
+        "title": "PillarScore",
+        "description": "One quality pillar (ADR-0024): readiness signals passed out of applicable.\n`signals` = distinct signals tagged with the pillar; 0 means uncovered (never 100%)."
       },
       "PreflightView": {
         "properties": {

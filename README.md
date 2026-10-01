@@ -56,6 +56,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 - **Every agent call on the record.** Model, turns, time, cost, tools used, a
   redacted transcript, and every action a guardrail refused
   ([ADR-0022](docs/adr/0022-agent-observability.md)).
+- **Quality you can see by pillar.** Every readiness signal belongs to one of ten
+  quality pillars (Well-Architected + ISO/IEC 25010). Runs, Outcomes and the sealed
+  evidence show coverage per pillar, and pillars with no signals say so
+  ([ADR-0024](docs/adr/0024-quality-pillars.md)).
 - **Evidence you can hand over.** Every stopped run is sealed: events, spec,
   review, traceability, SBOM, provenance and transcripts, each with its SHA-256.
   The seal is re-checked on every view, and the whole set downloads as one zip
