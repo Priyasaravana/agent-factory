@@ -56,6 +56,10 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 - **Every agent call on the record.** Model, turns, time, cost, tools used, a
   redacted transcript, and every action a guardrail refused
   ([ADR-0022](docs/adr/0022-agent-observability.md)).
+- **Evidence you can hand over.** Every stopped run is sealed: events, spec,
+  review, traceability, SBOM, provenance and transcripts, each with its SHA-256.
+  The seal is re-checked on every view, and the whole set downloads as one zip
+  ([ADR-0023](docs/adr/0023-evidence-manifest.md)).
 - **Gets better with use.** After a run that needed help, the factory suggests
   short lessons for the agent that caused it. An admin accepts them into the
   workflow, versioned like any other change

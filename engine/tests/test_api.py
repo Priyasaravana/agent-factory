@@ -40,7 +40,8 @@ async def test_order_lifecycle_over_http(make_factory):
         assert d.status_code == 201
 
         fb = await c.post(f"/api/orders/{detail['order']['id']}/feedback", json={"text": "Add search"})
-        assert fb.status_code == 201 and fb.json()["iteration"] == 2
+        assert fb.status_code == 201, fb.text
+        assert fb.json()["iteration"] == 2
         again = await c.post(f"/api/orders/{detail['order']['id']}/feedback", json={"text": "more"})
         assert again.status_code == 409
         for _ in range(200):

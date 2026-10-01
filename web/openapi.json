@@ -656,6 +656,90 @@
         }
       }
     },
+    "/api/runs/{run_id}/evidence": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
+        "description": "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
+        "operationId": "get_run_evidence",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/evidence/bundle": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin",
+        "description": "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin",
+        "operationId": "download_run_evidence",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/calls/{name}/transcript": {
       "get": {
         "tags": [
@@ -3476,6 +3560,131 @@
           "feedback"
         ],
         "title": "EventKind"
+      },
+      "EvidenceFile": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "sha256",
+          "bytes"
+        ],
+        "title": "EvidenceFile"
+      },
+      "EvidenceView": {
+        "properties": {
+          "sealed": {
+            "type": "boolean",
+            "title": "Sealed"
+          },
+          "sealed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sealed At"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "status_at_seal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status At Seal"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceFile"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes",
+            "default": 0
+          },
+          "intact": {
+            "type": "boolean",
+            "title": "Intact",
+            "default": false
+          },
+          "manifest_ok": {
+            "type": "boolean",
+            "title": "Manifest Ok",
+            "default": false
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          },
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sealed"
+        ],
+        "title": "EvidenceView",
+        "description": "A run's sealed evidence (ADR-0023) and whether it still matches its seal."
       },
       "Feedback": {
         "properties": {

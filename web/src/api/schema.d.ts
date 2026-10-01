@@ -272,6 +272,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
+         * @description A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
+         */
+        get: operations["get_run_evidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/evidence/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin
+         * @description Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin
+         */
+        get: operations["download_run_evidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/calls/{name}/transcript": {
         parameters: {
             query?: never;
@@ -1388,6 +1428,54 @@ export interface components {
          * @enum {string}
          */
         EventKind: "station_started" | "station_finished" | "decision" | "log" | "agent" | "command" | "status" | "feedback";
+        /** EvidenceFile */
+        EvidenceFile: {
+            /** Path */
+            path: string;
+            /** Sha256 */
+            sha256: string;
+            /** Bytes */
+            bytes: number;
+        };
+        /**
+         * EvidenceView
+         * @description A run's sealed evidence (ADR-0023) and whether it still matches its seal.
+         */
+        EvidenceView: {
+            /** Sealed */
+            sealed: boolean;
+            /** Sealed At */
+            sealed_at?: string | null;
+            /** Sha256 */
+            sha256?: string | null;
+            /** Status At Seal */
+            status_at_seal?: string | null;
+            /** Commit */
+            commit?: string | null;
+            /** Files */
+            files?: components["schemas"]["EvidenceFile"][];
+            /**
+             * Total Bytes
+             * @default 0
+             */
+            total_bytes: number;
+            /**
+             * Intact
+             * @default false
+             */
+            intact: boolean;
+            /**
+             * Manifest Ok
+             * @default false
+             */
+            manifest_ok: boolean;
+            /** Changed */
+            changed?: string[];
+            /** Missing */
+            missing?: string[];
+            /** Added */
+            added?: string[];
+        };
         /** Feedback */
         Feedback: {
             /** Id */
@@ -2810,6 +2898,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunCallsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_evidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_run_evidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
