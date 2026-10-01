@@ -34,11 +34,16 @@ def _load_list(path: Path) -> list[dict[str, Any]]:
 
 
 def requirements(root: Path) -> list[dict[str, str]]:
-    return [
-        {"id": str(r.get("id")), "title": str(r.get("title", "")), "detail": str(r.get("detail", ""))}
-        for r in _load_list(root / "docs" / "requirements.yaml")
-        if REQ_ID.match(str(r.get("id", "")))
-    ]
+    """Each requirement; `no_live_check` (why no hidden scenario can check it) only when set."""
+    out = []
+    for r in _load_list(root / "docs" / "requirements.yaml"):
+        if not REQ_ID.match(str(r.get("id", ""))):
+            continue
+        req = {"id": str(r.get("id")), "title": str(r.get("title", "")), "detail": str(r.get("detail", ""))}
+        if str(r.get("no_live_check") or "").strip():
+            req["no_live_check"] = str(r["no_live_check"])
+        out.append(req)
+    return out
 
 
 def scenarios(path: Path) -> list[dict[str, Any]]:
@@ -124,6 +129,7 @@ def matrix(
                 "holdout": [
                     {"scenario": s["id"], "passed": results.get(s["id"])} for s in holdout or [] if rid in s["covers"]
                 ],
+                **({"no_live_check": req["no_live_check"]} if req.get("no_live_check") else {}),
             }
         )
     return rows

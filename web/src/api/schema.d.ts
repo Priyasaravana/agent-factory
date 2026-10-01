@@ -2601,6 +2601,8 @@ export interface components {
             holdout?: {
                 [key: string]: unknown;
             }[];
+            /** No Live Check */
+            no_live_check?: string | null;
         };
         /**
          * UpdateStationInput

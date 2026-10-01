@@ -35,6 +35,9 @@ product_lines:
     # on first start, then edited in the UI and stored as versions in the DB.
     workflow_template: workflow-templates/default
     verify_command: make verify
+    # What this product line builds with. An order that requires anything else (e.g. Node.js,
+    # Go, MongoDB, a React UI) is asked about at intake instead of silently built in Python.
+    stack: [python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes]
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
     # factory image. {image} is filled in by the Package station. Pin a digest
     # (aquasec/trivy@sha256:...) once you have verified one you trust.

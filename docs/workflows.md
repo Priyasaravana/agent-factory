@@ -154,6 +154,21 @@ The order's creator or an admin then chooses:
 spec or load a `.md` file. Its numbered items become R1, R2, … with their
 wording kept.
 
+### What a product line can build
+Each product line declares its `stack` in `.agent-factory/config.yaml`
+(`fastapi-service`: python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes).
+If an order *requires* something else (Node.js, Go, MongoDB, a React UI…), intake
+quotes it and the run pauses with a question instead of building Python anyway.
+Answer "build it with python" to go ahead, or cancel and order on a product line
+that supports it. Mentions that aren't requirements ("a React app will call this
+API") are only noted.
+
+### Every requirement is checked live
+Each requirement needs at least one hidden scenario that checks it on the running
+app, including health/metrics endpoints and persistence. Only a requirement that
+truly can't be observed over HTTP may instead carry `no_live_check: <reason>`,
+which the Traceability tab shows.
+
 ## Learning from runs
 
 After a run that **needed help**, the factory suggests short lessons for the agent

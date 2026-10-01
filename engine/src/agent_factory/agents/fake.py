@@ -23,6 +23,8 @@ class FakeAgentRunner:
     rate_limit_once: bool = False
     # roles whose first call tries something a guardrail refuses (simulates a denial)
     deny_once: list[str] = field(default_factory=list)
+    # implementation technologies intake reports the order requires (simulates a stack conflict)
+    stack_required: list[dict[str, str]] = field(default_factory=list)
     calls: list[AgentRequest] = field(default_factory=list)
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
@@ -129,13 +131,17 @@ class FakeAgentRunner:
             return {"passed": True, "summary": f"{req.role} checks passed", "findings": []}
         if req.role == "intake":
             asked = any(c.role == "intake" for c in self.calls[:-1])
+            spec = {**_SPEC, "stack_required": list(self.stack_required)}
             if self.intake_questions and not asked:
-                return {**_SPEC, "blocking_questions": list(self.intake_questions)}
-            return _SPEC
+                return {**spec, "blocking_questions": list(self.intake_questions)}
+            return spec
         if req.role == "verifier":
             return {
                 "passed": True,
-                "results": [{"scenario": "H1", "passed": True, "evidence": "201 then 200 with tag filter"}],
+                "results": [
+                    {"scenario": "H1", "passed": True, "evidence": "201 then 200 with tag filter"},
+                    {"scenario": "H2", "passed": True, "evidence": "listed with the same title and notes"},
+                ],
                 "summary": "all holdout scenarios passed",
             }
         return None
@@ -172,7 +178,15 @@ _SPEC: dict[str, Any] = {
             "then": "only the 'x' bookmark is returned",
             "covers": ["R2"],
         },
+        {
+            "id": "H2",
+            "given": "a bookmark saved with a title and notes",
+            "when": "GET /bookmarks",
+            "then": "it is listed with the same title and notes",
+            "covers": ["R1"],
+        },
     ],
     "assumptions": ["No authentication in v0 (single user, local cluster)."],
     "blocking_questions": [],
+    "stack_required": [],
 }

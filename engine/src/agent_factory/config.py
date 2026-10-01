@@ -46,6 +46,9 @@ class ProductLine(BaseModel):
     # software bill of materials for the built image; {image} and {out} (a folder) are filled in
     sbom_command: str | None = None
     service_port: int = 8000
+    # what this product line builds with; an order that requires anything else is asked
+    # about before any build (stack.py). Empty: no check.
+    stack: list[str] = Field(default_factory=list)
     node_ports: list[int] = Field(default_factory=lambda: [30080])
 
     @field_validator("node_ports", mode="before")
