@@ -79,6 +79,15 @@ async def test_feedback_updates_the_spec_first_and_reports_what_changed(make_fac
     changed["acceptance_scenarios"].append(
         {"id": "A3", "given": "g", "when": "DELETE /bookmarks", "then": "204", "covers": ["R3"]}
     )
+    changed["holdout_scenarios"].append(
+        {
+            "id": "H3",
+            "given": "two bookmarks",
+            "when": "DELETE /bookmarks",
+            "then": "the list is empty",
+            "covers": ["R3"],
+        }
+    )
     changed["requirements"][0]["detail"] = "POST /bookmarks now also accepts notes"
     agents = SpecRunner([copy.deepcopy(_SPEC), changed])
     f = make_factory(agents=agents)
@@ -96,16 +105,20 @@ async def test_acceptance_records_the_requirement_matrix(make_factory):
     f = make_factory()
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    assert "traceability: 1/2 requirements verified live by hidden scenarios" in _messages(f, run.id)
+    assert "traceability: 2/2 requirements verified live by hidden scenarios" in _messages(f, run.id)
     artifact = f.manager.ws.data_dir / "artifacts" / run.id / "traceability.json"
     assert '"R2"' in artifact.read_text(), "the matrix is kept as a file too"
     from agent_factory.actions import get_run_spec
 
     view = get_run_spec(f, run.id)
     rows = {r.id: r for r in view.traceability}
-    assert rows["R1"].scenarios == ["A1"] and rows["R1"].tests == 1 and rows["R1"].holdout == []
+    assert (
+        rows["R1"].scenarios == ["A1"]
+        and rows["R1"].tests == 1
+        and rows["R1"].holdout == [{"scenario": "H2", "passed": True}]
+    )
     assert rows["R2"].holdout == [{"scenario": "H1", "passed": True}]
-    assert view.holdout_count == 1 and [r.id for r in view.requirements] == ["R1", "R2"]
+    assert view.holdout_count == 2 and [r.id for r in view.requirements] == ["R1", "R2"]
     assert not any((view.changes or {}).values()), "a first spec is not a change"
 
 
@@ -156,7 +169,7 @@ async def test_first_iteration_gate_pauses_after_design_until_approved(make_fact
         spec = (await c.get(f"/api/runs/{run.id}/spec")).json()
         assert spec["gate"] == "first" and spec["status"] == "awaiting_approval"
         assert spec["product"].startswith("# Bookmarks") and spec["technical"].startswith("# Design")
-        assert [r["id"] for r in spec["requirements"]] == ["R1", "R2"] and spec["holdout_count"] == 1
+        assert [r["id"] for r in spec["requirements"]] == ["R1", "R2"] and spec["holdout_count"] == 2
         assert (await c.post(f"/api/orders/{order.id}/feedback", json={"text": "x y z"})).status_code == 409
         r = await c.post(f"/api/runs/{run.id}/spec/approve")
         assert r.status_code == 200 and r.json()["spec_approved_by"] == "local"

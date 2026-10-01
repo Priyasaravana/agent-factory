@@ -6478,6 +6478,17 @@
             },
             "type": "array",
             "title": "Holdout"
+          },
+          "no_live_check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Live Check"
           }
         },
         "type": "object",

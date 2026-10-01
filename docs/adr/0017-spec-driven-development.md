@@ -72,3 +72,26 @@ the running app. But nothing tied the three together:
   agents; the UI labels them "Product spec" and "Technical design".
 - Not done yet: a review station that checks the diff against the spec, and
   per-requirement cost and time.
+
+## Amendment (2026-10-01): intake hardening
+The first live checks showed two gaps.
+
+1. **Another stack was built silently.** An order that said "build it in Node.js"
+   was built in Python anyway, because the product line's template, skills and
+   checks are FastAPI. Now:
+   - each product line declares its `stack` in the config;
+   - intake reports the implementation technologies the order explicitly
+     *requires*, quoting the words (`stack_required`);
+   - the engine decides (`stack.conflicts`, a pure function). A conflict pauses
+     the run with a question before anything is designed or built. Answering it
+     ("build it with python") goes ahead on this stack, and the decision is
+     recorded;
+   - a keyword scan of the order is a second opinion: a technology the order
+     mentions but intake did not report is recorded as a decision, never blocking
+     (for example "a React front end will call this API").
+2. **Requirements not verified live.** Two of seven requirements (persistence,
+   operational endpoints) had no hidden scenario, so nothing checked them on the
+   running app. Now every requirement needs a hidden scenario too, or a
+   `no_live_check` reason (10+ characters) saying why it can't be observed over
+   HTTP. The reason is shown in the Traceability tab. Intake gets one in-station
+   correction, as before.

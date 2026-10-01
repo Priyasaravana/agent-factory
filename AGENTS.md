@@ -71,4 +71,8 @@
   the verdict is the pure `evals.judge`; evaluation orders carry `eval_run_id`
   and stay out of the orders list and Outcomes. A new run-stopping path must
   still reach `RunManager._after_stop`.
+- A product line declares its `stack`; intake reports what an order requires and
+  `stack.conflicts` (pure) decides. A new product line declares its stack, and
+  every requirement keeps a hidden scenario or a `no_live_check` reason
+  (`_validate_spec`).
 - Record significant decisions as ADRs in `docs/adr/`.

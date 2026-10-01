@@ -315,11 +315,16 @@ export default function SpecPanel({
                   </td>
                 )}
                 <td className="text-xs">
-                  {r.holdout.length === 0 && (
-                    <span className="muted">
-                      not covered by hidden scenarios
-                    </span>
-                  )}
+                  {r.holdout.length === 0 &&
+                    (r.no_live_check ? (
+                      <span className="muted" title="intake's reason">
+                        no live check: {r.no_live_check}
+                      </span>
+                    ) : (
+                      <span className="muted">
+                        not covered by hidden scenarios
+                      </span>
+                    ))}
                   {r.holdout.map((h) => (
                     <span
                       key={String(h.scenario)}

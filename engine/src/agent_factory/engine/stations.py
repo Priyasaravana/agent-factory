@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import traceability
+from agent_factory import stack, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
@@ -259,9 +259,18 @@ SPEC_SCHEMA: dict[str, Any] = {
         "holdout_scenarios",
         "assumptions",
         "blocking_questions",
+        "stack_required",
     ],
     "properties": {
         "product_name": {"type": "string"},
+        "stack_required": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["technology", "quote"],
+                "properties": {"technology": {"type": "string"}, "quote": {"type": "string"}},
+            },
+        },
         "spec_markdown": {"type": "string"},
         "requirements": {
             "type": "array",
@@ -272,6 +281,8 @@ SPEC_SCHEMA: dict[str, Any] = {
                     "id": {"type": "string", "pattern": "^R[0-9]+$"},
                     "title": {"type": "string"},
                     "detail": {"type": "string"},
+                    # why no hidden scenario can check it on the running app (else one must)
+                    "no_live_check": {"type": "string"},
                 },
             },
         },
@@ -304,12 +315,61 @@ def _validate_spec(spec: dict[str, Any]) -> list[str]:
     reqs = spec.get("requirements") or []
     problems = [] if reqs else ["no numbered requirements (R1, R2, …)"]
     problems += traceability.coverage_problems(reqs, spec.get("acceptance_scenarios") or [], "acceptance")
-    problems += [
-        p
-        for p in traceability.coverage_problems(reqs, spec.get("holdout_scenarios") or [], "holdout")
-        if "unknown requirement" in p or "duplicate" in p  # hidden coverage may be partial
-    ]
+    exempt = {r["id"] for r in reqs if len(str(r.get("no_live_check") or "").strip()) >= 10}
+    for p in traceability.coverage_problems(reqs, spec.get("holdout_scenarios") or [], "holdout"):
+        if "has no holdout scenario" in p:
+            rid = p.split()[1]
+            if rid not in exempt:
+                problems.append(
+                    f"requirement {rid} has no hidden scenario: add one that checks it on the running app, "
+                    "or set its no_live_check to the reason it cannot be checked there"
+                )
+        else:
+            problems.append(p)
     return problems
+
+
+_LIVE_AND_STACK = """Every requirement also needs at least one hidden (holdout) scenario that checks it over HTTP
+on the running app, including operational ones (health, readiness, metrics) and persistence (data
+survives across requests). Only if a requirement truly cannot be observed on the running app, set
+its `no_live_check` to why.
+
+This product line builds with: {stack}.
+In `stack_required` list each implementation technology the order explicitly REQUIRES (language,
+framework, datastore, UI framework), quoting the words that require it. Do not list technologies
+only mentioned as clients, callers or external systems. Do not switch stacks yourself."""
+
+
+async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
+    """The engine decides (stack.conflicts) from what intake reported; a keyword scan of the
+    order is a second opinion that is recorded, never blocking. Returns the question to ask."""
+    line_stack = ctx.product_line.stack
+    if not line_stack:
+        return None
+    reported = [r for r in spec.get("stack_required", []) if isinstance(r, dict) and r.get("technology")]
+    quotes = {stack.normalize(str(r["technology"])): str(r.get("quote", ""))[:200] for r in reported}
+    bad = stack.conflicts([str(r["technology"]) for r in reported], line_stack)
+    text = "\n".join([ctx.order.requirements, ctx.run.change_request or ""])
+    have = {stack.normalize(s) for s in line_stack}
+    unreported = sorted(stack.mentions(text) - have - set(quotes))
+    if unreported:
+        await ctx.emit(
+            EventKind.decision,
+            f"the order mentions {', '.join(unreported)}; intake judged it not a requirement of the build",
+            {"stack_mentions": unreported},
+        )
+    if not bad:
+        return None
+    data = {"stack_conflict": {"required": bad, "quotes": quotes, "stack": line_stack}}
+    if ctx.run.answers:
+        await ctx.emit(
+            EventKind.decision,
+            f"stack conflict ({', '.join(bad)}) answered by a person; building with {', '.join(line_stack)}",
+            data,
+        )
+        return None
+    await ctx.emit(EventKind.decision, f"stack conflict: the order requires {', '.join(bad)}", data)
+    return stack.question(bad, quotes, line_stack, ctx.order.product_line)
 
 
 async def intake(ctx: StationContext) -> StationResult:
@@ -346,6 +406,7 @@ Product line: {ctx.order.product_line} — {ctx.product_line.description}.
 Write the spec for a product reader (user journeys, behaviour, rules), not implementation.
 Number every requirement (R1, R2, …). Every acceptance and holdout scenario lists in `covers`
 the requirement ids it checks; every requirement needs at least one acceptance scenario.
+{_LIVE_AND_STACK.format(stack=", ".join(ctx.product_line.stack) or "(not declared)")}
 Only put a question in blocking_questions if no reasonable assumption exists.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
     res = await ctx.agent(prompt, SPEC_SCHEMA)
@@ -367,12 +428,23 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     if problems:
         return StationResult(StationOutcome.failed, "spec is not traceable", "\n".join(problems))
     questions = [q for q in spec.get("blocking_questions", []) if q.strip()]
+    asked = await _stack_check(ctx, spec)
+    if asked and not ctx.run.answers:
+        return StationResult(
+            StationOutcome.needs_input,
+            "the order requires a stack this product line does not build",
+            questions=[asked, *questions],
+        )
     if questions and not ctx.run.answers:
         return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
 
     (ctx.worktree / "docs").mkdir(exist_ok=True)
     spec_path.write_text(spec["spec_markdown"])
-    reqs = [{"id": r["id"], "title": r["title"], "detail": r.get("detail", "")} for r in spec["requirements"]]
+    reqs = [
+        {"id": r["id"], "title": r["title"], "detail": r.get("detail", "")}
+        | ({"no_live_check": r["no_live_check"]} if str(r.get("no_live_check") or "").strip() else {})
+        for r in spec["requirements"]
+    ]
     (ctx.worktree / "docs" / "requirements.yaml").write_text(yaml.safe_dump(reqs, sort_keys=False))
     acc = ctx.worktree / "tests" / "acceptance"
     acc.mkdir(parents=True, exist_ok=True)

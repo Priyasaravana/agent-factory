@@ -289,6 +289,7 @@ class TraceRow(BaseModel):
     scenarios: list[str] = Field(default_factory=list)
     tests: int = 0
     holdout: list[dict[str, Any]] = Field(default_factory=list)  # {scenario, passed} from the latest acceptance
+    no_live_check: str | None = None  # why no hidden scenario can check it on the running app
 
 
 class ReviewRequirement(BaseModel):
