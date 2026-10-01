@@ -127,6 +127,7 @@ class TimeSplit(BaseModel):
     agents_s: float = 0.0  # queued or running: the factory is working
     person_s: float = 0.0  # questions, held, spec review, interrupted: a person must act
     system_s: float = 0.0  # paused for the model usage window
+    suspended_s: float = 0.0  # the factory host was asleep (computer slept, Docker paused): nobody worked
 
 
 class HumanTouches(BaseModel):

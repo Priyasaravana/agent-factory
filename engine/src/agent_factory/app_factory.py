@@ -124,6 +124,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         holder["f"] = f
         if f.sandbox is not None:
             f.sandbox.start()  # image, network and egress proxy; the first build takes a few minutes
+        f.manager.host_watcher.start()  # host sleep is not agent time (hostclock.py)
         f.manager.preflight.start()  # readiness checks now and every preflight.interval_minutes
         interrupted = f.manager.recover_on_startup()
         from agent_factory.evals import recover_on_startup as recover_evals
@@ -133,6 +134,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             app.state.interrupted = interrupted
         yield
         await f.manager.preflight.stop()
+        await f.manager.host_watcher.stop()
         await f.manager.shutdown()
 
     app = FastAPI(

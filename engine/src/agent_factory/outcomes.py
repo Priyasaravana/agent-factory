@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from agent_factory.hostclock import merge, overlap_s
 from agent_factory.models import (
     AppQuality,
     DurationStat,
@@ -70,6 +71,7 @@ class Facts:
     traceability: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> matrix rows
     calls: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, agent_call)
     denials: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, denied)
+    pauses: list[tuple[datetime, datetime]] = field(default_factory=list)  # host suspended (hostclock.py)
 
     @property
     def since(self) -> datetime:
@@ -133,7 +135,9 @@ def _split(run: Run, f: Facts, start: datetime, end: datetime) -> TimeSplit:
         a, b = max(t.ts, start), min(seg_end, end)
         if b <= a:
             continue
-        secs = (b - a).total_seconds()
+        asleep = overlap_s(a, b, f.pauses)
+        out.suspended_s += asleep
+        secs = (b - a).total_seconds() - asleep
         if t.to_status in AGENTS:
             out.agents_s += secs
         elif t.to_status in PERSON:
@@ -189,6 +193,7 @@ def compute(f: Facts) -> OutcomesView:
         split.agents_s += s.agents_s
         split.person_s += s.person_s
         split.system_s += s.system_s
+        split.suspended_s += s.suspended_s
 
     # quality of what is live: each product's latest delivered iteration
     products = level3 = req_total = req_live = 0
@@ -384,6 +389,7 @@ def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     active = [r.id for r in runs if r.created_at >= f.since or r.updated_at >= f.since]
     f.calls = store.events_with_key(active, "agent_call")
     f.denials = store.events_with_key(active, "denied")
+    f.pauses = merge(store.host_pauses(f.since))
     for r in latest.values():
         if got := store.last_event_data(r.id, "readiness"):
             f.readiness_level[r.id] = int(got[1].get("level", 0))

@@ -27,7 +27,8 @@ call. But four things were missing:
 2. **Every agent call gets one record** (`observe.AgentCall`, an `agent_call`
    event):
    - station, role, model, outcome and error;
-   - turns, duration and cost;
+   - turns, duration (time the host was awake) and cost, plus `suspended_s` if
+     the host slept during the call;
    - tool calls by tool, and denials;
    - its transcript file.
 

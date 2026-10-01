@@ -283,11 +283,18 @@ const BUCKETS = [
     color: "var(--series-3)",
     help: "paused for the model usage window",
   },
+  {
+    key: "suspended_s",
+    label: "Host asleep",
+    // neutral, not a category colour: nobody was working or waiting
+    color: "var(--muted-foreground)",
+    help: "the computer slept or Docker was paused: nothing ran",
+  },
 ] as const;
 
 function TimeSplit({ o }: { o: Outcomes }) {
   const s = o.time_split;
-  const total = BUCKETS.reduce((n, b) => n + s[b.key], 0);
+  const total = BUCKETS.reduce((n, b) => n + (s[b.key] ?? 0), 0);
   return (
     <Card data-testid="time-split">
       <CardHeader>
@@ -315,16 +322,16 @@ function TimeSplit({ o }: { o: Outcomes }) {
               role="img"
               aria-label="Run time split"
             >
-              {BUCKETS.filter((b) => s[b.key] > 0).map((b) => (
+              {BUCKETS.filter((b) => (s[b.key] ?? 0) > 0).map((b) => (
                 <Tip
                   key={b.key}
                   side="top"
-                  label={`${b.label}: ${duration(s[b.key])} (${Math.round((100 * s[b.key]) / total)}%)`}
+                  label={`${b.label}: ${duration(s[b.key] ?? 0)} (${Math.round((100 * (s[b.key] ?? 0)) / total)}%)`}
                 >
                   <div
                     className="h-full rounded-[4px] first:rounded-l-[4px] last:rounded-r-[4px]"
                     style={{
-                      width: `${(100 * s[b.key]) / total}%`,
+                      width: `${(100 * (s[b.key] ?? 0)) / total}%`,
                       minWidth: 4,
                       background: b.color,
                     }}
@@ -332,7 +339,7 @@ function TimeSplit({ o }: { o: Outcomes }) {
                 </Tip>
               ))}
             </div>
-            <ul className="m-0 grid list-none gap-1 p-0 text-sm sm:grid-cols-3">
+            <ul className="m-0 grid list-none gap-1 p-0 text-sm sm:grid-cols-2 lg:grid-cols-4">
               {BUCKETS.map((b) => (
                 <li key={b.key} className="flex items-baseline gap-2">
                   <span
@@ -342,8 +349,8 @@ function TimeSplit({ o }: { o: Outcomes }) {
                   <span>
                     <span className="font-medium">{b.label}</span>{" "}
                     <span className="tabular-nums">
-                      {duration(s[b.key])} ·{" "}
-                      {Math.round((100 * s[b.key]) / total)}%
+                      {duration(s[b.key] ?? 0)} ·{" "}
+                      {Math.round((100 * (s[b.key] ?? 0)) / total)}%
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {b.help}

@@ -2575,6 +2575,11 @@ export interface components {
              * @default 0
              */
             system_s: number;
+            /**
+             * Suspended S
+             * @default 0
+             */
+            suspended_s: number;
         };
         /**
          * TraceRow
