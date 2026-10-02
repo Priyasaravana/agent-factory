@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd engine && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd engine && uv run --python 3.12 --extra dev pytest -q
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: cd auth && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd auth && uv run --python 3.12 --extra dev pytest -q
 
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - uses: azure/setup-helm@v5
       - run: cd templates/fastapi-service && make verify
       - run: helm lint templates/fastapi-service/deploy/chart
@@ -70,7 +70,7 @@ jobs:
         python: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd engine && uv run --python ${{ matrix.python }} --extra dev pytest -q
 
@@ -82,7 +82,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: build the factory, auth and web images
         run: |
           docker build -f images/factory/Dockerfile -t af-factory:ci .
@@ -128,7 +128,7 @@ jobs:
       FACTORY_ADMIN_PASSWORD: ci-smoke-admin-password
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: configure dry-run
         run: cp .env.example .env && sed -i 's/^FACTORY_MODE=.*/FACTORY_MODE=dry-run/' .env
       - name: start the stack
