@@ -253,3 +253,68 @@ async def test_a_restart_cancels_a_running_evaluation(make_factory):
     assert await evals.recover_on_startup(f.manager) == [e.id]
     got = f.store.get_eval(e.id)
     assert got.status == "cancelled" and all(f.store.get_order(r.order_id).archived_at for r in got.candidate.results)
+
+
+async def test_an_evaluation_starts_all_or_nothing_and_counts_only_mapped_ports(make_factory):
+    """Live check: an older cluster mapped 5 ports, so the 3rd case had no port; 2 orphan
+    orders kept running. Now ports are counted as the cluster maps them, before anything starts."""
+    from agent_factory.engine.pipeline import FactoryError
+
+    f = make_factory()
+    line = f.cfg.product_lines[WF]
+    f.manager.preflight.mapped_node_ports = set(line.node_ports[:2])
+    with pytest.raises(FactoryError, match=r"needs 3 free app ports and 2 are usable.*make reset-cluster"):
+        evals.start(f.manager, WF, 1, "saravana")
+    assert f.store.list_orders() == [], "nothing was created"
+
+    # a failure half way (here: the 3rd order) cancels and archives what was created
+    real = f.manager.create_order
+    calls = {"n": 0}
+
+    def flaky(data):  # noqa: ANN001, ANN202
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise FactoryError("no free app port")
+        return real(data)
+
+    f.manager.preflight.mapped_node_ports = None
+    f.manager.create_order = flaky  # type: ignore[method-assign]
+    with pytest.raises(FactoryError):
+        evals.start(f.manager, WF, 1, "saravana")
+    await asyncio.sleep(0.2)
+    orders = f.store.list_orders()
+    assert len(orders) == 2 and all(o.archived_at for o in orders)
+    assert all(r.status.value == "cancelled" for o in orders for r in f.store.list_runs(o.id))
+
+
+async def test_a_gated_publish_that_cannot_evaluate_says_why(make_factory):
+    f = make_factory()
+    f.manager.preflight.mapped_node_ports = set(f.cfg.product_lines[WF].node_ports[:2])
+    app, ctx, c = await _client(f)
+    async with c:
+        await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})
+        pub = (await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "no learning"})).json()
+        assert pub["evaluation"].startswith("evaluation not started: an evaluation needs 6 free app ports")
+        states = {v["version"]: v["evaluation"] for v in (await c.get(f"/api/workflows/{WF}/versions")).json()}
+        assert states[2].startswith("evaluation not started: an evaluation needs 6") and "reset-cluster" in states[2]
+        assert not (await c.get(f"/api/workflows/{WF}/versions")).json()[0]["active"]
+        # fix the cause, then run it from the Evaluation card
+        f.manager.preflight.mapped_node_ports = None
+        r = await c.post(f"/api/workflows/{WF}/evals", json={"version": 2})
+        assert r.status_code == 201
+        e = await _wait_eval(f, r.json()["id"])
+        assert e.verdict.passed
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_orphan_evaluation_orders_are_cleaned_up_on_start(make_factory):
+    from agent_factory.models import CreateOrderInput
+
+    f = make_factory()
+    order = f.manager.create_order(CreateOrderInput(title="[eval x v4] Bookmarks", requirements="Save bookmarks."))
+    order.eval_run_id = "gone"
+    f.store.save_order(order)
+    run = f.manager.start_run(order)
+    await f.manager.shutdown()
+    assert await evals.recover_on_startup(f.manager) == [order.id]
+    assert f.store.get_order(order.id).archived_at and f.store.get_run(run.id).status.value == "cancelled"

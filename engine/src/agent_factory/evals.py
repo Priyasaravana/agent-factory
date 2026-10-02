@@ -32,6 +32,7 @@ from agent_factory.models import (
     EvalSide,
     EvalSummary,
     EvalVerdict,
+    EventKind,
     Order,
     Run,
     RunStatus,
@@ -167,25 +168,46 @@ def start(
         else:
             e.baseline = EvalSide(version=base_v)
             sides.append(e.baseline)
-    free = mgr.free_node_ports(workflow_id)
     need = len(doc.evals) * len(sides)
-    if len(free) < need:
-        raise FactoryError(f"an evaluation needs {need} free app ports and {len(free)} are free: archive old orders")
-    for side in sides:
-        for case in doc.evals:
-            order = mgr.create_order(
-                CreateOrderInput(
-                    title=f"[eval {e.id[:6]} v{side.version}] {case.title}"[:120],
-                    requirements=case.requirements,
-                    product_line=workflow_id,
+    usable = mgr.usable_node_ports(workflow_id)
+    if len(usable) < need:
+        mapped = mgr.preflight.mapped_node_ports
+        hint = (
+            f"; the cluster maps only {len(mapped)} app ports: `make reset-cluster` maps all of them"
+            if mapped is not None and len(mapped) < len(mgr.cfg.product_lines[workflow_id].node_ports)
+            else ""
+        )
+        raise FactoryError(
+            f"an evaluation needs {need} free app ports and {len(usable)} are usable: archive orders you no "
+            f"longer need{hint}"
+        )
+    created: list[tuple[Order, Run]] = []
+    try:
+        for side in sides:
+            for case in doc.evals:
+                order = mgr.create_order(
+                    CreateOrderInput(
+                        title=f"[eval {e.id[:6]} v{side.version}] {case.title}"[:120],
+                        requirements=case.requirements,
+                        product_line=workflow_id,
+                    )
                 )
-            )
-            order.eval_run_id, order.created_by = e.id, by
+                order.eval_run_id, order.created_by = e.id, by
+                mgr.store.save_order(order)
+                run = mgr.start_run(order, version=side.version)
+                created.append((order, run))
+                side.results.append(
+                    EvalCaseResult(
+                        case_id=case.id, title=case.title, order_id=order.id, run_id=run.id, status="running"
+                    )
+                )
+    except Exception:
+        # all or nothing: runs were only scheduled (no await yet), so nothing was built or deployed
+        for order, run in created:
+            mgr.cancel(run.id)
+            order.archived_at, order.archived_by = _now(), "evaluation"
             mgr.store.save_order(order)
-            run = mgr.start_run(order, version=side.version)
-            side.results.append(
-                EvalCaseResult(case_id=case.id, title=case.title, order_id=order.id, run_id=run.id, status="running")
-            )
+        raise
     return mgr.store.save_eval(e)  # no await since the first start_run: no run has stopped yet
 
 
@@ -300,6 +322,24 @@ def gate_activation(mgr: RunManager, workflow_id: str, version: int, by: str, ov
     mgr.store.save_eval(failed)
 
 
+def record_not_started(mgr: RunManager, workflow_id: str, version: int, by: str, error: str) -> EvalRun:
+    """A gated publish whose evaluation could not start: kept, so the reason stays visible."""
+    return mgr.store.save_eval(
+        EvalRun(
+            id=uuid.uuid4().hex[:12],
+            workflow_id=workflow_id,
+            suite_hash=mgr.workflows[workflow_id].get(version).eval_suite_hash(),
+            trigger="publish",
+            started_by=by,
+            created_at=_now(),
+            finished_at=_now(),
+            status="not_started",
+            error=error[:500],
+            candidate=EvalSide(version=version),
+        )
+    )
+
+
 def version_states(mgr: RunManager, workflow_id: str) -> dict[int, str]:
     """One line per evaluated version for the versions list, from its latest evaluation."""
     out: dict[int, str] = {}
@@ -311,6 +351,8 @@ def version_states(mgr: RunManager, workflow_id: str) -> dict[int, str]:
             continue
         if e.status == "running":
             out[v] = "evaluating"
+        elif e.status == "not_started":
+            out[v] = f"evaluation not started: {e.error}"
         elif e.status == "cancelled":
             out[v] = "evaluation cancelled"
         elif e.verdict and e.verdict.passed:
@@ -348,8 +390,26 @@ async def cancel(mgr: RunManager, e: EvalRun) -> EvalRun:
 
 
 async def recover_on_startup(mgr: RunManager) -> list[str]:
-    """An evaluation cut short by a restart can't be judged fairly: cancel it, free its ports."""
+    """An evaluation cut short by a restart can't be judged fairly: cancel it, free its ports.
+    Evaluation orders whose evaluation is missing or over (left by a failed start) are
+    cancelled and archived too."""
     out = []
+    for order in mgr.store.list_orders():
+        if not order.eval_run_id or order.archived_at:
+            continue
+        e = mgr.store.get_eval(order.eval_run_id)
+        if e is not None and e.status == "running":
+            continue
+        for run in mgr.store.list_runs(order.id):
+            if run.status not in FINAL:
+                mgr.cancel(run.id)
+        try:
+            await mgr.archive(order.id, "evaluation")
+        except Exception as exc:  # noqa: BLE001 - archived next time; never blocks startup
+            if order.latest_run_id:
+                mgr.store.add_event(order.latest_run_id, EventKind.log, f"evaluation cleanup failed: {exc}")
+            continue
+        out.append(order.id)
     for wf in mgr.workflows.ids():
         for e in mgr.store.list_evals(wf):
             if e.status == "running":

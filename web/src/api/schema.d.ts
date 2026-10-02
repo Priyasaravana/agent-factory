@@ -1629,7 +1629,9 @@ export interface components {
              * @default running
              * @enum {string}
              */
-            status: "running" | "done" | "cancelled";
+            status: "running" | "done" | "cancelled" | "not_started";
+            /** Error */
+            error?: string | null;
             candidate: components["schemas"]["EvalSide"];
             baseline?: components["schemas"]["EvalSide"] | null;
             /** Baseline From */

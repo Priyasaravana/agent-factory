@@ -125,9 +125,7 @@ class RunManager:
         base = slug
         while slug in taken_slugs:
             slug, n = f"{base}-{n}", n + 1
-        free = self.free_node_ports(data.product_line)
-        mapped = self.preflight.mapped_node_ports
-        free = [p for p in free if mapped is None or p in mapped]
+        free = self.usable_node_ports(data.product_line)
         if not free:
             raise FactoryError("no free app port: archive an order you no longer need (see config node_ports)")
         node_port = free[0]
@@ -149,6 +147,11 @@ class RunManager:
         line = self.cfg.product_lines[product_line]
         used = {o.node_port for o in self.store.list_orders() if not o.archived_at}
         return [p for p in line.node_ports if p not in used]
+
+    def usable_node_ports(self, product_line: str) -> list[int]:
+        """Free app ports that the local cluster actually maps (older clusters map fewer)."""
+        mapped = self.preflight.mapped_node_ports
+        return [p for p in self.free_node_ports(product_line) if mapped is None or p in mapped]
 
     async def archive(self, order_id: str, by: str) -> Order:
         """Remove the order's app from its deploy target and free its port. The
