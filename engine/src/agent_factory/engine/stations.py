@@ -248,7 +248,7 @@ def _missing_outputs(ctx: StationContext) -> list[str]:
     return [f for f in ctx.spec.produces if not (ctx.worktree / f).exists()]
 
 
-# ------------------------------------------------------------------ intake --
+# ------------------------------------------------------------ requirements --
 SPEC_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": [
@@ -372,7 +372,7 @@ async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
     return stack.question(bad, quotes, line_stack, ctx.order.product_line)
 
 
-async def intake(ctx: StationContext) -> StationResult:
+async def requirements(ctx: StationContext) -> StationResult:
     spec_path = ctx.worktree / "docs" / "spec.md"
     old_reqs = traceability.requirements(ctx.worktree)
     qa = "\n".join(f"Q: {q}\nA: {a}" for q, a in zip(ctx.run.questions, ctx.run.answers, strict=False))
@@ -496,15 +496,15 @@ Change request this iteration: {ctx.run.change_request or "none"}
     return StationResult(StationOutcome.passed, "design, openapi and tasks written")
 
 
-# ------------------------------------------------------------------- build --
-async def build(ctx: StationContext) -> StationResult:
+# --------------------------------------------------------------- implement --
+async def implement(ctx: StationContext) -> StationResult:
     fix = ctx.run.last_failure
     prompt = f"""Implement docs/tasks.md against docs/design.md and docs/openapi.yaml.
 Read AGENTS.md first. Write tests alongside code. `{ctx.product_line.verify_command}` must pass.
 Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 Traceability: tag every test with the requirement ids it covers, e.g.
 `@pytest.mark.req("R1", "R3")` (ids from docs/requirements.yaml). Every requirement
-needs at least one tagged test; the Readiness station checks this.
+needs at least one tagged test; the Quality gate station checks this.
 
 {"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
     res = await ctx.agent(prompt)
@@ -516,8 +516,8 @@ needs at least one tagged test; the Readiness station checks this.
     return StationResult(StationOutcome.passed, "implementation committed")
 
 
-# ------------------------------------------------------------------ verify --
-async def verify(ctx: StationContext) -> StationResult:
+# -------------------------------------------------------------------- test --
+async def run_tests(ctx: StationContext) -> StationResult:
     res = await ctx.cmd(ctx.product_line.verify_command, timeout=1200, untrusted=True)
     if not res.ok:
         return StationResult(
@@ -528,8 +528,8 @@ async def verify(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "lint, tests, coverage and security checks passed")
 
 
-# --------------------------------------------------------------- readiness --
-async def readiness(ctx: StationContext) -> StationResult:
+# ------------------------------------------------------------ quality gate --
+async def quality_gate(ctx: StationContext) -> StationResult:
     """Score the repo against the agent-readiness signals (docs/practices.md) and
     hold it to the product line's level. Deterministic: files plus a secret scan."""
     line = ctx.product_line
@@ -573,8 +573,8 @@ async def readiness(ctx: StationContext) -> StationResult:
     )
 
 
-# ----------------------------------------------------------------- package --
-async def package(ctx: StationContext) -> StationResult:
+# ------------------------------------------------------------------- build --
+async def build_image(ctx: StationContext) -> StationResult:
     """Build the image here, then scan and publish it through the environment's providers."""
     p = ctx.providers
     sha = await ctx.ws.head_sha(ctx.worktree)
@@ -659,7 +659,7 @@ async def deploy(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}")
 
 
-async def deploy_fix(ctx: StationContext) -> StationResult:
+async def deploy_repair(ctx: StationContext) -> StationResult:
     prompt = f"""The deployment to {ctx.providers.deploy.target(ctx)} failed. Diagnose from the
 evidence below (pod status, events and logs collected by the engine; you have no
 cluster access yourself) and fix the chart ({ctx.product_line.chart_path}), Dockerfile
@@ -748,8 +748,8 @@ async def _record_traceability(ctx: StationContext, holdout_file: Path, results:
     )
 
 
-# ----------------------------------------------------------------- deliver --
-async def deliver(ctx: StationContext) -> StationResult:
+# ---------------------------------------------------------------- handover --
+async def handover(ctx: StationContext) -> StationResult:
     ws, repo, wt = ctx.ws, ctx.ws.product_dir(ctx.order.product_slug), ctx.worktree
     await ws.commit_all(wt, f"chore: deliver iteration {ctx.run.iteration}")
     notes: list[str] = []
@@ -780,8 +780,8 @@ async def deliver(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.order.app_url}")
 
 
-# ------------------------------------------------------------------ review --
-async def review(ctx: StationContext) -> StationResult:
+# ------------------------------------------------------------- code review --
+async def code_review(ctx: StationContext) -> StationResult:
     """Spec-conformance review (ADR-0020): the reviewer reports per requirement;
     the engine judges. See agent_factory.review for the rules."""
     reqs = traceability.requirements(ctx.worktree)
@@ -907,17 +907,17 @@ must be concrete: file and line, command and output, or request and response."""
 
 
 STATIONS: dict[str, Station] = {
-    "intake": intake,
+    "requirements": requirements,
     "design": design,
-    "build": build,
-    "verify": verify,
-    "readiness": readiness,
-    "package": package,
+    "implement": implement,
+    "test": run_tests,
+    "quality-gate": quality_gate,
+    "code-review": code_review,
+    "build": build_image,
     "deploy": deploy,
-    "deploy_fix": deploy_fix,
-    "review": review,
+    "deploy-repair": deploy_repair,
     "acceptance": acceptance,
-    "deliver": deliver,
+    "handover": handover,
     "agent": generic_agent,
 }
 

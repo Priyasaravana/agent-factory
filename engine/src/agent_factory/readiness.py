@@ -2,7 +2,7 @@
 
 Binary signals grouped by maturity level, after the Autonomy Maturity Model:
 present or absent, no partial credit, each checkable in milliseconds from the
-files (plus one secret scan the Readiness station runs). A repo is at level N
+files (plus one secret scan the Quality gate station runs). A repo is at level N
 when every signal at levels 1..N passes; points (1/2/4 per signal by level)
 show progress between levels.
 

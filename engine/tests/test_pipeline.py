@@ -25,7 +25,8 @@ async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
 
     stations = [s for s, _ in _finished(f, run.id)]
     assert stations == [
-        "intake", "design", "build", "verify", "readiness", "review", "package", "deploy", "acceptance", "deliver"
+        "requirements", "design", "implement", "test", "quality-gate", "code-review",
+        "build", "deploy", "acceptance", "handover",
     ]  # fmt: skip
     order = f.store.get_order(order.id)
     assert order.latest_status == RunStatus.awaiting_feedback
@@ -50,7 +51,7 @@ async def test_verify_failure_routes_back_to_build_with_evidence(make_factory):
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
     fin = _finished(f, run.id)
-    assert ("verify", "failed") in fin
+    assert ("test", "failed") in fin
     builds = [c for c in agents.calls if c.role == "developer"]
     assert len(builds) == 2
     assert "simulated failure" in builds[1].prompt, "second build sees the failure evidence"
@@ -72,7 +73,7 @@ async def test_deploy_failure_goes_through_repair_station(make_factory):
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
     seq = [s for s, _ in _finished(f, run.id)]
     i = seq.index("deploy")
-    assert seq[i : i + 3] == ["deploy", "deploy_fix", "deploy"]
+    assert seq[i : i + 3] == ["deploy", "deploy-repair", "deploy"]
 
 
 async def test_attempt_budget_holds_then_resume_continues(make_factory):
@@ -81,7 +82,7 @@ async def test_attempt_budget_holds_then_resume_continues(make_factory):
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.held
     held = f.store.get_run(run.id)
-    assert held.current_station in {"verify", "build"} and "held at" in held.summary
+    assert held.current_station in {"test", "implement"} and "held at" in held.summary
 
     f.manager.resume(run.id)
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
@@ -102,7 +103,7 @@ async def test_usage_limit_pauses_instead_of_failing(make_factory):
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.paused_limits
     r = f.store.get_run(run.id)
-    assert r.resume_at is not None and r.attempts.get("intake", 0) == 0
+    assert r.resume_at is not None and r.attempts.get("requirements", 0) == 0
 
 
 async def test_feedback_starts_next_iteration(make_factory):

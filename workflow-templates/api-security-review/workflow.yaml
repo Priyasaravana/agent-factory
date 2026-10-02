@@ -1,19 +1,19 @@
-# Default workflow plus an independent security review after build.
+# Default workflow plus an independent security review after implement (code phase).
 name: api-security-review
-description: Default API workflow with an OWASP-focused security review before packaging
+description: Default API workflow with an OWASP-focused security review of the code
 # Spec review gate (ADR-0017): pause after design until a person approves the spec.
 #   off (default) · first: the first iteration of an order · always: every iteration
 spec_review: "off"
 stations:
-  - {id: intake,          kind: agent, agent: intake}
+  - {id: requirements,    kind: agent, agent: intake}
   - {id: design,          kind: agent, agent: architect}
-  - {id: build,           kind: agent, agent: developer}
-  - {id: security-review, kind: agent, agent: security-reviewer, on_fail: build}
-  - {id: verify,          kind: check, on_fail: build}
-  - {id: readiness,       kind: check, on_fail: build}
-  - {id: review,          kind: agent, agent: reviewer, on_fail: build}  # spec review (ADR-0020)
-  - {id: package,         kind: check, on_fail: build}
-  - {id: deploy,          kind: check, on_fail: deploy_fix}
-  - {id: deploy_fix,      kind: agent, agent: devops, next: deploy, only_on_fail: true}
-  - {id: acceptance,      kind: agent, agent: verifier, on_fail: build}
-  - {id: deliver,         kind: check}
+  - {id: implement,       kind: agent, agent: developer}
+  - {id: security-review, kind: agent, agent: security-reviewer, on_fail: implement}
+  - {id: test,            kind: check, on_fail: implement}
+  - {id: quality-gate,    kind: check, on_fail: implement}
+  - {id: code-review,     kind: agent, agent: reviewer, on_fail: implement}  # spec review (ADR-0020)
+  - {id: build,           kind: check, on_fail: implement}
+  - {id: deploy,          kind: check, on_fail: deploy-repair}
+  - {id: deploy-repair,   kind: agent, agent: devops, next: deploy, only_on_fail: true}
+  - {id: acceptance,      kind: agent, agent: verifier, on_fail: implement}
+  - {id: handover,        kind: check}

@@ -90,25 +90,47 @@ Publishing is **blocked** when an agent can't do its station's job safely:
 
 ```yaml
 stations:
-  - {id: intake,          kind: agent, agent: intake}
+  - {id: requirements,    kind: agent, agent: intake}
   - {id: design,          kind: agent, agent: architect}
-  - {id: build,           kind: agent, agent: developer}
-  - {id: security-review, kind: agent, agent: security-reviewer, on_fail: build}   # custom
-  - {id: verify,          kind: check, on_fail: build}
+  - {id: implement,       kind: agent, agent: developer}
+  - {id: security-review, kind: agent, agent: security-reviewer, on_fail: implement}   # custom
+  - {id: test,            kind: check, on_fail: implement}
   # ...
 ```
 
-- `kind: check` stations are implemented by the engine: `verify`, `package`,
-  `deploy`, `deliver`.
-- Agent stations named like a built-in handler (`intake`, `design`, `build`,
-  `deploy_fix`, `acceptance`) use that handler. Any other agent station uses the
+**Stations follow the DevOps loop** ([ADR-0028](adr/0028-station-names-and-phases.md)).
+The lane and every run's timeline group them by phase:
+
+| Phase | Built-in stations | What they do |
+|---|---|---|
+| Plan | `requirements` (agent), `design` (agent) | the request becomes a spec, numbered requirements, scenarios and a design |
+| Code | `implement` (agent) | writes the code and its tests |
+| Test | `test`, `quality-gate` (checks), `code-review` (agent) | tests, lint and coverage; agent-readiness Level 3 and a secret scan; review of the change against the spec |
+| Release | `build` (check) | builds, scans and pushes the image, with SBOM and provenance |
+| Deploy | `deploy` (check), `deploy-repair` (agent, repair only) | deploys to the product line's environment; repairs a failed deploy |
+| Validate | `acceptance` (agent) | runs the hidden scenarios against the live app |
+| Handover | `handover` (check) | commits, tags, opens the PR and hands over the app |
+
+Operate and monitor come with the operate loop. A custom station sits in the
+phase of the station before it; set `phase:` to place it elsewhere.
+
+**Older versions keep their station ids** (`intake`, `build`, `verify`, `readiness`,
+`review`, `package`, `deploy_fix`, `deliver`): runs and evidence are pinned to
+them. They resolve to today's handlers, and the UI shows today's names. Note that
+`build` used to be the coding agent; a check named `build` is the image build.
+To adopt the new ids, start a draft from the `default` template ("template updated").
+
+- `kind: check` stations are implemented by the engine: `test`, `quality-gate`,
+  `build`, `deploy`, `handover`.
+- Agent stations named like a built-in handler (`requirements`, `design`, `implement`,
+  `code-review`, `deploy-repair`, `acceptance`) use that handler. Any other agent station uses the
   **generic handler**: the engine requires a structured verdict (`passed`,
   `summary`, `findings`) plus the files listed in `produces`. A failed verdict
   sends the findings to `on_fail`.
 - Repair stations (`only_on_fail: true`) are reached only through `on_fail`,
   and go to `next` afterwards.
-- Built-in steps must keep the order intake → design → build → package → deploy →
-  acceptance → deliver, because each one uses the previous one's output.
+- Built-in steps must keep the order requirements → design → implement → code-review →
+  build → deploy → acceptance → handover, because each one uses the previous one's output.
 - Other validation errors: invalid station ids, unknown routes, agents, handlers, skills or docs;
   unreachable stations; oversized docs.
 
@@ -123,13 +145,13 @@ Details and rationale: [ADR-0017](adr/0017-spec-driven-development.md).
 - a product spec, `docs/spec.md`;
 - acceptance and hidden scenarios, each listing the requirements it `covers`.
 
-Design then writes the technical design (`docs/design.md`). The build station
+Design then writes the technical design (`docs/design.md`). The implement station
 tags tests with `@pytest.mark.req("R1")`.
 
 **What the factory checks.**
 - Each requirement must be covered by at least one scenario. Intake gets one
   correction attempt, then the run is held.
-- The Readiness station checks that every requirement has a scenario and a
+- The Quality gate station checks that every requirement has a scenario and a
   tagged test (`requirements_traced`).
 - Acceptance records which hidden scenarios verified which requirement live.
 
@@ -191,12 +213,14 @@ help if it had a fix loop, a hold a person resolved, or blocking intake question
 Turn it off per workflow with `learn_from_runs: false` in `workflow.yaml`, or the
 **Learn from runs** switch in the editor.
 
-## Spec review station
+<a id="spec-review-station"></a>
 
-A station with id `review` runs the built-in spec review
-([ADR-0020](adr/0020-spec-review-station.md)). Put it after `verify` and
-`readiness`, so the review only looks at code that already passes its tests,
-and route `on_fail` to `build`.
+## Code review station
+
+A station with id `code-review` (formerly `review`) runs the built-in spec review
+([ADR-0020](adr/0020-spec-review-station.md)). Put it after `test` and
+`quality-gate`, so the review only looks at code that already passes its tests,
+and route `on_fail` to `implement`.
 
 **What the reviewer gets:**
 - every numbered requirement;
@@ -213,7 +237,7 @@ and route `on_fail` to `build`.
 | Report | Result |
 |---|---|
 | every requirement implemented; only minor findings | passes (minor findings are recorded) |
-| a requirement partial or missing, or a blocker/major finding | back to `build`, with the findings as evidence |
+| a requirement partial or missing, or a blocker/major finding | back to `implement`, with the findings as evidence |
 | a requirement skipped or an unknown id cited | the reviewer retries once; then the run is **held** for a person |
 
 **Where to see it:** the Specification panel's **Traceability** tab has a
@@ -222,7 +246,7 @@ and route `on_fail` to `build`.
 
 **Existing workflows:** they keep their version and show "template updated".
 To adopt the review, open **Edit workflow** and either start again from the
-`default` template, or add a `review` station after `readiness` using a
+`default` template, or add a `code-review` station after `quality-gate` using a
 `reviewer` agent with `tools: reviewer`.
 
 ## Evaluation gate

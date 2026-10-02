@@ -1,4 +1,4 @@
-"""Level 3 golden path: readiness scorecard, the Readiness station, CODEOWNERS
+"""Level 3 golden path: readiness scorecard, the Quality gate station, CODEOWNERS
 rendering and SBOM + provenance in the Package station."""
 
 from __future__ import annotations
@@ -100,8 +100,8 @@ async def test_a_failed_secret_scan_sends_redacted_evidence_back_to_build(make_f
     finished = [
         (e.station, e.data.get("outcome")) for e in f.store.list_events(run.id) if e.kind == EventKind.station_finished
     ]
-    assert ("readiness", "failed") in finished
-    assert finished.index(("readiness", "failed")) < max(i for i, (s, _) in enumerate(finished) if s == "build")
+    assert ("quality-gate", "failed") in finished
+    assert finished.index(("quality-gate", "failed")) < max(i for i, (s, _) in enumerate(finished) if s == "implement")
     build_calls = [c for c in f.manager.agents.calls if c.role == "developer"]
     assert "Secret scan" in build_calls[-1].prompt and "no secrets in the repo" in build_calls[-1].prompt
     assert "Security:\n- [L3] no secrets in the repo" in build_calls[-1].prompt, "missing signals grouped by pillar"

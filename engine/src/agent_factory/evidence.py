@@ -76,7 +76,7 @@ def build_manifest(folder: Path, facts: dict[str, Any], sealed_at: datetime) -> 
 
 def build_pillar_index(folder: Path) -> dict[str, Any]:
     """Evidence grouped by quality pillar (ADR-0024): each pillar's readiness signals
-    (from readiness.json, when the run reached the Readiness station) and its files."""
+    (from readiness.json, when the run reached the Quality gate station) and its files."""
     from agent_factory.pillars import BY_ID, IDS, evidence_pillar
     from agent_factory.readiness import PILLAR_OF
 

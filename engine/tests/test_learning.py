@@ -133,9 +133,9 @@ async def test_a_fix_loop_leads_to_a_suggested_learning(make_factory):
     [p] = await _proposals(f)
     assert (p.agent, p.run_id, p.order_id, p.workflow_version) == ("developer", run.id, order.id, 1)
     routed = next(e for e in f.store.list_events(run.id) if "routed" in e.data)
-    assert routed.data["routed"]["from"] == "verify" and routed.data["routed"]["evidence"], "evidence is kept"
+    assert routed.data["routed"]["from"] == "test" and routed.data["routed"]["evidence"], "evidence is kept"
     retro = next(c for c in agents.calls if c.role == "retro")
-    assert retro.observe_only and "verify failed, routed to build" in retro.prompt
+    assert retro.observe_only and "test failed, routed to implement" in retro.prompt
     assert any(e.message.startswith("retro: 1 learning(s) suggested") for e in f.store.list_events(run.id))
 
     # the same lesson again is not suggested twice

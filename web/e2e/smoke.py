@@ -65,7 +65,7 @@ def main() -> int:
             page.get_by_role("button", name=re.compile("Start the line")).click()
             expect(page.get_by_role("heading", name="Iteration 1")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
-            expect(page.locator(".strip")).to_contain_text("readiness")
+            expect(page.locator(".strip")).to_contain_text("Quality gate")
             expect(page.get_by_text(re.compile(r"agent readiness: Level 3"))).to_be_visible()
             page.screenshot(path=f"{SHOTS}/delivered.png", full_page=True)
 

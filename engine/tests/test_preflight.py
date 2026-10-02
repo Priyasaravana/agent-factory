@@ -179,9 +179,9 @@ async def test_workflow_without_readiness_is_flagged_not_blocked(make_factory):
     f = make_factory()
     wf = f.workflows["fastapi-service"]
     doc = wf.get(wf.active_version())
-    assert not [w for w in workflow_warnings(doc) if "readiness" in w]
-    doc.stations = [s for s in doc.stations if s.id != "readiness"]
-    assert any(w.startswith("no readiness station") for w in workflow_warnings(doc))
+    assert not [w for w in workflow_warnings(doc) if "quality-gate" in w]
+    doc.stations = [s for s in doc.stations if s.id != "quality-gate"]
+    assert any(w.startswith("no quality-gate station") for w in workflow_warnings(doc))
 
 
 async def test_preflight_api(make_factory):

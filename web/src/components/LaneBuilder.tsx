@@ -22,23 +22,19 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useState } from "react";
-import type { DraftView, StationView } from "../api/client";
+import type { CatalogView, DraftView, StationView } from "../api/client";
 
 /** What the palette offers. Built-in agent handlers are listed only while unused. */
-type PaletteItem = { key: string; kind: "agent" | "check"; handler: string; label: string; hint: string };
-
-const HINTS: Record<string, string> = {
-  intake: "turns requirements into a spec (observe-only)",
-  design: "writes the design docs",
-  build: "writes code and runs checks",
-  deploy_fix: "repairs a failed deploy",
-  acceptance: "runs hidden scenarios (observe-only)",
-  agent: "any custom step: review, docs, compliance… returns a verdict",
-  verify: "runs the tests and linters",
-  package: "builds and scans the image",
-  deploy: "deploys to the kind cluster",
-  deliver: "commits, tags and opens the PR",
+type PaletteItem = {
+  key: string;
+  kind: "agent" | "check";
+  handler: string;
+  label: string;
+  hint: string;
+  phase: string | null;
 };
+type HandlerInfo = NonNullable<CatalogView["handler_info"]>[string];
+type PhaseInfo = NonNullable<CatalogView["phases"]>[number];
 
 // The drop target is what the pointer is over; fall back to the nearest card
 // (the dragged card's centre can be far from the grip that is held).
@@ -47,7 +43,6 @@ const pointerFirst: CollisionDetection = (args) => {
   return hits.length ? hits : closestCenter(args);
 };
 
-const CHECK_ORDER = ["verify", "package", "deploy", "deliver"];
 
 export type NewStation = {
   id: string;
@@ -76,29 +71,44 @@ function uniqueId(base: string, taken: string[]): string {
 export default function LaneBuilder({
   draft,
   handlers,
+  info = {},
+  phases = [],
   ops,
 }: {
   draft: DraftView;
   handlers: Record<string, string[]>;
+  info?: Record<string, HandlerInfo>;
+  phases?: PhaseInfo[];
   ops: LaneOps;
 }) {
   const stations = draft.stations;
   const ids = stations.map((s) => s.id);
   const agentIds = draft.agents.map((a) => a.spec.id);
   const usedHandlers = new Set(stations.map((s) => s.handler));
+  const phaseIndex = (p: string | null | undefined) => {
+    const i = phases.findIndex((x) => x.id === p);
+    return i < 0 ? phases.length : i;
+  };
+  const item = (kind: "agent" | "check", h: string): PaletteItem => ({
+    key: kind === "check" ? `check-${h}` : h,
+    kind,
+    handler: h,
+    label: info[h]?.label ?? h,
+    hint: info[h]?.hint ?? "",
+    phase: info[h]?.phase ?? null,
+  });
+  // in loop order: plan → code → test → release → deploy → validate → handover
+  const runOrder = Object.keys(info);
+  const byPhase = (a: PaletteItem, b: PaletteItem) =>
+    phaseIndex(a.phase) - phaseIndex(b.phase) || runOrder.indexOf(a.handler) - runOrder.indexOf(b.handler);
   const palette: PaletteItem[] = [
-    { key: "agent", kind: "agent", handler: "agent", label: "Custom agent step", hint: HINTS.agent },
-    ...(handlers.agent ?? [])
-      .filter((h) => h !== "agent" && !usedHandlers.has(h))
-      .map((h) => ({ key: h, kind: "agent" as const, handler: h, label: h, hint: HINTS[h] ?? "" })),
-    ...[...(handlers.check ?? [])].sort((a, b) => CHECK_ORDER.indexOf(a) - CHECK_ORDER.indexOf(b)).map((h) => ({
-      key: `check-${h}`,
-      kind: "check" as const,
-      handler: h,
-      label: h,
-      hint: HINTS[h] ?? "",
-    })),
+    item("agent", "agent"),
+    ...[
+      ...(handlers.agent ?? []).filter((h) => h !== "agent" && !usedHandlers.has(h)).map((h) => item("agent", h)),
+      ...(handlers.check ?? []).map((h) => item("check", h)),
+    ].sort(byPhase),
   ];
+  const implementId = stations.find((s) => s.handler === "implement")?.id ?? null;
 
   const [pending, setPending] = useState<NewStation | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -108,14 +118,14 @@ export default function LaneBuilder({
   );
 
   const startAdd = (item: PaletteItem, position: number) => {
-    const base = item.handler === "agent" ? "review" : item.handler;
+    const base = item.handler === "agent" ? "custom-step" : item.handler;
     setPending({
       id: uniqueId(base, ids),
       kind: item.kind,
       handler: item.handler,
       agent: item.kind === "agent" ? agentIds[0] : undefined,
-      on_fail: item.handler === "verify" ? "build" : null,
-      only_on_fail: item.handler === "deploy_fix",
+      on_fail: ["test", "quality-gate", "build"].includes(item.handler) ? implementId : null,
+      only_on_fail: item.handler === "deploy-repair",
       next: null,
       position,
     });
@@ -159,6 +169,8 @@ export default function LaneBuilder({
                   index={i}
                   ids={ids}
                   agentIds={agentIds}
+                  phases={phases}
+                  newPhase={i === 0 || stations[i - 1].phase !== s.phase}
                   ops={ops}
                   problems={draft.problems.filter((p) => p.includes(`'${s.id}'`))}
                 />
@@ -167,7 +179,8 @@ export default function LaneBuilder({
             </ol>
           </SortableContext>
           <p className="muted small">
-            Stations run left to right. <span className="route fail">↩</span> is where a failure goes back to. Repair
+            Stations run left to right, grouped by DevOps phase. <span className="route fail">↩</span> is where a
+            failure goes back to. Repair
             stations (dashed) run only when routed to, then continue at <em>next</em>. Drag the ⠿ handle to reorder.
           </p>
         </div>
@@ -211,7 +224,10 @@ function PaletteTile({ item, onClick }: { item: PaletteItem; onClick: () => void
       {...attributes}
     >
       <strong>{item.label}</strong>
-      <span className="small muted">{item.kind === "agent" ? "agent" : "check"}</span>
+      <span className="small muted">
+        {item.kind === "agent" ? "agent" : "check"}
+        {item.phase ? ` · ${item.phase}` : ""}
+      </span>
     </button>
   );
 }
@@ -230,6 +246,8 @@ function LaneCard({
   index,
   ids,
   agentIds,
+  phases,
+  newPhase,
   ops,
   problems,
 }: {
@@ -237,6 +255,8 @@ function LaneCard({
   index: number;
   ids: string[];
   agentIds: string[];
+  phases: PhaseInfo[];
+  newPhase: boolean;
   ops: LaneOps;
   problems: string[];
 }) {
@@ -277,8 +297,30 @@ function LaneCard({
           ×
         </button>
       </div>
-      <strong className="name">{s.id}</strong>
-      <span className="small muted">{s.kind === "agent" ? `agent · ${s.handler}` : `check · ${s.handler}`}</span>
+      <span className={`small phase ${newPhase ? "" : "muted"}`} data-testid={`phase-of-${s.id}`}>
+        {phases.find((p) => p.id === s.phase)?.label ?? s.phase}
+      </span>
+      <strong className="name">{s.label || s.id}</strong>
+      <span className="small muted">
+        {s.kind === "agent" ? "agent" : "check"}
+        {s.label && s.label.toLowerCase().replace(/ /g, "-") !== s.id ? ` · ${s.id}` : ""}
+      </span>
+      {s.handler === "agent" && phases.length > 0 && (
+        <label className="small">
+          phase
+          <select
+            aria-label={`${s.id} phase`}
+            value={s.phase}
+            onChange={(e) => ops.update(s.id, { phase: e.target.value })}
+          >
+            {phases.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {s.kind === "agent" && (
         <label className="small">
           agent

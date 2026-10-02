@@ -27,7 +27,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
 ⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
 
-**Headline metric:** share of delivered apps at Level 3+. ✅ The Readiness station scores every run (21 signals + secret scan, each tagged with a quality pillar, §7) and fails the run below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
+**Headline metric:** share of delivered apps at Level 3+. ✅ The Quality gate station scores every run (21 signals + secret scan, each tagged with a quality pillar, §7) and fails the run below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
 
 ## 2. DORA: four keys and the 2025 AI Capabilities Model
 - **Measure outcomes, not activity:**
@@ -124,7 +124,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 
 ## Roadmap
 - **Done:**
-  - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Readiness station; SBOM + provenance; threat model.
+  - sandbox change: per-session agent sandbox with an egress allowlist; `make verify` sandboxed; Level 3 template; Quality gate station; SBOM + provenance; threat model.
   - readiness + preflight change: provider `check()`; readiness page and header pill; order/iteration preflight; archive; 20 app ports; OpenSSF Scorecard; Dependabot; least-privilege CI.
   - upgrade-safety change: CI builds all images and tests the engine on the image's Python; the sandbox verifies the golden path offline; a dry-run end-to-end browser smoke test; engine on the next Python (advisory); a weekly run; app Python decoupled from the factory's; `make backup` / `restore` / `upgrade`.
   - spec-driven change: numbered requirements; requirement → scenario → test → live-result traceability with a Level 3 signal; optional spec review gate (off by default); spec diff on feedback; bring your own spec (ADR-0017).
@@ -158,7 +158,7 @@ Highest value only; each fits data or hooks we already have.
 
    Warp calls spec review the highest-leverage checkpoint.
 3. ✅ **Self-improving loop** (done for learnings, ADR-0021): after feedback or a fix loop, an agent proposes changes to the relevant skill or learnings as a workflow draft that an admin approves. Corrections then become better future runs.
-4. ✅ **Review station** (done, ADR-0020): a reviewer agent checks the diff against spec and design before packaging and records its findings as evidence. Part of the default template.
+4. ✅ **Code review station** (done, ADR-0020): a reviewer agent checks the diff against spec and design before packaging and records its findings as evidence. Part of the default template.
 
 ## Sources
 - Factory.ai, *Software Factory: An Autonomy Maturity Model for the enterprise* (white paper, 2026)

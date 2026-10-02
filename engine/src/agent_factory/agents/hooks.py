@@ -13,7 +13,7 @@ DENY_PATTERNS: list[tuple[str, str]] = [
     (r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~|\$HOME)(\s|$)", "recursive delete of root/home"),
     (r"\bsudo\b", "privilege escalation"),
     (r"(curl|wget)[^|]*\|\s*(ba|z)?sh\b", "piping remote scripts to a shell"),
-    (r"\bgit\s+push\b", "only the engine publishes (Deliver station)"),
+    (r"\bgit\s+push\b", "only the engine publishes (Handover station)"),
     (r"\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s+\.)", "destructive git operation"),
     (r"\bdocker\s+(system|volume|image)\s+prune\b", "destructive docker prune"),
     (r"\bkind\s+delete\b", "deleting the cluster"),

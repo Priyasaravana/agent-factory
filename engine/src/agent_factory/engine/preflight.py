@@ -209,7 +209,7 @@ class Preflight:
                 r.reasons.append(f"credential {ref} not available ({why})")
                 if r.state == "ready":
                     r.state = "degraded"
-        # publish-only integrations never block delivery: the Deliver station reports "not pushed"
+        # publish-only integrations never block delivery: the Handover station reports "not pushed"
         blocks = [] if caps == ["publish"] else None
         state = r.state if r.state in _RANK else "failed"
         return _check(f"integration:{name}", title, caps[0], state, list(r.reasons), name, blocks)
@@ -266,7 +266,7 @@ class Preflight:
 
         wf = self.m.workflows[pl]
         doc = wf.get(wf.active_version())
-        notes = [w for w in workflow_warnings(doc) if w.startswith("no readiness station")]
+        notes = [w for w in workflow_warnings(doc) if w.startswith("no quality-gate station")]
         if notes:
             return _check("workflow", "Workflow", "workflow", "degraded", notes, blocks=[])
         return _check(

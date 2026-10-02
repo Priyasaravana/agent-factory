@@ -161,8 +161,8 @@ async def test_first_iteration_gate_pauses_after_design_until_approved(make_fact
     run = f.manager.start_run(order)
     assert await wait_run(f, run.id) == RunStatus.awaiting_approval
     finished = [e.station for e in f.store.list_events(run.id) if e.kind == EventKind.station_finished]
-    assert finished == ["intake", "design"], "nothing is built before approval"
-    assert f.store.get_run(run.id).current_station == "build"
+    assert finished == ["requirements", "design"], "nothing is built before approval"
+    assert f.store.get_run(run.id).current_station == "implement"
 
     app, ctx, c = await _client(f)
     async with c:
