@@ -16,7 +16,9 @@ from agent_factory.providers.base import (
     Readiness,
     StepResult,
 )
+from agent_factory.providers.helm import HelmProvider
 from agent_factory.providers.local import LocalProvider
+from agent_factory.providers.oci import OciRegistryProvider
 
 if TYPE_CHECKING:
     from agent_factory.config import FactoryConfig
@@ -25,7 +27,9 @@ __all__ = [
     "CAPABILITIES",
     "CheckContext",
     "ImageRef",
+    "HelmProvider",
     "LocalProvider",
+    "OciRegistryProvider",
     "Provider",
     "ProviderError",
     "ProviderSet",
@@ -36,7 +40,7 @@ __all__ = [
 ]
 
 ProviderFactory = Callable[[str, dict[str, Any]], Provider]
-_KINDS: dict[str, ProviderFactory] = {"local": LocalProvider}
+_KINDS: dict[str, ProviderFactory] = {"local": LocalProvider, "oci": OciRegistryProvider, "helm": HelmProvider}
 ENTRY_POINT_GROUP = "agent_factory.providers"
 
 

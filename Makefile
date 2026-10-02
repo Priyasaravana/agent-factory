@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -47,6 +47,9 @@ ps:
 reset-cluster: ## delete and recreate the kind cluster inside dind
 	docker compose exec -u factory factory kind delete cluster --name factory || true
 	docker compose restart factory
+
+local-ingress: ## local trial of the cluster target: registry + ingress-nginx in kind (ADR-0026)
+	docker compose exec -u factory factory /opt/factory/cluster/local-ingress.sh
 
 test: ## engine + auth tests (dry-run, no model usage)
 	cd engine && uv run --extra dev pytest -q

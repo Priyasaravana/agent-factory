@@ -169,7 +169,7 @@ def start(
             e.baseline = EvalSide(version=base_v)
             sides.append(e.baseline)
     need = len(doc.evals) * len(sides)
-    usable = mgr.usable_node_ports(workflow_id)
+    usable = mgr.usable_node_ports(workflow_id) if mgr.uses_node_ports(workflow_id) else list(range(need))
     if len(usable) < need:
         mapped = mgr.preflight.mapped_node_ports
         hint = (

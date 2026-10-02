@@ -16,6 +16,9 @@ spec:
         app.kubernetes.io/component: api
     spec:
       securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

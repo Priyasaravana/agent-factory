@@ -171,7 +171,8 @@ Each phase is a separate PR with its own acceptance check.
 | 2. Secrets ✅ | SecretRef resolver (`env://`, `aws-sm://`, `k8s://`), redaction, audit | No secret in DB, events or logs (a test greps a run for known values) |
 | 3. Sandbox ✅ | Agent sessions and `make verify` in throw-away containers without secrets, egress allowlist ([ADR-0014](../adr/0014-agent-sandbox.md)) | The earlier env/cert bypasses fail inside the sandbox; a live run passes |
 | 4. Readiness ✅ | `check()` + `undeploy()`, readiness page, order preflight, archive ([ADR-0015](../adr/0015-readiness-and-preflight.md)) | A broken integration blocks an order in seconds, with reasons |
-| 5. First remote path | `registry/ecr` + `deploy/argocd` on a dev EKS; GitHub App publish | A live run deploys to dev via Argo CD and passes acceptance |
+| 5a. Cluster target ✅ | generic `registry/oci` + `deploy/helm`, an ingress host per app, egress routes, local trial ([ADR-0026](../adr/0026-cluster-target.md)) | A live run on `local-ingress` pushes to a registry, deploys behind the ingress and passes acceptance |
+| 5b. Cloud paths | ECR login via IAM, `deploy/argocd` (GitOps), GitHub App publish, image signing | A live run deploys to a dev EKS via Argo CD and passes acceptance |
 | 6. Handoff mode | `ci/github-actions` provider; acceptance against the preview URL | A run lands as a PR, the company pipeline deploys it, the factory verifies it |
 
 ## 10. Open questions for review

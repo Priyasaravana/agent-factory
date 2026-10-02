@@ -22,6 +22,7 @@ services:
       - ./.factory-data:/data
     ports:
       - "127.0.0.1:8081-8100:8081-8100"  # generated apps (kind NodePorts 30080-30099)
+      - "127.0.0.1:8180:8180"            # generated apps behind the local ingress (ADR-0026)
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 5s

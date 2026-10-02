@@ -8,6 +8,11 @@ allows a destination only if it matches the allowlist:
     *.pythonhosted.org:443     any subdomain (not the bare domain)
     dind:8081-8100             a port range (apps deployed to the local cluster)
 
+A route sends an allowed destination to another address, keeping the request's
+host name (HTTP Host header, TLS SNI), e.g. apps behind the local ingress:
+
+    *.localtest.me:8180=dind:8180
+
 Every decision is logged as one JSON line, so denied attempts are evidence.
 TLS is never terminated here: the proxy sees host names, not content.
 """
@@ -48,12 +53,35 @@ class Rule:
         return host == self.host
 
 
+@dataclass(frozen=True)
+class Route:
+    match: Rule
+    host: str
+    port: int
+
+    @classmethod
+    def parse(cls, text: str) -> Route:
+        pattern, eq, upstream = text.strip().partition("=")
+        host, _, port = upstream.rpartition(":")
+        if not eq or not host or not port.isdigit():
+            raise ValueError(f"route '{text}' must be pattern:port=host:port")
+        return cls(Rule.parse(pattern), host, int(port))
+
+
 class Allowlist:
-    def __init__(self, rules: list[str]) -> None:
+    def __init__(self, rules: list[str], routes: list[str] | None = None) -> None:
         self.rules = [Rule.parse(r) for r in rules if r.strip()]
+        self.routes = [Route.parse(r) for r in routes or [] if r.strip()]
 
     def allows(self, host: str, port: int) -> bool:
         return any(r.matches(host, port) for r in self.rules)
+
+    def upstream(self, host: str, port: int) -> tuple[str, int]:
+        """Where to connect for an allowed destination (a route, or the destination itself)."""
+        for r in self.routes:
+            if r.match.matches(host, port):
+                return r.host, r.port
+        return host, port
 
 
 def parse_target(method: str, target: str) -> tuple[str, int, str]:
@@ -115,15 +143,22 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, all
         writer.close()
         log(decision="deny", host=host, port=port, method=method, peer=str(peer))
         return
+    up_host, up_port = allow.upstream(host, port)
     try:
-        up_reader, up_writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=15)
+        up_reader, up_writer = await asyncio.wait_for(asyncio.open_connection(up_host, up_port), timeout=15)
     except (OSError, TimeoutError) as exc:
         writer.write(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
         await writer.drain()
         writer.close()
         log(decision="error", host=host, port=port, error=str(exc))
         return
-    log(decision="allow", host=host, port=port, method=method)
+    log(
+        decision="allow",
+        host=host,
+        port=port,
+        method=method,
+        **({"via": f"{up_host}:{up_port}"} if up_host != host else {}),
+    )
     if method.upper() == "CONNECT":
         writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         await writer.drain()
@@ -153,12 +188,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--listen", default="0.0.0.0")  # noqa: S104 - reachable only on the sandbox network
     ap.add_argument("--port", type=int, default=3128)
     ap.add_argument("--allow", action="append", default=[], help="host:port or *.domain:lo-hi (repeatable)")
+    ap.add_argument("--route", action="append", default=[], help="pattern:port=host:port (repeatable)")
     args = ap.parse_args(argv)
     rules = args.allow or [r for r in os.environ.get("EGRESS_ALLOW", "").split(",") if r]
     if not rules:
         print("no egress rules: refusing to start an allow-nothing proxy by accident", file=sys.stderr)
         sys.exit(2)
-    asyncio.run(serve(args.listen, args.port, Allowlist(rules)))
+    asyncio.run(serve(args.listen, args.port, Allowlist(rules, args.route)))
 
 
 if __name__ == "__main__":

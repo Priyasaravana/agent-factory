@@ -8,6 +8,9 @@ It is structured on the [OWASP Top 10 for Agentic Applications (2026)](https://g
   - the model token (sandbox + engine);
   - `GITHUB_TOKEN` and other secret references (engine only, resolved just in time);
   - the dind TLS keys and kubeconfig (engine only).
+  - on a cluster target (ADR-0026): the registry password, a remote kubeconfig and an
+    image pull secret, as secret references resolved per step and passed through the
+    environment or stdin, never a command line or a lasting file (engine only).
 - **Integrity of delivered software:**
   - the product repos;
   - the images;

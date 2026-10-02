@@ -58,9 +58,18 @@ class CheckContext:
     cfg: Any
     settings: Any
     ex: Any
+    secrets: Any = None  # SecretResolver; checks may use a credential, never show it
 
-    async def cmd(self, command: str, timeout: float = 15) -> Any:
-        return await self.ex.run(command, timeout=timeout)
+    async def cmd(self, command: str, timeout: float = 15, env: dict[str, str] | None = None) -> Any:
+        return await self.ex.run(command, timeout=timeout, env=env)
+
+    def secret(self, ref: str | None) -> str | None:
+        if not ref or self.secrets is None:
+            return None
+        try:
+            return self.secrets.resolve(ref)
+        except Exception:  # noqa: BLE001 - an unavailable credential is reported by preflight
+            return None
 
 
 class Provider(Protocol):
@@ -87,6 +96,8 @@ class ScanProvider(Provider, Protocol):
 
 
 class DeployProvider(Provider, Protocol):
+    uses_node_ports: bool  # True: each order needs one of the product line's node_ports
+
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app
     def public_url(self, ctx: StationContext) -> str: ...  # where a person opens it

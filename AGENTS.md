@@ -75,4 +75,8 @@
   `stack.conflicts` (pure) decides. A new product line declares its stack, and
   every requirement keeps a hidden scenario or a `no_live_check` reason
   (`_validate_spec`).
+- Credentials a provider needs reach commands through the environment or stdin,
+  never the command line, and temp files are removed in the same step
+  (`providers/oci.py`, `providers/helm.py`, ADR-0026). `test_cluster_target.py`
+  greps commands and events for leaked values.
 - Record significant decisions as ADRs in `docs/adr/`.

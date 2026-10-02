@@ -135,7 +135,7 @@ async def test_delivery_is_visible_over_the_api(make_factory):
         d = (await c.get("/api/integrations")).json()
         local = next(i for i in d["integrations"] if i["id"] == "local")
         assert local["provider"] == "local" and set(local["capabilities"]) == {"registry", "scan", "deploy", "publish"}
-        assert local["readiness"]["state"] in {"ready", "failed"} and local["used_by"] == ["local"]
+        assert local["readiness"]["state"] in {"ready", "failed"} and local["used_by"] == ["local", "local-ingress"]
         env = next(e for e in d["environments"] if e["name"] == "local")
         assert env["bindings"]["deploy"] == "local" and env["product_lines"] == ["fastapi-service"]
         wf = (await c.get("/api/workflows/fastapi-service")).json()
