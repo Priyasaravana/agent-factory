@@ -63,6 +63,7 @@ from agent_factory.models import (
     Order,
     OrderDetail,
     OutcomesView,
+    PhaseInfo,
     PreflightView,
     PublishInput,
     ReadinessView,
@@ -97,10 +98,12 @@ from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRe
 from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
+    HANDLER_INFO,
     HANDLER_REQUIREMENTS,
     MAX_DOC_CHARS,
     MAX_LEARNINGS_CHARS,
     OBSERVE_ONLY_PRESETS,
+    PHASES,
     SAFE_EXTRA_TOOLS,
     TOOL_PRESETS,
     AgentSpec,
@@ -143,6 +146,7 @@ def action(
 def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
     views = []
     flow = f.workflows[run.workflow_id or workflow_id].get(run.workflow_version)
+    phase_of = flow.phases()
     for s in flow.stations:
         attempts = run.attempts.get(s.id, 0) if run else 0
         state = "pending"
@@ -166,6 +170,8 @@ def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
                 kind=s.kind,
                 role=s.agent,
                 handler=s.resolved_handler(),
+                label=s.label(),
+                phase=phase_of[s.id],
                 repair=s.only_on_fail,
                 state=state,
                 attempts=attempts,
@@ -843,12 +849,15 @@ def _agent_views(f: Factory, doc: WorkflowDoc) -> list[AgentView]:
 
 
 def _station_views_for(doc: WorkflowDoc) -> list[StationView]:
+    phase_of = doc.phases()
     return [
         StationView(
             id=s.id,
             kind=s.kind,
             role=s.agent,
             handler=s.resolved_handler(),
+            label=s.label(),
+            phase=phase_of[s.id],
             repair=s.only_on_fail,
             on_fail=s.on_fail,
             next=s.next,
@@ -917,6 +926,8 @@ def get_catalog(f: Factory) -> CatalogView:
         model_tiers={t: f.cfg.models.resolve(t) for t in ("judgment", "default", "fast")},
         skills=list_skills(f),
         handlers={"agent": sorted(AGENT_HANDLERS), "check": sorted(CHECK_HANDLERS)},
+        handler_info=HANDLER_INFO,
+        phases=[PhaseInfo(id=p, label=label) for p, label in PHASES],
         requirements={k: dict(v) for k, v in HANDLER_REQUIREMENTS.items()},
         max_previous_iterations=5,
         max_doc_chars=MAX_DOC_CHARS,

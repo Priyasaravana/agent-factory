@@ -297,7 +297,13 @@ export default function WorkflowEditPage() {
 
       <section className="card">
         <h3>Lane</h3>
-        <LaneBuilder draft={d} handlers={catalog.data.handlers} ops={laneOps} />
+        <LaneBuilder
+          draft={d}
+          handlers={catalog.data.handlers}
+          info={catalog.data.handler_info}
+          phases={catalog.data.phases}
+          ops={laneOps}
+        />
         {m.error && <p className="error">{m.error.message}</p>}
       </section>
 

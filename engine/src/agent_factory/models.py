@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
-from agent_factory.workflow import AgentSpec, EvalCase, RefDoc
+from agent_factory.workflow import AgentSpec, EvalCase, HandlerInfo, Phase, RefDoc
 
 
 class RunStatus(StrEnum):
@@ -524,6 +524,8 @@ class StationView(BaseModel):
     kind: str
     role: str | None  # agent spec id for agent stations
     handler: str
+    label: str = ""  # what people read: the built-in handler's name, or the custom id (ADR-0028)
+    phase: str = "plan"  # DevOps phase the station is shown under
     on_fail: str | None = None
     next: str | None = None
     repair: bool
@@ -652,6 +654,11 @@ class SkillDetail(BaseModel):
     used_by: list[str]  # workflows whose active version or draft uses it
 
 
+class PhaseInfo(BaseModel):
+    id: str
+    label: str
+
+
 class CatalogView(BaseModel):
     presets: dict[str, list[str]]
     observe_only_presets: list[str]
@@ -659,6 +666,8 @@ class CatalogView(BaseModel):
     model_tiers: dict[str, str]
     skills: list[SkillInfo]
     handlers: dict[str, list[str]]
+    handler_info: dict[str, HandlerInfo] = Field(default_factory=dict)  # label, phase, hint (ADR-0028)
+    phases: list[PhaseInfo] = Field(default_factory=list)  # the DevOps loop, in run order
     requirements: dict[str, dict[str, bool]]  # handler -> {write, shell} needs
     max_previous_iterations: int
     max_doc_chars: int
@@ -681,6 +690,7 @@ class AddStationInput(BaseModel):
     on_fail: str | None = None
     next: str | None = None
     only_on_fail: bool = False
+    phase: Phase | None = None  # custom steps only; built-in handlers have their own
     position: int | None = None  # index in the lane; end when omitted
 
 
@@ -692,6 +702,7 @@ class UpdateStationInput(BaseModel):
     only_on_fail: bool | None = None
     handler: str | None = None
     agent: str | None = None
+    phase: Phase | None = None
 
 
 class ReorderStationsInput(BaseModel):

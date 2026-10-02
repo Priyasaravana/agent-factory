@@ -11,6 +11,7 @@ from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
     MAX_LEARNINGS_CHARS,
+    PHASE_IDS,
     STATION_ID,
     AgentSpec,
     EvalCase,
@@ -18,6 +19,7 @@ from agent_factory.workflow import (
     WorkflowDoc,
     WorkflowStation,
     WorkflowVersionInfo,
+    canonical_handler,
     load_workflow_dir,
     validate_workflow,
     workflow_file,
@@ -385,7 +387,7 @@ class Draft:
         are fixed; remove and add instead."""
         _, doc, _ = self.get()
         st = self._station(doc, station_id)
-        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent"}
+        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent", "phase"}
         unknown = set(patch) - allowed
         if unknown:
             raise WorkflowError(f"cannot change {sorted(unknown)} (allowed: {sorted(allowed)})")
@@ -401,11 +403,15 @@ class Draft:
         if "only_on_fail" in patch:
             st.only_on_fail = bool(patch["only_on_fail"])
         if "handler" in patch:
-            h = patch["handler"] or None
+            h = canonical_handler(st.kind, str(patch["handler"])) if patch["handler"] else None
             known = AGENT_HANDLERS if st.kind == "agent" else CHECK_HANDLERS
             if h is not None and h not in known:
                 raise WorkflowError(f"unknown {st.kind} handler '{h}' (choose from {sorted(known)})")
             st.handler = h
+        if "phase" in patch:
+            if patch["phase"] and patch["phase"] not in PHASE_IDS:
+                raise WorkflowError(f"phase must be one of {PHASE_IDS}, not '{patch['phase']}'")
+            st.phase = patch["phase"] or None  # type: ignore[assignment]
         if "agent" in patch:
             if st.kind != "agent":
                 raise WorkflowError(f"station '{station_id}' is a deterministic check and has no agent")

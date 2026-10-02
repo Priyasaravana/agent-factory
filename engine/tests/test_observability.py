@@ -90,7 +90,7 @@ async def test_every_agent_call_of_a_run_is_recorded_with_its_transcript(make_fa
         roles = [x["role"] for x in view["calls"]]
         assert roles == ["intake", "architect", "developer", "reviewer", "verifier"]
         build = view["calls"][2]
-        assert build["station"] == "build" and build["tools"] == {"Read": 1} and build["transcript"]
+        assert build["station"] == "implement" and build["tools"] == {"Read": 1} and build["transcript"]
         assert view["denials"] == []
         entries = (await c.get(f"/api/runs/{run.id}/calls/{build['transcript']}/transcript")).json()
         assert [e["type"] for e in entries] == ["text", "tool_use", "tool_result"]
@@ -112,15 +112,16 @@ async def test_a_denial_is_evidence_and_teaches(make_factory):
         await asyncio.sleep(0.05)
     retro = next(c for c in agents.calls if c.role == "retro")
     assert "git push origin main" in retro.prompt and "blocked: pushing" in retro.prompt
-    assert "build / developer:" in retro.prompt, "call stats are context for efficiency lessons"
+    assert "implement / developer:" in retro.prompt, "call stats are context for efficiency lessons"
     assert f.store.list_proposals(WF), "a denial alone is reason enough to learn"
     from agent_factory.outcomes import outcomes
 
     o = outcomes(f.store, 7)
     assert o.guardrail_denials == 1
-    build = next(e for e in o.effort_by_station if e.station == "build")
+    build = next(e for e in o.effort_by_station if e.station == "implement")
     assert (build.calls, build.denied, build.tool_calls) == (1, 1, 1)
-    assert {e.station for e in o.effort_by_station} >= {"intake", "design", "build", "review", "acceptance", "retro"}
+    stations = {e.station for e in o.effort_by_station}
+    assert stations >= {"requirements", "design", "implement", "code-review", "acceptance", "retro"}
 
 
 async def test_the_retro_call_is_recorded_too(make_factory):

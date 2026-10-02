@@ -46,7 +46,7 @@
   ADR-0019): always save runs through `store.save_run`. Outcome metrics are pure
   functions in `outcomes.py`; a new metric gets a definition in
   `docs/outcomes.md` and an exact-value test in `tests/test_outcomes.py`.
-- The `review` station (ADR-0020) is judged by the engine (`review.judge`), not by
+- The `code-review` station (ADR-0020) is judged by the engine (`review.judge`), not by
   the agent's own verdict. Keep that rule for any new judging station: the agent
   reports evidence, deterministic code decides.
 - Nothing an agent suggests changes another agent's prompt without a person
@@ -79,4 +79,9 @@
   never the command line, and temp files are removed in the same step
   (`providers/oci.py`, `providers/helm.py`, ADR-0026). `test_cluster_target.py`
   greps commands and events for leaked values.
+- Station handlers are named after the DevOps phase they serve (ADR-0028,
+  `workflow.HANDLER_INFO`: label, phase, hint). A new built-in handler gets an
+  entry there; old names stay readable through `LEGACY_HANDLERS`, because stored
+  versions, runs and evidence keep their station ids. Never rename event data
+  keys (`readiness`, `review`) or evidence files to match.
 - Record significant decisions as ADRs in `docs/adr/`.

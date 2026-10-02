@@ -37,10 +37,81 @@ TOOL_PRESETS: dict[str, list[str]] = {
 OBSERVE_ONLY_PRESETS = {"observer", "reviewer"}
 SAFE_EXTRA_TOOLS = {"WebFetch", "WebSearch"}  # read-only additions any preset may opt into
 
-# Station handlers implemented by the engine. `agent` is the generic,
-# spec-driven handler used for any custom agent station.
-AGENT_HANDLERS = {"intake", "design", "build", "review", "deploy_fix", "acceptance", "agent"}
-CHECK_HANDLERS = {"verify", "readiness", "package", "deploy", "deliver"}
+# Station handlers implemented by the engine, named after the DevOps phase they
+# serve (ADR-0028). `agent` is the generic, spec-driven handler used for any
+# custom agent station.
+AGENT_HANDLERS = {"requirements", "design", "implement", "code-review", "deploy-repair", "acceptance", "agent"}
+CHECK_HANDLERS = {"test", "quality-gate", "build", "deploy", "handover"}
+
+# Names used before ADR-0028. Versions stored with them keep working and keep their
+# station ids (runs and evidence are pinned to them); they resolve to the new
+# handlers. Per kind, because `build` was the coding agent and is now the image check.
+LEGACY_HANDLERS: dict[str, dict[str, str]] = {
+    "agent": {"intake": "requirements", "build": "implement", "review": "code-review", "deploy_fix": "deploy-repair"},
+    "check": {"verify": "test", "readiness": "quality-gate", "package": "build", "deliver": "handover"},
+}
+
+
+def canonical_handler(kind: str, name: str) -> str:
+    """A handler name as the engine knows it today (legacy names translated)."""
+    return LEGACY_HANDLERS.get(kind, {}).get(name, name)
+
+
+# The DevOps loop the stations are grouped by, in run order. Operate and monitor
+# come with the operate loop (master plan, phase 7).
+PHASES: list[tuple[str, str]] = [
+    ("plan", "Plan"),
+    ("code", "Code"),
+    ("test", "Test"),
+    ("release", "Release"),
+    ("deploy", "Deploy"),
+    ("validate", "Validate"),
+    ("handover", "Handover"),
+]
+PHASE_IDS = [p for p, _ in PHASES]
+Phase = Literal["plan", "code", "test", "release", "deploy", "validate", "handover"]
+
+
+class HandlerInfo(BaseModel):
+    kind: Literal["agent", "check"]
+    label: str
+    phase: Phase | None  # None: a custom agent step takes the phase it sits in
+    hint: str
+
+
+HANDLER_INFO: dict[str, HandlerInfo] = {
+    "requirements": HandlerInfo(
+        kind="agent", label="Requirements", phase="plan", hint="turns the request into a spec (observe-only)"
+    ),
+    "design": HandlerInfo(kind="agent", label="Design", phase="plan", hint="writes the design docs and API contract"),
+    "implement": HandlerInfo(kind="agent", label="Implement", phase="code", hint="writes the code and its tests"),
+    "test": HandlerInfo(kind="check", label="Test", phase="test", hint="runs the tests, linters and coverage gate"),
+    "quality-gate": HandlerInfo(
+        kind="check", label="Quality gate", phase="test", hint="agent-readiness Level 3 and a secret scan"
+    ),
+    "code-review": HandlerInfo(
+        kind="agent", label="Code review", phase="test", hint="reviews the change against the spec; the engine judges"
+    ),
+    "build": HandlerInfo(
+        kind="check", label="Build", phase="release", hint="builds, scans and pushes the image (SBOM, provenance)"
+    ),
+    "deploy": HandlerInfo(
+        kind="check", label="Deploy", phase="deploy", hint="deploys to the product line's environment"
+    ),
+    "deploy-repair": HandlerInfo(kind="agent", label="Deploy repair", phase="deploy", hint="repairs a failed deploy"),
+    "acceptance": HandlerInfo(
+        kind="agent", label="Acceptance", phase="validate", hint="runs the hidden scenarios (observe-only)"
+    ),
+    "handover": HandlerInfo(
+        kind="check", label="Handover", phase="handover", hint="commits, tags, opens the PR and hands over the app"
+    ),
+    "agent": HandlerInfo(
+        kind="agent",
+        label="Custom agent step",
+        phase=None,
+        hint="any step (review, docs, compliance…) returning a verdict",
+    ),
+}
 
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 STATION_ID = re.compile(r"^[a-z][a-z0-9_-]{1,40}$")
@@ -50,19 +121,19 @@ STATION_ID = re.compile(r"^[a-z][a-z0-9_-]{1,40}$")
 # agent that can write could tamper with the repo before the spec exists, and
 # the acceptance agent sees the hidden scenarios so it must never write.
 HANDLER_REQUIREMENTS: dict[str, dict[str, bool]] = {
-    "intake": {"write": False},
+    "requirements": {"write": False},
     "design": {"write": True},
-    "build": {"write": True, "shell": True},
-    "deploy_fix": {"write": True, "shell": True},
+    "implement": {"write": True, "shell": True},
+    "deploy-repair": {"write": True, "shell": True},
     "acceptance": {"write": False, "shell": True},
-    "review": {"write": False, "shell": True},  # reads the diff with git; judges, never fixes
+    "code-review": {"write": False, "shell": True},  # reads the diff with git; judges, never fixes
 }
 # Advice (warnings, not errors).
 RECOMMENDED_SKILLS: dict[str, list[str]] = {
     "acceptance": ["agent-watchdog"],
-    "deploy_fix": ["helm-kind-deploy"],
+    "deploy-repair": ["helm-kind-deploy"],
 }
-JUDGMENT_HANDLERS = {"intake", "design", "review", "acceptance"}
+JUDGMENT_HANDLERS = {"requirements", "design", "code-review", "acceptance"}
 
 # Context budgets: reference material is useful, but unbounded context is
 # expensive and dilutes the agent's attention.
@@ -143,12 +214,25 @@ class WorkflowStation(BaseModel):
     on_fail: str | None = None
     next: str | None = None
     only_on_fail: bool = False
+    # DevOps phase the station is shown under (ADR-0028). Built-in handlers have
+    # one; a custom step without it takes the phase of the station before it.
+    phase: Phase | None = None
 
     def resolved_handler(self) -> str:
         if self.handler:
-            return self.handler
+            return canonical_handler(self.kind, self.handler)
         known = AGENT_HANDLERS if self.kind == "agent" else CHECK_HANDLERS
-        return self.id if self.id in known else ("agent" if self.kind == "agent" else self.id)
+        if self.id in known:
+            return self.id
+        legacy = LEGACY_HANDLERS[self.kind].get(self.id)
+        if legacy:
+            return legacy
+        return "agent" if self.kind == "agent" else self.id
+
+    def label(self) -> str:
+        """What people read: the built-in handler's name, or the custom station's id."""
+        info = HANDLER_INFO.get(self.resolved_handler())
+        return info.label if info and self.resolved_handler() != "agent" else self.id
 
 
 EVAL_CASE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
@@ -220,6 +304,17 @@ class WorkflowDoc(BaseModel):
             return None
         i = ids.index(station_id)
         return ids[i + 1] if i + 1 < len(ids) else None
+
+    def phases(self) -> dict[str, str]:
+        """Each station's DevOps phase: its own, its built-in handler's, or (for a
+        custom step) the phase of the station before it in the list."""
+        out: dict[str, str] = {}
+        current = PHASE_IDS[0]
+        for s in self.stations:
+            info = HANDLER_INFO.get(s.resolved_handler())
+            current = s.phase or (info.phase if info and info.phase else None) or current
+            out[s.id] = current
+        return out
 
     def agent_for(self, station_id: str) -> AgentSpec:
         st = self.station(station_id)
@@ -351,18 +446,24 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
         if aid not in used:
             warnings.append(f"agent '{aid}' is not used by any station")
     handlers = {s.resolved_handler() for s in doc.stations}
-    if "build" in handlers and "readiness" not in handlers:
+    if "implement" in handlers and "quality-gate" not in handlers:
         warnings.append(
-            "no readiness station: delivered apps are not held to agent-readiness Level 3 "
-            "(add the `readiness` check after verify)"
+            "no quality-gate station: delivered apps are not held to agent-readiness Level 3 "
+            "(add the `quality-gate` check after test)"
         )
+    phase_of, last = doc.phases(), -1
+    for s in doc.forward_stations():
+        i = PHASE_IDS.index(phase_of[s.id])
+        if i < last:
+            warnings.append(f"station '{s.id}' ({phase_of[s.id]}) comes after a later phase: the lane is out of order")
+        last = i  # one warning where the lane steps back, not one per later station
     return sorted(set(warnings))
 
 
 # Built-in handlers that depend on an earlier one's output (spec → design →
-# code → image → deployment → acceptance → delivery). Their forward order is fixed;
-# verify, generic agents and repair stations can go anywhere.
-STAGE_ORDER = ["intake", "design", "build", "review", "package", "deploy", "acceptance", "deliver"]
+# code → review → image → deployment → acceptance → handover). Their forward order
+# is fixed; test, generic agents and repair stations can go anywhere.
+STAGE_ORDER = ["requirements", "design", "implement", "code-review", "build", "deploy", "acceptance", "handover"]
 
 
 def _order_errors(doc: WorkflowDoc) -> list[str]:

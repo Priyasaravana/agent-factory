@@ -39,6 +39,7 @@ from agent_factory.models import (
 from agent_factory.pillars import BY_ID, IDS, tally
 from agent_factory.readiness import PILLAR_OF
 from agent_factory.state.base import StateStore
+from agent_factory.workflow import LEGACY_HANDLERS
 
 AGENTS = {RunStatus.queued, RunStatus.running}
 PERSON = {RunStatus.needs_input, RunStatus.held, RunStatus.awaiting_approval, RunStatus.interrupted}
@@ -314,7 +315,7 @@ def _quality(f: Facts, latest: dict[str, Run], live: dict[str, Order]) -> dict[s
     apps = []
     for oid, r in sorted(latest.items(), key=lambda kv: live[kv[0]].title.lower()):
         if r.id not in f.readiness_signals:
-            continue  # delivered before the Readiness station existed
+            continue  # delivered before the Quality gate station existed
         t = tally(f.readiness_signals[r.id], PILLAR_OF)
         scores = []
         for p in IDS:
@@ -351,7 +352,9 @@ def _effort(f: Facts) -> list[StationEffort]:
     by: dict[str, list[dict[str, Any]]] = {}
     for _, ts, c in f.calls:
         if f.since <= ts <= f.now:
-            by.setdefault(str(c.get("station", "?")), []).append(c)
+            # calls are agent stations; legacy ids (ADR-0028) count under today's name
+            st = str(c.get("station", "?"))
+            by.setdefault(LEGACY_HANDLERS["agent"].get(st, st), []).append(c)
     out = [
         StationEffort(
             station=st,

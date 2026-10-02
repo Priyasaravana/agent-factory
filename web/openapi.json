@@ -2996,6 +2996,26 @@
             "title": "Only On Fail",
             "default": false
           },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "plan",
+                  "code",
+                  "test",
+                  "release",
+                  "deploy",
+                  "validate",
+                  "handover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
           "position": {
             "anyOf": [
               {
@@ -3340,6 +3360,20 @@
             },
             "type": "object",
             "title": "Handlers"
+          },
+          "handler_info": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HandlerInfo"
+            },
+            "type": "object",
+            "title": "Handler Info"
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseInfo"
+            },
+            "type": "array",
+            "title": "Phases"
           },
           "requirements": {
             "additionalProperties": {
@@ -4603,6 +4637,54 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HandlerInfo": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "check"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "plan",
+                  "code",
+                  "test",
+                  "release",
+                  "deploy",
+                  "validate",
+                  "handover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "phase",
+          "hint"
+        ],
+        "title": "HandlerInfo"
+      },
       "HealthView": {
         "properties": {
           "status": {
@@ -5247,6 +5329,24 @@
           "time_split"
         ],
         "title": "OutcomesView"
+      },
+      "PhaseInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "PhaseInfo"
       },
       "PillarScore": {
         "properties": {
@@ -6345,6 +6445,16 @@
             "type": "string",
             "title": "Handler"
           },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase",
+            "default": "plan"
+          },
           "on_fail": {
             "anyOf": [
               {
@@ -6567,6 +6677,26 @@
               }
             ],
             "title": "Agent"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "plan",
+                  "code",
+                  "test",
+                  "release",
+                  "deploy",
+                  "validate",
+                  "handover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
           }
         },
         "type": "object",

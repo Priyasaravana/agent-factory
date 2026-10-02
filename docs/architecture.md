@@ -65,7 +65,7 @@ flowchart TB
 
 - Each station returns `passed | failed | needs_input | held | paused_limits`.
 - `passed` moves to the station's `next`, or to the next forward station. After
-  `deliver`, the run becomes **awaiting_feedback**: the feedback gate is open.
+  `handover`, the run becomes **awaiting_feedback**: the feedback gate is open.
 - `failed` moves to the station's `on_fail` route and hands over the failure
   **evidence** (command output, diagnostics, or observed behaviour).
   - If there is no route, the run is **held**.

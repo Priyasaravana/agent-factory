@@ -219,6 +219,8 @@
   .lane-card.repair { @apply border-dashed; }
   .lane-card.bad { @apply border-bad; }
   .lane-card.dragging { @apply z-10 opacity-50; }
+  .lane-card .phase { @apply text-[11px] font-medium uppercase tracking-wide text-primary; }
+  .lane-card .phase.muted { @apply text-muted-foreground; }
   .lane-card.over, .lane-end.over { @apply border-primary; }
   .lane-card .name { @apply break-all text-[15px]; }
   .lane-card select { @apply px-2 py-1 text-xs; }

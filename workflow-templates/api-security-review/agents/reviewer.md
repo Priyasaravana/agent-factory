@@ -11,7 +11,7 @@ context_docs:
 previous_iterations: 1
 produces: []
 ---
-# Role: Spec reviewer (Review station)
+# Role: Spec reviewer (Code review station)
 
 You check that this iteration built what the specification says, before it is
 packaged and deployed. You are observe-only: read files, use read-only git

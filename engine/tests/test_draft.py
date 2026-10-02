@@ -55,7 +55,7 @@ async def test_guardrails_on_editing(make_factory):
     with pytest.raises(WorkflowError, match="used by stations"):
         d.delete_agent("developer")
     with pytest.raises(WorkflowError, match="deterministic check"):
-        d.set_station_agent("verify", "developer")
+        d.set_station_agent("test", "developer")
     with pytest.raises(WorkflowError, match="already exists"):
         d.duplicate_agent("developer", "architect")
     d.duplicate_agent("developer", "developer-lite")

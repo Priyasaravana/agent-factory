@@ -48,7 +48,7 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   - JSON logs, metrics and tracing;
   - a secret scan, SBOM and provenance.
 
-  A Readiness station holds every run to that bar ([practices](docs/practices.md)).
+  A Quality gate station holds every run to that bar ([practices](docs/practices.md)).
 - **Checked before it starts.** Readiness checks cover the model, sandbox,
   Docker, cluster, free ports and credentials. They refuse an order in seconds,
   before any model usage, if something it needs is broken

@@ -129,8 +129,8 @@ async def test_missing_token_is_reported_not_fatal(make_factory, monkeypatch):
     f.settings.github_token = None
     run = f.manager.start_run(f.manager.create_order(ORDER))
     assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    deliver = next(e.message for e in f.store.list_events(run.id) if e.message.startswith("deliver: passed"))
-    assert "NOT pushed (env://GITHUB_TOKEN not available)" in deliver
+    handover = next(e.message for e in f.store.list_events(run.id) if e.message.startswith("handover: passed"))
+    assert "NOT pushed (env://GITHUB_TOKEN not available)" in handover
 
 
 async def test_integrations_api_shows_the_reference_not_the_value(make_factory, monkeypatch):

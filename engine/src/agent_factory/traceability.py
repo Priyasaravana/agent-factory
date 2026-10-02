@@ -5,7 +5,7 @@ Sources in a generated repo:
     tests/acceptance/scenarios.yaml    [{id, given, when, then, covers: [R1]}]
     tests/**/*.py                      @pytest.mark.req("R1", ...) on each test
     <data>/holdout/<slug>/scenarios.yaml   hidden scenarios, also with `covers`
-Everything here is a pure function of files, so the Readiness station, the spec
+Everything here is a pure function of files, so the Quality gate station, the spec
 view and the acceptance evidence all agree.
 """
 

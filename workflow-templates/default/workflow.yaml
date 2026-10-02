@@ -1,9 +1,12 @@
 # Default workflow for a FastAPI service product line.
-# Stations run top to bottom. kind: agent (judgment work by an agent spec) or
-# check (deterministic, engine-implemented). on_fail routes failure evidence;
-# repair stations (only_on_fail) are reached only through on_fail and go to `next`.
+# Stations run top to bottom, grouped by DevOps phase (ADR-0028):
+#   plan: requirements, design · code: implement · test: test, quality-gate, code-review
+#   release: build · deploy: deploy (+ deploy-repair) · validate: acceptance · handover
+# kind: agent (judgment work by an agent spec) or check (deterministic, engine-implemented).
+# on_fail routes failure evidence; repair stations (only_on_fail) are reached only
+# through on_fail and go to `next`. A custom station may set `phase:`.
 name: default
-description: Spec → design → build → verify → readiness → spec review → package → deploy → independent acceptance → deliver
+description: Plan → code → test → release → deploy → validate → handover
 # Spec review gate (ADR-0017): pause after design until a person approves the spec.
 #   off (default) · first: the first iteration of an order · always: every iteration
 spec_review: "off"
@@ -13,14 +16,14 @@ spec_review: "off"
 # Each evaluation builds every case (and the active version's, if never measured).
 eval_gate: block
 stations:
-  - {id: intake,     kind: agent, agent: intake}
-  - {id: design,     kind: agent, agent: architect}
-  - {id: build,      kind: agent, agent: developer}
-  - {id: verify,     kind: check, on_fail: build}
-  - {id: readiness,  kind: check, on_fail: build}   # agent-readiness Level 3 + secret scan
-  - {id: review,     kind: agent, agent: reviewer, on_fail: build}  # spec review of the change (ADR-0020)
-  - {id: package,    kind: check, on_fail: build}
-  - {id: deploy,     kind: check, on_fail: deploy_fix}
-  - {id: deploy_fix, kind: agent, agent: devops, next: deploy, only_on_fail: true}
-  - {id: acceptance, kind: agent, agent: verifier, on_fail: build}
-  - {id: deliver,    kind: check}
+  - {id: requirements,  kind: agent, agent: intake}
+  - {id: design,        kind: agent, agent: architect}
+  - {id: implement,     kind: agent, agent: developer}
+  - {id: test,          kind: check, on_fail: implement}
+  - {id: quality-gate,  kind: check, on_fail: implement}   # agent-readiness Level 3 + secret scan
+  - {id: code-review,   kind: agent, agent: reviewer, on_fail: implement}  # spec review of the change (ADR-0020)
+  - {id: build,         kind: check, on_fail: implement}
+  - {id: deploy,        kind: check, on_fail: deploy-repair}
+  - {id: deploy-repair, kind: agent, agent: devops, next: deploy, only_on_fail: true}
+  - {id: acceptance,    kind: agent, agent: verifier, on_fail: implement}
+  - {id: handover,      kind: check}

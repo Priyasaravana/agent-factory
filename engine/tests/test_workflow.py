@@ -32,22 +32,22 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
     doc = load_workflow_dir(BLUEPRINT)
     assert validate_workflow(doc, SKILLS, DEFAULTS) == []
     assert [s.id for s in doc.forward_stations()] == [
-        "intake",
+        "requirements",
         "design",
+        "implement",
+        "test",
+        "quality-gate",
+        "code-review",
         "build",
-        "verify",
-        "readiness",
-        "review",
-        "package",
         "deploy",
         "acceptance",
-        "deliver",
+        "handover",
     ]
     assert doc.next_forward("deploy") == "acceptance"
-    assert doc.station("deploy_fix").next == "deploy"
+    assert doc.station("deploy-repair").next == "deploy"
     assert doc.agents["verifier"].observe_only
     assert "Task" in doc.agents["developer"].effective_tools()
-    assert doc.repair_targets() == {"build", "deploy_fix"}
+    assert doc.repair_targets() == {"implement", "deploy-repair"}
 
 
 def test_agent_md_roundtrip() -> None:
@@ -62,7 +62,7 @@ def test_agent_md_roundtrip() -> None:
         (lambda d: d.stations[0].__setattr__("agent", "ghost"), "unknown agent"),
         (lambda d: d.agents["verifier"].__setattr__("tools", "builder"), "observe-only"),
         (lambda d: d.agents["intake"].skills.append("no-such-skill"), "unknown skill"),
-        (lambda d: next(s for s in d.stations if s.id == "deploy_fix").__setattr__("next", None), "needs `next`"),
+        (lambda d: next(s for s in d.stations if s.id == "deploy-repair").__setattr__("next", None), "needs `next`"),
     ],
 )
 def test_validation_catches_broken_lines(mutate, problem) -> None:
@@ -79,7 +79,7 @@ def test_presets_cannot_be_widened_to_dangerous_tools() -> None:
 
 
 def _custom_line(tmp_path: Path) -> Path:
-    """The default blueprint plus a security-reviewer station after build."""
+    """The default blueprint plus a security-reviewer station after implement."""
     doc = load_workflow_dir(BLUEPRINT)
     doc.agents["security-reviewer"] = AgentSpec(
         id="security-reviewer",
@@ -91,7 +91,7 @@ def _custom_line(tmp_path: Path) -> Path:
         prompt="Review the code for OWASP issues.\n",
     )
     stations = doc.model_dump()["stations"]
-    stations.insert(3, {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "build"})
+    stations.insert(3, {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "implement"})
     out = tmp_path / "custom"
     export_workflow_dir(WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations}), out)
     return out
@@ -109,7 +109,7 @@ async def test_invalid_import_is_rejected_and_nothing_stored(make_factory, tmp_p
     f = make_factory()
     path = _custom_line(tmp_path)
     (path / "workflow.yaml").write_text(
-        (path / "workflow.yaml").read_text().replace("on_fail: build", "on_fail: nope", 1)
+        (path / "workflow.yaml").read_text().replace("on_fail: implement", "on_fail: nope", 1)
     )
     with pytest.raises(WorkflowError):
         f.workflows[WF].import_dir(path, "broken")
@@ -131,7 +131,7 @@ async def test_runs_are_pinned_to_their_line_version(make_factory, tmp_path) -> 
     assert run2.workflow_version == 2
     assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
     stations2 = [e.station for e in f.store.list_events(run2.id) if e.kind == EventKind.station_finished]
-    assert stations2.index("security-review") == stations2.index("build") + 1
+    assert stations2.index("security-review") == stations2.index("implement") + 1
 
 
 async def test_generic_agent_failure_routes_findings_to_its_on_fail(make_factory, tmp_path) -> None:

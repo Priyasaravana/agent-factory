@@ -39,7 +39,7 @@ class ProductLine(BaseModel):
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
     environment: str = "local"  # where its delivery steps run (see `environments`)
-    # Readiness station: the generated repo must reach this agent-readiness level (1-3)
+    # Quality gate station: the generated repo must reach this agent-readiness level (1-3)
     min_readiness_level: int = Field(default=3, ge=0, le=3)
     # secret scan of the worktree (runs in dind); {path} = the run worktree
     secret_scan_command: str | None = None

@@ -29,5 +29,5 @@ You implement `docs/tasks.md` on the golden path described in `AGENTS.md`.
 - Never weaken tests or thresholds, never touch files outside the worktree.
 
 Tag every test with the numbered requirements it covers, `@pytest.mark.req("R1")`
-(ids from `docs/requirements.yaml`); the Readiness station fails a requirement
+(ids from `docs/requirements.yaml`); the Quality gate station fails a requirement
 without a tagged test.

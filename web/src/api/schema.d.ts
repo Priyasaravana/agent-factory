@@ -1148,6 +1148,8 @@ export interface components {
              * @default false
              */
             only_on_fail: boolean;
+            /** Phase */
+            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
             /** Position */
             position?: number | null;
         };
@@ -1315,6 +1317,12 @@ export interface components {
             handlers: {
                 [key: string]: string[];
             };
+            /** Handler Info */
+            handler_info?: {
+                [key: string]: components["schemas"]["HandlerInfo"];
+            };
+            /** Phases */
+            phases?: components["schemas"]["PhaseInfo"][];
             /** Requirements */
             requirements: {
                 [key: string]: {
@@ -1819,6 +1827,20 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HandlerInfo */
+        HandlerInfo: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "check";
+            /** Label */
+            label: string;
+            /** Phase */
+            phase: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            /** Hint */
+            hint: string;
+        };
         /** HealthView */
         HealthView: {
             /** Status */
@@ -2089,6 +2111,13 @@ export interface components {
             by_workflow?: components["schemas"]["WorkflowOutcome"][];
             /** Weekly */
             weekly?: components["schemas"]["WeekPoint"][];
+        };
+        /** PhaseInfo */
+        PhaseInfo: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
         };
         /**
          * PillarScore
@@ -2533,6 +2562,16 @@ export interface components {
             role: string | null;
             /** Handler */
             handler: string;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Phase
+             * @default plan
+             */
+            phase: string;
             /** On Fail */
             on_fail?: string | null;
             /** Next */
@@ -2621,6 +2660,8 @@ export interface components {
             handler?: string | null;
             /** Agent */
             agent?: string | null;
+            /** Phase */
+            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
         };
         /** ValidationError */
         ValidationError: {

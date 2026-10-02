@@ -230,18 +230,18 @@ def test_agent_effort_by_station():
                           "tool_calls": tools, "denied": denied})  # fmt: skip
 
     f.calls = [
-        call("build", 10, 100.0, 0.5, 20, 1),
-        call("build", 30, 300.0, 1.5, 40),
-        call("build", 20, 200.0, 1.0, 30),
-        call("review", 4, 40.0, 0.25, 5),
+        call("implement", 10, 100.0, 0.5, 20, 1),
+        call("implement", 30, 300.0, 1.5, 40),
+        call("build", 20, 200.0, 1.0, 30),  # a version from before ADR-0028: counts as implement
+        call("review", 4, 40.0, 0.25, 5),  # likewise code-review
         ("A", NOW - timedelta(days=40), {"station": "build", "turns": 99, "cost_usd": 9.0}),  # before the window
     ]
     f.denials = [("A", at, {"tool": "Bash"}), ("A", NOW - timedelta(days=40), {"tool": "Bash"})]
     o = compute(f)
     build, review = o.effort_by_station
     assert (build.station, build.calls, build.cost_usd, build.turns_median, build.duration_median_s) == (
-        "build", 3, 3.0, 20.0, 200.0,
+        "implement", 3, 3.0, 20.0, 200.0,
     )  # fmt: skip
     assert (build.tool_calls, build.denied) == (90, 1)
-    assert (review.station, review.calls, review.cost_usd) == ("review", 1, 0.25), "most expensive station first"
+    assert (review.station, review.calls, review.cost_usd) == ("code-review", 1, 0.25), "most expensive station first"
     assert o.guardrail_denials == 1

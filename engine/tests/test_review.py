@@ -139,5 +139,6 @@ def test_the_review_station_must_be_observe_only_and_after_build():
     assert any("must use an observe-only agent" in p for p in validate_workflow(doc, skills, defaults))
     doc = load_workflow_dir(REPO / "workflow-templates" / "default")
     ids = [s.id for s in doc.stations]
-    doc.stations.insert(ids.index("build"), doc.stations.pop(ids.index("review")))
-    assert any("'build' (build) must come before 'review'" in p for p in validate_workflow(doc, skills, defaults))
+    doc.stations.insert(ids.index("implement"), doc.stations.pop(ids.index("code-review")))
+    problems = validate_workflow(doc, skills, defaults)
+    assert any("'implement' (implement) must come before 'code-review'" in p for p in problems)
