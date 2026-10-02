@@ -168,6 +168,8 @@ class SandboxConfig(BaseModel):
     cpus: str = "2"
     pids: int = 512
     egress: list[str] = Field(default_factory=lambda: list(DEFAULT_EGRESS))
+    # send an allowed destination elsewhere, keeping its host name (sandbox/egress.py)
+    routes: list[str] = Field(default_factory=list)
 
 
 class FactoryConfig(BaseModel):

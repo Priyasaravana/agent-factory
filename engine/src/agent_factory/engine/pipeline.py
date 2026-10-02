@@ -125,10 +125,13 @@ class RunManager:
         base = slug
         while slug in taken_slugs:
             slug, n = f"{base}-{n}", n + 1
-        free = self.usable_node_ports(data.product_line)
-        if not free:
-            raise FactoryError("no free app port: archive an order you no longer need (see config node_ports)")
-        node_port = free[0]
+        node_port = host_port = None
+        if self.uses_node_ports(data.product_line):
+            free = self.usable_node_ports(data.product_line)
+            if not free:
+                raise FactoryError("no free app port: archive an order you no longer need (see config node_ports)")
+            node_port = free[0]
+            host_port = self.settings.app_host_port_base + line.node_ports.index(node_port)
         order = Order(
             id=uuid.uuid4().hex[:12],
             title=data.title,
@@ -138,7 +141,7 @@ class RunManager:
             requirements_format=data.requirements_format,
             created_at=_now(),
             node_port=node_port,
-            host_port=self.settings.app_host_port_base + line.node_ports.index(node_port),
+            host_port=host_port,
         )
         return self.store.create_order(order)
 
@@ -147,6 +150,11 @@ class RunManager:
         line = self.cfg.product_lines[product_line]
         used = {o.node_port for o in self.store.list_orders() if not o.archived_at}
         return [p for p in line.node_ports if p not in used]
+
+    def uses_node_ports(self, product_line: str) -> bool:
+        """Local kind needs one node port per app; an ingress-based target does not (ADR-0026)."""
+        deploy = self.providers.for_product_line(product_line).deploy
+        return bool(getattr(deploy, "uses_node_ports", True))
 
     def usable_node_ports(self, product_line: str) -> list[int]:
         """Free app ports that the local cluster actually maps (older clusters map fewer)."""
@@ -191,7 +199,8 @@ class RunManager:
             self.store.add_event(
                 latest.id,
                 EventKind.decision,
-                f"order archived by {by}: {res.summary}; app port {order.host_port} freed",
+                f"order archived by {by}: {res.summary}"
+                + (f"; app port {order.host_port} freed" if order.host_port else ""),
                 station="archive",
                 data={"archived_by": by, "app_url": order.app_url},
             )

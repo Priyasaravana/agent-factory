@@ -117,7 +117,7 @@ class SandboxManager:
         return f"{self.cfg.image}:{self.tag}"
 
     def egress_hash(self) -> str:
-        return content_tag([], extra=json.dumps([self.image, sorted(self.cfg.egress)]))
+        return content_tag([], extra=json.dumps([self.image, sorted(self.cfg.egress), sorted(self.cfg.routes)]))
 
     # ---------------------------------------------------------- bootstrap --
     def start(self) -> None:
@@ -206,6 +206,7 @@ class SandboxManager:
             return None
         await self._sh(f"docker rm -f {name} >/dev/null 2>&1")
         allow = " ".join(f"--allow {shlex.quote(r)}" for r in self.cfg.egress)
+        allow += "".join(f" --route {shlex.quote(r)}" for r in self.cfg.routes)
         run = (
             f"docker run -d --name {name} --restart unless-stopped --label {LABEL}=egress --label af.egress={want} "
             f"--add-host dind:host-gateway --read-only --cap-drop ALL --security-opt no-new-privileges "

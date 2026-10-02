@@ -1,16 +1,26 @@
-# image.* and service.nodePort are set by the factory's Deploy station.
+# image.*, service.* and ingress.* are set by the factory's Deploy station:
+# the local target uses a NodePort; a cluster target (helm provider) uses ClusterIP + an ingress host.
 image:
   repository: app
   tag: dev
-  pullPolicy: IfNotPresent     # images are side-loaded with `kind load`
+  pullPolicy: IfNotPresent     # tags are commit SHAs: an image never changes under a tag
+
+imagePullSecrets: []           # e.g. [{name: factory-pull}] for a private registry
 
 replicaCount: 1
 containerPort: 8000
 
 service:
-  type: NodePort
+  type: NodePort               # ClusterIP behind an ingress
   port: 80
   nodePort: 30080
+
+ingress:
+  enabled: false
+  host: app.example.com
+  className: nginx
+  tls: false                   # serve TLS from the <name>-tls secret (e.g. made by cert-manager)
+  annotations: {}
 
 resources:
   requests: {cpu: 50m, memory: 128Mi}

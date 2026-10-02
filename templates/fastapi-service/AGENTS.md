@@ -19,7 +19,7 @@ Verify, Package and Deploy stations depend on them.
   in `app/main.py`; log with `logging.getLogger(__name__)`, never `print`.
 - `tests/e2e/` — smoke tests against a running deployment (`E2E_BASE_URL`).
 - `.github/` — CI (same checks as the factory), CODEOWNERS, Dependabot.
-- `deploy/chart/` — Helm chart (app Deployment + NodePort Service + Postgres).
+- `deploy/chart/` — Helm chart (app Deployment + Service + optional Ingress + Postgres).
 - `docs/` — spec, design, openapi, tasks (written by Intake/Design).
 
 ## Rules
@@ -34,6 +34,6 @@ Verify, Package and Deploy stations depend on them.
 - Create tables on startup with `Base.metadata.create_all` (no migration tool in v0).
 - Config only from environment variables. No secrets in code or the chart values.
 - Keep the container non-root and the port at 8000.
-- Do not change the chart's `service.nodePort` wiring or `image.*` values names —
-  the Deploy station sets them.
+- Do not change the chart's `image.*`, `service.*`, `ingress.*` or `imagePullSecrets`
+  values names — the Deploy station sets them (NodePort locally, ClusterIP + Ingress on a cluster).
 - Never run `git push`; the Deliver station publishes.

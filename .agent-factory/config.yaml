@@ -72,8 +72,25 @@ integrations:
       # a reference, never a value: env:// (dev, from .env), file:// (mounted secret),
       # aws-sm://id#key (AWS Secrets Manager), vault://mount/path#key (Vault KV v2)
       secret_ref: env://GITHUB_TOKEN   # used by publish
+  # Phase 5 (ADR-0026): any OCI registry + Helm to any cluster, one ingress host per app
+  # (no port limit). These two are the local trial on the kind cluster: run
+  # `make reset-cluster` once (new port and registry settings), then `make local-ingress`,
+  # then set a product line's `environment: local-ingress`. For a real cluster copy them,
+  # e.g. repository ghcr.io/<owner>/factory with username + secret_ref, and
+  # ingress_domain apps.example.com with public_scheme https and a kubeconfig secret_ref.
+  kind-registry:
+    provider: oci
+    settings: {repository: "localhost:5001/factory", insecure: true, check_host: "dind:5001"}
+  kind-ingress:
+    provider: helm
+    settings:
+      ingress_domain: localtest.me     # *.localtest.me resolves to 127.0.0.1 (your Mac)
+      public_scheme: http
+      public_port: 8180                # compose maps it to the kind ingress
+      connect_via: "dind:8180"         # how the engine reaches the ingress from its container
 environments:
   local: {registry: local, scan: local, deploy: local, publish: local}
+  local-ingress: {registry: kind-registry, scan: local, deploy: kind-ingress, publish: local}
 
 # ---------------------------------------------------------------------------
 # Agent sandbox (docs/adr/0014-agent-sandbox.md). Every agent session and every
@@ -91,6 +108,9 @@ sandbox:
     - pypi.org:443                # Python packages
     - files.pythonhosted.org:443
     - dind:8081-8100              # apps on the local cluster (acceptance)
+    - "*.localtest.me:8180"       # apps behind the local ingress (kind-ingress)
+  routes:                         # keep the host name, connect elsewhere (sandbox/egress.py)
+    - "*.localtest.me:8180=dind:8180"
 
 # Readiness checks + order preflight (docs/adr/0015-readiness-and-preflight.md):
 # a failed check refuses new orders/iterations before any model usage.

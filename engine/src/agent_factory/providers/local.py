@@ -31,6 +31,7 @@ def namespace(order: Order) -> str:
 class LocalProvider:
     kind = "local"
     capabilities = frozenset(CAPABILITIES)
+    uses_node_ports = True
 
     def __init__(self, name: str = "local", settings: dict[str, Any] | None = None) -> None:
         self.name = name

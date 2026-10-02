@@ -10,8 +10,20 @@ kubeadmConfigPatches:
     kind: ClusterConfiguration
     apiServer:
       certSANs: ["dind", "localhost", "127.0.0.1"]
+# local registry (make local-ingress): containerd reads per-registry hosts.toml files
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
 nodes:
   - role: control-plane
+    # the kind ingress-nginx controller runs on the node labelled ingress-ready (ADR-0026)
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
     # App NodePorts -> dind host ports -> (compose) your Mac's localhost:8081-8100.
     # kind cannot add mappings to a running cluster: `make reset-cluster` applies changes.
     extraPortMappings:
@@ -35,3 +47,5 @@ nodes:
       - {containerPort: 30097, hostPort: 8098, listenAddress: "0.0.0.0"}
       - {containerPort: 30098, hostPort: 8099, listenAddress: "0.0.0.0"}
       - {containerPort: 30099, hostPort: 8100, listenAddress: "0.0.0.0"}
+      # the local ingress (make local-ingress): http://<app>.localtest.me:8180 on your Mac
+      - {containerPort: 80, hostPort: 8180, listenAddress: "0.0.0.0"}

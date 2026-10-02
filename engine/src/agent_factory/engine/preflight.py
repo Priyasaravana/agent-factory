@@ -196,7 +196,7 @@ class Preflight:
             return _check(f"integration:{name}", title, caps[0], "ready", ["dry-run: delivery is simulated"], name)
         try:
             r: Readiness = await asyncio.wait_for(
-                p.check(CheckContext(self.m.cfg, self.m.settings, self.m.ex)), timeout=60
+                p.check(CheckContext(self.m.cfg, self.m.settings, self.m.ex, self.m.secrets)), timeout=60
             )
         except Exception as exc:  # noqa: BLE001 - a crashing check is a failed check
             r = Readiness("failed", [f"check crashed: {type(exc).__name__}: {exc}"])
@@ -215,6 +215,15 @@ class Preflight:
         return _check(f"integration:{name}", title, caps[0], state, list(r.reasons), name, blocks)
 
     def _ports(self, pl: str) -> CheckView:
+        if not self.m.uses_node_ports(pl):
+            return _check(
+                "ports",
+                "Free app port",
+                "deploy",
+                "ready",
+                ["apps get an ingress host: no port limit"],
+                blocks=["order"],
+            )
         line = self.m.cfg.product_lines[pl]
         free = self.m.free_node_ports(pl)
         usable = [p for p in free if self.mapped_node_ports is None or p in self.mapped_node_ports]

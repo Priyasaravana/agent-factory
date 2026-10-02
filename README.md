@@ -60,6 +60,9 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   quality pillars (Well-Architected + ISO/IEC 25010). Runs, Outcomes and the sealed
   evidence show coverage per pillar, and pillars with no signals say so
   ([ADR-0024](docs/adr/0024-quality-pillars.md)).
+- **Deploys to real clusters.** Any OCI registry and Helm to any cluster, with one
+  ingress host per app and no app limit; try it locally with `make local-ingress`
+  ([ADR-0026](docs/adr/0026-cluster-target.md)).
 - **Measured before it ships.** Every new workflow version runs a fixed set of
   orders against the active version: pass rate, autonomy, Level 3, cost and fix
   loops. With the `block` gate a version only goes live if nothing regressed

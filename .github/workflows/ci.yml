@@ -50,6 +50,15 @@ jobs:
       - run: cd templates/fastapi-service && make verify
       - run: helm lint templates/fastapi-service/deploy/chart
       - run: helm template t templates/fastapi-service/deploy/chart > /dev/null
+      # the cluster target (helm provider, ADR-0026): ClusterIP + an Ingress with TLS and a pull secret
+      - run: |
+          helm template t templates/fastapi-service/deploy/chart --set service.type=ClusterIP \
+            --set ingress.enabled=true --set ingress.host=t.apps.example.com --set ingress.tls=true \
+            --set 'imagePullSecrets[0].name=factory-pull' > /tmp/ingress.yaml
+          grep -q '^kind: Ingress' /tmp/ingress.yaml
+          grep -q 'secretName: t-tls' /tmp/ingress.yaml
+          grep -q 'name: factory-pull' /tmp/ingress.yaml
+          ! grep -q 'nodePort:' /tmp/ingress.yaml
 
   # The next Python, ahead of time: advisory, so we know when an upgrade is safe.
   engine-next-python:
