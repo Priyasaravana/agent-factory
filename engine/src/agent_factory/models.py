@@ -461,7 +461,8 @@ class EvalRun(BaseModel):
     started_by: str
     created_at: datetime
     finished_at: datetime | None = None
-    status: Literal["running", "done", "cancelled"] = "running"
+    status: Literal["running", "done", "cancelled", "not_started"] = "running"
+    error: str | None = None  # why it could not start (not_started)
     candidate: EvalSide
     baseline: EvalSide | None = None  # run alongside, when no earlier result of the same suite exists
     baseline_from: str | None = None  # id of the earlier evaluation whose result is the baseline

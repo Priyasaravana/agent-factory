@@ -83,3 +83,17 @@ set, run on every change, with a gate on regression (best-practices §5).
   - per-case expectations beyond the shared metrics (for example, specific
     requirements that must be verified live);
   - scheduled re-evaluation of the active version (drift in models or skills).
+
+## Amendment (2026-10-02): starting is all or nothing
+The first live gated publish (v4) started two of its six cases, then the third
+found no app port: the local cluster was created before ADR-0015 and maps only 5
+ports, while the start counted the 20 configured ones. The evaluation was never
+saved, and two hidden orders kept running. Now:
+- an evaluation counts only ports the cluster maps, and refuses before creating
+  anything; the message suggests `make reset-cluster` when the cluster maps fewer;
+- if a case still fails to start, the cases already created are cancelled and
+  archived (nothing was built yet);
+- a gated publish whose evaluation can't start records why. The version list
+  shows "evaluation not started: …"; fix the cause and use **Run evaluation**;
+- on startup, evaluation orders whose evaluation is missing or over are cancelled
+  and archived.

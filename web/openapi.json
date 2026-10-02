@@ -4054,10 +4054,22 @@
             "enum": [
               "running",
               "done",
-              "cancelled"
+              "cancelled",
+              "not_started"
             ],
             "title": "Status",
             "default": "running"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
           },
           "candidate": {
             "$ref": "#/components/schemas/EvalSide"

@@ -1096,6 +1096,7 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
         note = f"evaluation {e.id} running against version {before}"
     except (FactoryError, PreflightFailed) as exc:
         note = f"evaluation not started: {exc}"
+        evals.record_not_started(f.manager, workflow_id, info.version, who, str(exc))
     return info.model_copy(update={"evaluation": note})
 
 

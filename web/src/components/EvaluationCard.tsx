@@ -185,6 +185,10 @@ function EvalRow({
           </span>
         ) : e.status === "cancelled" ? (
           <span className="pill muted">cancelled</span>
+        ) : e.status === "not_started" ? (
+          <span className="pill warn" title={e.error ?? ""}>
+            not started
+          </span>
         ) : v?.passed ? (
           <span className="pill ok">no regression</span>
         ) : (
@@ -209,6 +213,12 @@ function EvalRow({
         )}
       </summary>
       <div className="mt-3 grid gap-3 text-sm">
+        {e.status === "not_started" && (
+          <p className="error m-0">
+            Could not start: {e.error}. Fix the cause, then use Run evaluation
+            above.
+          </p>
+        )}
         {v &&
           ((v.regressions ?? []).length > 0 ||
             (v.warnings ?? []).length > 0) && (
