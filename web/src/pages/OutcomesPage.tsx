@@ -363,7 +363,7 @@ function TimeSplit({ o }: { o: Outcomes }) {
               Human touches in this window: {o.touches.answered_questions}{" "}
               answered questions, {o.touches.rescued} rescues,{" "}
               {o.touches.restarts} restarts (unplanned) ·{" "}
-              {o.touches.spec_reviews} spec reviews (planned).
+              {o.touches.spec_reviews} spec reviews, {o.touches.risk_approvals ?? 0} change-risk decisions (planned).
             </p>
           </>
         )}

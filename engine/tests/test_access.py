@@ -31,6 +31,7 @@ MEMBER_ACTIONS = {
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
+    "send_back_risk",
     "archive_order",
     "run_preflight",
     "log_decision",
@@ -43,6 +44,7 @@ STEERING = {
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
+    "send_back_risk",
     "archive_order",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
@@ -55,7 +57,13 @@ def test_every_mutating_action_is_classified():
         f"classify new actions: admin-only paths live under /api/workflows or /api/skills; "
         f"unexpected member actions: {sorted(member - MEMBER_ACTIONS)}; gone: {sorted(MEMBER_ACTIONS - member)}"
     )
-    assert {"publish_draft", "activate_workflow_version", "accept_learning", "install_skill"} <= admin_only
+    assert {
+        "publish_draft",
+        "activate_workflow_version",
+        "accept_learning",
+        "install_skill",
+        "approve_risk",
+    } <= admin_only
 
 
 @pytest.mark.parametrize("spec", [s for s in MUTATING if requires_admin(s.method, s.path)], ids=lambda s: s.name)

@@ -352,6 +352,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/risk/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change risk: an admin other than the requester accepts the risky changes, with a reason (the requester only as break-glass, after the cooling-off delay)
+         * @description Change risk: an admin other than the requester accepts the risky changes, with a reason (the requester only as break-glass, after the cooling-off delay)
+         */
+        post: operations["approve_risk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/risk/send-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change risk: don't accept the risky changes; the run goes back to its repair station with the reason
+         * @description Change risk: don't accept the risky changes; the run goes back to its repair station with the reason
+         */
+        post: operations["send_back_risk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/spec/changes": {
         parameters: {
             query?: never;
@@ -1337,6 +1377,42 @@ export interface components {
             max_learnings_chars: number;
         };
         /**
+         * ChangeRiskView
+         * @description The latest change-risk check of a run (ADR-0027) and who may approve it.
+         */
+        ChangeRiskView: {
+            /** Digest */
+            digest: string;
+            /**
+             * Files Changed
+             * @default 0
+             */
+            files_changed: number;
+            /** Findings */
+            findings?: components["schemas"]["RiskFindingView"][];
+            /**
+             * Holds
+             * @default 0
+             */
+            holds: number;
+            /** Approved By */
+            approved_by?: string | null;
+            /**
+             * Waiting
+             * @default false
+             */
+            waiting: boolean;
+            /** Requested By */
+            requested_by?: string | null;
+            /**
+             * Break Glass
+             * @default true
+             */
+            break_glass: boolean;
+            /** Self Approval At */
+            self_approval_at?: string | null;
+        };
+        /**
          * CheckView
          * @description One readiness check. `failed` blocks what it guards (new orders and/or new
          *     iterations); `degraded` is shown but never blocks.
@@ -1888,6 +1964,11 @@ export interface components {
              * @default 0
              */
             spec_reviews: number;
+            /**
+             * Risk Approvals
+             * @default 0
+             */
+            risk_approvals: number;
         };
         /** InstallSkillInput */
         InstallSkillInput: {
@@ -2261,6 +2342,68 @@ export interface components {
             /** Findings */
             findings?: components["schemas"]["ReviewFinding"][];
         };
+        /** RiskApproval */
+        RiskApproval: {
+            /** Digest */
+            digest: string;
+            /** By */
+            by: string;
+            /** Reason */
+            reason: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Break Glass
+             * @default false
+             */
+            break_glass: boolean;
+        };
+        /** RiskDecisionInput */
+        RiskDecisionInput: {
+            /** Reason */
+            reason: string;
+        };
+        /** RiskFindingView */
+        RiskFindingView: {
+            /** Rule */
+            rule: string;
+            /** Category */
+            category: number;
+            /** Category Title */
+            category_title: string;
+            /** Severity */
+            severity: string;
+            /** Title */
+            title: string;
+            /** File */
+            file: string;
+            /** Line */
+            line?: number | null;
+            /**
+             * Snippet
+             * @default
+             */
+            snippet: string;
+        };
+        /** RiskHold */
+        RiskHold: {
+            /** Digest */
+            digest: string;
+            /** Station */
+            station: string;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Findings */
+            findings: number;
+            /** Requested By */
+            requested_by?: string | null;
+        };
         /** Run */
         Run: {
             /** Id */
@@ -2307,6 +2450,9 @@ export interface components {
             cost_usd: number;
             /** Spec Approved By */
             spec_approved_by?: string | null;
+            risk_hold?: components["schemas"]["RiskHold"] | null;
+            /** Risk Approvals */
+            risk_approvals?: components["schemas"]["RiskApproval"][];
             /** Review Notes */
             review_notes?: string[];
             /**
@@ -2333,12 +2479,13 @@ export interface components {
             order: components["schemas"]["Order"];
             /** Stations */
             stations: components["schemas"]["StationView"][];
+            risk?: components["schemas"]["ChangeRiskView"] | null;
         };
         /**
          * RunStatus
          * @enum {string}
          */
-        RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "cancelled" | "failed";
+        RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "awaiting_risk_approval" | "cancelled" | "failed";
         /** ScenarioView */
         ScenarioView: {
             /** Id */
@@ -3412,6 +3559,76 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_risk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RiskDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Run"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_back_risk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RiskDecisionInput"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

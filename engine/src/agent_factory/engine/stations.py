@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import stack, traceability
+from agent_factory import risk, stack, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import FactoryConfig, ProductLine
 from agent_factory.engine.workspace import Workspace
@@ -41,6 +41,8 @@ class StationResult:
     failure_evidence: str | None = None  # handed to the on_fail station
     questions: list[str] = field(default_factory=list)
     resets_at: int | None = None
+    approval_digest: str | None = None  # needs_approval: what an approval must cover (ADR-0027)
+    approval_findings: int = 0  # needs_approval: how many findings wait
 
 
 def _local_set() -> ProviderSet:
@@ -843,6 +845,63 @@ Each finding names the file and says what to change."""
     )
 
 
+# ------------------------------------------------------------- change risk --
+async def change_risk(ctx: StationContext) -> StationResult:
+    """The diff decides (ADR-0027): rules over this iteration's change against main.
+    Hold findings wait for an admin other than the requester; notes are recorded."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out_file = Path(tmp) / "change.diff"
+        res = await ctx.ws.git(f"diff -U0 --no-color --find-renames --output={out_file} main...HEAD", ctx.worktree)
+        if not res.ok:
+            return StationResult(StationOutcome.held, "could not read the change", res.output[-2000:])
+        text = out_file.read_text(errors="replace") if out_file.is_file() else ""
+    files = risk.parse_diff(text)
+    allowed = list(ctx.cfg.change_risk.allowed_hosts)
+    for integ in ctx.cfg.integrations.values():
+        if domain := integ.settings.get("ingress_domain"):
+            allowed.append(f"*.{domain}")
+    findings = risk.check_diff(files, allowed)
+    hold = risk.holds(findings)
+    digest = risk.digest(findings)
+    approved = next((a for a in ctx.run.risk_approvals if a.digest == digest), None) if hold else None
+    data = {
+        "iteration": ctx.run.iteration,
+        "base": "main",
+        "files_changed": len(files),
+        "digest": digest,
+        "findings": [f.as_data() for f in findings],
+        "holds": len(hold),
+        "approved_by": approved.by if approved else None,
+    }
+    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "change-risk.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023)
+    notes = len(findings) - len(hold)
+    if not hold:
+        headline = f"change risk: no risky changes in {len(files)} file(s)" + (f" ({notes} note(s))" if notes else "")
+        await ctx.emit(EventKind.decision, headline, {"change_risk": data})
+        return StationResult(StationOutcome.passed, headline)
+    if approved:
+        headline = (
+            f"change risk: {len(hold)} risky change(s) approved by {approved.by}"
+            + (" (break-glass)" if approved.break_glass else "")
+            + f": {approved.reason}"
+        )
+        await ctx.emit(EventKind.decision, headline, {"change_risk": data})
+        return StationResult(StationOutcome.passed, headline)
+    cats = sorted({f.category for f in hold})
+    headline = f"change risk: {len(hold)} risky change(s) need a second admin: " + ", ".join(
+        risk.CATEGORIES[c] for c in cats
+    )
+    await ctx.emit(EventKind.decision, headline, {"change_risk": data})
+    evidence = "Risky changes found in this iteration's diff:\n- " + "\n- ".join(f.headline() for f in hold)
+    return StationResult(
+        StationOutcome.needs_approval, headline, evidence, approval_digest=digest, approval_findings=len(hold)
+    )
+
+
 def _previous_review(path: Path) -> str:
     """Blocking items of this run's last review, if it sent the change back. The
     evidence file is read (not run.last_failure, which is cleared once build passes)."""
@@ -913,6 +972,7 @@ STATIONS: dict[str, Station] = {
     "test": run_tests,
     "quality-gate": quality_gate,
     "code-review": code_review,
+    "change-risk": change_risk,
     "build": build_image,
     "deploy": deploy,
     "deploy-repair": deploy_repair,

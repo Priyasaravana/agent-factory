@@ -21,6 +21,7 @@ class RunStatus(StrEnum):
     interrupted = "interrupted"  # process restarted mid-run
     awaiting_feedback = "awaiting_feedback"  # delivered; the feedback gate is open
     awaiting_approval = "awaiting_approval"  # spec review gate: a person approves the spec before build
+    awaiting_risk_approval = "awaiting_risk_approval"  # risky change: a second admin approves (ADR-0027)
     cancelled = "cancelled"
     failed = "failed"  # engine error
 
@@ -35,6 +36,7 @@ class StationOutcome(StrEnum):
     needs_input = "needs_input"
     held = "held"
     paused_limits = "paused_limits"
+    needs_approval = "needs_approval"  # a risky change waits for a person (ADR-0027)
 
 
 class EventKind(StrEnum):
@@ -90,9 +92,28 @@ class Run(BaseModel):
     summary: str | None = None
     cost_usd: float = 0.0
     spec_approved_by: str | None = None  # spec review gate
+    # change risk (ADR-0027): the findings now waiting, and every approval given
+    risk_hold: RiskHold | None = None
+    risk_approvals: list[RiskApproval] = Field(default_factory=list)
     review_notes: list[str] = Field(default_factory=list)  # requested spec changes, fed to intake/design
     created_at: datetime
     updated_at: datetime
+
+
+class RiskHold(BaseModel):
+    digest: str  # identity of the hold findings (risk.digest)
+    station: str
+    since: datetime
+    findings: int
+    requested_by: str | None = None  # who asked for the change (the order's creator)
+
+
+class RiskApproval(BaseModel):
+    digest: str  # an approval covers exactly these findings
+    by: str
+    reason: str
+    at: datetime
+    break_glass: bool = False  # the requester approved their own change on a single-admin install
 
 
 class Event(BaseModel):
@@ -135,6 +156,7 @@ class HumanTouches(BaseModel):
     rescued: int = 0  # unplanned: a held run was resumed
     restarts: int = 0  # unplanned: resumed after the factory restarted
     spec_reviews: int = 0  # planned: the spec review gate (approve or request changes)
+    risk_approvals: int = 0  # planned: a risky change approved or sent back (ADR-0027)
 
 
 class WaitingItem(BaseModel):
@@ -511,6 +533,10 @@ class FeedbackInput(BaseModel):
     text: str = Field(min_length=3, max_length=20_000)
 
 
+class RiskDecisionInput(BaseModel):
+    reason: str = Field(min_length=10, max_length=2000)
+
+
 class DecisionInput(BaseModel):
     run_id: str
     station: str
@@ -533,10 +559,36 @@ class StationView(BaseModel):
     attempts: int
 
 
+class RiskFindingView(BaseModel):
+    rule: str
+    category: int
+    category_title: str
+    severity: str  # hold | note
+    title: str
+    file: str
+    line: int | None = None
+    snippet: str = ""
+
+
+class ChangeRiskView(BaseModel):
+    """The latest change-risk check of a run (ADR-0027) and who may approve it."""
+
+    digest: str
+    files_changed: int = 0
+    findings: list[RiskFindingView] = Field(default_factory=list)
+    holds: int = 0
+    approved_by: str | None = None
+    waiting: bool = False  # the run is waiting for an approval of these findings
+    requested_by: str | None = None
+    break_glass: bool = True  # the requester may approve their own after the cooling-off delay
+    self_approval_at: datetime | None = None  # when the requester's break-glass approval opens
+
+
 class RunDetail(BaseModel):
     run: Run
     order: Order
     stations: list[StationView]
+    risk: ChangeRiskView | None = None
 
 
 class OrderDetail(BaseModel):

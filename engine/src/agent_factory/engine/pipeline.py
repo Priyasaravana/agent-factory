@@ -23,6 +23,8 @@ from agent_factory.models import (
     CreateOrderInput,
     EventKind,
     Order,
+    RiskApproval,
+    RiskHold,
     Run,
     RunStatus,
     StationOutcome,
@@ -38,6 +40,10 @@ if TYPE_CHECKING:
 
 class FactoryError(Exception):
     """A request the factory refuses (surfaced as HTTP 409/404)."""
+
+
+class RefusedError(FactoryError):
+    """Work the factory never builds: an acceptable-use rule matched (ADR-0027, HTTP 422)."""
 
 
 # a run in one of these states has stopped: feedback may start the next iteration
@@ -115,10 +121,37 @@ class RunManager:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------ orders ---
+    def screen(self, text: str, what: str) -> None:
+        """Refuse abuse apps before anything is built (ADR-0027). Every refusal is
+        appended to `audit/refusals.jsonl` with the matched rule; nothing else is stored."""
+        import json
+
+        from agent_factory import risk
+        from agent_factory.identity import current_identity
+
+        extra = [risk.AupRule(r.id, r.title, r.pattern, r.unless) for r in self.cfg.change_risk.acceptable_use]
+        refusal = risk.screen_request(text, extra)
+        if refusal is None:
+            return
+        audit = self.ws.data_dir / "audit"
+        audit.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "at": _now().isoformat(),
+            "by": current_identity().user,
+            "what": what,
+            "rule": refusal.rule,
+            "title": refusal.title,
+            "matched": refusal.matched,
+        }
+        with (audit / "refusals.jsonl").open("a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+        raise RefusedError(refusal.message())
+
     def create_order(self, data: CreateOrderInput) -> Order:
         line = self.cfg.product_lines.get(data.product_line)
         if not line:
             raise FactoryError(f"unknown product line '{data.product_line}'")
+        self.screen(f"{data.title}\n{data.requirements}", "order")
         orders = self.store.list_orders()
         taken_slugs = {o.product_slug for o in orders}
         slug, n = slugify(data.title), 2
@@ -324,6 +357,79 @@ class RunManager:
             )
         return run
 
+    # ------------------------------------------------------- change risk ---
+    def _awaiting_risk(self, run_id: str) -> tuple[Run, RiskHold]:
+        run = self._get(run_id)
+        if run.status != RunStatus.awaiting_risk_approval or run.risk_hold is None:
+            raise FactoryError(f"run is '{run.status}', not waiting for a change-risk approval")
+        return run, run.risk_hold
+
+    def approve_risk(self, run_id: str, by: str, reason: str, now: datetime | None = None) -> Run:
+        """A second admin accepts the risky changes with a reason (ADR-0027). The
+        requester may approve their own only as break-glass: allowed by config, after
+        the cooling-off delay, and flagged in the evidence."""
+        run, hold = self._awaiting_risk(run_id)
+        policy = self.cfg.change_risk
+        now = now or _now()
+        own = bool(hold.requested_by) and by == hold.requested_by
+        if own:
+            if not policy.break_glass:
+                raise FactoryError("you asked for this change, so another admin must approve it (break-glass is off)")
+            ready = hold.since + timedelta(minutes=policy.cooling_off_minutes)
+            if now < ready:
+                wait = int((ready - now).total_seconds() // 60) + 1
+                raise FactoryError(
+                    f"you asked for this change: another admin can approve it now, or you can approve it "
+                    f"yourself as break-glass in {wait} minute(s) (cooling-off {policy.cooling_off_minutes} min)"
+                )
+        approval = RiskApproval(digest=hold.digest, by=by, reason=reason.strip(), at=now, break_glass=own)
+        run.risk_approvals.append(approval)
+        run.risk_hold = None
+        run.last_failure = None  # the findings were accepted, not handed to a repair station
+        run.status = RunStatus.queued
+        run.summary = None
+        self.store.save_run(run)
+        self._sync_order(run)
+        self.store.add_event(
+            run.id,
+            EventKind.decision,
+            f"risky changes approved by {by}" + (" (break-glass)" if own else "") + f": {approval.reason}",
+            station=hold.station,
+            data={"risk_approval": approval.model_dump(mode="json")},
+        )
+        self._schedule(run.id)
+        return run
+
+    def send_back_risk(self, run_id: str, by: str, reason: str) -> Run:
+        """The risky changes are not accepted: back to the station's repair route with
+        the findings and the reason, or cancelled when there is none."""
+        run, hold = self._awaiting_risk(run_id)
+        order = self.store.get_order(run.order_id)
+        flow = self.workflows[run.workflow_id or (order.product_line if order else "")].get(run.workflow_version)
+        target = flow.station(hold.station).on_fail
+        self.store.add_event(
+            run.id,
+            EventKind.decision,
+            f"risky changes sent back by {by}: {reason.strip()}",
+            station=hold.station,
+            data={"risk_sent_back": {"by": by, "reason": reason.strip(), "digest": hold.digest}},
+        )
+        run.risk_hold = None
+        if not target:
+            self.store.save_run(run)
+            return self.cancel(run.id)
+        run.last_failure = (
+            f"An admin did not accept these risky changes: {reason.strip()}\n"
+            f"Remove them, or make the change without them.\n\n{run.last_failure or ''}"
+        ).strip()
+        run.current_station = target
+        run.status = RunStatus.queued
+        run.summary = None
+        self.store.save_run(run)
+        self._sync_order(run)
+        self._schedule(run.id)
+        return run
+
     def cancel(self, run_id: str) -> Run:
         run = self._get(run_id)
         task = self._tasks.get(run_id)
@@ -347,6 +453,7 @@ class RunManager:
         latest = self.store.get_run(order.latest_run_id) if order.latest_run_id else None
         if latest and latest.status not in FEEDBACK_OPEN:
             raise FactoryError(f"latest run is '{latest.status}'; feedback opens after delivery")
+        self.screen(text, f"feedback on {order_id}")
         self.store.add_feedback(order_id, latest.id if latest else None, text)
         run = self.start_run(order, change_request=text)
         self.store.add_event(run.id, EventKind.feedback, text)
@@ -569,6 +676,25 @@ class RunManager:
                 run.answers = []
                 run.attempts[sid] -= 1
                 run.summary = "waiting for your answers"
+                return None
+
+            if result.outcome == StationOutcome.needs_approval:
+                run.attempts[sid] -= 1  # waiting for a person is not an attempt
+                run.status = RunStatus.awaiting_risk_approval
+                order_now = self.store.get_order(run.order_id) or order
+                run.risk_hold = RiskHold(
+                    digest=result.approval_digest or "",
+                    station=sid,
+                    since=_now(),
+                    findings=result.approval_findings,
+                    requested_by=order_now.created_by,
+                )
+                run.last_failure = result.failure_evidence
+                run.summary = result.summary
+                self.store.save_run(run)
+                self.store.add_event(
+                    run.id, EventKind.status, "change risk: waiting for an admin to approve", station=sid
+                )
                 return None
 
             if result.outcome == StationOutcome.paused_limits:

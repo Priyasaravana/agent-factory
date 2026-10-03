@@ -13,6 +13,7 @@ import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
+import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
 import SpecPanel from "./SpecPanel";
@@ -72,7 +73,7 @@ export default function RunPanel({
 
   if (!run.data)
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
-  const { run: r, stations } = run.data;
+  const { run: r, stations, risk } = run.data;
 
   return (
     <Card>
@@ -127,6 +128,7 @@ export default function RunPanel({
         <Problems error={resume.error} />
         <StationStrip stations={stations} />
         <SpecPanel runId={runId} runStatus={r.status} />
+        {risk && <ChangeRiskPanel runId={runId} orderId={orderId} risk={risk} />}
         {r.summary && (
           <p
             className={cn(

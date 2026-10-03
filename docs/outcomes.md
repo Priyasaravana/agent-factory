@@ -31,7 +31,7 @@ feedback. **Delivered** means the run reached *delivered, awaiting feedback*:
 |---|---|
 | **Autonomy** | Share of deliveries that needed **no unplanned human touch** in their whole life. |
 | **Unplanned touches** | A person answered blocking intake questions, **rescued** a held run, or **resumed** a run after the factory restarted. |
-| **Planned touches** | Spec reviews at the spec review gate, and feedback. These are the human checkpoints the workflow asks for, so they never count against autonomy. |
+| **Planned touches** | Spec reviews at the spec review gate, change-risk decisions (a risky change approved or sent back, [ADR-0027](adr/0027-change-risk-policy.md)), and feedback. These are the human checkpoints the workflow asks for, so they never count against autonomy. |
 
 **Fix loops don't count against autonomy.** A fix loop is agents repairing their
 own work with evidence, which *is* autonomy working. It shows up as effort

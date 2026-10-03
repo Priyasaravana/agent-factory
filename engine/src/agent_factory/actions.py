@@ -17,7 +17,7 @@ import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -38,6 +38,7 @@ from agent_factory.models import (
     AgentView,
     AnswersInput,
     CatalogView,
+    ChangeRiskView,
     ConfigView,
     CreateOrderInput,
     DecisionInput,
@@ -72,9 +73,12 @@ from agent_factory.models import (
     ReviewFinding,
     ReviewRequirement,
     ReviewView,
+    RiskDecisionInput,
+    RiskFindingView,
     Run,
     RunCallsView,
     RunDetail,
+    RunStatus,
     ScenarioView,
     SkillDetail,
     SkillInfo,
@@ -156,6 +160,7 @@ def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
                     "running": "running",
                     "held": "held",
                     "needs_input": "waiting",
+                    "awaiting_risk_approval": "waiting",
                     "paused_limits": "waiting",
                     "interrupted": "held",
                 }.get(run.status, "pending")
@@ -284,7 +289,27 @@ def get_run(f: Factory, run_id: str) -> RunDetail:
         raise FactoryError("run not found")
     order = f.store.get_order(run.order_id)
     assert order is not None
-    return RunDetail(run=run, order=order, stations=_station_views(f, run, order.product_line))
+    return RunDetail(run=run, order=order, stations=_station_views(f, run, order.product_line), risk=_risk_view(f, run))
+
+
+def _risk_view(f: Factory, run: Run) -> ChangeRiskView | None:
+    got = f.store.last_event_data(run.id, "change_risk")
+    data = got[1] if got else None
+    if not isinstance(data, dict):
+        return None
+    hold = run.risk_hold if run.status == RunStatus.awaiting_risk_approval else None
+    policy = f.cfg.change_risk
+    return ChangeRiskView(
+        digest=str(data.get("digest", "")),
+        files_changed=int(data.get("files_changed", 0)),
+        findings=[RiskFindingView.model_validate(x) for x in data.get("findings", [])],
+        holds=int(data.get("holds", 0)),
+        approved_by=data.get("approved_by"),
+        waiting=hold is not None,
+        requested_by=hold.requested_by if hold else None,
+        break_glass=policy.break_glass,
+        self_approval_at=hold.since + timedelta(minutes=policy.cooling_off_minutes) if hold else None,
+    )
 
 
 @action("list_events", "Append-only event/decision log for a run", "GET", "/api/runs/{run_id}/events")
@@ -517,6 +542,37 @@ async def approve_spec(f: Factory, run_id: str) -> Run:
     if order:
         await _gate(f, order.product_line, "iteration")
     return f.manager.approve_spec(run_id, current_identity().user)
+
+
+@action(
+    "approve_risk",
+    "Change risk: an admin other than the requester accepts the risky changes, with a reason "
+    "(the requester only as break-glass, after the cooling-off delay)",
+    "POST",
+    "/api/runs/{run_id}/risk/approve",
+)
+async def approve_risk(f: Factory, run_id: str, body: RiskDecisionInput) -> Run:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    order = f.store.get_order(run.order_id)
+    if order:
+        await _gate(f, order.product_line, "iteration")
+    return f.manager.approve_risk(run_id, current_identity().user, body.reason)
+
+
+@action(
+    "send_back_risk",
+    "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
+    "POST",
+    "/api/runs/{run_id}/risk/send-back",
+)
+async def send_back_risk(f: Factory, run_id: str, body: RiskDecisionInput) -> Run:
+    run = f.store.get_run(run_id)
+    if not run:
+        raise FactoryError("run not found")
+    _may_steer(f, run.order_id)
+    return f.manager.send_back_risk(run_id, current_identity().user, body.reason)
 
 
 @action(

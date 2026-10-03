@@ -6,6 +6,7 @@ YAML, templates, prompts and skills — never engine code.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -172,6 +173,35 @@ class SandboxConfig(BaseModel):
     routes: list[str] = Field(default_factory=list)
 
 
+class AcceptableUseRule(BaseModel):
+    """An operator's own acceptable-use rule (ADR-0027). Adds to the shipped ones;
+    those can't be removed or turned off."""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,40}$")
+    title: str
+    pattern: str  # regular expression, case-insensitive
+    unless: str | None = None  # defensive work that matches `pattern` but is fine
+
+    @field_validator("pattern", "unless")
+    @classmethod
+    def _compiles(cls, v: str | None) -> str | None:
+        if v is not None:
+            re.compile(v)
+        return v
+
+
+class ChangeRiskConfig(BaseModel):
+    """Trust and change-risk policy (ADR-0027)."""
+
+    acceptable_use: list[AcceptableUseRule] = Field(default_factory=list)
+    # a risky change needs an admin other than the requester; on a single-admin install
+    # the requester may approve their own after a cooling-off delay (flagged as break-glass)
+    break_glass: bool = True
+    cooling_off_minutes: int = Field(default=60, ge=0, le=7 * 24 * 60)
+    # outside hosts generated apps may call without a hold (fnmatch patterns)
+    allowed_hosts: list[str] = Field(default_factory=list)
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -190,6 +220,7 @@ class FactoryConfig(BaseModel):
     environments: dict[str, Environment] = Field(default_factory=dict)
     sandbox: SandboxConfig = SandboxConfig()
     preflight: PreflightConfig = PreflightConfig()
+    change_risk: ChangeRiskConfig = ChangeRiskConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

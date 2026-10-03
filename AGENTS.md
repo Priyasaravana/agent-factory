@@ -84,4 +84,11 @@
   entry there; old names stay readable through `LEGACY_HANDLERS`, because stored
   versions, runs and evidence keep their station ids. Never rename event data
   keys (`readiness`, `review`) or evidence files to match.
+- Change risk (ADR-0027): orders and feedback go through `RunManager.screen`
+  (acceptable-use rules, refusals audited, never stored as orders); diffs through
+  the pure `risk.check_diff`. A new rule gets a test in `tests/test_change_risk.py`
+  that also shows an ordinary change doesn't trip it. Approving a risky change is
+  admin work and never by the requester except break-glass; nothing approves
+  automatically (evaluations included). Test fixtures for refusals use operator
+  rules with neutral wording, never real harmful requests.
 - Record significant decisions as ADRs in `docs/adr/`.

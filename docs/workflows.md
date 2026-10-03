@@ -105,7 +105,7 @@ The lane and every run's timeline group them by phase:
 |---|---|---|
 | Plan | `requirements` (agent), `design` (agent) | the request becomes a spec, numbered requirements, scenarios and a design |
 | Code | `implement` (agent) | writes the code and its tests |
-| Test | `test`, `quality-gate` (checks), `code-review` (agent) | tests, lint and coverage; agent-readiness Level 3 and a secret scan; review of the change against the spec |
+| Test | `test`, `quality-gate` (checks), `code-review` (agent), `change-risk` (check) | tests, lint and coverage; agent-readiness Level 3 and a secret scan; review of the change against the spec; rules over the diff ([change risk](#change-risk)) |
 | Release | `build` (check) | builds, scans and pushes the image, with SBOM and provenance |
 | Deploy | `deploy` (check), `deploy-repair` (agent, repair only) | deploys to the product line's environment; repairs a failed deploy |
 | Validate | `acceptance` (agent) | runs the hidden scenarios against the live app |
@@ -248,6 +248,46 @@ and route `on_fail` to `implement`.
 To adopt the review, open **Edit workflow** and either start again from the
 `default` template, or add a `code-review` station after `quality-gate` using a
 `reviewer` agent with `tools: reviewer`.
+
+## Change risk
+
+Details and rationale: [ADR-0027](adr/0027-change-risk-policy.md).
+
+**At the door.** Every order and every piece of feedback is checked against the
+acceptable-use rules before anything is built. A match is refused with the rule
+that matched (HTTP 422); nothing is created, and the refusal is appended to
+`audit/refusals.jsonl` in the data folder. The shipped rules can't be removed;
+`change_risk.acceptable_use` in the config adds your own.
+
+**On the diff.** The `change-risk` check reads this iteration's diff against
+`main` and looks for:
+
+| Category | Examples of what it finds |
+|---|---|
+| 1 · weakens security | an auth dependency removed, CORS opened to `*`, TLS verification off, root or privileged containers, debug on, rate limiting removed |
+| 2 · removes a safety net | a test file deleted, fewer tests than before, tests skipped, the coverage gate lowered, CI no longer running `make verify` |
+| 3 · destroys data | `DROP TABLE` / `DROP COLUMN` / `TRUNCATE`, `DELETE FROM` without `WHERE`, `drop_all` |
+| 4 · exfiltration or backdoor | a call to an outside host not in `change_risk.allowed_hosts`, `eval`/`exec`/`shell=True`, debug or shell routes, a credential in the code |
+
+Tests and docs don't count for categories 1 and 4. Some patterns (`# noqa`,
+removed log calls) are **notes**: recorded, never held.
+
+**When something is found** the run waits (`awaiting_risk_approval`) and the run
+page shows each finding with its file and line:
+- **Approve:** an admin *other than the requester* gives a reason, and the run
+  continues. On a single-admin install the requester may approve their own as
+  **break-glass** after `cooling_off_minutes`; it is flagged in the evidence.
+  An approval covers exactly those findings: if the change moves on and finds
+  something new, it waits again.
+- **Send back:** anyone who can steer the order gives a reason; the run goes back
+  to the station's `on_fail` (`implement`) with the findings and the reason.
+
+Evidence: `artifacts/<run>/change-risk.json`, plus a decision event for every
+check, approval and send-back. Evaluation cases are never approved automatically:
+a case that trips the rules counts as held.
+
+Not yet: confirmed removal lists for large removals (category 6), the same check
+as a required PR status check and at promotion to prod (master plan phases 3 and 7).
 
 ## Evaluation gate
 

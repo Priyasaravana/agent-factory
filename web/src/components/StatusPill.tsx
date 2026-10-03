@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, CheckCircle2, FileCheck, CircleDashed, Loader2, MessageCircleQuestion, PauseCircle, XCircle } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, FileCheck, ShieldAlert, CircleDashed, Loader2, MessageCircleQuestion, PauseCircle, XCircle } from "lucide-react";
 import type { ReactNode } from "react";
 
 const TONE: Record<string, string> = {
@@ -10,6 +10,7 @@ const TONE: Record<string, string> = {
   interrupted: "warn",
   awaiting_feedback: "ok",
   awaiting_approval: "warn",
+  awaiting_risk_approval: "warn",
   cancelled: "muted",
   failed: "bad",
 };
@@ -19,6 +20,7 @@ export const LABEL: Record<string, string> = {
   paused_limits: "paused (usage limit)",
   awaiting_feedback: "delivered · awaiting feedback",
   awaiting_approval: "spec ready for review",
+  awaiting_risk_approval: "risky changes need approval",
 };
 
 const ICON: Record<string, ReactNode> = {
@@ -30,6 +32,7 @@ const ICON: Record<string, ReactNode> = {
   interrupted: <PauseCircle />,
   awaiting_feedback: <CheckCircle2 />,
   awaiting_approval: <FileCheck />,
+  awaiting_risk_approval: <ShieldAlert />,
   cancelled: <Ban />,
   failed: <XCircle />,
 };

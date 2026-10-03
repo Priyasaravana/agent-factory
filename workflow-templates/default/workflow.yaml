@@ -1,6 +1,6 @@
 # Default workflow for a FastAPI service product line.
 # Stations run top to bottom, grouped by DevOps phase (ADR-0028):
-#   plan: requirements, design · code: implement · test: test, quality-gate, code-review
+#   plan: requirements, design · code: implement · test: test, quality-gate, code-review, change-risk
 #   release: build · deploy: deploy (+ deploy-repair) · validate: acceptance · handover
 # kind: agent (judgment work by an agent spec) or check (deterministic, engine-implemented).
 # on_fail routes failure evidence; repair stations (only_on_fail) are reached only
@@ -22,6 +22,7 @@ stations:
   - {id: test,          kind: check, on_fail: implement}
   - {id: quality-gate,  kind: check, on_fail: implement}   # agent-readiness Level 3 + secret scan
   - {id: code-review,   kind: agent, agent: reviewer, on_fail: implement}  # spec review of the change (ADR-0020)
+  - {id: change-risk,   kind: check, on_fail: implement}  # rules over the diff; risky changes wait for a second admin (ADR-0027)
   - {id: build,         kind: check, on_fail: implement}
   - {id: deploy,        kind: check, on_fail: deploy-repair}
   - {id: deploy-repair, kind: agent, agent: devops, next: deploy, only_on_fail: true}

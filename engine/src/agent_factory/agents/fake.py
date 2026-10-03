@@ -25,7 +25,11 @@ class FakeAgentRunner:
     deny_once: list[str] = field(default_factory=list)
     # implementation technologies intake reports the order requires (simulates a stack conflict)
     stack_required: list[dict[str, str]] = field(default_factory=list)
+    # files the developer writes on its first call and removes on its next one
+    # (simulates a risky change, then fixing it after it was sent back; ADR-0027)
+    risky_once: dict[str, str] = field(default_factory=dict)
     calls: list[AgentRequest] = field(default_factory=list)
+    _risky_state: str = "pending"  # pending -> written -> removed
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
         self.calls.append(req)
@@ -100,6 +104,15 @@ class FakeAgentRunner:
             tags = ", ".join(f'"{i}"' for i in ids)
             body = f"@pytest.mark.req({tags})\ndef test_acceptance_dry_run() -> None:\n    assert True\n"
             (tests / "test_acceptance.py").write_text("import pytest\n\n\n" + body)
+        if req.role == "developer" and self.risky_once and self._risky_state != "removed":
+            for rel, text in self.risky_once.items():
+                path = req.cwd / rel
+                if self._risky_state == "pending":
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(text)
+                elif path.exists():
+                    path.unlink()
+            self._risky_state = "written" if self._risky_state == "pending" else "removed"
         if req.role in ("developer", "devops"):
             with (docs / "build-log.md").open("a") as fh:
                 fh.write(f"- {req.role} pass for {req.station}\n")

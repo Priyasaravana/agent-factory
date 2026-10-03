@@ -266,7 +266,8 @@ class Preflight:
 
         wf = self.m.workflows[pl]
         doc = wf.get(wf.active_version())
-        notes = [w for w in workflow_warnings(doc) if w.startswith("no quality-gate station")]
+        missing = ("no quality-gate station", "no change-risk station")
+        notes = [w for w in workflow_warnings(doc) if w.startswith(missing)]
         if notes:
             return _check("workflow", "Workflow", "workflow", "degraded", notes, blocks=[])
         return _check(

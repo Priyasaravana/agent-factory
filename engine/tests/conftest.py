@@ -19,6 +19,7 @@ WAIT_STATES = TERMINAL | {
     RunStatus.needs_input,
     RunStatus.paused_limits,
     RunStatus.awaiting_approval,
+    RunStatus.awaiting_risk_approval,
 }
 
 
