@@ -26,7 +26,7 @@ function byPhase(stations: StationView[]): { phase: string; stations: StationVie
   return groups;
 }
 
-/** The run's stations as a horizontal timeline grouped by DevOps phase (wraps on narrow screens). */
+/** The change's stations as a horizontal timeline grouped by DevOps phase (wraps on narrow screens). */
 export default function StationStrip({ stations }: { stations: StationView[] }) {
   const groups = byPhase(stations);
   return (

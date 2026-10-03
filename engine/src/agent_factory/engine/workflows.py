@@ -1,4 +1,4 @@
-"""Workflow services: one versioned workflow per product line, seeded from a
+"""Workflow services: one versioned workflow per blueprint, seeded from a
 template, edited through a draft, published as immutable versions."""
 
 from __future__ import annotations
@@ -113,12 +113,12 @@ class WorkflowService:
 
 
 class WorkflowRegistry:
-    """One WorkflowService per product line. The workflow id is the product line id."""
+    """One WorkflowService per blueprint. The workflow id is the blueprint id."""
 
     def __init__(
         self,
         store: StateStore,
-        product_lines: dict[str, Path],
+        blueprints: dict[str, Path],
         templates_dir: Path,
         skills_dir: Path,
         library: SkillLibrary | None = None,
@@ -128,7 +128,7 @@ class WorkflowRegistry:
         self.skills_dir = skills_dir
         self.library = library
         self._services = {
-            pl: WorkflowService(store, pl, template, skills_dir, library) for pl, template in product_lines.items()
+            pl: WorkflowService(store, pl, template, skills_dir, library) for pl, template in blueprints.items()
         }
 
     def skill_users(self, name: str) -> list[str]:
@@ -154,7 +154,7 @@ class WorkflowRegistry:
 
     def ensure_seeded(self) -> None:
         # Before workflows existed there was one line called "default": it becomes the
-        # workflow of the first product line, so existing history is kept.
+        # workflow of the first blueprint, so existing history is kept.
         first = next(iter(self._services), None)
         if (
             first

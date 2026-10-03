@@ -12,7 +12,7 @@ from pydantic import AliasChoices, BaseModel, Field
 from agent_factory.workflow import AgentSpec, EvalCase, HandlerInfo, Phase, RefDoc
 
 
-class RunStatus(StrEnum):
+class ChangeStatus(StrEnum):
     queued = "queued"
     running = "running"
     needs_input = "needs_input"  # intake has blocking questions
@@ -26,8 +26,8 @@ class RunStatus(StrEnum):
     failed = "failed"  # engine error
 
 
-TERMINAL = {RunStatus.awaiting_feedback, RunStatus.cancelled, RunStatus.failed}
-RESUMABLE = {RunStatus.held, RunStatus.interrupted, RunStatus.paused_limits}
+TERMINAL = {ChangeStatus.awaiting_feedback, ChangeStatus.cancelled, ChangeStatus.failed}
+RESUMABLE = {ChangeStatus.held, ChangeStatus.interrupted, ChangeStatus.paused_limits}
 
 
 class StationOutcome(StrEnum):
@@ -51,17 +51,19 @@ class EventKind(StrEnum):
 
 
 # ---------------------------------------------------------------- records --
-class Order(BaseModel):
+class Product(BaseModel):
     id: str
     title: str
     requirements: str
     # "spec": the requirements are an existing specification (keep its wording/numbering)
     requirements_format: Literal["prose", "spec"] = "prose"
-    product_line: str
-    product_slug: str
+    blueprint: str = Field(validation_alias=AliasChoices("blueprint", "product_line"))
+    slug: str = Field(validation_alias=AliasChoices("slug", "product_slug"))
     created_at: datetime
-    latest_run_id: str | None = None
-    latest_status: RunStatus | None = None
+    latest_change_id: str | None = Field(
+        default=None, validation_alias=AliasChoices("latest_change_id", "latest_run_id")
+    )
+    latest_status: ChangeStatus | None = None
     node_port: int | None = None
     host_port: int | None = None
     app_url: str | None = None
@@ -69,17 +71,17 @@ class Order(BaseModel):
     created_by: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
-    eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from orders and Outcomes
+    eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from products and Outcomes
 
 
-class Run(BaseModel):
+class Change(BaseModel):
     id: str
-    order_id: str
+    product_id: str = Field(validation_alias=AliasChoices("product_id", "order_id"))
     iteration: int
-    status: RunStatus
+    status: ChangeStatus
     current_station: str | None = None
-    workflow_id: str | None = None  # the product line's workflow (None on runs from before workflows)
-    workflow_version: int = Field(  # the workflow version this run is pinned to
+    workflow_id: str | None = None  # the blueprint's workflow (None on runs from before workflows)
+    workflow_version: int = Field(  # the workflow version this change is pinned to
         default=1, validation_alias=AliasChoices("workflow_version", "line_version")
     )
     attempts: dict[str, int] = Field(default_factory=dict)
@@ -105,7 +107,7 @@ class RiskHold(BaseModel):
     station: str
     since: datetime
     findings: int
-    requested_by: str | None = None  # who asked for the change (the order's creator)
+    requested_by: str | None = None  # who asked for the change (the product's creator)
 
 
 class RiskApproval(BaseModel):
@@ -118,7 +120,7 @@ class RiskApproval(BaseModel):
 
 class Event(BaseModel):
     id: int
-    run_id: str
+    change_id: str
     ts: datetime
     station: str | None = None
     kind: EventKind
@@ -127,12 +129,12 @@ class Event(BaseModel):
 
 
 class Transition(BaseModel):
-    """One run status change (ADR-0019)."""
+    """One change status change (ADR-0019)."""
 
-    run_id: str
+    change_id: str
     ts: datetime
-    from_status: RunStatus | None = None
-    to_status: RunStatus
+    from_status: ChangeStatus | None = None
+    to_status: ChangeStatus
 
 
 # ----------------------------------------------------------- outcomes (ADR-0019) --
@@ -143,7 +145,7 @@ class DurationStat(BaseModel):
 
 
 class TimeSplit(BaseModel):
-    """Seconds of run time in the window, by who the run was waiting on."""
+    """Seconds of run time in the window, by who the change was waiting on."""
 
     agents_s: float = 0.0  # queued or running: the factory is working
     person_s: float = 0.0  # questions, held, spec review, interrupted: a person must act
@@ -160,14 +162,14 @@ class HumanTouches(BaseModel):
 
 
 class WaitingItem(BaseModel):
-    order_id: str
-    order_title: str
-    run_id: str
+    product_id: str
+    product_title: str
+    change_id: str
     iteration: int
-    status: RunStatus
+    status: ChangeStatus
     since: datetime
     waiting_s: float
-    owner: str  # who should act: the order's creator, "an admin", or "system"
+    owner: str  # who should act: the product's creator, "an admin", or "system"
     action: str
 
 
@@ -214,9 +216,9 @@ class PillarScore(BaseModel):
 class AppQuality(BaseModel):
     """A live app's pillar scores, from its latest delivered iteration."""
 
-    order_id: str
-    order_title: str
-    run_id: str
+    product_id: str
+    product_title: str
+    change_id: str
     pillars: list[PillarScore] = Field(default_factory=list)
 
 
@@ -242,8 +244,8 @@ class OutcomesView(BaseModel):
     fix_loops_per_delivery: float | None = None
     # where the time goes
     time_split: TimeSplit
-    runs_with_timeline: int = 0
-    runs_in_window: int = 0
+    changes_with_timeline: int = 0
+    changes_in_window: int = 0
     # quality of what is live
     products: int = 0
     products_level3: int = 0
@@ -263,17 +265,17 @@ class OutcomesView(BaseModel):
 
 class Feedback(BaseModel):
     id: int
-    order_id: str
-    run_id: str | None
+    product_id: str
+    change_id: str | None
     text: str
     created_at: datetime
 
 
 # ------------------------------------------------------------- API inputs --
-class CreateOrderInput(BaseModel):
+class CreateProductInput(BaseModel):
     title: str = Field(min_length=3, max_length=120)
     requirements: str = Field(min_length=10, max_length=60_000)
-    product_line: str = "fastapi-service"
+    blueprint: str = Field(default="fastapi-service", validation_alias=AliasChoices("blueprint", "product_line"))
     requirements_format: Literal["prose", "spec"] = "prose"
 
 
@@ -328,7 +330,7 @@ class ReviewFinding(BaseModel):
 
 
 class ReviewView(BaseModel):
-    """The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's."""
+    """The latest spec review of the change (ADR-0020); the engine's judgement, not the agent's."""
 
     passed: bool
     implemented: int
@@ -339,9 +341,9 @@ class ReviewView(BaseModel):
 
 
 class SpecView(BaseModel):
-    run_id: str
+    change_id: str
     status: str
-    gate: str  # off | first | always (the run's workflow version)
+    gate: str  # off | first | always (the change's workflow version)
     approved_by: str | None = None
     product: str = ""  # docs/spec.md
     technical: str = ""  # docs/design.md
@@ -364,7 +366,7 @@ class WorkflowSettingsInput(BaseModel):
 
 
 class AgentCallView(BaseModel):
-    """One agent call in a run (ADR-0022)."""
+    """One agent call in a change (ADR-0022)."""
 
     station: str
     role: str
@@ -391,7 +393,7 @@ class DenialView(BaseModel):
     at: datetime
 
 
-class RunCallsView(BaseModel):
+class ChangeCallsView(BaseModel):
     calls: list[AgentCallView] = Field(default_factory=list)
     denials: list[DenialView] = Field(default_factory=list)
 
@@ -403,7 +405,7 @@ class EvidenceFile(BaseModel):
 
 
 class EvidenceView(BaseModel):
-    """A run's sealed evidence (ADR-0023) and whether it still matches its seal."""
+    """A change's sealed evidence (ADR-0023) and whether it still matches its seal."""
 
     sealed: bool
     sealed_at: datetime | None = None
@@ -424,9 +426,9 @@ class EvalCaseResult(BaseModel):
 
     case_id: str
     title: str
-    order_id: str | None = None
-    run_id: str | None = None
-    # queued/running until the run stops; then delivered | failed | held | needed_input | cancelled
+    product_id: str | None = Field(default=None, validation_alias=AliasChoices("product_id", "order_id"))
+    change_id: str | None = Field(default=None, validation_alias=AliasChoices("change_id", "run_id"))
+    # queued/running until the change stops; then delivered | failed | held | needed_input | cancelled
     status: str = "queued"
     final: bool = False
     cost_usd: float = 0.0
@@ -507,7 +509,7 @@ class ActivateInput(BaseModel):
 
 
 class LearningProposal(BaseModel):
-    """A lesson the retro suggests for one agent after a run that needed help (ADR-0021).
+    """A lesson the retro suggests for one agent after a change that needed help (ADR-0021).
     Nothing changes until an admin accepts it into the workflow draft and publishes."""
 
     id: str
@@ -517,8 +519,8 @@ class LearningProposal(BaseModel):
     lesson: str
     why: str
     evidence: str
-    run_id: str
-    order_id: str
+    change_id: str = Field(validation_alias=AliasChoices("change_id", "run_id"))
+    product_id: str = Field(validation_alias=AliasChoices("product_id", "order_id"))
     status: Literal["pending", "accepted", "rejected"] = "pending"
     created_at: datetime
     decided_by: str | None = None
@@ -538,7 +540,7 @@ class RiskDecisionInput(BaseModel):
 
 
 class DecisionInput(BaseModel):
-    run_id: str
+    change_id: str = Field(validation_alias=AliasChoices("change_id", "run_id"))
     station: str
     decision: str = Field(min_length=3)
     rationale: str = ""
@@ -571,29 +573,29 @@ class RiskFindingView(BaseModel):
 
 
 class ChangeRiskView(BaseModel):
-    """The latest change-risk check of a run (ADR-0027) and who may approve it."""
+    """The latest change-risk check of a change (ADR-0027) and who may approve it."""
 
     digest: str
     files_changed: int = 0
     findings: list[RiskFindingView] = Field(default_factory=list)
     holds: int = 0
     approved_by: str | None = None
-    waiting: bool = False  # the run is waiting for an approval of these findings
+    waiting: bool = False  # the change is waiting for an approval of these findings
     requested_by: str | None = None
     break_glass: bool = True  # the requester may approve their own after the cooling-off delay
     self_approval_at: datetime | None = None  # when the requester's break-glass approval opens
 
 
-class RunDetail(BaseModel):
-    run: Run
-    order: Order
+class ChangeDetail(BaseModel):
+    change: Change
+    product: Product
     stations: list[StationView]
     risk: ChangeRiskView | None = None
 
 
-class OrderDetail(BaseModel):
-    order: Order
-    runs: list[Run]
+class ProductDetail(BaseModel):
+    product: Product
+    changes: list[Change]
     feedback: list[Feedback]
 
 
@@ -602,7 +604,7 @@ class HealthView(BaseModel):
     mode: str
     model_auth: bool
     github: bool
-    active_runs: int
+    active_changes: int
     # agent sandbox (ADR-0014): off | preparing | ready | failed
     sandbox: str = "off"
     sandbox_detail: list[str] = Field(default_factory=list)
@@ -613,8 +615,8 @@ class HealthView(BaseModel):
 class ConfigView(BaseModel):
     name: str
     mode: str
-    workflows: dict[str, int]  # product line -> active workflow version
-    product_lines: dict[str, str]
+    workflows: dict[str, int]  # blueprint -> active workflow version
+    blueprints: dict[str, str]
     policies: dict[str, str]
     gates: list[str]
 
@@ -644,7 +646,7 @@ class WorkflowView(BaseModel):
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
-    environment: str = "local"  # where this product line's delivery steps run
+    environment: str = "local"  # where this blueprint's delivery steps run
     delivery: list[DeliveryBinding] = Field(default_factory=list)
 
 
@@ -766,7 +768,7 @@ class PublishInput(BaseModel):
 
 
 class CheckView(BaseModel):
-    """One readiness check. `failed` blocks what it guards (new orders and/or new
+    """One readiness check. `failed` blocks what it guards (new products and/or new
     iterations); `degraded` is shown but never blocks."""
 
     id: str
@@ -775,11 +777,11 @@ class CheckView(BaseModel):
     state: str  # ready | degraded | failed
     reasons: list[str] = Field(default_factory=list)
     integration: str | None = None
-    blocks: list[str] = Field(default_factory=list)  # "order", "iteration"
+    blocks: list[str] = Field(default_factory=list)  # "product", "change"
 
 
 class PreflightView(BaseModel):
-    product_line: str
+    blueprint: str
     environment: str
     state: str  # ready | degraded | failed
     checked_at: datetime
@@ -805,7 +807,7 @@ class IntegrationView(BaseModel):
 class EnvironmentView(BaseModel):
     name: str
     bindings: dict[str, str]  # capability -> integration id
-    product_lines: list[str] = Field(default_factory=list)
+    blueprints: list[str] = Field(default_factory=list)
 
 
 class DeliveryView(BaseModel):
@@ -820,9 +822,9 @@ class DeliveryBinding(BaseModel):
 
 
 class WorkflowSummary(BaseModel):
-    workflow_id: str  # = product line id
-    product_line: str  # product line description
-    environment: str = "local"  # delivery environment of the product line
+    workflow_id: str  # = blueprint id
+    blueprint: str  # blueprint description
+    environment: str = "local"  # delivery environment of the blueprint
     active_version: int
     description: str
     template: str | None

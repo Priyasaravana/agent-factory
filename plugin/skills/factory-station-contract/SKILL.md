@@ -20,7 +20,7 @@ the inputs you were given; downstream stations will verify what you produce.
 - Log assumptions made instead of asking a human (see plow-ahead).
 
 ## Stay in your lane
-- Work only inside the current working directory (the run worktree).
+- Work only inside the current working directory (the change worktree).
 - Never run `git push`, never touch other namespaces or the cluster itself.
 - Do not weaken tests, lint rules or coverage thresholds to make checks pass.
 - Do not look for hidden acceptance scenarios; you will not find them.

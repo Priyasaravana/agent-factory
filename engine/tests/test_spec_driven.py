@@ -7,19 +7,19 @@ import copy
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.agents.fake import _SPEC
 from agent_factory.agents.runner import AgentResult
 from agent_factory.identity import Identity, _current
-from agent_factory.models import CreateOrderInput, EventKind, RunStatus
+from agent_factory.models import ChangeStatus, CreateProductInput, EventKind
 from agent_factory.traceability import coverage_problems, diff, matrix, untraced
 
 
-def _messages(f, run_id: str) -> list[str]:
-    return [e.message for e in f.store.list_events(run_id)]
+def _messages(f, change_id: str) -> list[str]:
+    return [e.message for e in f.store.list_events(change_id)]
 
 
 def _set_gate(f, mode: str) -> None:
@@ -44,14 +44,14 @@ class SpecRunner(FakeAgentRunner):
 # ------------------------------------------------------------ requirements --
 async def test_intake_writes_numbered_requirements_and_traceable_scenarios(make_factory):
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     repo = f.manager.ws.product_dir("bookmarks-service")
     assert "id: R1" in (repo / "docs" / "requirements.yaml").read_text()
     assert "covers:" in (repo / "tests" / "acceptance" / "scenarios.yaml").read_text()
-    msgs = _messages(f, run.id)
+    msgs = _messages(f, change.id)
     assert "spec: 2 numbered requirements" in msgs
-    readiness = next(e for e in f.store.list_events(run.id) if e.message.startswith("agent readiness"))
+    readiness = next(e for e in f.store.list_events(change.id) if e.message.startswith("agent readiness"))
     signals = {s["id"]: s["ok"] for s in readiness.data["readiness"]["signals"]}
     assert signals["requirements_traced"] is True
 
@@ -61,16 +61,16 @@ async def test_an_untraceable_spec_gets_one_correction_then_holds(make_factory):
     bad["acceptance_scenarios"] = bad["acceptance_scenarios"][:1]  # R2 uncovered
     agents = SpecRunner([bad, copy.deepcopy(_SPEC)])
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     retry = [c for c in agents.calls if c.role == "intake"][1]
     assert "requirement R2 has no acceptance scenario" in retry.prompt
 
     agents2 = SpecRunner([copy.deepcopy(bad), copy.deepcopy(bad)])
     f2 = make_factory(agents=agents2)
-    run2 = f2.manager.start_run(f2.manager.create_order(ORDER))
-    assert await wait_run(f2, run2.id) == RunStatus.held
-    assert "requirement R2 has no acceptance scenario" in (f2.store.get_run(run2.id).last_failure or "")
+    change2 = f2.manager.start_change(f2.manager.create_product(PRODUCT))
+    assert await wait_run(f2, change2.id) == ChangeStatus.held
+    assert "requirement R2 has no acceptance scenario" in (f2.store.get_change(change2.id).last_failure or "")
 
 
 async def test_feedback_updates_the_spec_first_and_reports_what_changed(make_factory):
@@ -91,11 +91,11 @@ async def test_feedback_updates_the_spec_first_and_reports_what_changed(make_fac
     changed["requirements"][0]["detail"] = "POST /bookmarks now also accepts notes"
     agents = SpecRunner([copy.deepcopy(_SPEC), changed])
     f = make_factory(agents=agents)
-    order = f.manager.create_order(ORDER)
-    assert await wait_run(f, f.manager.start_run(order).id) == RunStatus.awaiting_feedback
-    run2 = f.manager.feedback(order.id, "add a reset endpoint and notes")
-    assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
-    assert "spec updated: +R3 ~R1" in _messages(f, run2.id)
+    product = f.manager.create_product(PRODUCT)
+    assert await wait_run(f, f.manager.start_change(product).id) == ChangeStatus.awaiting_feedback
+    change2 = f.manager.feedback(product.id, "add a reset endpoint and notes")
+    assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback
+    assert "spec updated: +R3 ~R1" in _messages(f, change2.id)
     second_intake = [c for c in agents.calls if c.role == "intake"][-1]
     assert "id: R1" in second_intake.prompt, "current requirements are handed back so ids stay stable"
 
@@ -103,14 +103,14 @@ async def test_feedback_updates_the_spec_first_and_reports_what_changed(make_fac
 # ------------------------------------------------------------ traceability --
 async def test_acceptance_records_the_requirement_matrix(make_factory):
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    assert "traceability: 2/2 requirements verified live by hidden scenarios" in _messages(f, run.id)
-    artifact = f.manager.ws.data_dir / "artifacts" / run.id / "traceability.json"
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert "traceability: 2/2 requirements verified live by hidden scenarios" in _messages(f, change.id)
+    artifact = f.manager.ws.data_dir / "artifacts" / change.id / "traceability.json"
     assert '"R2"' in artifact.read_text(), "the matrix is kept as a file too"
-    from agent_factory.actions import get_run_spec
+    from agent_factory.actions import get_change_spec
 
-    view = get_run_spec(f, run.id)
+    view = get_change_spec(f, change.id)
     rows = {r.id: r for r in view.traceability}
     assert (
         rows["R1"].scenarios == ["A1"]
@@ -150,79 +150,79 @@ def test_traceability_rules(tmp_path: Path):
 async def test_gate_off_by_default_never_pauses(make_factory):
     f = make_factory()
     assert f.workflows["fastapi-service"].get(f.workflows["fastapi-service"].active_version()).spec_review == "off"
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
 
 async def test_first_iteration_gate_pauses_after_design_until_approved(make_factory):
     f = make_factory()
     _set_gate(f, "first")
-    order = f.manager.create_order(ORDER)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_approval
-    finished = [e.station for e in f.store.list_events(run.id) if e.kind == EventKind.station_finished]
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_approval
+    finished = [e.station for e in f.store.list_events(change.id) if e.kind == EventKind.station_finished]
     assert finished == ["requirements", "design"], "nothing is built before approval"
-    assert f.store.get_run(run.id).current_station == "implement"
+    assert f.store.get_change(change.id).current_station == "implement"
 
     app, ctx, c = await _client(f)
     async with c:
-        spec = (await c.get(f"/api/runs/{run.id}/spec")).json()
+        spec = (await c.get(f"/api/changes/{change.id}/spec")).json()
         assert spec["gate"] == "first" and spec["status"] == "awaiting_approval"
         assert spec["product"].startswith("# Bookmarks") and spec["technical"].startswith("# Design")
         assert [r["id"] for r in spec["requirements"]] == ["R1", "R2"] and spec["holdout_count"] == 2
-        assert (await c.post(f"/api/orders/{order.id}/feedback", json={"text": "x y z"})).status_code == 409
-        r = await c.post(f"/api/runs/{run.id}/spec/approve")
+        assert (await c.post(f"/api/products/{product.id}/feedback", json={"text": "x y z"})).status_code == 409
+        r = await c.post(f"/api/changes/{change.id}/spec/approve")
         assert r.status_code == 200 and r.json()["spec_approved_by"] == "local"
-        assert await wait_run(f, run.id) == RunStatus.awaiting_feedback  # before the app shuts down
+        assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback  # before the app shuts down
     await ctx.__aexit__(None, None, None)
-    assert "spec approved by local" in _messages(f, run.id)
+    assert "spec approved by local" in _messages(f, change.id)
 
-    run2 = f.manager.feedback(order.id, "add a reset endpoint")
-    assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback, "'first' does not gate later iterations"
+    change2 = f.manager.feedback(product.id, "add a reset endpoint")
+    assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback, "'first' does not gate later iterations"
 
 
 async def test_always_gate_request_changes_and_edit(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(agents=agents)
     _set_gate(f, "always")
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_approval
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_approval
 
-    f.manager.request_spec_changes(run.id, "priya", "Tags must be case-insensitive")
-    assert await wait_run(f, run.id) == RunStatus.awaiting_approval, "back through intake + design, then the gate"
+    f.manager.request_spec_changes(change.id, "priya", "Tags must be case-insensitive")
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_approval, "back through intake + design, then the gate"
     intakes = [c for c in agents.calls if c.role == "intake"]
     designs = [c for c in agents.calls if c.role == "architect"]
     assert len(intakes) == 2 and "Tags must be case-insensitive (by priya)" in intakes[-1].prompt
     assert len(designs) == 2 and "Tags must be case-insensitive" in designs[-1].prompt
 
-    await f.manager.edit_spec(run.id, "priya", "# Bookmarks (edited)\n", None)
-    wt = f.manager.ws.run_dir(run.id)
+    await f.manager.edit_spec(change.id, "priya", "# Bookmarks (edited)\n", None)
+    wt = f.manager.ws.change_dir(change.id)
     assert (wt / "docs" / "spec.md").read_text() == "# Bookmarks (edited)\n"
     log = await f.manager.ws.git("log --oneline -1", wt)
     assert "spec edited in review by priya" in log.output
-    f.manager.approve_spec(run.id, "priya")
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    f.manager.approve_spec(change.id, "priya")
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
 
 async def test_only_the_creator_or_an_admin_decides_on_the_spec(make_factory):
     f = make_factory()
     _set_gate(f, "first")
-    order = f.manager.create_order(ORDER)
-    order.created_by = "alice"
-    f.store.save_order(order)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_approval
+    product = f.manager.create_product(PRODUCT)
+    product.created_by = "alice"
+    f.store.save_product(product)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_approval
     from agent_factory.actions import approve_spec
 
     token = _current.set(Identity("bob", "member"))
     try:
         with pytest.raises(PermissionError):
-            await approve_spec(f, run.id)
+            await approve_spec(f, change.id)
     finally:
         _current.reset(token)
     token = _current.set(Identity("alice", "member"))
     try:
-        assert (await approve_spec(f, run.id)).spec_approved_by == "alice"
+        assert (await approve_spec(f, change.id)).spec_approved_by == "alice"
     finally:
         _current.reset(token)
 
@@ -242,14 +242,14 @@ async def test_workflow_setting_via_api(make_factory):
 async def test_bring_your_own_spec_keeps_its_wording(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(agents=agents)
-    spec = CreateOrderInput(
+    spec = CreateProductInput(
         title="Bookmarks service",
         requirements="# Bookmarks\n1. Save a bookmark\n2. Filter by tag\n",
         requirements_format="spec",
     )
-    order = f.manager.create_order(spec)
-    assert order.requirements_format == "spec"
-    assert await wait_run(f, f.manager.start_run(order).id) == RunStatus.awaiting_feedback
+    product = f.manager.create_product(spec)
+    assert product.requirements_format == "spec"
+    assert await wait_run(f, f.manager.start_change(product).id) == ChangeStatus.awaiting_feedback
     intake = next(c for c in agents.calls if c.role == "intake")
     assert "EXISTING SPECIFICATION" in intake.prompt and "1:1" in intake.prompt
 

@@ -4,9 +4,9 @@
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
-- Workflows (stations + agent specs + reference docs) are data: one per product
-  line, seeded from `workflow-templates/<name>/`, stored as immutable versions in
-  the DB. Runs are pinned to (workflow, version). Prefer template, spec and skill
+- Workflows (stations + agent specs + reference docs) are data: one per
+  blueprint, seeded from `workflow-templates/<name>/`, stored as immutable versions in
+  the DB. Changes are pinned to (workflow, version). Prefer template, spec and skill
   changes over engine changes (see docs/workflows.md).
 - `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
   imported at a pinned commit via `default_skills` in the config; never copy
@@ -25,7 +25,7 @@
 - Generated repos must stay at agent-readiness Level 3 (`readiness.py`). A new
   golden path ships the same signals in its template.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
-  `undeploy()` (archive) besides its capability methods. New run-starting actions
+  `undeploy()` (archive) besides its capability methods. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
 - Changes to `images/`, Dockerfiles, `docker-compose.yml` or the golden path must
   keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's
@@ -42,8 +42,8 @@
   `no-new-privileges`, and is added to `tests/test_least_privilege.py` and
   `scripts/privilege-check.sh`. Directories the engine creates for a sandbox go
   through `hand_to_sandbox`.
-- Run status changes are recorded by the state store itself (`run_transitions`,
-  ADR-0019): always save runs through `store.save_run`. Outcome metrics are pure
+- Change status transitions are recorded by the state store itself (`change_transitions`,
+  ADR-0019): always save changes through `store.save_change`. Outcome metrics are pure
   functions in `outcomes.py`; a new metric gets a definition in
   `docs/outcomes.md` and an exact-value test in `tests/test_outcomes.py`.
 - The `code-review` station (ADR-0020) is judged by the engine (`review.judge`), not by
@@ -58,21 +58,21 @@
 - Every mutating action is classified in `tests/test_access.py`: admin-only (under
   `/api/workflows` or `/api/skills`, enforced by the identity middleware) or in
   `MEMBER_ACTIONS`. A new action must be added deliberately to one of the two.
-  An action on an existing order or run also goes in `STEERING` and calls
-  `_may_steer` (the order's creator or an admin).
-- Run evidence is sealed by the engine when a run stops (ADR-0023). New evidence
-  goes under `artifacts/<run>/` before the seal, so the manifest covers it; never
-  write there after a run has stopped, and never put holdout text or secret
+  An action on an existing product or change also goes in `STEERING` and calls
+  `_may_steer` (the product's creator or an admin).
+- Change evidence is sealed by the engine when a change stops (ADR-0023). New evidence
+  goes under `artifacts/<change>/` before the seal, so the manifest covers it; never
+  write there after a change has stopped, and never put holdout text or secret
   values there.
 - Every readiness signal has exactly one primary quality pillar (ADR-0024,
   `pillars.py`); a new signal also updates the mapping pinned in
   `tests/test_pillars.py` and practices §7. Pillars never change the Level gate.
 - Workflow changes are measured by the evaluation harness (ADR-0025, `evals.py`):
-  the verdict is the pure `evals.judge`; evaluation orders carry `eval_run_id`
-  and stay out of the orders list and Outcomes. A new run-stopping path must
-  still reach `RunManager._after_stop`.
-- A product line declares its `stack`; intake reports what an order requires and
-  `stack.conflicts` (pure) decides. A new product line declares its stack, and
+  the verdict is the pure `evals.judge`; evaluation products carry `eval_run_id`
+  and stay out of the products list and Outcomes. A new change-stopping path must
+  still reach `ChangeManager._after_stop`.
+- A blueprint declares its `stack`; intake reports what a request requires and
+  `stack.conflicts` (pure) decides. A new blueprint declares its stack, and
   every requirement keeps a hidden scenario or a `no_live_check` reason
   (`_validate_spec`).
 - Credentials a provider needs reach commands through the environment or stdin,
@@ -82,13 +82,18 @@
 - Station handlers are named after the DevOps phase they serve (ADR-0028,
   `workflow.HANDLER_INFO`: label, phase, hint). A new built-in handler gets an
   entry there; old names stay readable through `LEGACY_HANDLERS`, because stored
-  versions, runs and evidence keep their station ids. Never rename event data
+  versions, changes and evidence keep their station ids. Never rename event data
   keys (`readiness`, `review`) or evidence files to match.
-- Change risk (ADR-0027): orders and feedback go through `RunManager.screen`
-  (acceptable-use rules, refusals audited, never stored as orders); diffs through
+- Change risk (ADR-0027): new products and feedback go through `ChangeManager.screen`
+  (acceptable-use rules, refusals audited, never stored as products); diffs through
   the pure `risk.check_diff`. A new rule gets a test in `tests/test_change_risk.py`
   that also shows an ordinary change doesn't trip it. Approving a risky change is
   admin work and never by the requester except break-glass; nothing approves
   automatically (evaluations included). Test fixtures for refusals use operator
   rules with neutral wording, never real harmful requests.
+- Vocabulary (ADR-0029): a **product** is one app, a **change** is one iteration of it,
+  a **blueprint** is how a kind of app is built and run. Use these words in code,
+  API, UI and docs. Stored names that must stay (`runs/` and `artifacts/` folders,
+  `run/<id>` branches, the evidence manifest's `run`/`order` keys, `EvalRun`) are
+  listed in the ADR. A renamed persisted field keeps its old name as a read alias.
 - Record significant decisions as ADRs in `docs/adr/`.

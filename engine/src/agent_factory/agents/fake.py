@@ -23,7 +23,7 @@ class FakeAgentRunner:
     rate_limit_once: bool = False
     # roles whose first call tries something a guardrail refuses (simulates a denial)
     deny_once: list[str] = field(default_factory=list)
-    # implementation technologies intake reports the order requires (simulates a stack conflict)
+    # implementation technologies intake reports the product requires (simulates a stack conflict)
     stack_required: list[dict[str, str]] = field(default_factory=list)
     # files the developer writes on its first call and removes on its next one
     # (simulates a risky change, then fixing it after it was sent back; ADR-0027)

@@ -69,8 +69,8 @@ Limits: 200 files and 2 MB per folder.
 ## Pinning and updates
 
 - Publishing a workflow version records the commit of every imported skill its
-  agents use (`skill_pins`). A run materialises exactly those commits as a
-  local plugin (`imported-skills`) next to the factory plugin, so a run is
+  agents use (`skill_pins`). A change materialises exactly those commits as a
+  local plugin (`imported-skills`) next to the factory plugin, so a change is
   reproducible even after the skill is updated.
 - **Check for update** fetches the skill's ref again and shows a diff against
   the installed commit. **Update** installs the new commit. Workflows keep the
@@ -83,12 +83,12 @@ Limits: 200 files and 2 MB per folder.
 ## On demand vs preloaded
 
 An agent opens an on-demand skill only when its task seems to match the skill's
-description. Live runs showed agents using our own skills but never the BuilderIO
+description. Live changes showed agents using our own skills but never the BuilderIO
 ones, whose descriptions match phrases like "plow ahead" or "watch another
 agent's work". Mark a skill **preloaded** in the agent editor
 (`preload_skills` in the spec) to put its instructions straight into the system
-prompt. The run log shows `preloaded skills: [...]` per agent. Whether a skill
-helps is a measurement question: compare runs of a workflow version with and
+prompt. The change's log shows `preloaded skills: [...]` per agent. Whether a skill
+helps is a measurement question: compare changes of a workflow version with and
 without it.
 
 ## Safety

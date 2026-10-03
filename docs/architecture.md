@@ -18,7 +18,7 @@ flowchart LR
         egress["factory-egress<br/>allowlist proxy"]
       end
     end
-    data[".factory-data/<br/>state db, product repos,<br/>run worktrees, holdout"]
+    data[".factory-data/<br/>state db, product repos,<br/>change worktrees, holdout"]
   end
   browser --> web -->|/api| factory
   factory -->|docker over TLS :2376| dind
@@ -39,7 +39,7 @@ Isolation properties:
 - The only host path mounted is `./.factory-data` (into the factory and dind at `/data`).
 - Agents never run in the factory container: every agent session and every run of
   agent-written code gets a throw-away sandbox inside dind (ADR-0014).
-  - It can write only the run worktree.
+  - It can write only the change worktree.
   - It gets no secrets, no Docker access and no cluster access.
   - Its network's only exit is an egress allowlist.
 - Ports are bound to `127.0.0.1` only.
@@ -51,33 +51,33 @@ Isolation properties:
 ```mermaid
 flowchart TB
   api["FastAPI routes<br/>(generated from the action registry)"] --> actions["Shared actions<br/>one definition → HTTP route + agent MCP tool"]
-  actions --> mgr["RunManager<br/>deterministic state machine"]
+  actions --> mgr["ChangeManager<br/>deterministic state machine"]
   mgr --> st["Stations<br/>intake · design · build · verify · package · deploy · deploy_fix · acceptance · deliver"]
   st --> runner["AgentRunner<br/>(ClaudeAgentRunner | FakeAgentRunner)"]
   st --> ex["Executor<br/>(LocalExecutor | FakeExecutor)"]
-  st --> ws["Workspace<br/>product repo + fresh worktree per run"]
+  st --> ws["Workspace<br/>product repo + fresh worktree per change"]
   mgr --> store["StateStore<br/>(SQLite → Postgres)"]
   runner --> hooks["PreToolUse guardrails"]
   runner --> plugin["plugin/ skills, filtered per role"]
 ```
 
-### The run state machine
+### The change state machine
 
 - Each station returns `passed | failed | needs_input | held | paused_limits`.
 - `passed` moves to the station's `next`, or to the next forward station. After
-  `handover`, the run becomes **awaiting_feedback**: the feedback gate is open.
+  `handover`, the change becomes **awaiting_feedback**: the feedback gate is open.
 - `failed` moves to the station's `on_fail` route and hands over the failure
   **evidence** (command output, diagnostics, or observed behaviour).
-  - If there is no route, the run is **held**.
-  - Budgets: `max_attempts_per_station`, `max_loops_per_run` and
-    `run_wall_clock_minutes`. Exhausting any budget means **held**, never a
+  - If there is no route, the change is **held**.
+  - Budgets: `max_attempts_per_station`, `max_loops_per_change` and
+    `change_wall_clock_minutes`. Exhausting any budget means **held**, never a
     plausible success.
 - `needs_input` happens when intake has a blocking question it cannot turn
-  into an assumption. You answer in the UI, and the run continues.
-- `paused_limits` happens when the SDK reports a rate-limit rejection. The run
+  into an assumption. You answer in the UI, and the change continues.
+- `paused_limits` happens when the SDK reports a rate-limit rejection. The change
   sleeps until the reset time, then continues. This is the `stay-within-limits`
   skill, enforced natively.
-- **Restarts:** runs that were in flight are marked **interrupted** and wait for
+- **Restarts:** changes that were in flight are marked **interrupted** and wait for
   a human Resume (Builder's `factory-recover` rule). Set `policies.recover.mode:
   auto` to resume them automatically.
 

@@ -1,7 +1,7 @@
 """How one sandbox container is started: pure functions, unit-tested without Docker.
 
 A sandbox is a throw-away container inside dind with:
-  * only the run worktree writable (plus tmpfs /tmp and $HOME)
+  * only the change worktree writable (plus tmpfs /tmp and $HOME)
   * the product's git metadata read-only, pinned skills read-only
   * no Docker socket, no TLS keys, no kubeconfig, no factory secrets
   * an internal network whose only way out is the egress proxy (allowlist)

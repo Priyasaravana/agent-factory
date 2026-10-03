@@ -12,14 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from agent_factory.models import (
+    Change,
+    ChangeStatus,
     EvalRun,
     Event,
     EventKind,
     Feedback,
     LearningProposal,
-    Order,
-    Run,
-    RunStatus,
+    Product,
     Transition,
 )
 from agent_factory.secret_refs import REDACTOR
@@ -27,21 +27,21 @@ from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, created_at TEXT, doc TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS runs (
-  id TEXT PRIMARY KEY, order_id TEXT NOT NULL, status TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, created_at TEXT, doc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS changes (
+  id TEXT PRIMARY KEY, product_id TEXT NOT NULL, status TEXT NOT NULL,
   created_at TEXT, doc TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS runs_order ON runs(order_id);
+CREATE INDEX IF NOT EXISTS changes_product ON changes(product_id);
 CREATE TABLE IF NOT EXISTS events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, ts TEXT NOT NULL,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, change_id TEXT NOT NULL, ts TEXT NOT NULL,
   station TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, data TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS events_run ON events(run_id, id);
--- every run status change, with its time: the basis of the Outcomes page (ADR-0019)
-CREATE TABLE IF NOT EXISTS run_transitions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, ts TEXT NOT NULL,
+CREATE INDEX IF NOT EXISTS events_change ON events(change_id, id);
+-- every change status change, with its time: the basis of the Outcomes page (ADR-0019)
+CREATE TABLE IF NOT EXISTS change_transitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, change_id TEXT NOT NULL, ts TEXT NOT NULL,
   from_status TEXT, to_status TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS run_transitions_run ON run_transitions(run_id, id);
--- lessons the retro suggests after runs that needed help; an admin decides (ADR-0021)
+CREATE INDEX IF NOT EXISTS change_transitions_change ON change_transitions(change_id, id);
+-- lessons the retro suggests after changes that needed help; an admin decides (ADR-0021)
 CREATE TABLE IF NOT EXISTS learning_proposals (
   id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS learning_proposals_wf ON learning_proposals(workflow_id, status);
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS eval_runs (
   id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, created_at TEXT NOT NULL, doc TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS eval_runs_wf ON eval_runs(workflow_id, created_at);
 CREATE TABLE IF NOT EXISTS feedback (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, run_id TEXT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, change_id TEXT,
   text TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workflow_versions (
   workflow_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, note TEXT NOT NULL,
@@ -100,8 +100,26 @@ class SqliteStateStore:
         self._lock = threading.Lock()
 
     def _migrate_legacy_tables(self) -> None:
-        """'line_*' tables from before the rename become 'workflow_*' (data kept)."""
+        """Tables from before a rename keep their data: 'line_*' became 'workflow_*';
+        products/runs became products/changes (ADR-0029)."""
         existing = {r[0] for r in self._db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+        def columns(table: str) -> set[str]:
+            return {r[1] for r in self._db.execute(f"PRAGMA table_info({table})")}
+
+        for old, new in (("orders", "products"), ("runs", "changes"), ("run_transitions", "change_transitions")):
+            if old in existing and new not in existing:
+                self._db.execute(f"ALTER TABLE {old} RENAME TO {new}")
+                existing = (existing - {old}) | {new}
+        for table, old, new in (
+            ("changes", "order_id", "product_id"),
+            ("events", "run_id", "change_id"),
+            ("change_transitions", "run_id", "change_id"),
+            ("feedback", "order_id", "product_id"),
+            ("feedback", "run_id", "change_id"),
+        ):
+            if table in existing and old in columns(table) and new not in columns(table):
+                self._db.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
         for old, new in (
             ("line_versions", "workflow_versions"),
             ("line_active", "workflow_active"),
@@ -113,7 +131,7 @@ class SqliteStateStore:
 
     def _exec(self, sql: str, args: tuple[Any, ...] = ()) -> _Result:
         """Run one statement and read its rows while holding the lock. The
-        connection is shared by the event loop (runs writing events) and the API's
+        connection is shared by the event loop (changes writing events) and the API's
         worker threads: a cursor read after the lock is released interleaves with
         other statements ("bad parameter or other API misuse", rows from another
         query), which surfaced as intermittent 500s in CI e2e."""
@@ -121,78 +139,84 @@ class SqliteStateStore:
             cur = self._db.execute(sql, args)
             return _Result(cur.fetchall(), cur.rowcount, cur.lastrowid)
 
-    # -- orders --------------------------------------------------------------
-    def create_order(self, order: Order) -> Order:
+    # -- products --------------------------------------------------------------
+    def create_product(self, product: Product) -> Product:
         self._exec(
-            "INSERT INTO orders(id, created_at, doc) VALUES (?,?,?)",
-            (order.id, order.created_at.isoformat(), REDACTOR.text(order.model_dump_json())),
+            "INSERT INTO products(id, created_at, doc) VALUES (?,?,?)",
+            (product.id, product.created_at.isoformat(), REDACTOR.text(product.model_dump_json())),
         )
-        return order
+        return product
 
-    def get_order(self, order_id: str) -> Order | None:
-        row = self._exec("SELECT doc FROM orders WHERE id=?", (order_id,)).fetchone()
-        return Order.model_validate_json(row[0]) if row else None
+    def get_product(self, product_id: str) -> Product | None:
+        row = self._exec("SELECT doc FROM products WHERE id=?", (product_id,)).fetchone()
+        return Product.model_validate_json(row[0]) if row else None
 
-    def list_orders(self) -> list[Order]:
-        rows = self._exec("SELECT doc FROM orders ORDER BY created_at DESC").fetchall()
-        return [Order.model_validate_json(r[0]) for r in rows]
+    def list_products(self) -> list[Product]:
+        rows = self._exec("SELECT doc FROM products ORDER BY created_at DESC").fetchall()
+        return [Product.model_validate_json(r[0]) for r in rows]
 
-    def save_order(self, order: Order) -> None:
-        self._exec("UPDATE orders SET doc=? WHERE id=?", (REDACTOR.text(order.model_dump_json()), order.id))
+    def save_product(self, product: Product) -> None:
+        self._exec("UPDATE products SET doc=? WHERE id=?", (REDACTOR.text(product.model_dump_json()), product.id))
 
-    # -- runs ----------------------------------------------------------------
-    def create_run(self, run: Run) -> Run:
+    # -- changes ----------------------------------------------------------------
+    def create_change(self, change: Change) -> Change:
         with self._lock:
             self._db.execute(
-                "INSERT INTO runs(id, order_id, status, created_at, doc) VALUES (?,?,?,?,?)",
-                (run.id, run.order_id, run.status, run.created_at.isoformat(), REDACTOR.text(run.model_dump_json())),
+                "INSERT INTO changes(id, product_id, status, created_at, doc) VALUES (?,?,?,?,?)",
+                (
+                    change.id,
+                    change.product_id,
+                    change.status,
+                    change.created_at.isoformat(),
+                    REDACTOR.text(change.model_dump_json()),
+                ),
             )
-            self._record_transition(run.id, None, run.status, run.created_at)
-        return run
+            self._record_transition(change.id, None, change.status, change.created_at)
+        return change
 
-    def get_run(self, run_id: str) -> Run | None:
-        row = self._exec("SELECT doc FROM runs WHERE id=?", (run_id,)).fetchone()
-        return Run.model_validate_json(row[0]) if row else None
+    def get_change(self, change_id: str) -> Change | None:
+        row = self._exec("SELECT doc FROM changes WHERE id=?", (change_id,)).fetchone()
+        return Change.model_validate_json(row[0]) if row else None
 
-    def save_run(self, run: Run) -> None:
-        """Every status change is recorded here, the one place all runs are saved,
+    def save_change(self, change: Change) -> None:
+        """Every status change is recorded here, the one place all changes are saved,
         so no call site can forget it (ADR-0019)."""
-        run.updated_at = _now()
+        change.updated_at = _now()
         with self._lock:
-            row = self._db.execute("SELECT status FROM runs WHERE id=?", (run.id,)).fetchone()
+            row = self._db.execute("SELECT status FROM changes WHERE id=?", (change.id,)).fetchone()
             self._db.execute(
-                "UPDATE runs SET status=?, doc=? WHERE id=?",
-                (run.status, REDACTOR.text(run.model_dump_json()), run.id),
+                "UPDATE changes SET status=?, doc=? WHERE id=?",
+                (change.status, REDACTOR.text(change.model_dump_json()), change.id),
             )
-            if row and row[0] != run.status:
-                self._record_transition(run.id, RunStatus(row[0]), run.status, run.updated_at)
+            if row and row[0] != change.status:
+                self._record_transition(change.id, ChangeStatus(row[0]), change.status, change.updated_at)
 
-    def _record_transition(self, run_id: str, old: RunStatus | None, new: RunStatus, ts: datetime) -> None:
+    def _record_transition(self, change_id: str, old: ChangeStatus | None, new: ChangeStatus, ts: datetime) -> None:
         # caller holds the lock
         self._db.execute(
-            "INSERT INTO run_transitions(run_id, ts, from_status, to_status) VALUES (?,?,?,?)",
-            (run_id, ts.isoformat(), old.value if old else None, RunStatus(new).value),
+            "INSERT INTO change_transitions(change_id, ts, from_status, to_status) VALUES (?,?,?,?)",
+            (change_id, ts.isoformat(), old.value if old else None, ChangeStatus(new).value),
         )
 
-    def all_runs(self) -> list[Run]:
-        return [Run.model_validate_json(r[0]) for r in self._exec("SELECT doc FROM runs ORDER BY created_at")]
+    def all_changes(self) -> list[Change]:
+        return [Change.model_validate_json(r[0]) for r in self._exec("SELECT doc FROM changes ORDER BY created_at")]
 
-    def transitions(self, run_ids: list[str] | None = None) -> dict[str, list[Transition]]:
-        """Status changes per run, oldest first (all runs when run_ids is None)."""
-        sql, args = "SELECT run_id, ts, from_status, to_status FROM run_transitions", ()
-        if run_ids is not None:
-            if not run_ids:
+    def transitions(self, change_ids: list[str] | None = None) -> dict[str, list[Transition]]:
+        """Status changes per run, oldest first (all changes when run_ids is None)."""
+        sql, args = "SELECT change_id, ts, from_status, to_status FROM change_transitions", ()
+        if change_ids is not None:
+            if not change_ids:
                 return {}
-            sql += f" WHERE run_id IN ({','.join('?' * len(run_ids))})"  # noqa: S608 - placeholders only
-            args = tuple(run_ids)
+            sql += f" WHERE change_id IN ({','.join('?' * len(change_ids))})"  # noqa: S608 - placeholders only
+            args = tuple(change_ids)
         out: dict[str, list[Transition]] = {}
         for rid, ts, old, new in self._exec(sql + " ORDER BY id", args):
             out.setdefault(rid, []).append(
                 Transition(
-                    run_id=rid,
+                    change_id=rid,
                     ts=datetime.fromisoformat(ts),
-                    from_status=RunStatus(old) if old else None,
-                    to_status=RunStatus(new),
+                    from_status=ChangeStatus(old) if old else None,
+                    to_status=ChangeStatus(new),
                 )
             )
         return out
@@ -250,25 +274,25 @@ class SqliteStateStore:
             sql, args = sql + " AND status=?", (workflow_id, status)
         return [LearningProposal.model_validate_json(r[0]) for r in self._exec(sql + " ORDER BY created_at DESC", args)]
 
-    def last_event_data(self, run_id: str, key: str) -> tuple[datetime, Any] | None:
-        """(time, data[key]) of the run's latest event whose data carries `key`."""
+    def last_event_data(self, change_id: str, key: str) -> tuple[datetime, Any] | None:
+        """(time, data[key]) of the change's latest event whose data carries `key`."""
         for ts, data in self._exec(
-            "SELECT ts, data FROM events WHERE run_id=? AND data LIKE ? ORDER BY id DESC LIMIT 20",
-            (run_id, f'%"{key}"%'),
+            "SELECT ts, data FROM events WHERE change_id=? AND data LIKE ? ORDER BY id DESC LIMIT 20",
+            (change_id, f'%"{key}"%'),
         ):
             value = json.loads(data).get(key)
             if value is not None:
                 return datetime.fromisoformat(ts), value
         return None
 
-    def events_with_key(self, run_ids: list[str], key: str) -> list[tuple[str, datetime, Any]]:
-        """(run id, time, data[key]) of every event in these runs whose data carries `key`, oldest first."""
+    def events_with_key(self, change_ids: list[str], key: str) -> list[tuple[str, datetime, Any]]:
+        """(run id, time, data[key]) of every event in these changes whose data carries `key`, oldest first."""
         out: list[tuple[str, datetime, Any]] = []
-        for i in range(0, len(run_ids), 500):
-            chunk = run_ids[i : i + 500]
+        for i in range(0, len(change_ids), 500):
+            chunk = change_ids[i : i + 500]
             marks = ",".join("?" * len(chunk))
             rows = self._exec(
-                f"SELECT run_id, ts, data FROM events WHERE run_id IN ({marks}) AND data LIKE ? ORDER BY id",  # noqa: S608
+                f"SELECT change_id, ts, data FROM events WHERE change_id IN ({marks}) AND data LIKE ? ORDER BY id",  # noqa: S608
                 (*chunk, f'%"{key}"%'),
             )
             for rid, ts, data in rows:
@@ -277,29 +301,31 @@ class SqliteStateStore:
                     out.append((rid, datetime.fromisoformat(ts), value))
         return out
 
-    def first_event_time(self, run_id: str, message_prefix: str) -> datetime | None:
+    def first_event_time(self, change_id: str, message_prefix: str) -> datetime | None:
         row = self._exec(
-            "SELECT ts FROM events WHERE run_id=? AND message LIKE ? ORDER BY id LIMIT 1",
-            (run_id, message_prefix.replace("%", "") + "%"),
+            "SELECT ts FROM events WHERE change_id=? AND message LIKE ? ORDER BY id LIMIT 1",
+            (change_id, message_prefix.replace("%", "") + "%"),
         ).fetchone()
         return datetime.fromisoformat(row[0]) if row else None
 
-    def list_runs(self, order_id: str) -> list[Run]:
-        rows = self._exec("SELECT doc FROM runs WHERE order_id=? ORDER BY created_at DESC", (order_id,)).fetchall()
-        return [Run.model_validate_json(r[0]) for r in rows]
+    def list_changes(self, product_id: str) -> list[Change]:
+        rows = self._exec(
+            "SELECT doc FROM changes WHERE product_id=? ORDER BY created_at DESC", (product_id,)
+        ).fetchall()
+        return [Change.model_validate_json(r[0]) for r in rows]
 
-    def runs_with_status(self, statuses: set[RunStatus]) -> list[Run]:
+    def changes_with_status(self, statuses: set[ChangeStatus]) -> list[Change]:
         marks = ",".join("?" * len(statuses))
         rows = self._exec(
-            f"SELECT doc FROM runs WHERE status IN ({marks})",  # noqa: S608 - placeholders only
+            f"SELECT doc FROM changes WHERE status IN ({marks})",  # noqa: S608 - placeholders only
             tuple(s.value for s in statuses),
         ).fetchall()
-        return [Run.model_validate_json(r[0]) for r in rows]
+        return [Change.model_validate_json(r[0]) for r in rows]
 
     # -- events --------------------------------------------------------------
     def add_event(
         self,
-        run_id: str,
+        change_id: str,
         kind: EventKind,
         message: str,
         station: str | None = None,
@@ -309,12 +335,12 @@ class SqliteStateStore:
         # every resolved secret value is masked before anything is stored or streamed
         message, data = REDACTOR.text(message), REDACTOR.obj(data or {})
         cur = self._exec(
-            "INSERT INTO events(run_id, ts, station, kind, message, data) VALUES (?,?,?,?,?,?)",
-            (run_id, ts.isoformat(), station, kind.value, message, json.dumps(data or {})),
+            "INSERT INTO events(change_id, ts, station, kind, message, data) VALUES (?,?,?,?,?,?)",
+            (change_id, ts.isoformat(), station, kind.value, message, json.dumps(data or {})),
         )
         return Event(
             id=int(cur.lastrowid or 0),
-            run_id=run_id,
+            change_id=change_id,
             ts=ts,
             station=station,
             kind=kind,
@@ -322,15 +348,15 @@ class SqliteStateStore:
             data=data or {},
         )
 
-    def list_events(self, run_id: str, after_id: int = 0) -> list[Event]:
+    def list_events(self, change_id: str, after_id: int = 0) -> list[Event]:
         rows = self._exec(
-            "SELECT id, run_id, ts, station, kind, message, data FROM events WHERE run_id=? AND id>? ORDER BY id",
-            (run_id, after_id),
+            "SELECT id, change_id, ts, station, kind, message, data FROM events WHERE change_id=? AND id>? ORDER BY id",
+            (change_id, after_id),
         ).fetchall()
         return [
             Event(
                 id=r[0],
-                run_id=r[1],
+                change_id=r[1],
                 ts=datetime.fromisoformat(r[2]),
                 station=r[3],
                 kind=EventKind(r[4]),
@@ -341,24 +367,26 @@ class SqliteStateStore:
         ]
 
     # -- feedback ------------------------------------------------------------
-    def add_feedback(self, order_id: str, run_id: str | None, text: str) -> Feedback:
+    def add_feedback(self, product_id: str, change_id: str | None, text: str) -> Feedback:
         ts = _now()
         cur = self._exec(
-            "INSERT INTO feedback(order_id, run_id, text, created_at) VALUES (?,?,?,?)",
-            (order_id, run_id, text, ts.isoformat()),
+            "INSERT INTO feedback(product_id, change_id, text, created_at) VALUES (?,?,?,?)",
+            (product_id, change_id, text, ts.isoformat()),
         )
-        return Feedback(id=int(cur.lastrowid or 0), order_id=order_id, run_id=run_id, text=text, created_at=ts)
+        return Feedback(
+            id=int(cur.lastrowid or 0), product_id=product_id, change_id=change_id, text=text, created_at=ts
+        )
 
-    def list_feedback(self, order_id: str) -> list[Feedback]:
+    def list_feedback(self, product_id: str) -> list[Feedback]:
         rows = self._exec(
-            "SELECT id, order_id, run_id, text, created_at FROM feedback WHERE order_id=? ORDER BY id",
-            (order_id,),
+            "SELECT id, product_id, change_id, text, created_at FROM feedback WHERE product_id=? ORDER BY id",
+            (product_id,),
         ).fetchall()
         return [
             Feedback(
                 id=r[0],
-                order_id=r[1],
-                run_id=r[2],
+                product_id=r[1],
+                change_id=r[2],
                 text=r[3],
                 created_at=datetime.fromisoformat(r[4]),
             )

@@ -3,7 +3,7 @@ skills imported from GitHub (including the configured defaults, e.g. BuilderIO/s
 
 Imported skills are pinned to a commit. Every installed commit is kept in the DB,
 so a workflow version that pinned an older commit still gets exactly that
-content. Before a run, the skills pinned by its workflow version are written
+content. Before a change, the skills pinned by its workflow version are written
 into a content-addressed local plugin that the agent runner loads next to the
 factory plugin.
 
@@ -257,7 +257,7 @@ class SkillLibrary:
 
     # ---------------------------------------------------------------- pins --
     def effective_pins(self, doc: WorkflowDoc) -> dict[str, str]:
-        """Pins a run uses: the version's own pins, plus the installed commit for
+        """Pins a change uses: the version's own pins, plus the installed commit for
         imported skills an older version used before it recorded pins (e.g. the
         BuilderIO skills that used to ship inside the image)."""
         pins = dict(doc.skill_pins)
@@ -283,7 +283,7 @@ class SkillLibrary:
 
     def materialise(self, pins: dict[str, str]) -> Path | None:
         """Write the pinned skills as a local plugin; content-addressed, so it is
-        written once and shared by every run with the same pins."""
+        written once and shared by every change with the same pins."""
         if not pins:
             return None
         key = hashlib.sha256(json.dumps(pins, sort_keys=True).encode()).hexdigest()[:16]

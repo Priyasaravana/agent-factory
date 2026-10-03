@@ -2,10 +2,10 @@ import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
 
 // Types come straight from the engine's OpenAPI contract (npm run gen:api).
-export type Order = components["schemas"]["Order"];
-export type Run = components["schemas"]["Run"];
-export type RunDetail = components["schemas"]["RunDetail"];
-export type OrderDetail = components["schemas"]["OrderDetail"];
+export type Product = components["schemas"]["Product"];
+export type Change = components["schemas"]["Change"];
+export type ChangeDetail = components["schemas"]["ChangeDetail"];
+export type ProductDetail = components["schemas"]["ProductDetail"];
 export type FactoryEvent = components["schemas"]["Event"];
 export type StationView = components["schemas"]["StationView"];
 export type Health = components["schemas"]["HealthView"];

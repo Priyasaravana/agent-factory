@@ -11,21 +11,21 @@ function size(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** The run's sealed evidence (ADR-0023): every file with its SHA-256, re-checked on
- * every view, and a zip for the order's creator or an admin. */
+/** The change's sealed evidence (ADR-0023): every file with its SHA-256, re-checked on
+ * every view, and a zip for the product's creator or an admin. */
 export default function EvidencePanel({
-  runId,
+  changeId,
   runStatus,
 }: {
-  runId: string;
+  changeId: string;
   runStatus: string;
 }) {
   const q = useQuery({
-    queryKey: ["evidence", runId, runStatus],
+    queryKey: ["evidence", changeId, runStatus],
     queryFn: () =>
       unwrap(
-        api.GET("/api/runs/{run_id}/evidence", {
-          params: { path: { run_id: runId } },
+        api.GET("/api/changes/{change_id}/evidence", {
+          params: { path: { change_id: changeId } },
         }),
       ),
   });
@@ -42,7 +42,7 @@ export default function EvidencePanel({
   async function download() {
     setBusy(true);
     try {
-      const r = await fetch(`/api/runs/${runId}/evidence/bundle`);
+      const r = await fetch(`/api/changes/${changeId}/evidence/bundle`);
       if (!r.ok) {
         const body = (await r.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? `download failed (${r.status})`);
@@ -50,7 +50,7 @@ export default function EvidencePanel({
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement("a");
       a.href = url;
-      a.download = `evidence-${runId}.zip`;
+      a.download = `evidence-${changeId}.zip`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -84,7 +84,7 @@ export default function EvidencePanel({
       <div className="mt-3 grid gap-3 text-sm">
         <p className="muted small m-0">
           Sealed {e.sealed_at ? new Date(e.sealed_at).toLocaleString() : ""}{" "}
-          when the run was{" "}
+          when the change was{" "}
           <strong>{LABEL[e.status_at_seal ?? ""] ?? e.status_at_seal}</strong>
           {e.commit && (
             <>
@@ -116,7 +116,7 @@ export default function EvidencePanel({
             {busy ? "preparing…" : "Download bundle (.zip)"}
           </button>{" "}
           <span className="muted small">
-            for the order's creator or an admin (it includes transcripts)
+            for the product's creator or an admin (it includes transcripts)
           </span>
         </div>
         <table className="wide">

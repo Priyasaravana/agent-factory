@@ -9,17 +9,17 @@ from agent_factory.agents import FakeAgentRunner
 from agent_factory.app_factory import Factory, build_factory
 from agent_factory.config import load_config
 from agent_factory.executor import FakeExecutor
-from agent_factory.models import TERMINAL, CreateOrderInput, RunStatus
+from agent_factory.models import TERMINAL, ChangeStatus, CreateProductInput
 from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 
 REPO = Path(__file__).resolve().parents[2]
 WAIT_STATES = TERMINAL | {
-    RunStatus.held,
-    RunStatus.needs_input,
-    RunStatus.paused_limits,
-    RunStatus.awaiting_approval,
-    RunStatus.awaiting_risk_approval,
+    ChangeStatus.held,
+    ChangeStatus.needs_input,
+    ChangeStatus.paused_limits,
+    ChangeStatus.awaiting_approval,
+    ChangeStatus.awaiting_risk_approval,
 }
 
 
@@ -81,18 +81,18 @@ def make_factory(tmp_path, cfg):
     return make
 
 
-async def wait_run(f: Factory, run_id: str, timeout: float = 30) -> RunStatus:
-    async def poll() -> RunStatus:
+async def wait_run(f: Factory, change_id: str, timeout: float = 30) -> ChangeStatus:
+    async def poll() -> ChangeStatus:
         while True:
-            run = f.store.get_run(run_id)
-            if run and run.status in WAIT_STATES and not f.manager.is_active(run_id):
-                return run.status
+            change = f.store.get_change(change_id)
+            if change and change.status in WAIT_STATES and not f.manager.is_active(change_id):
+                return change.status
             await asyncio.sleep(0.05)
 
     return await asyncio.wait_for(poll(), timeout)
 
 
-ORDER = CreateOrderInput(
+PRODUCT = CreateProductInput(
     title="Bookmarks service",
     requirements="Save bookmarks with url, title, notes and tags; list and filter by tag.",
 )

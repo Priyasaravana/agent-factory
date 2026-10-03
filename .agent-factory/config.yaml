@@ -13,7 +13,7 @@ timezone: Europe/London
 
 factory:
   name: agent-factory
-  max_concurrent_runs: 1          # a laptop runs one line at a time
+  max_concurrent_changes: 1       # a laptop works on one change at a time
   data_dir: /data                 # state db, product repos, run worktrees, holdout
   public_app_base_url: http://localhost   # apps are reachable at <base>:<host_port>
 
@@ -27,15 +27,15 @@ models:
 # Product lines = golden paths. Adding an app type means adding a template
 # folder and an entry here, not writing engine code.
 # ---------------------------------------------------------------------------
-product_lines:
+blueprints:
   fastapi-service:
     description: Python FastAPI REST service with Postgres, Helm chart, NodePort
     template: templates/fastapi-service
-    # The product line's workflow (stations + agents) is seeded from this template
+    # The blueprint's workflow (stations + agents) is seeded from this template
     # on first start, then edited in the UI and stored as versions in the DB.
     workflow_template: workflow-templates/default
     verify_command: make verify
-    # What this product line builds with. An order that requires anything else (e.g. Node.js,
+    # What this blueprint builds with. A request that requires anything else (e.g. Node.js,
     # Go, MongoDB, a React UI) is asked about at intake instead of silently built in Python.
     stack: [python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes]
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
@@ -56,12 +56,12 @@ product_lines:
       anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
     chart_path: deploy/chart
     service_port: 8000
-    node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive orders to free one
+    node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 
 # ---------------------------------------------------------------------------
 # Delivery integrations (docs/design/integrations.md). Stations call the
-# provider bound to the product line's environment for each capability.
+# provider bound to the blueprint's environment for each capability.
 # `local` (kind + dind + Trivy + gh) always exists and needs no config.
 # Never put credentials here: `auth.secret_ref` names where one lives.
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ integrations:
   # Phase 5 (ADR-0026): any OCI registry + Helm to any cluster, one ingress host per app
   # (no port limit). These two are the local trial on the kind cluster: run
   # `make reset-cluster` once (new port and registry settings), then `make local-ingress`,
-  # then set a product line's `environment: local-ingress`. For a real cluster copy them,
+  # then set a blueprint's `environment: local-ingress`. For a real cluster copy them,
   # e.g. repository ghcr.io/<owner>/factory with username + secret_ref, and
   # ingress_domain apps.example.com with public_scheme https and a kubeconfig secret_ref.
   kind-registry:
@@ -112,8 +112,8 @@ sandbox:
   routes:                         # keep the host name, connect elsewhere (sandbox/egress.py)
     - "*.localtest.me:8180=dind:8180"
 
-# Readiness checks + order preflight (docs/adr/0015-readiness-and-preflight.md):
-# a failed check refuses new orders/iterations before any model usage.
+# Readiness checks + preflight (docs/adr/0015-readiness-and-preflight.md):
+# a failed check refuses new products/changes before any model usage.
 preflight:
   interval_minutes: 15
   max_age_seconds: 60
@@ -155,8 +155,8 @@ gates:
 
 budgets:
   max_attempts_per_station: 3     # then HOLD for a human
-  max_loops_per_run: 6            # total fail->retry transitions per run
-  run_wall_clock_minutes: 120
+  max_loops_per_change: 6         # total fail->retry transitions per change
+  change_wall_clock_minutes: 120
 
 limits:
   # stay-within-limits, enforced natively by the engine from the SDK's

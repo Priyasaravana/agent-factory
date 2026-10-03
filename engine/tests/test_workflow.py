@@ -6,11 +6,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, default_skill_names, wait_run
+from conftest import PRODUCT, default_skill_names, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.models import EventKind, RunStatus
+from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.workflow import (
     AgentSpec,
     WorkflowDoc,
@@ -119,19 +119,19 @@ async def test_invalid_import_is_rejected_and_nothing_stored(make_factory, tmp_p
 
 async def test_runs_are_pinned_to_their_line_version(make_factory, tmp_path) -> None:
     f = make_factory()
-    order = f.manager.create_order(ORDER)
-    run1 = f.manager.start_run(order)
+    order = f.manager.create_product(PRODUCT)
+    change1 = f.manager.start_change(order)
     v2 = f.workflows[WF].import_dir(_custom_line(tmp_path), "add security-review after build")
     assert v2 == 2 and f.workflows[WF].active_version() == 2
-    assert await wait_run(f, run1.id) == RunStatus.awaiting_feedback
-    assert f.store.get_run(run1.id).workflow_version == 1
-    stations1 = {e.station for e in f.store.list_events(run1.id) if e.kind == EventKind.station_finished}
+    assert await wait_run(f, change1.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_change(change1.id).workflow_version == 1
+    stations1 = {e.station for e in f.store.list_events(change1.id) if e.kind == EventKind.station_finished}
     assert "security-review" not in stations1, "v1 run must not pick up the v2 station"
 
-    run2 = f.manager.feedback(order.id, "tighten input validation")
-    assert run2.workflow_version == 2
-    assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
-    stations2 = [e.station for e in f.store.list_events(run2.id) if e.kind == EventKind.station_finished]
+    change2 = f.manager.feedback(order.id, "tighten input validation")
+    assert change2.workflow_version == 2
+    assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback
+    stations2 = [e.station for e in f.store.list_events(change2.id) if e.kind == EventKind.station_finished]
     assert stations2.index("security-review") == stations2.index("implement") + 1
 
 
@@ -139,8 +139,8 @@ async def test_generic_agent_failure_routes_findings_to_its_on_fail(make_factory
     agents = FakeAgentRunner(fail_once=["security-reviewer"])
     f = make_factory(agents=agents)
     f.workflows[WF].import_dir(_custom_line(tmp_path), "add security-review")
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     builds = [c for c in agents.calls if c.role == "developer"]
     assert len(builds) == 2 and "simulated finding" in builds[1].prompt
     reviewer = next(c for c in agents.calls if c.role == "security-reviewer")
@@ -152,9 +152,9 @@ async def test_rollback_by_activating_an_old_version(make_factory, tmp_path) -> 
     f = make_factory()
     f.workflows[WF].import_dir(_custom_line(tmp_path), "v2")
     f.workflows[WF].activate(1)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert run.workflow_version == 1
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert change.workflow_version == 1
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
 
 def test_export_import_roundtrip(tmp_path) -> None:

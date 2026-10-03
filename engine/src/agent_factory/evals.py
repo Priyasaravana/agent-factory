@@ -1,5 +1,5 @@
 """Evaluation harness (ADR-0025): a workflow version is measured on a fixed suite of
-orders before it serves real ones.
+products before it serves real ones.
 
 - **The suite** is part of the workflow (`WorkflowDoc.evals`), versioned with it.
 - **An evaluation** runs every case as a hidden order pinned to the candidate
@@ -13,8 +13,8 @@ orders before it serves real ones.
   until its evaluation passes, then activates it; `warn` activates at once and
   reports; `off` does nothing. Rolling back to an older version is never gated.
 
-Evaluation orders are archived when the evaluation finishes (their app ports are
-freed) and never appear in the orders list or on Outcomes.
+Evaluation products are archived when the evaluation finishes (their app ports are
+freed) and never appear in the products list or on Outcomes.
 """
 
 from __future__ import annotations
@@ -26,20 +26,20 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.models import (
-    CreateOrderInput,
+    Change,
+    ChangeStatus,
+    CreateProductInput,
     EvalCaseResult,
     EvalRun,
     EvalSide,
     EvalSummary,
     EvalVerdict,
     EventKind,
-    Order,
-    Run,
-    RunStatus,
+    Product,
 )
 
 if TYPE_CHECKING:
-    from agent_factory.engine.pipeline import RunManager
+    from agent_factory.engine.pipeline import ChangeManager
 
 # Regression thresholds: small suites are noisy, so cost and time need a margin.
 COST_REGRESSION = 0.25  # cost per delivery up by more than 25% …
@@ -49,10 +49,10 @@ VERIFIED_REGRESSION = 0.10  # requirements verified live: share down by more tha
 LEAD_TIME_WARNING = 0.5  # lead time up by more than 50%: warning only
 
 FINAL = {
-    RunStatus.awaiting_feedback: "delivered",
-    RunStatus.failed: "failed",
-    RunStatus.held: "held",
-    RunStatus.cancelled: "cancelled",
+    ChangeStatus.awaiting_feedback: "delivered",
+    ChangeStatus.failed: "failed",
+    ChangeStatus.held: "held",
+    ChangeStatus.cancelled: "cancelled",
 }
 
 
@@ -125,7 +125,7 @@ def _results(e: EvalRun) -> list[tuple[EvalSide, EvalCaseResult]]:
     return [(s, r) for s in sides for r in s.results]
 
 
-def _previous_summary(mgr: RunManager, workflow_id: str, suite: str, version: int) -> tuple[str, EvalSummary] | None:
+def _previous_summary(mgr: ChangeManager, workflow_id: str, suite: str, version: int) -> tuple[str, EvalSummary] | None:
     """The latest finished result of this suite on `version` (as candidate or baseline)."""
     for e in mgr.store.list_evals(workflow_id):
         if e.status != "done" or e.suite_hash != suite:
@@ -137,12 +137,12 @@ def _previous_summary(mgr: RunManager, workflow_id: str, suite: str, version: in
 
 
 def start(
-    mgr: RunManager, workflow_id: str, version: int, by: str, trigger: str = "manual", baseline: int | None = None
+    mgr: ChangeManager, workflow_id: str, version: int, by: str, trigger: str = "manual", baseline: int | None = None
 ) -> EvalRun:
     from agent_factory.engine.pipeline import FactoryError
 
-    if workflow_id not in mgr.cfg.product_lines:
-        raise FactoryError(f"workflow '{workflow_id}' has no product line to evaluate on")
+    if workflow_id not in mgr.cfg.blueprints:
+        raise FactoryError(f"workflow '{workflow_id}' has no blueprint to evaluate on")
     svc = mgr.workflows[workflow_id]
     doc = svc.get(version)
     if not doc.evals:
@@ -174,74 +174,74 @@ def start(
         mapped = mgr.preflight.mapped_node_ports
         hint = (
             f"; the cluster maps only {len(mapped)} app ports: `make reset-cluster` maps all of them"
-            if mapped is not None and len(mapped) < len(mgr.cfg.product_lines[workflow_id].node_ports)
+            if mapped is not None and len(mapped) < len(mgr.cfg.blueprints[workflow_id].node_ports)
             else ""
         )
         raise FactoryError(
             f"an evaluation needs {need} free app ports and {len(usable)} are usable: archive orders you no "
             f"longer need{hint}"
         )
-    created: list[tuple[Order, Run]] = []
+    created: list[tuple[Product, Change]] = []
     try:
         for side in sides:
             for case in doc.evals:
-                order = mgr.create_order(
-                    CreateOrderInput(
+                product = mgr.create_product(
+                    CreateProductInput(
                         title=f"[eval {e.id[:6]} v{side.version}] {case.title}"[:120],
                         requirements=case.requirements,
-                        product_line=workflow_id,
+                        blueprint=workflow_id,
                     )
                 )
-                order.eval_run_id, order.created_by = e.id, by
-                mgr.store.save_order(order)
-                run = mgr.start_run(order, version=side.version)
-                created.append((order, run))
+                product.eval_run_id, product.created_by = e.id, by
+                mgr.store.save_product(product)
+                change = mgr.start_change(product, version=side.version)
+                created.append((product, change))
                 side.results.append(
                     EvalCaseResult(
-                        case_id=case.id, title=case.title, order_id=order.id, run_id=run.id, status="running"
+                        case_id=case.id, title=case.title, product_id=product.id, change_id=change.id, status="running"
                     )
                 )
     except Exception:
         # all or nothing: runs were only scheduled (no await yet), so nothing was built or deployed
-        for order, run in created:
-            mgr.cancel(run.id)
-            order.archived_at, order.archived_by = _now(), "evaluation"
-            mgr.store.save_order(order)
+        for product, change in created:
+            mgr.cancel(change.id)
+            product.archived_at, product.archived_by = _now(), "evaluation"
+            mgr.store.save_product(product)
         raise
     return mgr.store.save_eval(e)  # no await since the first start_run: no run has stopped yet
 
 
-def on_run_stopped(mgr: RunManager, run: Run, order: Order) -> None:
+def on_change_stopped(mgr: ChangeManager, change: Change, product: Product) -> None:
     """Called by the engine whenever an evaluation run stops. Synchronous on purpose:
     the read-modify-write of the evaluation cannot interleave with another case."""
-    if not order.eval_run_id:
+    if not product.eval_run_id:
         return
-    e = mgr.store.get_eval(order.eval_run_id)
+    e = mgr.store.get_eval(product.eval_run_id)
     if e is None or e.status != "running":
         return
-    found = next(((s, r) for s, r in _results(e) if r.run_id == run.id), None)
+    found = next(((s, r) for s, r in _results(e) if r.change_id == change.id), None)
     if found is None or found[1].final:
         return
     side, res = found
-    if run.status == RunStatus.awaiting_approval:
-        mgr.approve_spec(run.id, by="evaluation")  # the spec gate is a planned touch
+    if change.status == ChangeStatus.awaiting_approval:
+        mgr.approve_spec(change.id, by="evaluation")  # the spec gate is a planned touch
         return
-    if run.status == RunStatus.awaiting_risk_approval:
+    if change.status == ChangeStatus.awaiting_risk_approval:
         # never approved automatically: a fixed case that trips the change-risk rules is a finding
-        _final(mgr, res, run, "held", "risky changes held for an admin (change risk, ADR-0027)")
+        _final(mgr, res, change, "held", "risky changes held for an admin (change risk, ADR-0027)")
         return
-    if run.status == RunStatus.needs_input:
+    if change.status == ChangeStatus.needs_input:
         case = next(
             (c for c in mgr.workflows[e.workflow_id].get(e.candidate.version).evals if c.id == res.case_id), None
         )
-        if case and case.answers and not run.answers:
+        if case and case.answers and not change.answers:
             res.unplanned_touch = True
-            mgr.answer(run.id, case.answers, by="evaluation")
+            mgr.answer(change.id, case.answers, by="evaluation")
             mgr.store.save_eval(e)
             return
-        _final(mgr, res, run, "needed_input", "intake asked blocking questions the case has no answers for")
-    elif run.status in FINAL:
-        _final(mgr, res, run, FINAL[run.status])
+        _final(mgr, res, change, "needed_input", "intake asked blocking questions the case has no answers for")
+    elif change.status in FINAL:
+        _final(mgr, res, change, FINAL[change.status])
     else:
         return  # paused for the usage window, or still going: not final yet
     mgr.store.save_eval(e)
@@ -249,15 +249,15 @@ def on_run_stopped(mgr: RunManager, run: Run, order: Order) -> None:
         mgr._tasks[f"eval-{e.id}"] = asyncio.get_running_loop().create_task(finish(mgr, e.id), name=f"eval-{e.id}")
 
 
-def _final(mgr: RunManager, res: EvalCaseResult, run: Run, status: str, note: str | None = None) -> None:
-    res.status, res.final, res.note = status, True, note or run.summary
-    res.cost_usd, res.fix_loops = round(run.cost_usd, 4), run.loops
-    trans = mgr.store.transitions([run.id]).get(run.id, [])
-    done = next((t.ts for t in reversed(trans) if t.to_status == RunStatus.awaiting_feedback), None)
-    res.lead_time_s = round((done - run.created_at).total_seconds(), 1) if done else None
-    if got := mgr.store.last_event_data(run.id, "readiness"):
+def _final(mgr: ChangeManager, res: EvalCaseResult, change: Change, status: str, note: str | None = None) -> None:
+    res.status, res.final, res.note = status, True, note or change.summary
+    res.cost_usd, res.fix_loops = round(change.cost_usd, 4), change.loops
+    trans = mgr.store.transitions([change.id]).get(change.id, [])
+    done = next((t.ts for t in reversed(trans) if t.to_status == ChangeStatus.awaiting_feedback), None)
+    res.lead_time_s = round((done - change.created_at).total_seconds(), 1) if done else None
+    if got := mgr.store.last_event_data(change.id, "readiness"):
         res.readiness_level = int(got[1].get("level", 0))
-    if got := mgr.store.last_event_data(run.id, "traceability"):
+    if got := mgr.store.last_event_data(change.id, "traceability"):
         rows: list[dict[str, Any]] = list(got[1])
         res.requirements = len(rows)
         res.requirements_verified = sum(
@@ -265,13 +265,13 @@ def _final(mgr: RunManager, res: EvalCaseResult, run: Run, status: str, note: st
         )
 
 
-async def finish(mgr: RunManager, eval_id: str) -> EvalRun | None:
+async def finish(mgr: ChangeManager, eval_id: str) -> EvalRun | None:
     """All cases are final: wait for their post-run work, judge, free the ports, apply the gate."""
     e = mgr.store.get_eval(eval_id)
     if e is None:
         return None
     me = asyncio.current_task()
-    ids = {r.run_id for _, r in _results(e)}
+    ids = {r.change_id for _, r in _results(e)}
     pending = [t for rid, t in mgr._tasks.items() if rid in ids and t is not me]
     await asyncio.gather(*pending, return_exceptions=True)  # retro and seal of the last cases
     for side in (e.candidate, e.baseline):
@@ -281,9 +281,9 @@ async def finish(mgr: RunManager, eval_id: str) -> EvalRun | None:
     assert e.candidate.summary is not None
     e.verdict = judge(base, e.candidate.summary, e.baseline.version if e.baseline else None)
     for _, r in _results(e):
-        if r.order_id:
+        if r.product_id:
             try:
-                await mgr.archive(r.order_id, "evaluation")
+                await mgr.archive(r.product_id, "evaluation")
             except Exception as exc:  # noqa: BLE001 - a port that stays taken is reported, never fatal
                 r.note = f"{r.note or ''} (archive failed: {exc})".strip()
     svc = mgr.workflows[e.workflow_id]
@@ -301,7 +301,7 @@ async def finish(mgr: RunManager, eval_id: str) -> EvalRun | None:
     return mgr.store.save_eval(e)
 
 
-def gate_activation(mgr: RunManager, workflow_id: str, version: int, by: str, override: str | None) -> None:
+def gate_activation(mgr: ChangeManager, workflow_id: str, version: int, by: str, override: str | None) -> None:
     """Refuse to activate a newer `block`-gated version without a passing evaluation.
     An admin may override a failed evaluation with a recorded reason. Rollback is free."""
     from agent_factory.engine.pipeline import FactoryError
@@ -326,7 +326,7 @@ def gate_activation(mgr: RunManager, workflow_id: str, version: int, by: str, ov
     mgr.store.save_eval(failed)
 
 
-def record_not_started(mgr: RunManager, workflow_id: str, version: int, by: str, error: str) -> EvalRun:
+def record_not_started(mgr: ChangeManager, workflow_id: str, version: int, by: str, error: str) -> EvalRun:
     """A gated publish whose evaluation could not start: kept, so the reason stays visible."""
     return mgr.store.save_eval(
         EvalRun(
@@ -344,7 +344,7 @@ def record_not_started(mgr: RunManager, workflow_id: str, version: int, by: str,
     )
 
 
-def version_states(mgr: RunManager, workflow_id: str) -> dict[int, str]:
+def version_states(mgr: ChangeManager, workflow_id: str) -> dict[int, str]:
     """One line per evaluated version for the versions list, from its latest evaluation."""
     out: dict[int, str] = {}
     svc = mgr.workflows[workflow_id]
@@ -371,49 +371,49 @@ def version_states(mgr: RunManager, workflow_id: str) -> dict[int, str]:
     return out
 
 
-async def cancel(mgr: RunManager, e: EvalRun) -> EvalRun:
+async def cancel(mgr: ChangeManager, e: EvalRun) -> EvalRun:
     from agent_factory.engine.pipeline import FactoryError
 
     if e.status != "running":
         raise FactoryError("this evaluation is not running")
     e.status, e.finished_at = "cancelled", _now()
     mgr.store.save_eval(e)  # first: stopping runs must not report to it any more
-    ids = [r.run_id for _, r in _results(e) if r.run_id]
+    ids = [r.change_id for _, r in _results(e) if r.change_id]
     for rid in ids:
-        run = mgr.store.get_run(rid)
-        if run and run.status not in FINAL:
+        change = mgr.store.get_change(rid)
+        if change and change.status not in FINAL:
             mgr.cancel(rid)
     await asyncio.gather(*[t for rid, t in list(mgr._tasks.items()) if rid in ids], return_exceptions=True)
     for _, r in _results(e):
-        if r.order_id:
+        if r.product_id:
             try:
-                await mgr.archive(r.order_id, "evaluation")
+                await mgr.archive(r.product_id, "evaluation")
             except Exception as exc:  # noqa: BLE001
                 r.note = f"archive failed: {exc}"
     return mgr.store.save_eval(e)
 
 
-async def recover_on_startup(mgr: RunManager) -> list[str]:
+async def recover_on_startup(mgr: ChangeManager) -> list[str]:
     """An evaluation cut short by a restart can't be judged fairly: cancel it, free its ports.
-    Evaluation orders whose evaluation is missing or over (left by a failed start) are
+    Evaluation products whose evaluation is missing or over (left by a failed start) are
     cancelled and archived too."""
     out = []
-    for order in mgr.store.list_orders():
-        if not order.eval_run_id or order.archived_at:
+    for product in mgr.store.list_products():
+        if not product.eval_run_id or product.archived_at:
             continue
-        e = mgr.store.get_eval(order.eval_run_id)
+        e = mgr.store.get_eval(product.eval_run_id)
         if e is not None and e.status == "running":
             continue
-        for run in mgr.store.list_runs(order.id):
-            if run.status not in FINAL:
-                mgr.cancel(run.id)
+        for change in mgr.store.list_changes(product.id):
+            if change.status not in FINAL:
+                mgr.cancel(change.id)
         try:
-            await mgr.archive(order.id, "evaluation")
+            await mgr.archive(product.id, "evaluation")
         except Exception as exc:  # noqa: BLE001 - archived next time; never blocks startup
-            if order.latest_run_id:
-                mgr.store.add_event(order.latest_run_id, EventKind.log, f"evaluation cleanup failed: {exc}")
+            if product.latest_change_id:
+                mgr.store.add_event(product.latest_change_id, EventKind.log, f"evaluation cleanup failed: {exc}")
             continue
-        out.append(order.id)
+        out.append(product.id)
     for wf in mgr.workflows.ids():
         for e in mgr.store.list_evals(wf):
             if e.status == "running":

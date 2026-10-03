@@ -11,11 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { cn } from "../lib/utils";
 import { ago } from "../lib/time";
 
-export default function OrdersPage() {
+export default function ProductsPage() {
   const [showArchived, setShowArchived] = useState(false);
-  const orders = useQuery({
-    queryKey: ["orders", showArchived],
-    queryFn: () => unwrap(api.GET("/api/orders", { params: { query: { include_archived: showArchived } } })),
+  const products = useQuery({
+    queryKey: ["products", showArchived],
+    queryFn: () => unwrap(api.GET("/api/products", { params: { query: { include_archived: showArchived } } })),
     refetchInterval: 5_000,
   });
   const [params, setParams] = useSearchParams();
@@ -32,7 +32,7 @@ export default function OrdersPage() {
     }
   }, [params, setParams]);
 
-  const list = orders.data ?? [];
+  const list = products.data ?? [];
   const live = list.filter((o) => !o.archived_at);
   const count = (pred: (s: string) => boolean) => live.filter((o) => o.latest_status && pred(o.latest_status)).length;
 
@@ -40,18 +40,18 @@ export default function OrdersPage() {
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="m-0 text-2xl font-semibold tracking-tight">Orders</h1>
+          <h1 className="m-0 text-2xl font-semibold tracking-tight">Products</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Requirements in, verified running software out. You give feedback; agents do the rest.
           </p>
         </div>
         <Button onClick={focusNew}>
-          <Plus /> New order
+          <Plus /> New product
         </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Orders" value={live.length} />
+        <Stat label="Products" value={live.length} />
         <Stat label="In progress" value={count((s) => ACTIVE.has(s))} tone="info" />
         <Stat label="Awaiting feedback" value={count((s) => s === "awaiting_feedback")} tone="ok" />
         <Stat
@@ -67,8 +67,8 @@ export default function OrdersPage() {
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Recent orders</CardTitle>
-              <CardDescription>Newest first. Open one to follow its run live.</CardDescription>
+              <CardTitle>Recent products</CardTitle>
+              <CardDescription>Newest first. Open one to follow its change live.</CardDescription>
             </div>
             <label className="check text-xs text-muted-foreground">
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
@@ -76,19 +76,19 @@ export default function OrdersPage() {
             </label>
           </CardHeader>
           <CardContent className="px-2 pb-2">
-            {orders.isLoading && <Skeleton />}
-            {orders.error && <p className="error px-3">{orders.error.message}</p>}
-            {orders.data?.length === 0 && (
+            {products.isLoading && <Skeleton />}
+            {products.error && <p className="error px-3">{products.error.message}</p>}
+            {products.data?.length === 0 && (
               <div className="grid place-items-center gap-2 px-3 py-12 text-center text-muted-foreground">
                 <Inbox className="size-8 opacity-60" />
-                <p className="m-0 text-sm">No orders yet. Describe your first app on the right.</p>
+                <p className="m-0 text-sm">No products yet. Describe your first app on the right.</p>
               </div>
             )}
             <ul className="m-0 list-none p-0">
               {list.map((o) => (
                 <li key={o.id} className="group flex items-center gap-2 rounded-lg pr-3 transition hover:bg-muted/70">
                   <Link
-                    to={`/orders/${o.id}`}
+                    to={`/products/${o.id}`}
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-3 py-3 text-foreground no-underline hover:no-underline"
                   >
                     <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-sm font-semibold uppercase text-primary">
@@ -97,7 +97,7 @@ export default function OrdersPage() {
                     <span className="min-w-0 flex-1 basis-40">
                       <span className="block truncate font-medium">{o.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {o.product_slug} · {o.product_line} · {ago(o.created_at)}
+                        {o.slug} · {o.blueprint} · {ago(o.created_at)}
                         {o.created_by ? ` · by ${o.created_by}` : ""}
                       </span>
                     </span>
@@ -141,12 +141,12 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
   const create = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/orders", { body: { title, requirements, product_line: line, requirements_format: format } }),
+        api.POST("/api/products", { body: { title, requirements, blueprint: line, requirements_format: format } }),
       ),
     onSuccess: (d) => {
-      qc.invalidateQueries({ queryKey: ["orders"] });
-      toast.success("Order started", { description: d.order.title });
-      nav(`/orders/${d.order.id}`);
+      qc.invalidateQueries({ queryKey: ["products"] });
+      toast.success("Product started", { description: d.product.title });
+      nav(`/products/${d.product.id}`);
     },
   });
   return (
@@ -155,7 +155,7 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
       <CardHeader>
         <div>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" /> New order
+            <Sparkles className="size-4 text-primary" /> New product
           </CardTitle>
           <CardDescription>
             Describe what you want. The factory specifies, designs, builds, tests, deploys and verifies it, then asks for
@@ -182,9 +182,9 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
             />
           </label>
           <label>
-            Product line
+            Blueprint
             <select value={line} onChange={(e) => setLine(e.target.value)}>
-              {Object.entries(config.data?.product_lines ?? { "fastapi-service": "" }).map(([k, v]) => (
+              {Object.entries(config.data?.blueprints ?? { "fastapi-service": "" }).map(([k, v]) => (
                 <option key={k} value={k}>
                   {k} {v ? `— ${v}` : ""}
                 </option>
@@ -243,7 +243,7 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
             )}
           </div>
           <Button disabled={create.isPending} size="lg">
-            <Rocket /> {create.isPending ? "Submitting…" : "Start the line"}
+            <Rocket /> {create.isPending ? "Submitting…" : "Create product"}
           </Button>
           <Problems error={create.error} />
         </form>

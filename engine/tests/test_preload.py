@@ -4,11 +4,11 @@ agent always follows them instead of deciding whether to open the skill."""
 from __future__ import annotations
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from pydantic import ValidationError
 
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec
 
 WF = "fastapi-service"
@@ -28,8 +28,8 @@ async def test_preloaded_skills_are_in_the_prompt_and_not_on_demand(make_factory
     d.upsert_agent(verifier.model_copy(update={"preload_skills": ["agent-watchdog", "factory-station-contract"]}))
     assert d.problems() == []
     d.publish("preload skills for acceptance")
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
     req = next(c for c in runner.calls if c.role == "verifier")
     assert "### Skill: agent-watchdog" in req.system_prompt, "imported skill text (pinned copy) is preloaded"
@@ -38,5 +38,5 @@ async def test_preloaded_skills_are_in_the_prompt_and_not_on_demand(make_factory
     assert "name: agent-watchdog" not in req.system_prompt, "frontmatter is stripped"
     other = next(c for c in runner.calls if c.role == "developer")
     assert "### Skill:" not in other.system_prompt
-    logs = [e.message for e in f.store.list_events(run.id) if e.message.startswith("preloaded skills")]
+    logs = [e.message for e in f.store.list_events(change.id) if e.message.startswith("preloaded skills")]
     assert logs == ["preloaded skills: ['agent-watchdog', 'factory-station-contract']"]

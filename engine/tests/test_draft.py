@@ -4,12 +4,12 @@ publishing and the context an agent actually receives."""
 from __future__ import annotations
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec, RefDoc
 
 WF = "fastapi-service"
@@ -91,16 +91,16 @@ async def test_agent_receives_docs_learnings_and_earlier_iterations(make_factory
     )
     d.publish("developer learnings")
 
-    order = f.manager.create_order(ORDER)
-    run1 = f.manager.start_run(order)
-    assert await wait_run(f, run1.id) == RunStatus.awaiting_feedback
+    product = f.manager.create_product(PRODUCT)
+    change1 = f.manager.start_change(product)
+    assert await wait_run(f, change1.id) == ChangeStatus.awaiting_feedback
     first = next(c for c in agents.calls if c.role == "developer")
     assert "REST API conventions" in first.system_prompt  # blueprint doc attached to developer
     assert "Always add an index" in first.system_prompt
     assert "Earlier iterations" not in first.system_prompt  # nothing earlier yet
 
-    run2 = f.manager.feedback(order.id, "Add full-text search over notes.")
-    assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
+    change2 = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback
     intake2 = [c for c in agents.calls if c.role == "intake"][-1]
     assert "### Iteration 1" in intake2.system_prompt and "assumption:" in intake2.system_prompt
     verifier = [c for c in agents.calls if c.role == "verifier"][-1]

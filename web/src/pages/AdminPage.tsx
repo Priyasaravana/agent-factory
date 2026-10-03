@@ -56,7 +56,7 @@ export default function AdminPage() {
         <h2>Admin: users</h2>
         <p className="muted small">
           <strong>Admins</strong> change workflows, skills and users.{" "}
-          <strong>Members</strong> submit orders, give feedback, operate runs
+          <strong>Members</strong> submit products, give feedback, operate changes
           and can see everything. New users get a temporary password and must
           change it at first sign-in.
         </p>

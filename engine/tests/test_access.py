@@ -9,12 +9,12 @@ import asyncio
 import re
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory import actions
 from agent_factory.identity import requires_admin
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 
 ADMIN = {"X-Auth-User": "saravana", "X-Auth-Role": "admin"}
 MEMBER = {"X-Auth-User": "priya", "X-Auth-Role": "member"}
@@ -23,29 +23,29 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 # mutating actions any signed-in member may call; those that steer an existing
 # order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
-    "create_order",
+    "create_product",
     "submit_feedback",
     "answer_questions",
-    "resume_run",
-    "cancel_run",
+    "resume_change",
+    "cancel_change",
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
     "send_back_risk",
-    "archive_order",
+    "archive_product",
     "run_preflight",
     "log_decision",
 }
 STEERING = {
     "submit_feedback",
     "answer_questions",
-    "resume_run",
-    "cancel_run",
+    "resume_change",
+    "cancel_change",
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
     "send_back_risk",
-    "archive_order",
+    "archive_product",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
 
@@ -83,15 +83,15 @@ async def test_transcripts_are_for_the_orders_creator_or_an_admin(make_factory):
     f.settings.auth_mode = "gateway"
     app, ctx, c = await _client(f)
     async with c:
-        order = (await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)).json()["order"]
-        run_id = order["latest_run_id"]
-        assert await wait_run(f, run_id) == RunStatus.awaiting_feedback
+        product = (await c.post("/api/products", json=PRODUCT.model_dump(), headers=MEMBER)).json()["product"]
+        change_id = product["latest_change_id"]
+        assert await wait_run(f, change_id) == ChangeStatus.awaiting_feedback
         await asyncio.sleep(0.1)
-        calls = (await c.get(f"/api/runs/{run_id}/calls", headers=OTHER)).json()["calls"]
+        calls = (await c.get(f"/api/changes/{change_id}/calls", headers=OTHER)).json()["calls"]
         assert calls, "the call summaries are visible to every member"
-        url = f"/api/runs/{run_id}/calls/{calls[0]['transcript']}/transcript"
+        url = f"/api/changes/{change_id}/calls/{calls[0]['transcript']}/transcript"
         assert (await c.get(url, headers=OTHER)).status_code == 403
-        assert (await c.get(url, headers=MEMBER)).status_code == 200, "the order's creator"
+        assert (await c.get(url, headers=MEMBER)).status_code == 200, "the product's creator"
         assert (await c.get(url, headers=ADMIN)).status_code == 200
     await ctx.__aexit__(None, None, None)
 
@@ -102,24 +102,24 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
     f.settings.auth_mode = "gateway"
     app, ctx, c = await _client(f)
     async with c:
-        order = (await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)).json()["order"]
-        run_id, oid = order["latest_run_id"], order["id"]
-        assert await wait_run(f, run_id) == RunStatus.awaiting_feedback
+        product = (await c.post("/api/products", json=PRODUCT.model_dump(), headers=MEMBER)).json()["product"]
+        change_id, oid = product["latest_change_id"], product["id"]
+        assert await wait_run(f, change_id) == ChangeStatus.awaiting_feedback
         attempts = [
-            ("POST", f"/api/orders/{oid}/feedback", {"text": "add a reset endpoint"}),
-            ("POST", f"/api/runs/{run_id}/answers", {"answers": ["x"]}),
-            ("POST", f"/api/runs/{run_id}/resume", None),
-            ("POST", f"/api/runs/{run_id}/cancel", None),
-            ("POST", f"/api/orders/{oid}/archive", None),
+            ("POST", f"/api/products/{oid}/feedback", {"text": "add a reset endpoint"}),
+            ("POST", f"/api/changes/{change_id}/answers", {"answers": ["x"]}),
+            ("POST", f"/api/changes/{change_id}/resume", None),
+            ("POST", f"/api/changes/{change_id}/cancel", None),
+            ("POST", f"/api/products/{oid}/archive", None),
         ]
         for method, url, body in attempts:
             r = await c.request(method, url, json=body, headers=OTHER)
             assert r.status_code == 403, f"{url}: {r.status_code}"
-            assert r.json()["detail"] == "only the order's creator or an admin can do this"
-        r = await c.post(f"/api/orders/{oid}/feedback", json={"text": "add a reset endpoint"}, headers=MEMBER)
+            assert r.json()["detail"] == "only the product's creator or an admin can do this"
+        r = await c.post(f"/api/products/{oid}/feedback", json={"text": "add a reset endpoint"}, headers=MEMBER)
         assert r.status_code == 201, "the creator can"
-        run2 = r.json()["id"]
-        assert (await c.post(f"/api/runs/{run2}/cancel", headers=ADMIN)).status_code == 200, "an admin can"
+        change2 = r.json()["id"]
+        assert (await c.post(f"/api/changes/{change2}/cancel", headers=ADMIN)).status_code == 200, "an admin can"
     await ctx.__aexit__(None, None, None)
 
 
@@ -128,4 +128,4 @@ def test_every_steering_action_checks_the_order():
 
     for name in STEERING:
         src = inspect.getsource(actions.REGISTRY[name].fn)
-        assert "_may_steer" in src, f"{name} must check the order's creator or an admin"
+        assert "_may_steer" in src, f"{name} must check the product's creator or an admin"

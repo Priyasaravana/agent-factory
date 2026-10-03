@@ -1,7 +1,7 @@
 """Provider seam: where a delivery step happens, separate from what the station does.
 
 A station (package, deploy, deliver) keeps its evidence contract and calls the
-provider bound to the run's environment for each capability:
+provider bound to the change's environment for each capability:
 
     registry  make a built image available to the deploy target (kind load, ECR push, ...)
     scan      scan an image for vulnerabilities (Trivy in dind, a scanner service, ...)
@@ -96,7 +96,7 @@ class ScanProvider(Provider, Protocol):
 
 
 class DeployProvider(Provider, Protocol):
-    uses_node_ports: bool  # True: each order needs one of the product line's node_ports
+    uses_node_ports: bool  # True: each product needs one of the blueprint's node_ports
 
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app
@@ -116,7 +116,7 @@ class ProviderError(Exception):
 
 @dataclass
 class ProviderSet:
-    """The providers bound to one run's environment, one per capability."""
+    """The providers bound to one change's environment, one per capability."""
 
     environment: str
     registry: RegistryProvider

@@ -19,21 +19,21 @@ type Entry = {
   cost_usd?: number;
 };
 
-/** Every agent call of a run (ADR-0022): who ran, on which model, how long, what it
+/** Every agent call of a change (ADR-0022): who ran, on which model, how long, what it
  * cost, which tools it used and what the guardrails refused, with its transcript. */
 export default function AgentCallsPanel({
-  runId,
+  changeId,
   runStatus,
 }: {
-  runId: string;
+  changeId: string;
   runStatus: string;
 }) {
   const q = useQuery({
-    queryKey: ["calls", runId, runStatus],
+    queryKey: ["calls", changeId, runStatus],
     queryFn: () =>
       unwrap(
-        api.GET("/api/runs/{run_id}/calls", {
-          params: { path: { run_id: runId } },
+        api.GET("/api/changes/{change_id}/calls", {
+          params: { path: { change_id: changeId } },
         }),
       ),
   });
@@ -126,19 +126,19 @@ export default function AgentCallsPanel({
             ))}
           </tbody>
         </table>
-        {open && <Transcript runId={runId} name={open} />}
+        {open && <Transcript changeId={changeId} name={open} />}
       </div>
     </details>
   );
 }
 
-function Transcript({ runId, name }: { runId: string; name: string }) {
+function Transcript({ changeId, name }: { changeId: string; name: string }) {
   const q = useQuery({
-    queryKey: ["transcript", runId, name],
+    queryKey: ["transcript", changeId, name],
     queryFn: () =>
       unwrap(
-        api.GET("/api/runs/{run_id}/calls/{name}/transcript", {
-          params: { path: { run_id: runId, name } },
+        api.GET("/api/changes/{change_id}/calls/{name}/transcript", {
+          params: { path: { change_id: changeId, name } },
         }),
       ) as Promise<Entry[]>,
   });

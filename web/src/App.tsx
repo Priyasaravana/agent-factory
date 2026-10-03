@@ -4,7 +4,7 @@ import {
   Plug, Shield, ShieldAlert, ShieldCheck, Sparkles, Sun, X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Toaster } from "sonner";
 import { api, unwrap } from "./api/client";
 import { useAuth, useSignOut } from "./auth";
@@ -20,8 +20,8 @@ import AccountPage, { ChangePassword } from "./pages/AccountPage";
 import AdminPage from "./pages/AdminPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import LoginPage from "./pages/LoginPage";
-import OrderPage from "./pages/OrderPage";
-import OrdersPage from "./pages/OrdersPage";
+import ProductPage from "./pages/ProductPage";
+import ProductsPage from "./pages/ProductsPage";
 import OutcomesPage from "./pages/OutcomesPage";
 import SkillsPage from "./pages/SkillsPage";
 import WorkflowEditPage from "./pages/WorkflowEditPage";
@@ -60,7 +60,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const auth = useAuth();
   const isAdmin = auth.kind === "signed-in" && auth.me.role === "admin";
   const items: NavItem[] = [
-    { to: "/", label: "Orders", icon: <LayoutDashboard />, end: true },
+    { to: "/", label: "Products", icon: <LayoutDashboard />, end: true },
     { to: "/outcomes", label: "Outcomes", icon: <Gauge /> },
     { to: "/workflows", label: "Workflows", icon: <Boxes /> },
     { to: "/skills", label: "Skills", icon: <Sparkles /> },
@@ -197,7 +197,7 @@ function StatusChips() {
       <span className={cn("pill", h.github ? "ok" : "muted")}>github {h.github ? "on" : "off"}</span>
       <SandboxChip state={h.sandbox ?? "off"} detail={h.sandbox_detail ?? []} mode={h.mode} />
       <ReadinessChip state={h.preflight ?? "unknown"} />
-      <span className={cn("pill", h.active_runs ? "info" : "muted")}>{h.active_runs} active</span>
+      <span className={cn("pill", h.active_changes ? "info" : "muted")}>{h.active_changes} active</span>
     </div>
   );
 }
@@ -225,11 +225,11 @@ function ReadinessChip({ state }: { state: string }) {
   const tone = { ready: "ok", degraded: "warn", failed: "bad" }[state] ?? "muted";
   const why =
     state === "failed"
-      ? "A readiness check failed: new orders are refused until it is fixed"
+      ? "A readiness check failed: new products are refused until it is fixed"
       : state === "degraded"
-        ? "Something needs attention, but runs are not blocked"
+        ? "Something needs attention, but changes are not blocked"
         : state === "ready"
-          ? "Everything a run needs is ready"
+          ? "Everything a change needs is ready"
           : "Readiness not checked yet";
   return (
     <Tip label={why} side="bottom">
@@ -280,8 +280,9 @@ function Shell() {
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-8">
           <ErrorBoundary resetKey={location.pathname}>
             <Routes>
-              <Route path="/" element={<OrdersPage />} />
-              <Route path="/orders/:orderId" element={<OrderPage />} />
+              <Route path="/" element={<ProductsPage />} />
+              <Route path="/products/:productId" element={<ProductPage />} />
+              <Route path="/orders/:productId" element={<LegacyProductLink />} />
               <Route path="/outcomes" element={<OutcomesPage />} />
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/workflows/:workflowId" element={<WorkflowPage />} />
@@ -298,4 +299,10 @@ function Shell() {
       <CommandPalette open={palette.open} setOpen={palette.setOpen} />
     </div>
   );
+}
+
+/** Links from before the rename (ADR-0029): /orders/<id> is now /products/<id>. */
+function LegacyProductLink() {
+  const { productId = "" } = useParams();
+  return <Navigate to={`/products/${productId}`} replace />;
 }

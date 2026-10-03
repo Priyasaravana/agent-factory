@@ -1,6 +1,6 @@
 """Readiness checks and order preflight (phase 4, ADR-0015).
 
-Before a run can spend model tokens, everything it will need is checked:
+Before a change can spend model tokens, everything it will need is checked:
 
     agents    model credential, agent sandbox
     build     Docker-in-Docker          (the registry integration's check)
@@ -9,7 +9,7 @@ Before a run can spend model tokens, everything it will need is checked:
     publish   credential reference resolvable (per integration; never blocks)
     workflow  the active workflow keeps apps at readiness Level 3
 
-A `failed` check blocks what it guards: every check guards new orders, and all
+A `failed` check blocks what it guards: every check guards new products, and all
 but the app-port check also guard new iterations. `degraded` never blocks; it is
 shown on the Integrations page and in the header. Results are cached and
 refreshed at startup, every `preflight.interval_minutes`, on demand, and when a
@@ -28,11 +28,11 @@ from agent_factory.models import CheckView, PreflightView
 from agent_factory.providers.base import CheckContext, Readiness
 
 if TYPE_CHECKING:
-    from agent_factory.engine.pipeline import RunManager
+    from agent_factory.engine.pipeline import ChangeManager
 
 log = logging.getLogger("agent_factory.preflight")
 
-BLOCK_ALL = ["order", "iteration"]
+BLOCK_ALL = ["product", "change"]
 _RANK = {"ready": 0, "degraded": 1, "failed": 2}
 
 
@@ -41,7 +41,7 @@ class PreflightFailed(Exception):
         self.view, self.action = view, action
         failing = [c for c in view.checks if c.state == "failed" and action in c.blocks]
         self.problems = [f"{c.title}: {'; '.join(c.reasons)}" for c in failing]
-        super().__init__(f"preflight failed for {view.product_line} ({len(failing)} check(s)); nothing was started")
+        super().__init__(f"preflight failed for {view.blueprint} ({len(failing)} check(s)); nothing was started")
 
 
 def _check(
@@ -65,7 +65,7 @@ def _check(
 
 
 class Preflight:
-    def __init__(self, manager: RunManager) -> None:
+    def __init__(self, manager: ChangeManager) -> None:
         self.m = manager
         self.cache: dict[str, PreflightView] = {}
         self._lock = asyncio.Lock()
@@ -73,7 +73,7 @@ class Preflight:
         self.mapped_node_ports: set[int] | None = None  # learnt from the local cluster
 
     # --------------------------------------------------------------- API --
-    async def product_line(self, pl: str, max_age: float | None = None) -> PreflightView:
+    async def blueprint(self, pl: str, max_age: float | None = None) -> PreflightView:
         max_age = self.m.cfg.preflight.max_age_seconds if max_age is None else max_age
         cached = self.cache.get(pl)
         if cached and (datetime.now(UTC) - cached.checked_at).total_seconds() <= max_age:
@@ -84,15 +84,15 @@ class Preflight:
             return view
 
     async def all(self, max_age: float = 0) -> list[PreflightView]:
-        return [await self.product_line(pl, max_age) for pl in self.m.cfg.product_lines]
+        return [await self.blueprint(pl, max_age) for pl in self.m.cfg.blueprints]
 
     async def gate(self, pl: str, action: str) -> PreflightView:
-        """Raise PreflightFailed if a check guarding `action` ("order"/"iteration") failed.
+        """Raise PreflightFailed if a check guarding `action` ("product"/"change") failed.
         Integration checks may come from the cache; the in-memory checks (model,
         sandbox, ports, workflow) are always re-evaluated, so they are never stale."""
-        view = self.refresh_local(await self.product_line(pl))
+        view = self.refresh_local(await self.blueprint(pl))
         if self._blocked(view, action):
-            view = await self.product_line(pl, max_age=0)  # a cached failure may have been fixed
+            view = await self.blueprint(pl, max_age=0)  # a cached failure may have been fixed
             if self._blocked(view, action):
                 raise PreflightFailed(view, action)
         return view
@@ -103,11 +103,11 @@ class Preflight:
 
     def refresh_local(self, view: PreflightView) -> PreflightView:
         live = self.m.settings.factory_mode == "live"
-        fresh = {"model": self._model(live), "sandbox": self._sandbox(live), "ports": self._ports(view.product_line)}
+        fresh = {"model": self._model(live), "sandbox": self._sandbox(live), "ports": self._ports(view.blueprint)}
         checks = [fresh.get(c.id, c) for c in view.checks]
         state = max((c.state for c in checks), key=lambda st: _RANK.get(st, 2))
         view = view.model_copy(update={"checks": checks, "state": state})
-        self.cache[view.product_line] = view
+        self.cache[view.blueprint] = view
         return view
 
     def start(self) -> None:
@@ -124,7 +124,7 @@ class Preflight:
             try:
                 for view in await self.all(max_age=0):
                     bad = [c.title for c in view.checks if c.state != "ready"]
-                    log.info("preflight %s: %s%s", view.product_line, view.state, f" ({', '.join(bad)})" if bad else "")
+                    log.info("preflight %s: %s%s", view.blueprint, view.state, f" ({', '.join(bad)})" if bad else "")
             except Exception:  # noqa: BLE001 - keep checking
                 log.exception("preflight check crashed")
             await asyncio.sleep(max(60, self.m.cfg.preflight.interval_minutes * 60))
@@ -132,8 +132,8 @@ class Preflight:
     # ------------------------------------------------------------ checks --
     async def _run(self, pl: str) -> PreflightView:
         start = time.perf_counter()
-        line = self.m.cfg.product_lines[pl]
-        env = self.m.providers.for_product_line(pl)
+        line = self.m.cfg.blueprints[pl]
+        env = self.m.providers.for_blueprint(pl)
         live = self.m.settings.factory_mode == "live"
         checks: list[CheckView] = [self._model(live), self._sandbox(live)]
         # one check per distinct integration, reported under the capabilities it serves
@@ -147,7 +147,7 @@ class Preflight:
         checks.append(self._workflow(pl))
         state = max((c.state for c in checks), key=lambda s: _RANK.get(s, 2))
         return PreflightView(
-            product_line=pl,
+            blueprint=pl,
             environment=env.environment,
             state=state,
             checked_at=datetime.now(UTC),
@@ -186,7 +186,7 @@ class Preflight:
         if state == "failed":
             return _check("sandbox", "Agent sandbox", "agents", "failed", list(sb.state.reasons))
         return _check(
-            "sandbox", "Agent sandbox", "agents", "degraded", ["preparing (first start builds the image); runs wait"]
+            "sandbox", "Agent sandbox", "agents", "degraded", ["preparing (first start builds the image); changes wait"]
         )
 
     async def _integration(self, name: str, caps: list[str], live: bool) -> CheckView:
@@ -222,9 +222,9 @@ class Preflight:
                 "deploy",
                 "ready",
                 ["apps get an ingress host: no port limit"],
-                blocks=["order"],
+                blocks=["product"],
             )
-        line = self.m.cfg.product_lines[pl]
+        line = self.m.cfg.blueprints[pl]
         free = self.m.free_node_ports(pl)
         usable = [p for p in free if self.mapped_node_ports is None or p in self.mapped_node_ports]
         mapped_note = []
@@ -241,8 +241,8 @@ class Preflight:
                 "Free app port",
                 "deploy",
                 "failed",
-                ["every app port is in use: archive an order you no longer need", *mapped_note],
-                blocks=["order"],
+                ["every app port is in use: archive a product you no longer need", *mapped_note],
+                blocks=["product"],
             )
         state = "degraded" if mapped_note else "ready"
         return _check(
@@ -251,7 +251,7 @@ class Preflight:
             "deploy",
             state,
             [f"{len(usable)} free app port(s)", *mapped_note],
-            blocks=["order"],
+            blocks=["product"],
         )
 
     def _scanner(self, scan_command: str | None) -> CheckView:

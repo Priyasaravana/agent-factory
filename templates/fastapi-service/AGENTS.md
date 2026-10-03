@@ -27,7 +27,7 @@ Verify, Package and Deploy stations depend on them.
   `@pytest.mark.req("R1", "R3")`. Every requirement needs a scenario and a tagged test.
 - `make verify` must pass: ruff (lint + format), pytest with coverage >= 80%, bandit.
 - This repo starts at agent-readiness Level 3. The factory's Readiness station fails the
-  run if a signal goes missing: keep README, AGENTS.md, lockfile, Dockerfile, CI workflow,
+  change if a signal goes missing: keep README, AGENTS.md, lockfile, Dockerfile, CI workflow,
   CODEOWNERS, pre-commit config, JSON logging, `/metrics`, tracing hook, `/healthz` and
   `/readyz`, acceptance tests and the docs from Intake/Design. No secrets in the repo
   (a secret scan runs on every delivery).

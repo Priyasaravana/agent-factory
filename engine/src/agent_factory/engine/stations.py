@@ -18,10 +18,10 @@ import yaml
 
 from agent_factory import risk, stack, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
-from agent_factory.config import FactoryConfig, ProductLine
+from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
-from agent_factory.models import EventKind, Order, Run, StationOutcome
+from agent_factory.models import Change, EventKind, Product, StationOutcome
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
@@ -58,22 +58,22 @@ class StationContext:
     ws: Workspace
     ex: Executor
     agents: AgentRunner
-    order: Order
-    run: Run
+    product: Product
+    change: Change
     worktree: Path
     station_id: str
     workflow_doc: WorkflowDoc
     providers: ProviderSet = field(default_factory=lambda: _local_set())
     secrets: SecretResolver = field(default_factory=SecretResolver)
     imported_plugin: Path | None = None  # the version's pinned imported skills, as a local plugin
-    skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this run
+    skill_pins: dict[str, str] = field(default_factory=dict)  # imported skill -> commit for this change
     # where untrusted commands (the generated app's own build/tests) run: a sandbox
     # executor in live mode; None = the engine's executor (dry-run, tests, dev)
     untrusted_ex: Executor | None = None
 
     @property
-    def product_line(self) -> ProductLine:
-        return self.cfg.product_lines[self.order.product_line]
+    def blueprint(self) -> Blueprint:
+        return self.cfg.blueprints[self.product.blueprint]
 
     @property
     def spec(self) -> AgentSpec:
@@ -87,11 +87,11 @@ class StationContext:
             value = self.secrets.resolve(ref)
         except SecretError as exc:
             self.store.add_event(
-                self.run.id, EventKind.log, f"secret {ref} for {purpose} unavailable: {exc}", station=self.station_id
+                self.change.id, EventKind.log, f"secret {ref} for {purpose} unavailable: {exc}", station=self.station_id
             )
             return None
         self.store.add_event(
-            self.run.id,
+            self.change.id,
             EventKind.decision,
             f"used secret {ref} for {purpose}",
             station=self.station_id,
@@ -100,7 +100,7 @@ class StationContext:
         return value
 
     async def emit(self, kind: EventKind, message: str, data: dict[str, Any] | None = None) -> None:
-        self.store.add_event(self.run.id, kind, message, station=self.station_id, data=data)
+        self.store.add_event(self.change.id, kind, message, station=self.station_id, data=data)
 
     async def cmd(
         self,
@@ -146,7 +146,7 @@ class StationContext:
                 EventKind.log, f"preloaded skills: {spec.preload_skills}", {"preloaded": spec.preload_skills}
             )
         req = AgentRequest(
-            run_id=self.run.id,
+            change_id=self.change.id,
             station=self.station_id,
             role=spec.id,
             prompt=prompt,
@@ -165,9 +165,11 @@ class StationContext:
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
         )
-        call = AgentCall(self.ws.data_dir / "artifacts" / self.run.id, self.station_id, spec.id, req.model, self._emit)
+        call = AgentCall(
+            self.ws.data_dir / "artifacts" / self.change.id, self.station_id, spec.id, req.model, self._emit
+        )
         res = await self.agents.run(req, call.wrap(sink))
-        self.run.cost_usd += res.cost_usd
+        self.change.cost_usd += res.cost_usd
         await call.finish(res)
         return res
 
@@ -177,7 +179,7 @@ class StationContext:
 
 def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
     """The spec's prompt plus the context it asked for. Everything here comes from
-    the pinned workflow version or this order's own history, so a run stays reproducible."""
+    the pinned workflow version or this product's own history, so a change stays reproducible."""
     parts = [spec.prompt.strip()]
     docs = [ctx.workflow_doc.docs[d] for d in spec.context_docs if d in ctx.workflow_doc.docs]
     if docs:
@@ -192,7 +194,7 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
             + "\n\n".join(f"### Skill: {name}\n{text}" for name, text in preloaded)
         )
     if spec.learnings.strip():
-        parts.append("## Learnings from earlier runs (human-approved)\n" + spec.learnings.strip())
+        parts.append("## Learnings from earlier changes (human-approved)\n" + spec.learnings.strip())
     if spec.previous_iterations:
         history = iteration_history(ctx, spec.previous_iterations)
         if history:
@@ -217,8 +219,8 @@ def skill_text(ctx: StationContext, name: str) -> str:
 
 def iteration_history(ctx: StationContext, limit: int) -> str:
     """What was asked, what was delivered and which decisions were made in the
-    previous iterations of this order (newest first)."""
-    earlier = [r for r in ctx.store.list_runs(ctx.order.id) if r.iteration < ctx.run.iteration][:limit]
+    previous iterations of this product (newest first)."""
+    earlier = [r for r in ctx.store.list_changes(ctx.product.id) if r.iteration < ctx.change.iteration][:limit]
     blocks = []
     for r in earlier:
         decisions = [e.message for e in ctx.store.list_events(r.id) if e.kind == EventKind.decision][:12]
@@ -307,7 +309,7 @@ SPEC_SCHEMA: dict[str, Any] = {
 
 
 def _review_notes(ctx: StationContext) -> str:
-    notes = ctx.run.review_notes
+    notes = ctx.change.review_notes
     if not notes:
         return ""
     return "## Reviewer notes on the spec (address every point)\n" + "\n".join(f"- {n}" for n in notes) + "\n"
@@ -336,8 +338,8 @@ on the running app, including operational ones (health, readiness, metrics) and 
 survives across requests). Only if a requirement truly cannot be observed on the running app, set
 its `no_live_check` to why.
 
-This product line builds with: {stack}.
-In `stack_required` list each implementation technology the order explicitly REQUIRES (language,
+This blueprint builds with: {stack}.
+In `stack_required` list each implementation technology the request explicitly REQUIRES (language,
 framework, datastore, UI framework), quoting the words that require it. Do not list technologies
 only mentioned as clients, callers or external systems. Do not switch stacks yourself."""
 
@@ -345,54 +347,54 @@ only mentioned as clients, callers or external systems. Do not switch stacks you
 async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
     """The engine decides (stack.conflicts) from what intake reported; a keyword scan of the
     order is a second opinion that is recorded, never blocking. Returns the question to ask."""
-    line_stack = ctx.product_line.stack
+    line_stack = ctx.blueprint.stack
     if not line_stack:
         return None
     reported = [r for r in spec.get("stack_required", []) if isinstance(r, dict) and r.get("technology")]
     quotes = {stack.normalize(str(r["technology"])): str(r.get("quote", ""))[:200] for r in reported}
     bad = stack.conflicts([str(r["technology"]) for r in reported], line_stack)
-    text = "\n".join([ctx.order.requirements, ctx.run.change_request or ""])
+    text = "\n".join([ctx.product.requirements, ctx.change.change_request or ""])
     have = {stack.normalize(s) for s in line_stack}
     unreported = sorted(stack.mentions(text) - have - set(quotes))
     if unreported:
         await ctx.emit(
             EventKind.decision,
-            f"the order mentions {', '.join(unreported)}; intake judged it not a requirement of the build",
+            f"the request mentions {', '.join(unreported)}; intake judged it not a requirement of the build",
             {"stack_mentions": unreported},
         )
     if not bad:
         return None
     data = {"stack_conflict": {"required": bad, "quotes": quotes, "stack": line_stack}}
-    if ctx.run.answers:
+    if ctx.change.answers:
         await ctx.emit(
             EventKind.decision,
             f"stack conflict ({', '.join(bad)}) answered by a person; building with {', '.join(line_stack)}",
             data,
         )
         return None
-    await ctx.emit(EventKind.decision, f"stack conflict: the order requires {', '.join(bad)}", data)
-    return stack.question(bad, quotes, line_stack, ctx.order.product_line)
+    await ctx.emit(EventKind.decision, f"stack conflict: the request requires {', '.join(bad)}", data)
+    return stack.question(bad, quotes, line_stack, ctx.product.blueprint)
 
 
 async def requirements(ctx: StationContext) -> StationResult:
     spec_path = ctx.worktree / "docs" / "spec.md"
     old_reqs = traceability.requirements(ctx.worktree)
-    qa = "\n".join(f"Q: {q}\nA: {a}" for q, a in zip(ctx.run.questions, ctx.run.answers, strict=False))
+    qa = "\n".join(f"Q: {q}\nA: {a}" for q, a in zip(ctx.change.questions, ctx.change.answers, strict=False))
     given = (
         "The requirements below are an EXISTING SPECIFICATION written by the customer. Preserve its "
         "structure and wording; map its numbered items 1:1 to requirement ids; only add what is missing "
         "(record each addition as an assumption)."
-        if ctx.order.requirements_format == "spec"
+        if ctx.product.requirements_format == "spec"
         else "Turn these requirements into a build-ready specification."
     )
     current_reqs = yaml.safe_dump(old_reqs, sort_keys=False) if old_reqs else "none"
     prompt = f"""{given}
 
-## Order: {ctx.order.title}
-{ctx.order.requirements}
+## Product: {ctx.product.title}
+{ctx.product.requirements}
 
 ## Change request for this iteration (from human feedback)
-{ctx.run.change_request or "none — first iteration"}
+{ctx.change.change_request or "none — first iteration"}
 
 {_review_notes(ctx)}
 ## Answers to your earlier questions
@@ -404,11 +406,11 @@ async def requirements(ctx: StationContext) -> StationResult:
 ## Current numbered requirements (keep ids stable; new ones get the next number; drop removed ones)
 {current_reqs}
 
-Product line: {ctx.order.product_line} — {ctx.product_line.description}.
+Blueprint: {ctx.product.blueprint} — {ctx.blueprint.description}.
 Write the spec for a product reader (user journeys, behaviour, rules), not implementation.
 Number every requirement (R1, R2, …). Every acceptance and holdout scenario lists in `covers`
 the requirement ids it checks; every requirement needs at least one acceptance scenario.
-{_LIVE_AND_STACK.format(stack=", ".join(ctx.product_line.stack) or "(not declared)")}
+{_LIVE_AND_STACK.format(stack=", ".join(ctx.blueprint.stack) or "(not declared)")}
 Only put a question in blocking_questions if no reasonable assumption exists.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
     res = await ctx.agent(prompt, SPEC_SCHEMA)
@@ -431,13 +433,13 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
         return StationResult(StationOutcome.failed, "spec is not traceable", "\n".join(problems))
     questions = [q for q in spec.get("blocking_questions", []) if q.strip()]
     asked = await _stack_check(ctx, spec)
-    if asked and not ctx.run.answers:
+    if asked and not ctx.change.answers:
         return StationResult(
             StationOutcome.needs_input,
-            "the order requires a stack this product line does not build",
+            "the request requires a stack this blueprint does not build",
             questions=[asked, *questions],
         )
-    if questions and not ctx.run.answers:
+    if questions and not ctx.change.answers:
         return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
 
     (ctx.worktree / "docs").mkdir(exist_ok=True)
@@ -451,18 +453,18 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     acc = ctx.worktree / "tests" / "acceptance"
     acc.mkdir(parents=True, exist_ok=True)
     (acc / "scenarios.yaml").write_text(yaml.safe_dump(spec["acceptance_scenarios"], sort_keys=False))
-    hold = ctx.ws.holdout_dir(ctx.order.product_slug)
+    hold = ctx.ws.holdout_dir(ctx.product.slug)
     hold.mkdir(parents=True, exist_ok=True)
     (hold / "scenarios.yaml").write_text(yaml.safe_dump(spec["holdout_scenarios"], sort_keys=False))
     for a in spec.get("assumptions", []):
         await ctx.emit(EventKind.decision, f"assumption: {a}")
-    change = traceability.diff(old_reqs, reqs)
+    spec_diff = traceability.diff(old_reqs, reqs)
     if old_reqs:
-        parts = [f"+{', +'.join(change['added'])}" if change["added"] else ""]
-        parts += [f"~{', ~'.join(change['changed'])}" if change["changed"] else ""]
-        parts += [f"−{', −'.join(change['removed'])}" if change["removed"] else ""]
+        parts = [f"+{', +'.join(spec_diff['added'])}" if spec_diff["added"] else ""]
+        parts += [f"~{', ~'.join(spec_diff['changed'])}" if spec_diff["changed"] else ""]
+        parts += [f"−{', −'.join(spec_diff['removed'])}" if spec_diff["removed"] else ""]
         summary = " ".join(p for p in parts if p) or "no requirement changes"
-        await ctx.emit(EventKind.decision, f"spec updated: {summary}", {"spec_changes": change})
+        await ctx.emit(EventKind.decision, f"spec updated: {summary}", {"spec_changes": spec_diff})
     else:
         await ctx.emit(EventKind.decision, f"spec: {len(reqs)} numbered requirements", {"spec_changes": {}})
     await ctx.ws.commit_all(ctx.worktree, "docs: specification, requirements and acceptance scenarios")
@@ -486,7 +488,7 @@ Write:
   docs/tasks.md    — ordered implementation tasks, each with its test and the
                      requirement ids it implements
 
-Change request this iteration: {ctx.run.change_request or "none"}
+Change request this iteration: {ctx.change.change_request or "none"}
 {_review_notes(ctx)}"""
     res = await ctx.agent(prompt)
     if lim := _limit_result(res):
@@ -500,9 +502,9 @@ Change request this iteration: {ctx.run.change_request or "none"}
 
 # --------------------------------------------------------------- implement --
 async def implement(ctx: StationContext) -> StationResult:
-    fix = ctx.run.last_failure
+    fix = ctx.change.last_failure
     prompt = f"""Implement docs/tasks.md against docs/design.md and docs/openapi.yaml.
-Read AGENTS.md first. Write tests alongside code. `{ctx.product_line.verify_command}` must pass.
+Read AGENTS.md first. Write tests alongside code. `{ctx.blueprint.verify_command}` must pass.
 Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 Traceability: tag every test with the requirement ids it covers, e.g.
 `@pytest.mark.req("R1", "R3")` (ids from docs/requirements.yaml). Every requirement
@@ -520,7 +522,7 @@ needs at least one tagged test; the Quality gate station checks this.
 
 # -------------------------------------------------------------------- test --
 async def run_tests(ctx: StationContext) -> StationResult:
-    res = await ctx.cmd(ctx.product_line.verify_command, timeout=1200, untrusted=True)
+    res = await ctx.cmd(ctx.blueprint.verify_command, timeout=1200, untrusted=True)
     if not res.ok:
         return StationResult(
             StationOutcome.failed,
@@ -533,8 +535,8 @@ async def run_tests(ctx: StationContext) -> StationResult:
 # ------------------------------------------------------------ quality gate --
 async def quality_gate(ctx: StationContext) -> StationResult:
     """Score the repo against the agent-readiness signals (docs/practices.md) and
-    hold it to the product line's level. Deterministic: files plus a secret scan."""
-    line = ctx.product_line
+    hold it to the blueprint's level. Deterministic: files plus a secret scan."""
+    line = ctx.blueprint
     scan_ok: bool | None = None
     scan_evidence = ""
     if line.secret_scan_command:
@@ -580,7 +582,7 @@ async def build_image(ctx: StationContext) -> StationResult:
     """Build the image here, then scan and publish it through the environment's providers."""
     p = ctx.providers
     sha = await ctx.ws.head_sha(ctx.worktree)
-    local_image = f"{ctx.order.product_slug}:{sha}"
+    local_image = f"{ctx.product.slug}:{sha}"
     build = f"docker build -t {local_image} ."
     res = await ctx.cmd(build, timeout=1500)
     if not res.ok:
@@ -605,13 +607,13 @@ async def build_image(ctx: StationContext) -> StationResult:
 
 
 def artifacts_dir(ctx: StationContext) -> Path:
-    return ctx.ws.data_dir / "artifacts" / ctx.run.id
+    return ctx.ws.data_dir / "artifacts" / ctx.change.id
 
 
 async def _sbom_and_provenance(ctx: StationContext, image: str, sha: str) -> CommandResult | None:
     """SPDX SBOM of the built image (syft in dind) plus a provenance record tying
     image, commit, workflow version and run together. None = not configured."""
-    template = ctx.product_line.sbom_command
+    template = ctx.blueprint.sbom_command
     if not template:
         await ctx.emit(EventKind.decision, "SBOM NOT produced: no sbom_command configured")
         return None
@@ -626,13 +628,13 @@ async def _sbom_and_provenance(ctx: StationContext, image: str, sha: str) -> Com
     provenance = {
         "_type": "agent-factory/provenance/v1",
         "subject": {"image": image, "image_id": digest.output.strip().splitlines()[-1] if digest.ok else None},
-        "source": {"product": ctx.order.product_slug, "commit": sha, "branch": f"run/{ctx.run.id}"},
+        "source": {"product": ctx.product.slug, "commit": sha, "branch": f"run/{ctx.change.id}"},
         "builder": {
             "id": "agent-factory",
-            "workflow": ctx.run.workflow_id,
-            "workflow_version": ctx.run.workflow_version,
-            "run": ctx.run.id,
-            "iteration": ctx.run.iteration,
+            "workflow": ctx.change.workflow_id,
+            "workflow_version": ctx.change.workflow_version,
+            "run": ctx.change.id,
+            "iteration": ctx.change.iteration,
             "sandboxed": ctx.untrusted_ex is not None,
         },
         "materials": {"sbom": str(sbom) if sbom.exists() else None},
@@ -664,11 +666,11 @@ async def deploy(ctx: StationContext) -> StationResult:
 async def deploy_repair(ctx: StationContext) -> StationResult:
     prompt = f"""The deployment to {ctx.providers.deploy.target(ctx)} failed. Diagnose from the
 evidence below (pod status, events and logs collected by the engine; you have no
-cluster access yourself) and fix the chart ({ctx.product_line.chart_path}), Dockerfile
+cluster access yourself) and fix the chart ({ctx.blueprint.chart_path}), Dockerfile
 or app config. The engine redeploys after you finish.
 
 ## Evidence
-{ctx.run.last_failure}"""
+{ctx.change.last_failure}"""
     res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
@@ -702,7 +704,7 @@ VERDICT_SCHEMA: dict[str, Any] = {
 
 
 async def acceptance(ctx: StationContext) -> StationResult:
-    hold = ctx.ws.holdout_dir(ctx.order.product_slug) / "scenarios.yaml"
+    hold = ctx.ws.holdout_dir(ctx.product.slug) / "scenarios.yaml"
     scenarios = _read(hold)
     if not scenarios.strip():
         return StationResult(
@@ -740,7 +742,7 @@ async def _record_traceability(ctx: StationContext, holdout_file: Path, results:
     if not rows:
         return
     verified = [r for r in rows if r["holdout"] and all(h["passed"] for h in r["holdout"])]
-    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    out = ctx.ws.data_dir / "artifacts" / ctx.change.id
     out.mkdir(parents=True, exist_ok=True)
     (out / "traceability.json").write_text(json.dumps(rows, indent=2))
     await ctx.emit(
@@ -752,17 +754,17 @@ async def _record_traceability(ctx: StationContext, holdout_file: Path, results:
 
 # ---------------------------------------------------------------- handover --
 async def handover(ctx: StationContext) -> StationResult:
-    ws, repo, wt = ctx.ws, ctx.ws.product_dir(ctx.order.product_slug), ctx.worktree
-    await ws.commit_all(wt, f"chore: deliver iteration {ctx.run.iteration}")
+    ws, repo, wt = ctx.ws, ctx.ws.product_dir(ctx.product.slug), ctx.worktree
+    await ws.commit_all(wt, f"chore: deliver iteration {ctx.change.iteration}")
     notes: list[str] = []
 
     if ctx.cfg.policies.merge.mode == "auto":
-        m = await ws.git(f"merge --ff-only run/{ctx.run.id}", repo)
+        m = await ws.git(f"merge --ff-only run/{ctx.change.id}", repo)
         if not m.ok:
-            m = await ws.git(f"merge --no-edit run/{ctx.run.id}", repo)
+            m = await ws.git(f"merge --no-edit run/{ctx.change.id}", repo)
         if not m.ok:
             return StationResult(StationOutcome.held, "merge into main failed", m.output)
-        await ws.git(f"tag -f v{ctx.run.iteration}", repo)
+        await ws.git(f"tag -f v{ctx.change.iteration}", repo)
         notes.append("merged to main")
     else:
         notes.append("merge policy is manual — run branch left for review")
@@ -775,11 +777,11 @@ async def handover(ctx: StationContext) -> StationResult:
         if not res.ok:
             return StationResult(StationOutcome.held, res.summary, res.detail)
         if res.data.get("repo_url"):
-            ctx.order.repo_url = res.data["repo_url"]
+            ctx.product.repo_url = res.data["repo_url"]
         notes.append(res.summary)
 
-    ctx.order.app_url = ctx.providers.deploy.public_url(ctx)
-    return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.order.app_url}")
+    ctx.product.app_url = ctx.providers.deploy.public_url(ctx)
+    return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.product.app_url}")
 
 
 # ------------------------------------------------------------- code review --
@@ -789,7 +791,7 @@ async def code_review(ctx: StationContext) -> StationResult:
     reqs = traceability.requirements(ctx.worktree)
     ids = [r["id"] for r in reqs]
     diff = await ctx.ws.git("diff --stat main...HEAD", ctx.worktree)
-    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    out = ctx.ws.data_dir / "artifacts" / ctx.change.id
     earlier = _previous_review(out / "review.json")
     listing = "\n".join(f"- {r['id']}: {r['title']}: {r['detail']}" for r in reqs) or "(none)"
     prompt = f"""Review this iteration's change against the specification before it is packaged.
@@ -803,7 +805,7 @@ You are observe-only: read files and use read-only git (`git diff main...HEAD`, 
 {diff.output.strip()[-3000:] or "(no changes)"}
 
 ## Change request for this iteration
-{ctx.run.change_request or "none (first build)"}
+{ctx.change.change_request or "none (first build)"}
 {_review_notes(ctx)}
 ## Your earlier review of this iteration sent it back for (check each is fixed)
 {earlier or "nothing: this is the first review of this iteration"}
@@ -830,7 +832,7 @@ Each finding names the file and says what to change."""
             prompt += "\n\nYOUR PREVIOUS REPORT WAS INCOMPLETE:\n- " + "\n- ".join(verdict.problems)
     assert verdict is not None
     out.mkdir(parents=True, exist_ok=True)
-    evidence = {"iteration": ctx.run.iteration, "report": report, "judgement": verdict.as_data()}
+    evidence = {"iteration": ctx.change.iteration, "report": report, "judgement": verdict.as_data()}
     (out / "review.json").write_text(json.dumps(evidence, indent=2))
     await ctx.emit(EventKind.decision, verdict.headline(), {"review": evidence})
     if not verdict.complete:
@@ -865,9 +867,9 @@ async def change_risk(ctx: StationContext) -> StationResult:
     findings = risk.check_diff(files, allowed)
     hold = risk.holds(findings)
     digest = risk.digest(findings)
-    approved = next((a for a in ctx.run.risk_approvals if a.digest == digest), None) if hold else None
+    approved = next((a for a in ctx.change.risk_approvals if a.digest == digest), None) if hold else None
     data = {
-        "iteration": ctx.run.iteration,
+        "iteration": ctx.change.iteration,
         "base": "main",
         "files_changed": len(files),
         "digest": digest,
@@ -875,7 +877,7 @@ async def change_risk(ctx: StationContext) -> StationResult:
         "holds": len(hold),
         "approved_by": approved.by if approved else None,
     }
-    out = ctx.ws.data_dir / "artifacts" / ctx.run.id
+    out = ctx.ws.data_dir / "artifacts" / ctx.change.id
     out.mkdir(parents=True, exist_ok=True)
     (out / "change-risk.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023)
     notes = len(findings) - len(hold)
@@ -903,7 +905,7 @@ async def change_risk(ctx: StationContext) -> StationResult:
 
 
 def _previous_review(path: Path) -> str:
-    """Blocking items of this run's last review, if it sent the change back. The
+    """Blocking items of this change's last review, if it sent the change back. The
     evidence file is read (not run.last_failure, which is cleared once build passes)."""
     try:
         judgement = json.loads(path.read_text()).get("judgement", {})
@@ -930,17 +932,17 @@ async def generic_agent(ctx: StationContext) -> StationResult:
     """Any custom agent station: the spec's prompt defines the job; the engine
     enforces the contract (a structured verdict + the files the spec promises)."""
     spec = ctx.spec
-    prompt = f"""Carry out your station `{ctx.station_id}` for this order, working in the
+    prompt = f"""Carry out your station `{ctx.station_id}` for this product, working in the
 current repository.
 
-## Order: {ctx.order.title}
-{ctx.order.requirements}
+## Product: {ctx.product.title}
+{ctx.product.requirements}
 
 ## Change request for this iteration
-{ctx.run.change_request or "none"}
+{ctx.change.change_request or "none"}
 
 ## Evidence routed to you from a failed station
-{ctx.run.last_failure or "none"}
+{ctx.change.last_failure or "none"}
 
 Finish with a verdict. `passed` is true only if your checks succeeded. Each finding
 must be concrete: file and line, command and output, or request and response."""

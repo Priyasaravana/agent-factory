@@ -40,7 +40,7 @@ def requires_admin(method: str, path: str) -> bool:
     if method in {"GET", "HEAD", "OPTIONS"}:
         return False
     return path.startswith(("/api/workflows", "/api/skills")) or (
-        path.startswith("/api/runs/") and path.endswith("/risk/approve")
+        path.startswith("/api/changes/") and path.endswith("/risk/approve")
     )
 
 

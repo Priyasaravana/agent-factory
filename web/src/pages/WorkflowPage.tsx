@@ -145,8 +145,8 @@ export default function WorkflowPage() {
           </details>
         )}
         <p className="muted small">
-          Orders on the <code>{workflowId}</code> product line run the active
-          version. Runs in flight keep the version they started with.
+          Products on the <code>{workflowId}</code> blueprint follow the active
+          version. Changes in flight keep the version they started with.
         </p>
       </section>
 

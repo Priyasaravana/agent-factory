@@ -7,18 +7,18 @@ import json
 import shutil
 from pathlib import Path
 
-from conftest import ORDER, REPO, wait_run
+from conftest import PRODUCT, REPO, wait_run
 
 from agent_factory.engine.workspace import render_codeowners
 from agent_factory.executor import FakeExecutor
-from agent_factory.models import EventKind, RunStatus
+from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.readiness import SIGNALS, score
 
 TEMPLATE = REPO / "templates" / "fastapi-service"
 
 
 def _generated_repo(tmp_path: Path) -> Path:
-    """The template plus what Intake/Design/Build add in every run."""
+    """The template plus what Intake/Design/Build add in every change."""
     repo = tmp_path / "repo"
     shutil.copytree(TEMPLATE, repo, ignore=shutil.ignore_patterns(".venv", "__pycache__"))
     (repo / "docs").mkdir()
@@ -40,7 +40,7 @@ def test_the_golden_path_template_is_level_3_once_the_run_adds_its_docs(tmp_path
     card = score(repo, secret_scan_ok=True)
     assert card.missing() == []
     assert card.level == 3 and card.points == card.max_points
-    # the bare template (before Intake/Design/Build) is Level 2: docs and acceptance tests come from the run
+    # the bare template (before Intake/Design/Build) is Level 2: docs and acceptance tests come from the change
     bare = score(TEMPLATE, secret_scan_ok=True)
     assert bare.level == 2
     assert {s.id for s in bare.missing()} == {"acceptance_tests", "design_docs", "requirements_traced"}
@@ -78,27 +78,29 @@ def test_codeowners_is_rendered_from_the_publishing_owner(tmp_path):
 async def test_readiness_station_scores_every_run_and_records_sbom_and_provenance(make_factory):
     ex = FakeExecutor()
     f = make_factory(ex)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    events = f.store.list_events(run.id)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    events = f.store.list_events(change.id)
     card = next(e for e in events if e.message.startswith("agent readiness"))
     assert card.kind == EventKind.decision and card.data["readiness"]["level"] == 3
     assert any("gitleaks" in c and "--no-git" in c for c in ex.calls), "secret scan ran on the worktree"
     sbom = next(c for c in ex.calls if "anchore/syft" in c)
-    out = f.manager.ws.data_dir / "artifacts" / run.id
+    out = f.manager.ws.data_dir / "artifacts" / change.id
     assert f"spdx-json={out}/sbom.spdx.json" in sbom
     prov = json.loads((out / "provenance.json").read_text())
-    assert prov["source"]["branch"] == f"run/{run.id}" and prov["builder"]["workflow_version"] == 1
+    assert prov["source"]["branch"] == f"run/{change.id}" and prov["builder"]["workflow_version"] == 1
     assert prov["subject"]["image"].startswith("bookmarks-service:")
 
 
 async def test_a_failed_secret_scan_sends_redacted_evidence_back_to_build(make_factory):
     ex = FakeExecutor(fail_on=["gitleaks"])  # fails once, then the "fixed" repo passes
     f = make_factory(ex)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     finished = [
-        (e.station, e.data.get("outcome")) for e in f.store.list_events(run.id) if e.kind == EventKind.station_finished
+        (e.station, e.data.get("outcome"))
+        for e in f.store.list_events(change.id)
+        if e.kind == EventKind.station_finished
     ]
     assert ("quality-gate", "failed") in finished
     assert finished.index(("quality-gate", "failed")) < max(i for i, (s, _) in enumerate(finished) if s == "implement")

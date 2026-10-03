@@ -12,13 +12,13 @@ export default function WorkflowsPage() {
       <section className="card">
         <h2>Workflows</h2>
         <p className="muted">
-          Each product line has its own workflow: the stations an order goes through and the agents that do the work.
+          Each blueprint has its own workflow: the stations a change goes through and the agents that do the work.
           Edit a workflow to change it; every publish becomes a new version.
         </p>
         <table className="wide">
           <thead>
             <tr className="small muted">
-              <td>workflow (product line)</td>
+              <td>workflow (blueprint)</td>
               <td>active</td>
               <td>stations</td>
               <td>agents</td>
@@ -33,7 +33,7 @@ export default function WorkflowsPage() {
                   <Link to={`/workflows/${w.workflow_id}`}>
                     <strong>{w.workflow_id}</strong>
                   </Link>
-                  <div className="small muted">{w.product_line}</div>
+                  <div className="small muted">{w.blueprint}</div>
                 </td>
                 <td>
                   <span className="pill info">v{w.active_version}</span>{" "}

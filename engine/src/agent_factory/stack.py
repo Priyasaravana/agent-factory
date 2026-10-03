@@ -1,9 +1,9 @@
-"""What a product line can build, and what an order asks for (intake hardening).
+"""What a blueprint can build, and what a product asks for (intake hardening).
 
-A product line declares its `stack` (config). Intake reports the implementation
-technologies the order explicitly *requires*, with the words that require them;
+A blueprint declares its `stack` (config). Intake reports the implementation
+technologies the product explicitly *requires*, with the words that require them;
 the engine decides (`conflicts`, a pure function) whether any is outside the
-product line's stack. A conflict pauses the run with a question instead of
+blueprint's stack. A conflict pauses the change with a question instead of
 silently building something else. A deterministic keyword scan (`mentions`) is a
 second opinion: a mention intake did not report is recorded, never blocking.
 """
@@ -64,8 +64,8 @@ def mentions(text: str) -> set[str]:
 
 
 def conflicts(required: list[str], stack: list[str]) -> list[str]:
-    """Required technologies the product line does not build (canonical, in order). Pure.
-    An empty `stack` means the product line declares none: nothing conflicts."""
+    """Required technologies the blueprint does not build (canonical, in order). Pure.
+    An empty `stack` means the blueprint declares none: nothing conflicts."""
     if not stack:
         return []
     have = {normalize(s) for s in stack}
@@ -80,7 +80,7 @@ def conflicts(required: list[str], stack: list[str]) -> list[str]:
 def question(conflicting: list[str], quotes: dict[str, str], stack: list[str], line: str) -> str:
     asked = "; ".join(f'{c} ("{quotes[c]}")' if quotes.get(c) else c for c in conflicting)
     return (
-        f"This order requires {asked}, but the '{line}' product line builds with {', '.join(stack)}. "
+        f"This request requires {asked}, but the '{line}' blueprint builds with {', '.join(stack)}. "
         f"Reply 'build it with {stack[0]}' to go ahead on this stack (the requirement will be recorded as "
-        "changed), or cancel this run and order on a product line that supports it."
+        "changed), or cancel this change and create the product on a blueprint that supports it."
     )

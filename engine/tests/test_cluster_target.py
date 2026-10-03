@@ -6,12 +6,12 @@ import asyncio
 from dataclasses import dataclass, field
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.config import IntegrationAuth
 from agent_factory.executor import CommandResult, FakeExecutor
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.providers import HelmProvider, OciRegistryProvider, ProviderError
 from agent_factory.providers.base import CheckContext
 from agent_factory.sandbox.egress import Allowlist, handle
@@ -35,7 +35,7 @@ class EnvExecutor(FakeExecutor):
 
 def _use_cluster_target(cfg, **helm):  # noqa: ANN001, ANN003, ANN202
     cfg.integrations["kind-ingress"].settings.update(helm)
-    cfg.product_lines["fastapi-service"].environment = "local-ingress"
+    cfg.blueprints["fastapi-service"].environment = "local-ingress"
     return cfg
 
 
@@ -43,7 +43,7 @@ def _use_cluster_target(cfg, **helm):  # noqa: ANN001, ANN003, ANN202
 def test_the_local_trial_is_configured_and_ports_are_not_needed(cfg):
     from agent_factory.providers import Providers
 
-    ps = Providers(_use_cluster_target(cfg)).for_product_line("fastapi-service")
+    ps = Providers(_use_cluster_target(cfg)).for_blueprint("fastapi-service")
     assert (ps.registry.kind, ps.deploy.kind, ps.scan.kind) == ("oci", "helm", "local")
     assert ps.deploy.uses_node_ports is False
     assert "*.localtest.me:8180" in cfg.sandbox.egress
@@ -69,10 +69,10 @@ async def test_a_run_pushes_to_the_registry_and_deploys_behind_an_ingress(make_f
     )
     runner = FakeAgentRunner()
     f = make_factory(ex, runner)
-    order = f.manager.create_order(ORDER)
-    assert order.node_port is None and order.host_port is None, "no port: an ingress host instead"
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    product = f.manager.create_product(PRODUCT)
+    assert product.node_port is None and product.host_port is None, "no port: an ingress host instead"
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
     push = next(c for c in ex.calls if "docker --config" in c and " push " in c)
     assert "docker tag bookmarks-service:" in push and "localhost:5001/factory/bookmarks-service:" in push
@@ -86,14 +86,14 @@ async def test_a_run_pushes_to_the_registry_and_deploys_behind_an_ingress(make_f
     assert "--connect-to bookmarks-service.localtest.me:8180:dind:8180" in smoke
     assert "http://bookmarks-service.localtest.me:8180/healthz" in smoke
 
-    got = f.store.get_order(order.id)
+    got = f.store.get_product(product.id)
     assert got.app_url == "http://bookmarks-service.localtest.me:8180"
     verifier = next(c for c in runner.calls if c.role == "verifier")
     assert "http://bookmarks-service.localtest.me:8180" in verifier.prompt, "acceptance tests the ingress URL"
 
-    await f.manager.archive(order.id, "saravana")
+    await f.manager.archive(product.id, "saravana")
     assert any("helm uninstall bookmarks-service --namespace app-bookmarks-service" in c for c in ex.calls)
-    archived = [e.message for e in f.store.list_events(run.id) if e.message.startswith("order archived")]
+    archived = [e.message for e in f.store.list_events(change.id) if e.message.startswith("product archived")]
     assert archived and "app port" not in archived[0]
 
 
@@ -103,9 +103,9 @@ async def test_a_chart_without_an_ingress_goes_to_the_devops_agent(make_factory,
     f = make_factory(ex)
     f.settings.factory_mode = "live"
 
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    await wait_run(f, run.id)
-    ev = [e for e in f.store.list_events(run.id) if e.station == "deploy" and "no Ingress" in e.message]
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    await wait_run(f, change.id)
+    ev = [e for e in f.store.list_events(change.id) if e.station == "deploy" and "no Ingress" in e.message]
     assert ev, "deploy failed with the reason"
     devops = [c for c in f.manager.agents.calls if c.role == "devops"]
     assert devops and "add templates/ingress.yaml" in devops[0].prompt
@@ -121,11 +121,14 @@ async def test_credentials_go_through_the_environment_never_the_command_line(mak
     cfg.integrations["kind-ingress"].auth = IntegrationAuth(secret_ref="env://KUBECONFIG_CONTENT")
     ex = EnvExecutor(outputs={"helm template": "kind: Ingress"})
     f = make_factory(ex)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    status = await wait_run(f, change.id)
+    assert status == ChangeStatus.awaiting_feedback, [
+        e.message[:300] for e in f.store.list_events(change.id) if e.station in ("deploy", "deploy-repair")
+    ][:6]
 
     assert not any("s3cret" in c for c in ex.calls), "no credential on a command line"
-    for e in f.store.list_events(run.id):
+    for e in f.store.list_events(change.id):
         assert "s3cret" not in e.message and "s3cret" not in str(e.data), "no credential in the event log"
     login = next(i for i, c in enumerate(ex.calls) if "--password-stdin" in c)
     assert ex.envs[login] == {"AF_REGISTRY_PASSWORD": "s3cret-registry-token"}
@@ -133,7 +136,7 @@ async def test_credentials_go_through_the_environment_never_the_command_line(mak
     helm = next(i for i, c in enumerate(ex.calls) if "helm upgrade" in c)
     assert ex.envs[helm]["AF_KUBECONFIG"].endswith("# s3cret-kube") and "rm -f" in ex.calls[helm]
     assert "factory-pull" in ex.calls[helm] and ex.envs[helm]["AF_PULL_SECRET"].startswith('{"auths"')
-    used = [e.message for e in f.store.list_events(run.id) if e.message.startswith("used secret")]
+    used = [e.message for e in f.store.list_events(change.id) if e.message.startswith("used secret")]
     assert {"used secret env://REG_TOKEN for push to localhost:5001", "used secret env://KUBECONFIG_CONTENT for deploy",
             "used secret env://PULL_JSON for image pull secret"} <= set(used)  # fmt: skip
 

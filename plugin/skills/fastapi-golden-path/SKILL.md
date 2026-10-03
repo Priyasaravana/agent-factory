@@ -1,6 +1,6 @@
 ---
 name: fastapi-golden-path
-description: Use when designing or implementing a service on the fastapi-service product line. Covers layout, data access, testing and the checks `make verify` runs.
+description: Use when designing or implementing a service on the fastapi-service blueprint. Covers layout, data access, testing and the checks `make verify` runs.
 ---
 
 # FastAPI Golden Path

@@ -52,8 +52,8 @@ def main() -> None:
     exp = sub.add_parser("openapi", help="write the OpenAPI contract for the web UI")
     exp.add_argument("--out", default="../web/openapi.json")
 
-    wf = sub.add_parser("workflow", help="versioned workflow management (one workflow per product line)")
-    wf.add_argument("--id", default=None, help="workflow (= product line) id; default: the first product line")
+    wf = sub.add_parser("workflow", help="versioned workflow management (one workflow per blueprint)")
+    wf.add_argument("--id", default=None, help="workflow (= blueprint) id; default: the first blueprint")
     wsub = wf.add_subparsers(dest="wf_cmd", required=True)
     wsub.add_parser("list", help="list workflows")
     wsub.add_parser("templates", help="list built-in workflow templates")
@@ -65,7 +65,7 @@ def main() -> None:
     wi.add_argument("path")
     wi.add_argument("--note", required=True, help="what changed, e.g. 'add security-review after build'")
     wi.add_argument("--no-activate", action="store_true", help="store without making it active")
-    wa = wsub.add_parser("activate", help="make a version active for new runs (rollback)")
+    wa = wsub.add_parser("activate", help="make a version active for new changes (rollback)")
     wa.add_argument("version", type=int)
 
     sk = sub.add_parser("skills", help="skills library")
@@ -190,7 +190,7 @@ def _workflow(args: argparse.Namespace) -> None:
             print(f"stored {w.workflow_id} v{version}" + ("" if args.no_activate else " (active)"))
         elif args.wf_cmd == "activate":
             w.activate(args.version)
-            print(f"{w.workflow_id} v{args.version} is now active for new runs")
+            print(f"{w.workflow_id} v{args.version} is now active for new changes")
     except WorkflowError as exc:
         raise SystemExit(f"error: {exc}") from exc
 

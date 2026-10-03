@@ -18,7 +18,9 @@ PolicyMode = Literal["auto", "manual", "off"]
 
 class FactorySection(BaseModel):
     name: str = "agent-factory"
-    max_concurrent_runs: int = 1
+    max_concurrent_changes: int = Field(
+        default=1, validation_alias=AliasChoices("max_concurrent_changes", "max_concurrent_runs")
+    )
     data_dir: str = "/data"
     public_app_base_url: str = "http://localhost"
 
@@ -32,22 +34,22 @@ class Models(BaseModel):
         return getattr(self, tier_or_alias, tier_or_alias)
 
 
-class ProductLine(BaseModel):
+class Blueprint(BaseModel):
     description: str = ""
     template: str
-    workflow_template: str = "workflow-templates/default"  # seeds this product line's workflow
+    workflow_template: str = "workflow-templates/default"  # seeds this blueprint's workflow
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
     environment: str = "local"  # where its delivery steps run (see `environments`)
     # Quality gate station: the generated repo must reach this agent-readiness level (1-3)
     min_readiness_level: int = Field(default=3, ge=0, le=3)
-    # secret scan of the worktree (runs in dind); {path} = the run worktree
+    # secret scan of the worktree (runs in dind); {path} = the change worktree
     secret_scan_command: str | None = None
     # software bill of materials for the built image; {image} and {out} (a folder) are filled in
     sbom_command: str | None = None
     service_port: int = 8000
-    # what this product line builds with; an order that requires anything else is asked
+    # what this blueprint builds with; a product that requires anything else is asked
     # about before any build (stack.py). Empty: no check.
     stack: list[str] = Field(default_factory=list)
     node_ports: list[int] = Field(default_factory=lambda: [30080])
@@ -82,8 +84,12 @@ class Gate(BaseModel):
 
 class Budgets(BaseModel):
     max_attempts_per_station: int = 3
-    max_loops_per_run: int = 6
-    run_wall_clock_minutes: int = 120
+    max_loops_per_change: int = Field(
+        default=6, validation_alias=AliasChoices("max_loops_per_change", "max_loops_per_run")
+    )
+    change_wall_clock_minutes: int = Field(
+        default=120, validation_alias=AliasChoices("change_wall_clock_minutes", "run_wall_clock_minutes")
+    )
 
 
 class Limits(BaseModel):
@@ -147,7 +153,7 @@ DEFAULT_EGRESS = [
 
 class PreflightConfig(BaseModel):
     """Readiness checks (ADR-0015): run at startup, every `interval_minutes`, on
-    demand, and before an order or iteration starts (results reused for `max_age_seconds`)."""
+    demand, and before a product or iteration starts (results reused for `max_age_seconds`)."""
 
     interval_minutes: int = 15
     max_age_seconds: int = 60
@@ -207,7 +213,8 @@ class FactoryConfig(BaseModel):
     timezone: str = "UTC"
     factory: FactorySection = FactorySection()
     models: Models = Models()
-    product_lines: dict[str, ProductLine]
+    # how each kind of app is built and run (ADR-0029; `product_lines:` before)
+    blueprints: dict[str, Blueprint] = Field(validation_alias=AliasChoices("blueprints", "product_lines"))
     policies: Policies = Policies()
     gates: list[Gate] = Field(default_factory=list)
     budgets: Budgets = Budgets()

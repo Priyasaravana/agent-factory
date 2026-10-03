@@ -148,7 +148,7 @@ class SandboxManager:
                     return self.state
             self.state = Readiness("ready", [f"image {self.image}", f"{len(self.cfg.egress)} egress rules"])
             log.info("sandbox ready: %s", self.image)
-        except Exception as exc:  # noqa: BLE001 - reported as readiness, never raised into a run
+        except Exception as exc:  # noqa: BLE001 - reported as readiness, never raised into a change
             self.state = Readiness("failed", [f"{type(exc).__name__}: {exc}"])
         return self.state
 
@@ -207,13 +207,13 @@ class SandboxManager:
         await self._sh(f"docker rm -f {name} >/dev/null 2>&1")
         allow = " ".join(f"--allow {shlex.quote(r)}" for r in self.cfg.egress)
         allow += "".join(f" --route {shlex.quote(r)}" for r in self.cfg.routes)
-        run = (
+        change = (
             f"docker run -d --name {name} --restart unless-stopped --label {LABEL}=egress --label af.egress={want} "
             f"--add-host dind:host-gateway --read-only --cap-drop ALL --security-opt no-new-privileges "
             f"--user {SANDBOX_UID}:{SANDBOX_UID} --memory 256m --pids-limit 256 "
             f"{self.image} python3 /opt/egress.py --port {PROXY_PORT} {allow}"
         )
-        res = await self._sh(run)
+        res = await self._sh(change)
         if not res.ok:
             return f"could not start egress proxy: {res.output[-800:]}"
         res = await self._sh(f"docker network connect {self.cfg.network} {name}")
@@ -247,8 +247,8 @@ class SandboxManager:
         )
 
     def agent_spec(self, req: AgentRequest) -> SandboxSpec:
-        name = container_name(req.run_id, req.station, uuid.uuid4().hex[:6])
-        spec = self.base_spec(name, req.cwd, {"af.run": req.run_id, "af.station": req.station})
+        name = container_name(req.change_id, req.station, uuid.uuid4().hex[:6])
+        spec = self.base_spec(name, req.cwd, {"af.run": req.change_id, "af.station": req.station})
         extra = [req.imported_plugin] if req.imported_plugin else []
         extra += list(req.readable_extra_dirs)
         spec.mounts += [Mount(str(p), str(p), readonly=True) for p in extra if p and Path(p).exists()]
@@ -265,11 +265,11 @@ class SandboxManager:
         await self._sh(f"docker rm -f {name} >/dev/null 2>&1")
         (self.data_dir / "sandbox" / "specs" / f"{name}.json").unlink(missing_ok=True)
 
-    async def remove_run(self, run_id: str) -> None:
-        await self._sh(f"docker ps -aq --filter label=af.run={run_id} | xargs -r docker rm -f >/dev/null 2>&1")
+    async def remove_change(self, change_id: str) -> None:
+        await self._sh(f"docker ps -aq --filter label=af.run={change_id} | xargs -r docker rm -f >/dev/null 2>&1")
 
-    def executor(self, run_id: str = "", station: str = "") -> SandboxExecutor:
-        return SandboxExecutor(self, run_id, station)
+    def executor(self, change_id: str = "", station: str = "") -> SandboxExecutor:
+        return SandboxExecutor(self, change_id, station)
 
     # -------------------------------------------------------------- probe --
     async def probe(self) -> list[dict[str, object]]:
@@ -303,8 +303,8 @@ class SandboxExecutor:
     same interface as LocalExecutor, but each command runs in a fresh sandbox
     with only its working directory mounted and none of the engine's env."""
 
-    def __init__(self, mgr: SandboxManager, run_id: str = "", station: str = "") -> None:
-        self.mgr, self.run_id, self.station = mgr, run_id, station
+    def __init__(self, mgr: SandboxManager, change_id: str = "", station: str = "") -> None:
+        self.mgr, self.change_id, self.station = mgr, change_id, station
 
     async def run(
         self,
@@ -317,8 +317,8 @@ class SandboxExecutor:
         if ready.state != "ready":
             return CommandResult(command, 125, "sandbox not ready: " + "; ".join(ready.reasons))
         workdir = Path(cwd) if cwd else Path.cwd()
-        name = container_name(self.run_id or "exec", self.station, uuid.uuid4().hex[:6])
-        spec = self.mgr.base_spec(name, workdir, {"af.run": self.run_id or "exec", "af.station": self.station})
+        name = container_name(self.change_id or "exec", self.station, uuid.uuid4().hex[:6])
+        spec = self.mgr.base_spec(name, workdir, {"af.run": self.change_id or "exec", "af.station": self.station})
         spec.env.update(env or {})  # explicit, non-secret values only
         argv = spec.argv(["bash", "-lc", command])
         res = await self.mgr.ex.run(shlex.join(argv), timeout=timeout)

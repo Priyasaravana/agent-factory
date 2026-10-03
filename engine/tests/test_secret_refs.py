@@ -7,12 +7,12 @@ import io
 import json
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from pydantic import ValidationError
 
 from agent_factory.config import IntegrationAuth
 from agent_factory.executor import FakeExecutor
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.secret_refs import (
     MASK,
     AwsSecretsManagerBackend,
@@ -109,9 +109,9 @@ async def test_a_resolved_secret_never_reaches_events_or_the_database(make_facto
         return res
 
     monkeypatch.setattr(ex, "run", echoing)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    events = f.store.list_events(run.id)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    events = f.store.list_events(change.id)
     blob = json.dumps([e.model_dump(mode="json") for e in events])
     leaks = [e.model_dump(mode="json") for e in events if TOKEN in json.dumps(e.model_dump(mode="json"))]
     assert not leaks, leaks
@@ -119,7 +119,7 @@ async def test_a_resolved_secret_never_reaches_events_or_the_database(make_facto
     audit = [e.message for e in events if e.message.startswith("used secret")]
     assert audit == ["used secret env://GITHUB_TOKEN for publish"]
     assert any("gh repo create" in c or "git push" in c for c in ex.calls)
-    assert TOKEN not in json.dumps(f.store.list_orders()[0].model_dump(mode="json"))
+    assert TOKEN not in json.dumps(f.store.list_products()[0].model_dump(mode="json"))
 
 
 async def test_missing_token_is_reported_not_fatal(make_factory, monkeypatch):
@@ -127,9 +127,9 @@ async def test_missing_token_is_reported_not_fatal(make_factory, monkeypatch):
     f = make_factory()
     f.settings.factory_mode = "live"
     f.settings.github_token = None
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    handover = next(e.message for e in f.store.list_events(run.id) if e.message.startswith("handover: passed"))
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    handover = next(e.message for e in f.store.list_events(change.id) if e.message.startswith("handover: passed"))
     assert "NOT pushed (env://GITHUB_TOKEN not available)" in handover
 
 

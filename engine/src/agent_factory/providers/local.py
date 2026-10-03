@@ -1,7 +1,7 @@
 """The `local` provider: today's laptop behaviour, unchanged.
 
 registry  `kind load` the image into the local cluster
-scan      the product line's `scan_command` (Trivy in dind)
+scan      the blueprint's `scan_command` (Trivy in dind)
 deploy    Helm to kind, NodePort, curl /healthz
 publish   `gh` with GITHUB_TOKEN from .env (moves to secret references in phase 2)
 """
@@ -13,7 +13,7 @@ import shutil
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.executor import CommandResult
-from agent_factory.models import EventKind, Order
+from agent_factory.models import EventKind, Product
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult
 
 if TYPE_CHECKING:
@@ -24,8 +24,8 @@ def failed_detail(cmd: str, res: CommandResult) -> str:
     return f"`{cmd}` exited {res.returncode}:\n{res.output[-4000:]}"
 
 
-def namespace(order: Order) -> str:
-    return f"app-{order.product_slug}"[:63]
+def namespace(product: Product) -> str:
+    return f"app-{product.slug}"[:63]
 
 
 class LocalProvider:
@@ -63,7 +63,7 @@ class LocalProvider:
 
     # ------------------------------------------------------------ registry --
     def image_ref(self, ctx: StationContext, tag: str) -> ImageRef:
-        return ImageRef(ctx.order.product_slug, tag)
+        return ImageRef(ctx.product.slug, tag)
 
     async def push(self, ctx: StationContext, local_image: str, ref: ImageRef) -> StepResult:
         cmd = f"kind load docker-image {local_image} --name {ctx.settings.cluster_name}"
@@ -74,7 +74,7 @@ class LocalProvider:
 
     # ---------------------------------------------------------------- scan --
     async def scan(self, ctx: StationContext, local_image: str) -> StepResult:
-        template = ctx.product_line.scan_command
+        template = ctx.blueprint.scan_command
         if not template:
             await ctx.emit(EventKind.decision, "security scan NOT run: no scan_command configured")
             return StepResult(True, "not scanned")
@@ -87,20 +87,20 @@ class LocalProvider:
 
     # -------------------------------------------------------------- deploy --
     def target(self, ctx: StationContext) -> str:
-        return f"namespace {namespace(ctx.order)} on the local kind cluster"
+        return f"namespace {namespace(ctx.product)} on the local kind cluster"
 
     def internal_url(self, ctx: StationContext) -> str:
-        return f"http://{ctx.settings.dind_host}:{ctx.order.host_port}"
+        return f"http://{ctx.settings.dind_host}:{ctx.product.host_port}"
 
     def public_url(self, ctx: StationContext) -> str:
-        return f"{ctx.cfg.factory.public_app_base_url}:{ctx.order.host_port}"
+        return f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}"
 
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult:
-        ns, slug = namespace(ctx.order), ctx.order.product_slug
+        ns, slug = namespace(ctx.product), ctx.product.slug
         helm = (
-            f"helm upgrade --install {slug} {ctx.product_line.chart_path} --namespace {ns} --create-namespace "
+            f"helm upgrade --install {slug} {ctx.blueprint.chart_path} --namespace {ns} --create-namespace "
             f"--set image.repository={image.repository} --set image.tag={image.tag} "
-            f"--set service.nodePort={ctx.order.node_port} --wait --timeout 5m"
+            f"--set service.nodePort={ctx.product.node_port} --wait --timeout 5m"
         )
         res = await ctx.cmd(helm, timeout=420)
         if res.ok:
@@ -114,7 +114,7 @@ class LocalProvider:
         return StepResult(False, "deployment failed", res.output[-2500:])
 
     async def diagnostics(self, ctx: StationContext) -> str:
-        ns, slug = namespace(ctx.order), ctx.order.product_slug
+        ns, slug = namespace(ctx.product), ctx.product.slug
         diag = await ctx.cmd(
             f"kubectl -n {ns} get pods -o wide; "
             f"kubectl -n {ns} get events --sort-by=.lastTimestamp | tail -20; "
@@ -125,7 +125,7 @@ class LocalProvider:
         return diag.output[-3500:]
 
     async def undeploy(self, ctx: StationContext) -> StepResult:
-        ns, slug = namespace(ctx.order), ctx.order.product_slug
+        ns, slug = namespace(ctx.product), ctx.product.slug
         cmd = (
             f"helm uninstall {slug} --namespace {ns} --ignore-not-found --wait --timeout 2m && "
             f"kubectl delete namespace {ns} --ignore-not-found --wait=false"
@@ -138,7 +138,7 @@ class LocalProvider:
     # ------------------------------------------------------------- publish --
     async def publish(self, ctx: StationContext) -> StepResult:
         ws = ctx.ws
-        repo = ws.product_dir(ctx.order.product_slug)
+        repo = ws.product_dir(ctx.product.slug)
         ref = getattr(getattr(self, "auth", None), "secret_ref", None) or "env://GITHUB_TOKEN"
         token = ctx.secret(ref, "publish")
         if not token:
@@ -148,7 +148,7 @@ class LocalProvider:
         owner = self.settings.get("owner", getattr(pub, "owner", "")) or ""
         visibility = self.settings.get("visibility", getattr(pub, "visibility", "private"))
         env = {"GH_TOKEN": token}
-        name = f"{owner}/{ctx.order.product_slug}" if owner else ctx.order.product_slug
+        name = f"{owner}/{ctx.product.slug}" if owner else ctx.product.slug
         if not (await ws.git("remote get-url origin", repo)).ok:
             vis = "--private" if visibility == "private" else "--public"
             c = await ctx.cmd(f"gh repo create {name} {vis} --source . --remote origin", env=env, cwd=repo, timeout=120)

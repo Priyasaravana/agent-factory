@@ -38,7 +38,7 @@ export default function IntegrationsPage() {
         <div>
           <h1 className="m-0 text-2xl font-semibold tracking-tight">Readiness &amp; integrations</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Everything a run needs is checked before it starts. A failed check refuses new orders in seconds, before
+            Everything a change needs is checked before it starts. A failed check refuses new products in seconds, before
             any model usage; degraded ones are shown but never block.
           </p>
         </div>
@@ -50,7 +50,7 @@ export default function IntegrationsPage() {
       <Problems error={recheck.error ?? preflight.error ?? null} />
 
       {preflight.isLoading && <div className="h-40 animate-pulse rounded-xl bg-muted" />}
-      {preflight.data?.map((v) => <PreflightCard key={v.product_line} view={v} />)}
+      {preflight.data?.map((v) => <PreflightCard key={v.blueprint} view={v} />)}
 
       {delivery.data && (
         <Card>
@@ -120,7 +120,7 @@ export default function IntegrationsPage() {
                   <td>scan</td>
                   <td>deploy</td>
                   <td>publish</td>
-                  <td>product lines</td>
+                  <td>blueprints</td>
                 </tr>
               </thead>
               <tbody>
@@ -134,7 +134,7 @@ export default function IntegrationsPage() {
                         <code>{e.bindings[c]}</code>
                       </td>
                     ))}
-                    <td>{(e.product_lines ?? []).join(", ") || <span className="muted">—</span>}</td>
+                    <td>{(e.blueprints ?? []).join(", ") || <span className="muted">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -148,12 +148,12 @@ export default function IntegrationsPage() {
 
 function PreflightCard({ view }: { view: PreflightView }) {
   return (
-    <Card data-testid={`preflight-${view.product_line}`}>
+    <Card data-testid={`preflight-${view.blueprint}`}>
       <CardHeader>
         <div>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-primary" />
-            {view.product_line}
+            {view.blueprint}
             <span className={cn("pill", TONE[view.state] ?? "muted")}>{view.state}</span>
           </CardTitle>
           <CardDescription>

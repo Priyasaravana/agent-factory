@@ -8,7 +8,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def test_config_points_at_a_blueprint(cfg: FactoryConfig) -> None:
-    for line in cfg.product_lines.values():
+    for line in cfg.blueprints.values():
         assert (REPO / line.workflow_template / "workflow.yaml").exists()
     assert cfg.models.resolve("judgment") == "opus"
 
@@ -18,6 +18,6 @@ def test_skill_overlay_only_for_used_skills(cfg: FactoryConfig) -> None:
     assert cfg.skill_overlay(["quick-recap"]) == ""
 
 
-def test_product_line_required() -> None:
+def test_blueprint_required() -> None:
     with pytest.raises(ValueError):
         FactoryConfig.model_validate({})

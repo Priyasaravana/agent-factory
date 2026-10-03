@@ -31,7 +31,7 @@ RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
  && curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | tar -xz -C /tmp \
  && mv /tmp/linux-${ARCH}/helm /usr/local/bin/helm && helm version --short
 # No vulnerability-scanner binary here: the Package station runs the scanner as a
-# container inside dind (see product_lines.*.scan_command in .agent-factory/config.yaml).
+# container inside dind (see blueprints.*.scan_command in .agent-factory/config.yaml).
 
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
 

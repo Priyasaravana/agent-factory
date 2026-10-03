@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.agents.runner import AgentResult
 from agent_factory.executor import FakeExecutor
-from agent_factory.models import EventKind, RunStatus
+from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.observe import MAX_TRANSCRIPT_BYTES, AgentCall, read_transcript
 from agent_factory.secret_refs import REDACTOR
 
@@ -82,29 +82,29 @@ async def test_transcripts_are_capped_and_names_cannot_escape(tmp_path: Path, mo
 # ------------------------------------------------------------- end to end --
 async def test_every_agent_call_of_a_run_is_recorded_with_its_transcript(make_factory):
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     app, ctx, c = await _client(f)
     async with c:
-        view = (await c.get(f"/api/runs/{run.id}/calls")).json()
+        view = (await c.get(f"/api/changes/{change.id}/calls")).json()
         roles = [x["role"] for x in view["calls"]]
         assert roles == ["intake", "architect", "developer", "reviewer", "verifier"]
         build = view["calls"][2]
         assert build["station"] == "implement" and build["tools"] == {"Read": 1} and build["transcript"]
         assert view["denials"] == []
-        entries = (await c.get(f"/api/runs/{run.id}/calls/{build['transcript']}/transcript")).json()
+        entries = (await c.get(f"/api/changes/{change.id}/calls/{build['transcript']}/transcript")).json()
         assert [e["type"] for e in entries] == ["text", "tool_use", "tool_result"]
-        assert (await c.get(f"/api/runs/{run.id}/calls/..%2Ffactory.db/transcript")).status_code == 404
-        assert (await c.get(f"/api/runs/{run.id}/calls/99-x-y.jsonl/transcript")).status_code == 404
+        assert (await c.get(f"/api/changes/{change.id}/calls/..%2Ffactory.db/transcript")).status_code == 404
+        assert (await c.get(f"/api/changes/{change.id}/calls/99-x-y.jsonl/transcript")).status_code == 404
     await ctx.__aexit__(None, None, None)
 
 
 async def test_a_denial_is_evidence_and_teaches(make_factory):
     agents = FakeAgentRunner(deny_once=["developer"])
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    decisions = [e.message for e in f.store.list_events(run.id) if e.kind == EventKind.decision]
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    decisions = [e.message for e in f.store.list_events(change.id) if e.kind == EventKind.decision]
     assert "guardrail denied Bash for developer: blocked: pushing is done by the engine after checks" in decisions
     for _ in range(100):  # the retro runs after delivery
         if f.store.list_proposals(WF):
@@ -126,14 +126,14 @@ async def test_a_denial_is_evidence_and_teaches(make_factory):
 
 async def test_the_retro_call_is_recorded_too(make_factory):
     f = make_factory(FakeExecutor(fail_on=["make verify"]))
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     for _ in range(100):
-        calls = [v for _, _, v in f.store.events_with_key([run.id], "agent_call")]
+        calls = [v for _, _, v in f.store.events_with_key([change.id], "agent_call")]
         if any(c["station"] == "retro" for c in calls):
             break
         await asyncio.sleep(0.05)
     retro = next(c for c in calls if c["station"] == "retro")
-    sessions = f.manager.ws.data_dir / "artifacts" / run.id / "sessions"
+    sessions = f.manager.ws.data_dir / "artifacts" / change.id / "sessions"
     assert retro["transcript"] and (sessions / retro["transcript"]).is_file()
     assert json.loads((sessions / retro["transcript"]).read_text().splitlines()[0])["type"] == "text"

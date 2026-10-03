@@ -1,10 +1,10 @@
-"""Evidence manifest (ADR-0023): one sealed, verifiable record of what a run produced.
+"""Evidence manifest (ADR-0023): one sealed, verifiable record of what a change produced.
 
-Whenever a run stops (delivered, failed, held, waiting on a person, cancelled) the
+Whenever a change stops (delivered, failed, held, waiting on a person, cancelled) the
 engine **seals** its evidence folder `artifacts/<run>/`:
 
-1. `events.jsonl`: the run's full event log, exactly as stored (already redacted).
-2. `spec/`: the spec the run worked to (`docs/spec.md`, `docs/requirements.yaml`),
+1. `events.jsonl`: the change's full event log, exactly as stored (already redacted).
+2. `spec/`: the spec the change worked to (`docs/spec.md`, `docs/requirements.yaml`),
    so the bundle shows what was promised next to what was proven.
 3. `pillars.json`: the evidence grouped by quality pillar (ADR-0024).
 4. `manifest.json`: run, order, workflow version, commit, image, outcome, and every
@@ -76,7 +76,7 @@ def build_manifest(folder: Path, facts: dict[str, Any], sealed_at: datetime) -> 
 
 def build_pillar_index(folder: Path) -> dict[str, Any]:
     """Evidence grouped by quality pillar (ADR-0024): each pillar's readiness signals
-    (from readiness.json, when the run reached the Quality gate station) and its files."""
+    (from readiness.json, when the change reached the Quality gate station) and its files."""
     from agent_factory.pillars import BY_ID, IDS, evidence_pillar
     from agent_factory.readiness import PILLAR_OF
 
@@ -157,21 +157,21 @@ def write_bundle(folder: Path, dest: Path) -> Path:
 
 
 # ------------------------------------------------------------------ sealing --
-def latest_seal(store: Any, run_id: str) -> dict[str, Any] | None:
-    seals = store.events_with_key([run_id], "evidence_seal")
+def latest_seal(store: Any, change_id: str) -> dict[str, Any] | None:
+    seals = store.events_with_key([change_id], "evidence_seal")
     return seals[-1][2] if seals else None
 
 
-async def seal(mgr: Any, run: Any, order: Any) -> str:
+async def seal(mgr: Any, change: Any, product: Any) -> str:
     """Write events.jsonl, the spec snapshot, manifest.json and SHA256SUMS for this
     run as it stands now, and record the manifest's digest in the event log."""
     from agent_factory.models import EventKind
 
-    folder = mgr.ws.data_dir / "artifacts" / run.id
+    folder = mgr.ws.data_dir / "artifacts" / change.id
     folder.mkdir(parents=True, exist_ok=True)
-    events = mgr.store.list_events(run.id)
+    events = mgr.store.list_events(change.id)
     (folder / "events.jsonl").write_text("".join(e.model_dump_json() + "\n" for e in events))
-    wt = mgr.ws.run_dir(run.id)
+    wt = mgr.ws.change_dir(change.id)
     spec_dir = folder / "spec"
     for name in ("spec.md", "requirements.yaml"):
         src = wt / "docs" / name
@@ -179,34 +179,34 @@ async def seal(mgr: Any, run: Any, order: Any) -> str:
             spec_dir.mkdir(exist_ok=True)
             (spec_dir / name).write_bytes(src.read_bytes())
     commit = None
-    repo = mgr.ws.product_dir(order.product_slug)
+    repo = mgr.ws.product_dir(product.slug)
     if repo.is_dir():
-        res = await mgr.ws.git(f"rev-parse --verify -q run/{run.id}", repo)
+        res = await mgr.ws.git(f"rev-parse --verify -q run/{change.id}", repo)
         commit = res.output.strip().splitlines()[-1] if res.ok and res.output.strip() else None
-    images = mgr.store.events_with_key([run.id], "image")
+    images = mgr.store.events_with_key([change.id], "image")
     facts = {
         "run": {
-            "id": run.id,
-            "iteration": run.iteration,
-            "status": str(run.status),
-            "summary": run.summary,
-            "station": run.current_station,
-            "change_request": run.change_request,
-            "spec_approved_by": run.spec_approved_by,
-            "fix_loops": run.loops,
-            "cost_usd": round(run.cost_usd, 4),
-            "created_at": run.created_at.isoformat(),
+            "id": change.id,
+            "iteration": change.iteration,
+            "status": str(change.status),
+            "summary": change.summary,
+            "station": change.current_station,
+            "change_request": change.change_request,
+            "spec_approved_by": change.spec_approved_by,
+            "fix_loops": change.loops,
+            "cost_usd": round(change.cost_usd, 4),
+            "created_at": change.created_at.isoformat(),
         },
         "order": {
-            "id": order.id,
-            "title": order.title,
-            "product": order.product_slug,
-            "created_by": order.created_by,
-            "app_url": order.app_url,
-            "repo_url": order.repo_url,
+            "id": product.id,
+            "title": product.title,
+            "product": product.slug,
+            "created_by": product.created_by,
+            "app_url": product.app_url,
+            "repo_url": product.repo_url,
         },
-        "workflow": {"id": run.workflow_id, "version": run.workflow_version},
-        "source": {"branch": f"run/{run.id}", "commit": commit},
+        "workflow": {"id": change.workflow_id, "version": change.workflow_version},
+        "source": {"branch": f"run/{change.id}", "commit": commit},
         "image": images[-1][2] if images else None,
         "events": len(events),
     }
@@ -215,9 +215,11 @@ async def seal(mgr: Any, run: Any, order: Any) -> str:
     digest = write_manifest(folder, manifest)
     t = manifest["totals"]
     mgr.store.add_event(
-        run.id,
+        change.id,
         EventKind.decision,
         f"evidence sealed: {t['files']} files, manifest sha256 {digest[:12]}",
-        data={"evidence_seal": {"sha256": digest, "files": t["files"], "bytes": t["bytes"], "status": str(run.status)}},
+        data={
+            "evidence_seal": {"sha256": digest, "files": t["files"], "bytes": t["bytes"], "status": str(change.status)}
+        },
     )
     return digest

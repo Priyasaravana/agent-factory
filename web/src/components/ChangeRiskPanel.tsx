@@ -1,28 +1,28 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ShieldAlert, ShieldCheck, Undo2 } from "lucide-react";
 import { useState } from "react";
-import { api, unwrap, type RunDetail } from "../api/client";
+import { api, unwrap, type ChangeDetail } from "../api/client";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
 
-type Risk = NonNullable<RunDetail["risk"]>;
+type Risk = NonNullable<ChangeDetail["risk"]>;
 
 /** The change-risk check of this iteration (ADR-0027): what the diff does that
- * needs a second admin, and the approve / send-back decision while the run waits. */
-export default function ChangeRiskPanel({ runId, orderId, risk }: { runId: string; orderId: string; risk: Risk }) {
+ * needs a second admin, and the approve / send-back decision while the change waits. */
+export default function ChangeRiskPanel({ changeId, productId, risk }: { changeId: string; productId: string; risk: Risk }) {
   const qc = useQueryClient();
   const [reason, setReason] = useState("");
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["run", runId] });
-    qc.invalidateQueries({ queryKey: ["order", orderId] });
+    qc.invalidateQueries({ queryKey: ["change", changeId] });
+    qc.invalidateQueries({ queryKey: ["product", productId] });
   };
-  const path = { params: { path: { run_id: runId } }, body: { reason } };
+  const path = { params: { path: { change_id: changeId } }, body: { reason } };
   const approve = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/runs/{run_id}/risk/approve", path)),
+    mutationFn: () => unwrap(api.POST("/api/changes/{change_id}/risk/approve", path)),
     onSuccess: refresh,
   });
   const sendBack = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/runs/{run_id}/risk/send-back", path)),
+    mutationFn: () => unwrap(api.POST("/api/changes/{change_id}/risk/send-back", path)),
     onSuccess: refresh,
   });
   const holds = (risk.findings ?? []).filter((f) => f.severity === "hold");
@@ -64,7 +64,7 @@ export default function ChangeRiskPanel({ runId, orderId, risk }: { runId: strin
         <div className="mt-3 grid gap-2">
           <p className="m-0 text-xs text-muted-foreground">
             An admin other than {risk.requested_by ?? "the requester"} approves with a reason, or anyone who can
-            steer this order sends it back to be changed without them.
+            steer this product sends it back to be changed without them.
             {risk.break_glass && selfAt
               ? ` On a single-admin install the requester may approve as break-glass from ${selfAt.toLocaleTimeString()}.`
               : ""}

@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from conftest import ORDER, default_skill_names, wait_run
+from conftest import PRODUCT, default_skill_names, wait_run
 
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.models import EventKind, RunStatus
+from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.review import judge
 from agent_factory.workflow import load_workflow_dir, validate_workflow
 
@@ -70,22 +70,22 @@ class Reviewer(FakeAgentRunner):
         return super()._structured(req)
 
 
-def _events(f, run_id: str, prefix: str) -> list:
-    return [e for e in f.store.list_events(run_id) if e.kind == EventKind.decision and e.message.startswith(prefix)]
+def _events(f, change_id: str, prefix: str) -> list:
+    return [e for e in f.store.list_events(change_id) if e.kind == EventKind.decision and e.message.startswith(prefix)]
 
 
 async def test_review_passes_and_leaves_evidence(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    [ev] = _events(f, run.id, "review:")
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    [ev] = _events(f, change.id, "review:")
     assert ev.message == "review: 2/2 requirements implemented, 0 blocking, 1 minor"
-    evidence = json.loads((f.manager.ws.data_dir / "artifacts" / run.id / "review.json").read_text())
+    evidence = json.loads((f.manager.ws.data_dir / "artifacts" / change.id / "review.json").read_text())
     assert evidence["judgement"]["passed"] and evidence["report"]["requirements"][0]["id"] == "R1"
-    from agent_factory.actions import get_run_spec
+    from agent_factory.actions import get_change_spec
 
-    view = get_run_spec(f, run.id).review
+    view = get_change_spec(f, change.id).review
     assert view and view.passed and (view.implemented, view.total) == (2, 2)
     assert [r.status for r in view.requirements] == ["implemented", "implemented"]
     assert view.findings[0].severity == "minor"
@@ -99,14 +99,14 @@ async def test_blocking_findings_go_back_to_build_as_evidence(make_factory):
         _report(("R1", "implemented"), ("R2", "implemented")),
     ])  # fmt: skip
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     builds = [c for c in agents.calls if c.role == "developer"]
     assert len(builds) == 2, "the builder got a second go"
     assert "R2 missing" in builds[-1].prompt and "Spec review found problems" in builds[-1].prompt
     reviews = [c for c in agents.calls if c.role == "reviewer"]
     assert "R2 missing" in reviews[-1].prompt, "the second review checks the earlier findings"
-    assert [e.message.split(",")[0] for e in _events(f, run.id, "review:")] == [
+    assert [e.message.split(",")[0] for e in _events(f, change.id, "review:")] == [
         "review: 1/2 requirements implemented",
         "review: 2/2 requirements implemented",
     ]
@@ -116,18 +116,20 @@ async def test_an_incomplete_review_is_retried_once_then_held(make_factory):
     ok = _report(("R1", "implemented"), ("R2", "implemented"))
     agents = Reviewer([_report(("R1", "implemented")), ok])
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     retry = [c for c in agents.calls if c.role == "reviewer"][1]
     assert "YOUR PREVIOUS REPORT WAS INCOMPLETE" in retry.prompt and "R2 not reviewed" in retry.prompt
 
     agents2 = Reviewer([_report(("R1", "implemented"))] * 2)
     f2 = make_factory(agents=agents2)
-    run2 = f2.manager.start_run(f2.manager.create_order(ORDER))
-    assert await wait_run(f2, run2.id) == RunStatus.held, "the reviewer's gap is not the builder's to fix"
+    change2 = f2.manager.start_change(f2.manager.create_product(PRODUCT))
+    assert await wait_run(f2, change2.id) == ChangeStatus.held, "the reviewer's gap is not the builder's to fix"
     assert len([c for c in agents2.calls if c.role == "developer"]) == 1
-    assert "requirement R2 not reviewed" in (f2.store.get_run(run2.id).last_failure or "")
-    assert any(e.kind == EventKind.decision and "review incomplete" in e.message for e in f2.store.list_events(run2.id))
+    assert "requirement R2 not reviewed" in (f2.store.get_change(change2.id).last_failure or "")
+    assert any(
+        e.kind == EventKind.decision and "review incomplete" in e.message for e in f2.store.list_events(change2.id)
+    )
 
 
 # ------------------------------------------------------------- workflow --

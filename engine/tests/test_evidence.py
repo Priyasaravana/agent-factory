@@ -10,12 +10,12 @@ import zipfile
 from datetime import UTC, datetime
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_access import ADMIN, MEMBER, OTHER
 from test_api import _client
 
 from agent_factory import evidence
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 
 
 # ------------------------------------------------------------ pure parts --
@@ -75,38 +75,38 @@ async def test_a_delivered_run_is_sealed_and_downloadable(make_factory):
     f.settings.auth_mode = "gateway"
     app, ctx, c = await _client(f)
     async with c:
-        order = (await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)).json()["order"]
-        run_id = order["latest_run_id"]
-        assert await wait_run(f, run_id) == RunStatus.awaiting_feedback
+        product = (await c.post("/api/products", json=PRODUCT.model_dump(), headers=MEMBER)).json()["product"]
+        change_id = product["latest_change_id"]
+        assert await wait_run(f, change_id) == ChangeStatus.awaiting_feedback
 
-        ev = (await c.get(f"/api/runs/{run_id}/evidence", headers=OTHER)).json()
+        ev = (await c.get(f"/api/changes/{change_id}/evidence", headers=OTHER)).json()
         assert ev["sealed"] and ev["intact"] and ev["status_at_seal"] == "awaiting_feedback"
         paths = {x["path"] for x in ev["files"]}
         assert {"events.jsonl", "spec/requirements.yaml", "spec/spec.md"} <= paths
         assert any(p.startswith("sessions/") for p in paths), "agent transcripts are evidence"
         assert ev["commit"], "the run branch's commit is recorded"
-        seal = [e for e in f.store.list_events(run_id) if "evidence_seal" in e.data]
+        seal = [e for e in f.store.list_events(change_id) if "evidence_seal" in e.data]
         assert seal and seal[-1].data["evidence_seal"]["sha256"] == ev["sha256"]
 
-        folder = f.manager.ws.data_dir / "artifacts" / run_id
+        folder = f.manager.ws.data_dir / "artifacts" / change_id
         manifest = json.loads((folder / "manifest.json").read_text())
         assert manifest["workflow"]["id"] and manifest["order"]["created_by"] == "priya"
         assert manifest["events"] == len((folder / "events.jsonl").read_text().splitlines())
 
-        # the bundle holds transcripts: the order's creator or an admin only
-        assert (await c.get(f"/api/runs/{run_id}/evidence/bundle", headers=OTHER)).status_code == 403
-        r = await c.get(f"/api/runs/{run_id}/evidence/bundle", headers=MEMBER)
+        # the bundle holds transcripts: the product's creator or an admin only
+        assert (await c.get(f"/api/changes/{change_id}/evidence/bundle", headers=OTHER)).status_code == 403
+        r = await c.get(f"/api/changes/{change_id}/evidence/bundle", headers=MEMBER)
         assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
         z = zipfile.ZipFile(io.BytesIO(r.content))
         names = set(z.namelist())
-        assert {f"{run_id}/manifest.json", f"{run_id}/SHA256SUMS", f"{run_id}/events.jsonl"} <= names
+        assert {f"{change_id}/manifest.json", f"{change_id}/SHA256SUMS", f"{change_id}/events.jsonl"} <= names
         assert len(names) == len(ev["files"]) + 2
-        assert (await c.get(f"/api/runs/{run_id}/evidence/bundle", headers=ADMIN)).status_code == 200
+        assert (await c.get(f"/api/changes/{change_id}/evidence/bundle", headers=ADMIN)).status_code == 200
 
         # tampering is reported, not hidden
         session = next(p for p in paths if p.startswith("sessions/"))
         (folder / session).write_text("rewritten\n")
-        ev = (await c.get(f"/api/runs/{run_id}/evidence", headers=OTHER)).json()
+        ev = (await c.get(f"/api/changes/{change_id}/evidence", headers=OTHER)).json()
         assert not ev["intact"] and ev["changed"] == [session]
     await ctx.__aexit__(None, None, None)
 
@@ -116,14 +116,14 @@ async def test_a_cancelled_run_is_sealed_too(make_factory):
     w = f.workflows["fastapi-service"]
     w.draft.set_spec_review("first")
     w.draft.publish("gate on")
-    order = f.manager.create_order(ORDER)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_approval
-    f.manager.cancel(run.id)
-    assert await wait_run(f, run.id) == RunStatus.cancelled
-    seals = evidence.latest_seal(f.store, run.id)
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_approval
+    f.manager.cancel(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.cancelled
+    seals = evidence.latest_seal(f.store, change.id)
     assert seals and seals["status"] == "cancelled"
-    folder = f.manager.ws.data_dir / "artifacts" / run.id
+    folder = f.manager.ws.data_dir / "artifacts" / change.id
     assert evidence.verify(folder, seals["sha256"]).intact
 
 
@@ -131,11 +131,11 @@ async def test_no_evidence_before_the_run_stops(make_factory):
     f = make_factory()
     app, ctx, c = await _client(f)
     async with c:
-        assert (await c.get("/api/runs/nope/evidence")).status_code == 404
-        run = f.manager.start_run(f.manager.create_order(ORDER))
+        assert (await c.get("/api/changes/nope/evidence")).status_code == 404
+        change = f.manager.start_change(f.manager.create_product(PRODUCT))
         await f.manager.shutdown()  # stopped mid-flight: interrupted, never sealed
-        assert (await c.get(f"/api/runs/{run.id}/evidence")).json()["sealed"] is False
-        assert (await c.get(f"/api/runs/{run.id}/evidence/bundle")).status_code == 409
+        assert (await c.get(f"/api/changes/{change.id}/evidence")).json()["sealed"] is False
+        assert (await c.get(f"/api/changes/{change.id}/evidence/bundle")).status_code == 409
     await ctx.__aexit__(None, None, None)
 
 
@@ -147,21 +147,21 @@ async def test_post_run_work_never_blocks_the_next_iteration(make_factory):
     gate = asyncio.Event()
     real_seal = f.manager._seal
 
-    async def slow_seal(run, order):  # noqa: ANN001, ANN202
+    async def slow_seal(change, product):  # noqa: ANN001, ANN202
         await gate.wait()
-        await real_seal(run, order)
+        await real_seal(change, product)
 
     f.manager._seal = slow_seal  # type: ignore[method-assign]
-    order = f.manager.create_order(ORDER)
-    run = f.manager.start_run(order)
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
     for _ in range(600):
-        if f.store.get_run(run.id).status == RunStatus.awaiting_feedback:
+        if f.store.get_change(change.id).status == ChangeStatus.awaiting_feedback:
             break
         await asyncio.sleep(0.05)
-    assert f.manager.is_active(run.id), "still sealing"
-    second = f.manager.feedback(order.id, "add a reset endpoint")
+    assert f.manager.is_active(change.id), "still sealing"
+    second = f.manager.feedback(product.id, "add a reset endpoint")
     assert second.iteration == 2
     gate.set()
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    assert await wait_run(f, second.id) == RunStatus.awaiting_feedback
-    assert evidence.latest_seal(f.store, run.id) and evidence.latest_seal(f.store, second.id)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
+    assert evidence.latest_seal(f.store, change.id) and evidence.latest_seal(f.store, second.id)

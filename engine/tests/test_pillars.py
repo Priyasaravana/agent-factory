@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import json
 
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_outcomes import _facts
 from test_readiness import _generated_repo
 
 from agent_factory import evidence
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.outcomes import compute
 from agent_factory.pillars import IDS, PILLARS, evidence_pillar, tally
 from agent_factory.readiness import PILLAR_OF, SECRET_SCAN, SIGNALS, score
@@ -80,9 +80,9 @@ def test_evidence_files_have_a_primary_pillar():
 
 async def test_the_sealed_evidence_has_a_pillar_index(make_factory):
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    folder = f.manager.ws.data_dir / "artifacts" / run.id
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    folder = f.manager.ws.data_dir / "artifacts" / change.id
     index = json.loads((folder / evidence.PILLAR_INDEX).read_text())
     by = {p["id"]: p for p in index["pillars"]}
     assert list(by) == IDS
@@ -91,7 +91,7 @@ async def test_the_sealed_evidence_has_a_pillar_index(make_factory):
     assert {s["id"] for s in by["security"]["signals"]} == MAPPING["security"]
     assert by["security"]["passed"] == by["security"]["applicable"] == 4
     assert by["performance"]["applicable"] == 0
-    seal = evidence.latest_seal(f.store, run.id)
+    seal = evidence.latest_seal(f.store, change.id)
     assert evidence.PILLAR_INDEX in {x["path"] for x in json.loads((folder / "manifest.json").read_text())["files"]}
     assert evidence.verify(folder, seal["sha256"]).intact, "the index is one more sealed file"
 
@@ -114,7 +114,7 @@ def test_outcomes_pillar_coverage_of_live_apps():
     for uncovered in ("performance", "cost", "usability"):
         u = by[uncovered]
         assert (u.signals, u.applicable, u.coverage, u.apps_full) == (0, 0, None, 0), "uncovered, not 100%"
-    assert [a.run_id for a in o.quality_by_app] == ["A", "B"], "by app title"
+    assert [a.change_id for a in o.quality_by_app] == ["A", "B"], "by app title"
     b = {p.pillar: p for p in o.quality_by_app[1].pillars}
     assert (b["maintainability"].passed, b["maintainability"].applicable) == (8, 9)
 

@@ -67,10 +67,10 @@ class HelmProvider:
 
     # ----------------------------------------------------------- addresses --
     def host(self, ctx: StationContext) -> str:
-        return f"{ctx.order.product_slug}.{self.domain}"
+        return f"{ctx.product.slug}.{self.domain}"
 
     def namespace(self, ctx: StationContext) -> str:
-        return f"{self.namespace_prefix}{ctx.order.product_slug}"[:63]
+        return f"{self.namespace_prefix}{ctx.product.slug}"[:63]
 
     def _origin(self, host: str) -> str:
         default = 443 if self.scheme == "https" else 80
@@ -114,7 +114,7 @@ class HelmProvider:
     def _env(self, ctx: Any, purpose: str) -> tuple[dict[str, str], bool] | None:
         if not self._kube_ref:
             return {}, False
-        value = ctx.secret(self._kube_ref, purpose) if hasattr(ctx, "run") else ctx.secret(self._kube_ref)
+        value = ctx.secret(self._kube_ref, purpose) if hasattr(ctx, "change") else ctx.secret(self._kube_ref)
         return ({KUBECONFIG_ENV: value}, True) if value is not None else None
 
     def _curl(self, url: str) -> str:
@@ -172,8 +172,8 @@ class HelmProvider:
         if env is None:
             return StepResult(False, f"deployment failed: kubeconfig {self._kube_ref} not available")
         kenv, kfile = env
-        ns, slug, host = self.namespace(ctx), ctx.order.product_slug, self.host(ctx)
-        chart = ctx.product_line.chart_path
+        ns, slug, host = self.namespace(ctx), ctx.product.slug, self.host(ctx)
+        chart = ctx.blueprint.chart_path
         h, k = f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}"
         sets = [
             f"image.repository={image.repository}",
@@ -235,7 +235,7 @@ class HelmProvider:
         if env is None:
             return "kubeconfig not available"
         kenv, kfile = env
-        ns, slug, k = self.namespace(ctx), ctx.order.product_slug, f"kubectl{self._flags('kubectl')}"
+        ns, slug, k = self.namespace(ctx), ctx.product.slug, f"kubectl{self._flags('kubectl')}"
         diag = await ctx.cmd(
             self._kube(
                 f"{k} -n {ns} get pods,svc,ingress -o wide; "
@@ -255,7 +255,7 @@ class HelmProvider:
         if env is None:
             return StepResult(False, f"could not archive: kubeconfig {self._kube_ref} not available")
         kenv, kfile = env
-        ns, slug = self.namespace(ctx), ctx.order.product_slug
+        ns, slug = self.namespace(ctx), ctx.product.slug
         cmd = self._kube(
             f"helm{self._flags('helm')} uninstall {slug} --namespace {ns} --ignore-not-found --wait --timeout 2m && "
             f"kubectl{self._flags('kubectl')} delete namespace {ns} --ignore-not-found --wait=false",

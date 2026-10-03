@@ -1,4 +1,4 @@
-# Evaluation suite (ADR-0025): fixed orders every new version of this workflow is
+# Evaluation suite (ADR-0025): fixed requests every new version of this workflow is
 # measured on before it serves real ones (see eval_gate in workflow.yaml).
 # Keep cases small and representative: each one is a full build, test and deploy.
 # `answers` are given if intake asks blocking questions; that counts as needing help.

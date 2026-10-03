@@ -7,7 +7,7 @@ import { ago } from "../lib/time";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
 
-/** Lessons the retro suggested after runs that needed help (ADR-0021). Everyone can
+/** Lessons the retro suggested after changes that needed help (ADR-0021). Everyone can
  * read them; an admin accepts one into the workflow draft or rejects it. Nothing
  * changes what agents are taught until the draft is published. */
 export default function LearningsCard({
@@ -68,7 +68,7 @@ export default function LearningsCard({
         </span>
       </div>
       <p className="muted small">
-        After a run that needed help (a fix loop, a hold, blocking questions)
+        After a change that needed help (a fix loop, a hold, blocking questions)
         the factory suggests short lessons for the agent whose work caused it.
         Accepted lessons go into the workflow <strong>draft</strong>; they reach
         agents only when an admin publishes it
@@ -92,7 +92,7 @@ export default function LearningsCard({
             >
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="pill info">{p.agent}</span>
-                from <Link to={`/orders/${p.order_id}`}>a run</Link> on v
+                from <Link to={`/products/${p.product_id}`}>a change</Link> on v
                 {p.workflow_version} · {ago(p.created_at)}
               </div>
               <div className="font-medium">{p.lesson}</div>

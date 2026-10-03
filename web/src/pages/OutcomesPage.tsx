@@ -123,7 +123,7 @@ function Kpis({ o }: { o: Outcomes }) {
             ? `median · p90 ${duration(lead.p90_s)} · ${lead.n} deliveries`
             : "no deliveries yet"
         }
-        help="From the moment an iteration was requested (order or feedback) until it was delivered, including any time spent waiting on people."
+        help="From the moment an iteration was requested (new product or feedback) until it was delivered, including any time spent waiting on people."
       />
       <Stat
         label="Change failure rate"
@@ -204,7 +204,7 @@ function Waiting({ o }: { o: Outcomes }) {
         <div>
           <CardTitle>Waiting on a person now</CardTitle>
           <CardDescription>
-            Runs that cannot continue until someone acts, longest wait first.
+            Changes that cannot continue until someone acts, longest wait first.
             The factory never waits silently.
           </CardDescription>
         </div>
@@ -221,7 +221,7 @@ function Waiting({ o }: { o: Outcomes }) {
           <table className="wide">
             <thead>
               <tr>
-                <td>order</td>
+                <td>product</td>
                 <td>status</td>
                 <td>what to do</td>
                 <td>who</td>
@@ -230,9 +230,9 @@ function Waiting({ o }: { o: Outcomes }) {
             </thead>
             <tbody>
               {items.map((w) => (
-                <tr key={w.run_id}>
+                <tr key={w.change_id}>
                   <td>
-                    <Link to={`/orders/${w.order_id}`}>{w.order_title}</Link>
+                    <Link to={`/products/${w.product_id}`}>{w.product_title}</Link>
                     <span className="ml-1 text-xs text-muted-foreground">
                       iteration {w.iteration}
                     </span>
@@ -301,10 +301,10 @@ function TimeSplit({ o }: { o: Outcomes }) {
         <div>
           <CardTitle>Where the time goes</CardTitle>
           <CardDescription>
-            Run time in this window by who the run was waiting on. Based on{" "}
-            {o.runs_with_timeline} of {o.runs_in_window} runs
-            {o.runs_with_timeline < o.runs_in_window
-              ? " (older runs have no timeline)"
+            Change time in this window by who the change was waiting on. Based on{" "}
+            {o.changes_with_timeline} of {o.changes_in_window} changes
+            {o.changes_with_timeline < o.changes_in_window
+              ? " (older changes have no timeline)"
               : ""}
             .
           </CardDescription>
@@ -313,14 +313,14 @@ function TimeSplit({ o }: { o: Outcomes }) {
       <CardContent className="grid gap-3">
         {total === 0 ? (
           <p className="m-0 text-sm text-muted-foreground">
-            No run time recorded in this window yet.
+            No change time recorded in this window yet.
           </p>
         ) : (
           <>
             <div
               className="flex h-4 w-full gap-0.5"
               role="img"
-              aria-label="Run time split"
+              aria-label="Change time split"
             >
               {BUCKETS.filter((b) => (s[b.key] ?? 0) > 0).map((b) => (
                 <Tip
@@ -533,7 +533,7 @@ function ByWorkflow({ o }: { o: Outcomes }) {
         <div>
           <CardTitle>By workflow</CardTitle>
           <CardDescription>
-            Compare product lines, or a workflow before and after a change.
+            Compare blueprints, or a workflow before and after a change.
           </CardDescription>
         </div>
       </CardHeader>
@@ -623,9 +623,9 @@ function Quality({ o }: { o: Outcomes }) {
               </thead>
               <tbody>
                 {apps.map((a) => (
-                  <tr key={a.run_id}>
+                  <tr key={a.change_id}>
                     <td>
-                      <Link to={`/orders/${a.order_id}`}>{a.order_title}</Link>
+                      <Link to={`/products/${a.product_id}`}>{a.product_title}</Link>
                     </td>
                     {covered.map((c) => {
                       const p = (a.pillars ?? []).find(
@@ -669,7 +669,7 @@ function Effort({ o }: { o: Outcomes }) {
           <CardTitle>Agent effort by station</CardTitle>
           <CardDescription>
             Every agent call in this window: where the money and time go, and
-            what the guardrails refused. Open a run's Agent calls for
+            what the guardrails refused. Open a change's Agent calls for
             transcripts.
           </CardDescription>
         </div>
