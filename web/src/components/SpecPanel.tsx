@@ -16,29 +16,29 @@ import { Button } from "./ui/button";
 
 type Tab = "requirements" | "product" | "technical" | "api" | "trace";
 
-/** The run's specification: what the factory agreed to build, and how each
+/** The change's specification: what the factory agreed to build, and how each
  * requirement is traced to scenarios, tests and live acceptance. When the spec
  * review gate is on, this is also where a person approves or sends it back. */
 export default function SpecPanel({
-  runId,
+  changeId,
   runStatus,
 }: {
-  runId: string;
+  changeId: string;
   runStatus: string;
 }) {
   const qc = useQueryClient();
   const reviewing = runStatus === "awaiting_approval";
   const spec = useQuery({
-    queryKey: ["spec", runId, runStatus],
+    queryKey: ["spec", changeId, runStatus],
     queryFn: () =>
       unwrap(
-        api.GET("/api/runs/{run_id}/spec", {
-          params: { path: { run_id: runId } },
+        api.GET("/api/changes/{change_id}/spec", {
+          params: { path: { change_id: changeId } },
         }),
       ),
   });
   const [tab, setTab] = useState<Tab>(reviewing ? "requirements" : "trace");
-  // a run that reaches the gate while the panel is open should land on what to review
+  // a change that reaches the gate while the panel is open should land on what to review
   useEffect(() => {
     if (reviewing) setTab("requirements");
   }, [reviewing]);
@@ -49,20 +49,20 @@ export default function SpecPanel({
     technical: string;
   } | null>(null);
   const done = (msg: string) => {
-    qc.invalidateQueries({ queryKey: ["run", runId] });
-    qc.invalidateQueries({ queryKey: ["spec", runId] });
-    qc.invalidateQueries({ queryKey: ["order"] });
+    qc.invalidateQueries({ queryKey: ["change", changeId] });
+    qc.invalidateQueries({ queryKey: ["spec", changeId] });
+    qc.invalidateQueries({ queryKey: ["product"] });
     toast.success(msg);
   };
-  const path = { params: { path: { run_id: runId } } };
+  const path = { params: { path: { change_id: changeId } } };
   const approve = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/runs/{run_id}/spec/approve", path)),
+    mutationFn: () => unwrap(api.POST("/api/changes/{change_id}/spec/approve", path)),
     onSuccess: () => done("Spec approved — building"),
   });
   const changes = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/runs/{run_id}/spec/changes", {
+        api.POST("/api/changes/{change_id}/spec/changes", {
           ...path,
           body: { comment },
         }),
@@ -75,9 +75,9 @@ export default function SpecPanel({
   });
   const save = useMutation({
     mutationFn: () =>
-      unwrap(api.PUT("/api/runs/{run_id}/spec", { ...path, body: editing! })),
+      unwrap(api.PUT("/api/changes/{change_id}/spec", { ...path, body: editing! })),
     onSuccess: (s) => {
-      qc.setQueryData(["spec", runId, runStatus], s);
+      qc.setQueryData(["spec", changeId, runStatus], s);
       setEditing(null);
       toast.success("Spec saved");
     },

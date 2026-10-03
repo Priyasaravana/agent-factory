@@ -1,4 +1,4 @@
-"""One workflow per product line, templates, role/tool checks and migration
+"""One workflow per blueprint, templates, role/tool checks and migration
 from the pre-rename 'line' tables."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from conftest import _CREATED, ORDER, default_skill_names, make_seeds, wait_run
+from conftest import _CREATED, PRODUCT, default_skill_names, make_seeds, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.app_factory import build_factory
@@ -17,7 +17,7 @@ from agent_factory.config import load_config
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.executor import FakeExecutor
 from agent_factory.github import Fetched
-from agent_factory.models import CreateOrderInput, EventKind, RunStatus
+from agent_factory.models import ChangeStatus, CreateProductInput, EventKind
 from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 from agent_factory.workflow import load_workflow_dir, validate_workflow, workflow_warnings
@@ -79,9 +79,9 @@ async def test_start_from_template_then_publish_and_run(make_factory):
     assert w.draft.dirty() and w.draft.problems() == []
     info = w.draft.publish("switch to security review template")
     assert info.version == 2
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    done = [e.station for e in f.store.list_events(run.id) if e.kind == EventKind.station_finished]
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    done = [e.station for e in f.store.list_events(change.id) if e.kind == EventKind.station_finished]
     assert "security-review" in done
 
 
@@ -118,8 +118,8 @@ async def test_unknown_template_and_workflow(make_factory):
 @pytest.fixture
 def two_products(tmp_path):
     cfg = load_config(REPO / ".agent-factory" / "config.yaml")
-    base = cfg.product_lines[WF]
-    cfg.product_lines["secure-api"] = base.model_copy(
+    base = cfg.blueprints[WF]
+    cfg.blueprints["secure-api"] = base.model_copy(
         update={"workflow_template": "workflow-templates/api-security-review", "node_ports": [30083, 30084]}
     )
     settings = Settings(
@@ -134,20 +134,20 @@ def two_products(tmp_path):
     return f
 
 
-async def test_each_product_line_runs_its_own_workflow(two_products):
+async def test_each_blueprint_runs_its_own_workflow(two_products):
     f = two_products
     assert f.workflows.ids() == [WF, "secure-api"]
-    a = f.manager.start_run(f.manager.create_order(ORDER))
-    b = f.manager.start_run(
-        f.manager.create_order(
-            CreateOrderInput(
-                title="Secure notes", requirements="Notes API with tags and search.", product_line="secure-api"
+    a = f.manager.start_change(f.manager.create_product(PRODUCT))
+    b = f.manager.start_change(
+        f.manager.create_product(
+            CreateProductInput(
+                title="Secure notes", requirements="Notes API with tags and search.", blueprint="secure-api"
             )
         )
     )
     assert a.workflow_id == WF and b.workflow_id == "secure-api"
-    assert await wait_run(f, a.id) == RunStatus.awaiting_feedback
-    assert await wait_run(f, b.id) == RunStatus.awaiting_feedback
+    assert await wait_run(f, a.id) == ChangeStatus.awaiting_feedback
+    assert await wait_run(f, b.id) == ChangeStatus.awaiting_feedback
     sa = {e.station for e in f.store.list_events(a.id) if e.kind == EventKind.station_finished}
     sb = {e.station for e in f.store.list_events(b.id) if e.kind == EventKind.station_finished}
     assert "security-review" not in sa and "security-review" in sb
@@ -200,12 +200,12 @@ def test_legacy_line_tables_and_runs_migrate(tmp_path):
     assert w.active_version() == 2 and [v.version for v in w.versions()] == [2, 1]
     assert w.get(1).template == "default", "old 'blueprint' field is read as 'template'"
 
-    from agent_factory.models import Run
+    from agent_factory.models import Change
 
-    old = Run.model_validate(
+    old = Change.model_validate(
         {
             "id": "r",
-            "order_id": "o",
+            "product_id": "o",
             "iteration": 1,
             "status": "held",
             "line_version": 2,

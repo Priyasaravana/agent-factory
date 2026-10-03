@@ -48,30 +48,30 @@ requirements ──► intake ► design ► build ► verify ► package ► de
   - JSON logs, metrics and tracing;
   - a secret scan, SBOM and provenance.
 
-  A Quality gate station holds every run to that bar ([practices](docs/practices.md)).
+  A Quality gate station holds every change to that bar ([practices](docs/practices.md)).
 - **Checked before it starts.** Readiness checks cover the model, sandbox,
-  Docker, cluster, free ports and credentials. They refuse an order in seconds,
+  Docker, cluster, free ports and credentials. They refuse a product in seconds,
   before any model usage, if something it needs is broken
   ([ADR-0015](docs/adr/0015-readiness-and-preflight.md)).
 - **Every agent call on the record.** Model, turns, time, cost, tools used, a
   redacted transcript, and every action a guardrail refused
   ([ADR-0022](docs/adr/0022-agent-observability.md)).
 - **Quality you can see by pillar.** Every readiness signal belongs to one of ten
-  quality pillars (Well-Architected + ISO/IEC 25010). Runs, Outcomes and the sealed
+  quality pillars (Well-Architected + ISO/IEC 25010). Changes, Outcomes and the sealed
   evidence show coverage per pillar, and pillars with no signals say so
   ([ADR-0024](docs/adr/0024-quality-pillars.md)).
 - **Deploys to real clusters.** Any OCI registry and Helm to any cluster, with one
   ingress host per app and no app limit; try it locally with `make local-ingress`
   ([ADR-0026](docs/adr/0026-cluster-target.md)).
 - **Measured before it ships.** Every new workflow version runs a fixed set of
-  orders against the active version: pass rate, autonomy, Level 3, cost and fix
+  products against the active version: pass rate, autonomy, Level 3, cost and fix
   loops. With the `block` gate a version only goes live if nothing regressed
   ([ADR-0025](docs/adr/0025-evaluation-harness.md)).
-- **Evidence you can hand over.** Every stopped run is sealed: events, spec,
+- **Evidence you can hand over.** Every stopped change is sealed: events, spec,
   review, traceability, SBOM, provenance and transcripts, each with its SHA-256.
   The seal is re-checked on every view, and the whole set downloads as one zip
   ([ADR-0023](docs/adr/0023-evidence-manifest.md)).
-- **Gets better with use.** After a run that needed help, the factory suggests
+- **Gets better with use.** After a change that needed help, the factory suggests
   short lessons for the agent that caused it. An admin accepts them into the
   workflow, versioned like any other change
   ([ADR-0021](docs/adr/0021-learning-from-runs.md)).
@@ -90,7 +90,7 @@ requirements ──► intake ► design ► build ► verify ► package ► de
 ```bash
 cp .env.example .env        # FACTORY_MODE=dry-run by default
 make up                     # builds and starts dind + factory + web
-open http://localhost:8080  # sign in (see docs/runbook.md), submit an order, watch the workflow run
+open http://localhost:8080  # sign in (see docs/runbook.md), create a product, watch the workflow run
 ```
 
 **Dry-run** simulates the agents and commands. Git is still real. Use it to
@@ -106,9 +106,9 @@ try the UI, gates, fix loops and resume without spending any model usage.
    and `GIT_AUTHOR_EMAIL`.
 3. Set `FACTORY_MODE=live`, then `make up`. The first start creates the kind
    cluster inside the dind container, which takes about 2 minutes.
-4. Submit an order. The delivered app is served on `http://localhost:8081`
+4. Create a product. The delivered app is served on `http://localhost:8081`
    (the second product on `:8082`, and so on, up to 20 apps on `:8100`).
-   Archive orders you no longer need to free their port.
+   Archive products you no longer need to free their port.
 
 See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshooting.
 
@@ -116,8 +116,8 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 
 | Path | What it is |
 |---|---|
-| `.agent-factory/config.yaml` | Factory settings: models, product lines, policies, budgets, gates, skill guidance. |
-| `workflow-templates/` | **Workflow templates**: `workflow.yaml` (stations, routes), `agents/*.md` (one spec per agent), `docs/*.md` (reference docs). Each product line's workflow is seeded from one and then edited in the UI; see [docs/workflows.md](docs/workflows.md). |
+| `.agent-factory/config.yaml` | Factory settings: models, blueprints, policies, budgets, gates, skill guidance. |
+| `workflow-templates/` | **Workflow templates**: `workflow.yaml` (stations, routes), `agents/*.md` (one spec per agent), `docs/*.md` (reference docs). Each blueprint's workflow is seeded from one and then edited in the UI; see [docs/workflows.md](docs/workflows.md). |
 | `engine/` | Python engine and API: state machine, stations, agent runner, guardrail hooks. |
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |

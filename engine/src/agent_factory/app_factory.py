@@ -1,4 +1,4 @@
-"""Composition root: wires config, state, executor, agents and the run manager,
+"""Composition root: wires config, state, executor, agents and the change manager,
 and exposes the action registry as an OpenAPI-first FastAPI app."""
 
 from __future__ import annotations
@@ -19,14 +19,14 @@ from sse_starlette.sse import EventSourceResponse
 from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
 from agent_factory.config import FactoryConfig, load_config
-from agent_factory.engine.pipeline import FactoryError, RefusedError, RunManager
+from agent_factory.engine.pipeline import ChangeManager, FactoryError, RefusedError
 from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
-from agent_factory.models import TERMINAL, RunStatus
+from agent_factory.models import TERMINAL, ChangeStatus
 from agent_factory.providers import Providers
 from agent_factory.sandbox import SandboxManager
 from agent_factory.secret_refs import SecretResolver
@@ -42,7 +42,7 @@ class Factory:
     cfg: FactoryConfig
     settings: Settings
     store: StateStore
-    manager: RunManager
+    manager: ChangeManager
     workflows: WorkflowRegistry
     sandbox: SandboxManager | None = None
 
@@ -78,7 +78,7 @@ def build_factory(
     library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
     workflows = WorkflowRegistry(
         store,
-        {pl: home / line.workflow_template for pl, line in cfg.product_lines.items()},
+        {pl: home / line.workflow_template for pl, line in cfg.blueprints.items()},
         home / "workflow-templates",
         home / "plugin" / "skills",
         library,
@@ -92,7 +92,7 @@ def build_factory(
     for problem in skill_problems:
         log.warning("%s", problem)
     try:
-        workflows.ensure_seeded()  # first start: template -> workflow v1 per product line (never overwrites)
+        workflows.ensure_seeded()  # first start: template -> workflow v1 per blueprint (never overwrites)
     except WorkflowError as exc:
         if skill_problems:
             raise WorkflowError(
@@ -100,7 +100,7 @@ def build_factory(
                 "(first start needs GitHub access, or an image built with them)",
                 exc.problems + skill_problems,
             ) from exc
-        raise  # first start: template -> workflow v1 per product line (never overwrites)
+        raise  # first start: template -> workflow v1 per blueprint (never overwrites)
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
     sandbox = sandbox_for(cfg, settings, home, data_dir) if live else None
     factory.sandbox = sandbox
@@ -109,7 +109,7 @@ def build_factory(
             agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory), sandbox=sandbox)
         else:
             agents = FakeAgentRunner()
-    factory.manager = RunManager(
+    factory.manager = ChangeManager(
         cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets, sandbox=sandbox
     )
     return factory
@@ -202,32 +202,32 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         )
 
     @app.get(
-        "/api/runs/{run_id}/stream",
-        operation_id="stream_run",
+        "/api/changes/{change_id}/stream",
+        operation_id="stream_change",
         tags=["factory"],
         summary="Server-sent events: live run events and status",
     )
-    async def stream_run(run_id: str, request: Request, after: int = 0) -> EventSourceResponse:
+    async def stream_change(change_id: str, request: Request, after: int = 0) -> EventSourceResponse:
         f = holder["f"]
 
         async def gen() -> AsyncIterator[dict[str, str]]:
             last = after
             while not await request.is_disconnected():
-                for ev in f.store.list_events(run_id, last):
+                for ev in f.store.list_events(change_id, last):
                     last = ev.id
                     yield {"event": "event", "id": str(ev.id), "data": ev.model_dump_json()}
-                run = f.store.get_run(run_id)
-                if run:
+                change = f.store.get_change(change_id)
+                if change:
                     yield {
                         "event": "status",
-                        "data": json.dumps({"status": run.status, "station": run.current_station}),
+                        "data": json.dumps({"status": change.status, "station": change.current_station}),
                     }
-                    if run.status in TERMINAL | {
-                        RunStatus.held,
-                        RunStatus.needs_input,
-                        RunStatus.awaiting_approval,
-                        RunStatus.awaiting_risk_approval,
-                    } and not f.manager.is_active(run_id):
+                    if change.status in TERMINAL | {
+                        ChangeStatus.held,
+                        ChangeStatus.needs_input,
+                        ChangeStatus.awaiting_approval,
+                        ChangeStatus.awaiting_risk_approval,
+                    } and not f.manager.is_active(change_id):
                         break
                 await asyncio.sleep(1.0)
 

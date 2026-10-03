@@ -7,7 +7,7 @@ import json
 from datetime import timedelta
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_access import ADMIN, MEMBER
 from test_api import _client
 
@@ -15,7 +15,7 @@ from agent_factory import risk
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.config import AcceptableUseRule
 from agent_factory.engine.pipeline import FactoryError, RefusedError
-from agent_factory.models import CreateOrderInput, RunStatus
+from agent_factory.models import ChangeStatus, CreateProductInput
 from agent_factory.workflow import load_workflow_dir, workflow_warnings
 
 # an operator's own rule, so the tests exercise refusal without harmful examples
@@ -61,22 +61,22 @@ async def test_a_refused_order_is_never_created_and_is_audited(make_factory) -> 
     f.cfg.change_risk.acceptable_use.append(TEST_RULE)
     app, ctx, c = await _client(f)
     async with c:
-        r = await c.post("/api/orders", json={"title": "Widgets", "requirements": "A forbidden widget registry"})
+        r = await c.post("/api/products", json={"title": "Widgets", "requirements": "A forbidden widget registry"})
         assert r.status_code == 422 and "test-forbidden" in r.json()["detail"]
     await ctx.__aexit__(None, None, None)
-    assert f.store.list_orders() == []
+    assert f.store.list_products() == []
     audit = [json.loads(x) for x in (f.manager.ws.data_dir / "audit" / "refusals.jsonl").read_text().splitlines()]
-    assert audit[0]["rule"] == "test-forbidden" and audit[0]["what"] == "order"
+    assert audit[0]["rule"] == "test-forbidden" and audit[0]["what"] == "product"
 
 
 async def test_feedback_is_screened_too(make_factory) -> None:
     f = make_factory()
     f.cfg.change_risk.acceptable_use.append(TEST_RULE)
-    order = f.manager.create_order(ORDER)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     with pytest.raises(RefusedError):
-        f.manager.feedback(order.id, "now turn it into a forbidden widget")
+        f.manager.feedback(product.id, "now turn it into a forbidden widget")
 
 
 # ------------------------------------------------------------------- diffs --
@@ -180,74 +180,76 @@ RISKY = {
 
 async def _held(make_factory, created_by: str = "priya"):  # noqa: ANN202
     f = make_factory(agents=FakeAgentRunner(risky_once=dict(RISKY)))
-    order = f.manager.create_order(ORDER)
-    order.created_by = created_by
-    f.store.save_order(order)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_risk_approval
-    return f, order, f.store.get_run(run.id)
+    product = f.manager.create_product(PRODUCT)
+    product.created_by = created_by
+    f.store.save_product(product)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_risk_approval
+    return f, product, f.store.get_change(change.id)
 
 
 async def test_a_risky_change_waits_for_a_second_admin_then_ships(make_factory) -> None:
-    f, order, run = await _held(make_factory)
-    assert run.risk_hold and run.risk_hold.requested_by == "priya" and run.risk_hold.findings == 1
-    assert run.current_station == "change-risk" and "weakens security" in run.summary
-    evidence = json.loads((f.manager.ws.data_dir / "artifacts" / run.id / "change-risk.json").read_text())
+    f, product, change = await _held(make_factory)
+    assert change.risk_hold and change.risk_hold.requested_by == "priya" and change.risk_hold.findings == 1
+    assert change.current_station == "change-risk" and "weakens security" in change.summary
+    evidence = json.loads((f.manager.ws.data_dir / "artifacts" / change.id / "change-risk.json").read_text())
     assert [x["rule"] for x in evidence["findings"]] == ["sec-cors-wildcard"]
 
     f.settings.auth_mode = "gateway"
     app, ctx, c = await _client(f)
     async with c:
-        view = (await c.get(f"/api/runs/{run.id}", headers=MEMBER)).json()["risk"]
+        view = (await c.get(f"/api/changes/{change.id}", headers=MEMBER)).json()["risk"]
         assert view["waiting"] and view["findings"][0]["file"] == "app/debug_tools.py"
         body = {"reason": "debug CORS is needed for the partner demo"}
-        r = await c.post(f"/api/runs/{run.id}/risk/approve", json=body, headers=MEMBER)
+        r = await c.post(f"/api/changes/{change.id}/risk/approve", json=body, headers=MEMBER)
         assert r.status_code == 403, "approving a risky change is admin work"
-        r = await c.post(f"/api/runs/{run.id}/risk/approve", json=body, headers=ADMIN)
+        r = await c.post(f"/api/changes/{change.id}/risk/approve", json=body, headers=ADMIN)
         assert r.status_code == 200
-        assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+        assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     await ctx.__aexit__(None, None, None)
 
-    done = f.store.get_run(run.id)
+    done = f.store.get_change(change.id)
     assert done.risk_approvals[0].by == "saravana" and not done.risk_approvals[0].break_glass
-    msgs = [e.message for e in f.store.list_events(run.id)]
+    msgs = [e.message for e in f.store.list_events(change.id)]
     assert any(m.startswith("change risk: 1 risky change(s) approved by saravana") for m in msgs)
 
 
 async def test_the_requester_needs_the_cooling_off_delay_and_is_flagged(make_factory) -> None:
-    f, order, run = await _held(make_factory, created_by="saravana")
+    f, product, change = await _held(make_factory, created_by="saravana")
     with pytest.raises(FactoryError, match="break-glass in"):
-        f.manager.approve_risk(run.id, "saravana", "I own this and accept the risk")
-    later = run.risk_hold.since + timedelta(minutes=f.cfg.change_risk.cooling_off_minutes + 1)
-    f.manager.approve_risk(run.id, "saravana", "single-admin install; accepted", now=later)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    assert f.store.get_run(run.id).risk_approvals[0].break_glass
+        f.manager.approve_risk(change.id, "saravana", "I own this and accept the risk")
+    later = change.risk_hold.since + timedelta(minutes=f.cfg.change_risk.cooling_off_minutes + 1)
+    f.manager.approve_risk(change.id, "saravana", "single-admin install; accepted", now=later)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_change(change.id).risk_approvals[0].break_glass
 
 
 async def test_break_glass_can_be_turned_off(make_factory) -> None:
-    f, order, run = await _held(make_factory, created_by="saravana")
+    f, product, change = await _held(make_factory, created_by="saravana")
     f.cfg.change_risk.break_glass = False
-    later = run.risk_hold.since + timedelta(days=1)
+    later = change.risk_hold.since + timedelta(days=1)
     with pytest.raises(FactoryError, match="another admin must approve"):
-        f.manager.approve_risk(run.id, "saravana", "I own this and accept the risk", now=later)
+        f.manager.approve_risk(change.id, "saravana", "I own this and accept the risk", now=later)
 
 
 async def test_sent_back_the_change_is_fixed_and_checked_again(make_factory) -> None:
-    f, order, run = await _held(make_factory)
-    f.manager.send_back_risk(run.id, "saravana", "no wildcard CORS in this product")
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    f, product, change = await _held(make_factory)
+    f.manager.send_back_risk(change.id, "saravana", "no wildcard CORS in this product")
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     agents = f.manager.agents
     dev = [c for c in agents.calls if c.role == "developer"]
     assert len(dev) == 2 and "no wildcard CORS in this product" in dev[1].prompt
-    done = f.store.get_run(run.id)
+    done = f.store.get_change(change.id)
     assert done.risk_approvals == [] and done.risk_hold is None
     assert any(
-        m.startswith("risky changes sent back by saravana") for m in (e.message for e in f.store.list_events(run.id))
+        m.startswith("risky changes sent back by saravana") for m in (e.message for e in f.store.list_events(change.id))
     )
 
 
 async def test_ordinary_orders_are_not_held(make_factory) -> None:
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(CreateOrderInput(title="Notes", requirements="Keep short notes.")))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    assert any(e.message.startswith("change risk: no risky changes") for e in f.store.list_events(run.id))
+    change = f.manager.start_change(
+        f.manager.create_product(CreateProductInput(title="Notes", requirements="Keep short notes."))
+    )
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert any(e.message.startswith("change risk: no risky changes") for e in f.store.list_events(change.id))

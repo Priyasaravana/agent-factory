@@ -4,9 +4,9 @@ The reviewer agent reports, for every numbered requirement, whether the change
 implements it and where, plus concrete findings. The ENGINE decides the outcome
 from that report (`judge`), not the agent's opinion of itself:
 - every requirement in docs/requirements.yaml must be reviewed (else the review
-  is incomplete: retried once, then the run is held);
+  is incomplete: retried once, then the change is held);
 - a requirement that is `partial` or `missing`, or a `blocker`/`major` finding,
-  sends the run back to build with the findings as evidence;
+  sends the change back to build with the findings as evidence;
 - `minor` findings never block; they are recorded.
 """
 

@@ -12,7 +12,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ACTIVE, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
-import RunPanel from "../components/RunPanel";
+import ChangePanel from "../components/ChangePanel";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
@@ -20,14 +20,14 @@ import { Card, CardContent } from "../components/ui/card";
 import { ago } from "../lib/time";
 import { cn } from "../lib/utils";
 
-export default function OrderPage() {
-  const { orderId = "" } = useParams();
+export default function ProductPage() {
+  const { productId = "" } = useParams();
   const detail = useQuery({
-    queryKey: ["order", orderId],
+    queryKey: ["product", productId],
     queryFn: () =>
       unwrap(
-        api.GET("/api/orders/{order_id}", {
-          params: { path: { order_id: orderId } },
+        api.GET("/api/products/{product_id}", {
+          params: { path: { product_id: productId } },
         }),
       ),
     refetchInterval: 4_000,
@@ -38,15 +38,15 @@ export default function OrderPage() {
   const archive = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/orders/{order_id}/archive", {
-          params: { path: { order_id: orderId } },
+        api.POST("/api/products/{product_id}/archive", {
+          params: { path: { product_id: productId } },
         }),
       ),
     onSuccess: (o) => {
       setConfirmArchive(false);
-      qc.invalidateQueries({ queryKey: ["order", orderId] });
-      qc.invalidateQueries({ queryKey: ["orders"] });
-      toast.success("Order archived", {
+      qc.invalidateQueries({ queryKey: ["product", productId] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      toast.success("Product archived", {
         description: `${o.title}: app removed, port freed`,
       });
     },
@@ -55,8 +55,8 @@ export default function OrderPage() {
   if (detail.isLoading)
     return <div className="h-40 animate-pulse rounded-xl bg-muted" />;
   if (detail.error) return <p className="error">{detail.error.message}</p>;
-  const { order, runs, feedback } = detail.data!;
-  const runId = selected ?? order.latest_run_id ?? runs[0]?.id;
+  const { product, changes, feedback } = detail.data!;
+  const changeId = selected ?? product.latest_change_id ?? changes[0]?.id;
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
@@ -64,31 +64,31 @@ export default function OrderPage() {
         to="/"
         className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground"
       >
-        <ArrowLeft className="size-4" /> Orders
+        <ArrowLeft className="size-4" /> Products
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="m-0 text-2xl font-semibold tracking-tight">
-            {order.title}
+            {product.title}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {order.product_slug} · created {ago(order.created_at)}
-            {order.created_by ? ` by ${order.created_by}` : ""}
+            {product.slug} · created {ago(product.created_at)}
+            {product.created_by ? ` by ${product.created_by}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {order.archived_at ? (
+          {product.archived_at ? (
             <span className="pill muted">archived</span>
           ) : (
-            order.latest_status && <StatusPill status={order.latest_status} />
+            product.latest_status && <StatusPill status={product.latest_status} />
           )}
-          {!order.archived_at && (
+          {!product.archived_at && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setConfirmArchive(true)}
               disabled={
-                order.latest_status ? ACTIVE.has(order.latest_status) : false
+                product.latest_status ? ACTIVE.has(product.latest_status) : false
               }
               title="Remove the app from the cluster and free its port"
             >
@@ -97,66 +97,66 @@ export default function OrderPage() {
           )}
         </div>
       </div>
-      {order.archived_at && (
+      {product.archived_at && (
         <p className="note m-0">
-          Archived {ago(order.archived_at)}
-          {order.archived_by ? ` by ${order.archived_by}` : ""}. The app was
-          removed from the cluster and its port freed; the product repo, runs
-          and evidence are kept. Place a new order to build it again.
+          Archived {ago(product.archived_at)}
+          {product.archived_by ? ` by ${product.archived_by}` : ""}. The app was
+          removed from the cluster and its port freed; the product repo, changes
+          and evidence are kept. Create a new product to build it again.
         </p>
       )}
       <ConfirmDialog
         open={confirmArchive}
         onOpenChange={setConfirmArchive}
-        title={`Archive “${order.title}”?`}
-        confirm="Archive order"
+        title={`Archive “${product.title}”?`}
+        confirm="Archive product"
         destructive
         busy={archive.isPending}
         onConfirm={() => archive.mutate()}
       >
         <p className="m-0">
-          The running app{order.app_url ? ` at ${order.app_url}` : ""} is
-          removed from the cluster and its port is freed for new orders. No
+          The running app{product.app_url ? ` at ${product.app_url}` : ""} is
+          removed from the cluster and its port is freed for new products. No
           further iterations are possible.
         </p>
         <p className="m-0">
-          Kept: the product repo, every run, its events and evidence.
+          Kept: the product repo, every change, its events and evidence.
         </p>
         <Problems error={archive.error} />
       </ConfirmDialog>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Fact icon={<Layers />} label="Product line">
-          {order.product_line}
+        <Fact icon={<Layers />} label="Blueprint">
+          {product.blueprint}
         </Fact>
         <Fact icon={<Globe />} label="App">
-          {order.app_url ? (
+          {product.app_url ? (
             <a
-              href={order.app_url}
+              href={product.app_url}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-0.5"
             >
-              {order.app_url.replace(/^https?:\/\//, "")}{" "}
+              {product.app_url.replace(/^https?:\/\//, "")}{" "}
               <ArrowUpRight className="size-3" />
             </a>
           ) : (
             <span className="text-muted-foreground">
-              {order.host_port
-                ? `will be served on :${order.host_port}`
+              {product.host_port
+                ? `will be served on :${product.host_port}`
                 : "not deployed yet"}
             </span>
           )}
         </Fact>
         <Fact icon={<GitBranch />} label="Repository">
-          {order.repo_url ? (
+          {product.repo_url ? (
             <a
-              href={order.repo_url}
+              href={product.repo_url}
               target="_blank"
               rel="noreferrer"
               className="truncate"
             >
-              {order.repo_url.replace(/^https:\/\/github\.com\//, "")}
+              {product.repo_url.replace(/^https:\/\/github\.com\//, "")}
             </a>
           ) : (
             <span className="text-muted-foreground">local only</span>
@@ -168,7 +168,7 @@ export default function OrderPage() {
         <CardContent className="grid gap-2 pt-4">
           <details>
             <summary className="font-medium">Requirements</summary>
-            <pre className="pre mt-2">{order.requirements}</pre>
+            <pre className="pre mt-2">{product.requirements}</pre>
           </details>
           {feedback.length > 0 && (
             <details>
@@ -185,18 +185,18 @@ export default function OrderPage() {
         </CardContent>
       </Card>
 
-      {runs.length > 1 && (
+      {changes.length > 1 && (
         <div
           className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-1"
           role="tablist"
           aria-label="Iterations"
         >
-          {runs.map((r) => (
+          {changes.map((r) => (
             <button
               key={r.id}
               role="tab"
-              aria-selected={r.id === runId}
-              className={cn("tab", r.id === runId && "active")}
+              aria-selected={r.id === changeId}
+              className={cn("tab", r.id === changeId && "active")}
               onClick={() => setSelected(r.id)}
             >
               iteration {r.iteration}
@@ -204,12 +204,12 @@ export default function OrderPage() {
           ))}
         </div>
       )}
-      {runId && (
-        <RunPanel
-          key={runId}
-          runId={runId}
-          orderId={order.id}
-          archived={!!order.archived_at}
+      {changeId && (
+        <ChangePanel
+          key={changeId}
+          changeId={changeId}
+          productId={product.id}
+          archived={!!product.archived_at}
         />
       )}
     </div>

@@ -44,7 +44,7 @@ export default function CommandPalette({ open, setOpen }: { open: boolean; setOp
   const auth = useAuth();
   const signOut = useSignOut();
   const { theme, setTheme } = useTheme();
-  const orders = useQuery({ queryKey: ["orders"], queryFn: () => unwrap(api.GET("/api/orders")), enabled: open });
+  const products = useQuery({ queryKey: ["products"], queryFn: () => unwrap(api.GET("/api/products")), enabled: open });
   const workflows = useQuery({ queryKey: ["workflows"], queryFn: () => unwrap(api.GET("/api/workflows")), enabled: open });
   const go = (to: string) => {
     setOpen(false);
@@ -63,14 +63,14 @@ export default function CommandPalette({ open, setOpen }: { open: boolean; setOp
           <Command label="Command palette" className="flex flex-col">
             <Command.Input
               autoFocus
-              placeholder="Search pages, orders, workflows, actions…"
+              placeholder="Search pages, products, workflows, actions…"
               className="h-12 rounded-none border-0 border-b bg-transparent px-4 text-sm shadow-none focus:ring-0"
             />
             <Command.List className="max-h-[60vh] overflow-auto p-1.5">
               <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">No results.</Command.Empty>
               <Command.Group heading="Go to" className={group}>
-                <Item icon={<Plus />} onSelect={() => go("/?new=1")} hint="order">New order</Item>
-                <Item icon={<LayoutDashboard />} onSelect={() => go("/")}>Orders</Item>
+                <Item icon={<Plus />} onSelect={() => go("/?new=1")} hint="product">New product</Item>
+                <Item icon={<LayoutDashboard />} onSelect={() => go("/")}>Products</Item>
                 <Item icon={<Gauge />} onSelect={() => go("/outcomes")}>Outcomes</Item>
                 <Item icon={<Workflow />} onSelect={() => go("/workflows")}>Workflows</Item>
                 <Item icon={<Sparkles />} onSelect={() => go("/skills")}>Skills</Item>
@@ -78,10 +78,10 @@ export default function CommandPalette({ open, setOpen }: { open: boolean; setOp
                 {auth.kind === "signed-in" && <Item icon={<KeyRound />} onSelect={() => go("/account")}>Account & API tokens</Item>}
                 {auth.kind === "signed-in" && isAdmin && <Item icon={<Shield />} onSelect={() => go("/admin")}>Admin</Item>}
               </Command.Group>
-              {(orders.data?.length ?? 0) > 0 && (
-                <Command.Group heading="Orders" className={group}>
-                  {orders.data!.slice(0, 8).map((o) => (
-                    <Item key={o.id} icon={<FileBox />} onSelect={() => go(`/orders/${o.id}`)} hint={o.latest_status ?? ""}>
+              {(products.data?.length ?? 0) > 0 && (
+                <Command.Group heading="Products" className={group}>
+                  {products.data!.slice(0, 8).map((o) => (
+                    <Item key={o.id} icon={<FileBox />} onSelect={() => go(`/products/${o.id}`)} hint={o.latest_status ?? ""}>
                       {o.title}
                     </Item>
                   ))}

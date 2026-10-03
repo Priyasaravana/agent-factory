@@ -76,9 +76,9 @@ class Providers:
         for env_name, env in cfg.environments.items():
             for cap in CAPABILITIES:
                 self._bind(env_name, cap, getattr(env, cap))  # fail at startup, not mid-run
-        for pl_name, pl in cfg.product_lines.items():
+        for pl_name, pl in cfg.blueprints.items():
             if pl.environment not in cfg.environments:
-                raise ProviderError(f"product line '{pl_name}': unknown environment '{pl.environment}'")
+                raise ProviderError(f"blueprint '{pl_name}': unknown environment '{pl.environment}'")
 
     def _bind(self, env_name: str, cap: str, integration: str) -> Provider:
         p = self.integrations.get(integration)
@@ -95,5 +95,5 @@ class Providers:
         bound = {cap: self._bind(env_name, cap, getattr(env, cap)) for cap in CAPABILITIES}
         return ProviderSet(environment=env_name, **bound)  # type: ignore[arg-type]
 
-    def for_product_line(self, product_line: str) -> ProviderSet:
-        return self.for_environment(self.cfg.product_lines[product_line].environment)
+    def for_blueprint(self, blueprint: str) -> ProviderSet:
+        return self.for_environment(self.cfg.blueprints[blueprint].environment)

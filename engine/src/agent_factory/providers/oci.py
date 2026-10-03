@@ -89,7 +89,7 @@ class OciRegistryProvider:
 
     # -------------------------------------------------------------- registry --
     def image_ref(self, ctx: StationContext, tag: str) -> ImageRef:
-        return ImageRef(f"{self.repository}/{ctx.order.product_slug}", tag)
+        return ImageRef(f"{self.repository}/{ctx.product.slug}", tag)
 
     async def push(self, ctx: StationContext, local_image: str, ref: ImageRef) -> StepResult:
         env: dict[str, str] = {}

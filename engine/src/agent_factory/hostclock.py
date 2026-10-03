@@ -7,7 +7,7 @@ counted that time as "agents working" and lead times grew for no visible reason.
 The monotonic clock stops while the host is suspended; the wall clock jumps
 forward when it wakes. A watcher compares the two every few seconds: a gap larger
 than `THRESHOLD_S` is a suspension, recorded with its start and end. Outcomes moves
-overlapping run time into its own "host asleep" bucket, and every run active at
+overlapping run time into its own "host asleep" bucket, and every change active at
 the time gets an event saying so.
 """
 

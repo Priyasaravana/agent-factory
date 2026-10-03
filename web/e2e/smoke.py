@@ -7,7 +7,7 @@ locally against any running factory:
       uv run --with playwright python web/e2e/smoke.py
 
 Covers the path every change must keep working: sign-in through the auth gateway,
-readiness, placing an order, the station timeline to delivery, feedback starting a
+readiness, creating a product, the station timeline to delivery, feedback starting a
 second iteration, the Outcomes page, archiving, and no errors in the browser console.
 """
 
@@ -49,7 +49,7 @@ def main() -> int:
             page.get_by_label("Username").fill(USER)
             page.get_by_label("Password").fill(PASSWORD)
             page.get_by_role("button", name="Sign in").click()
-            expect(page.get_by_role("heading", name="Orders", exact=True)).to_be_visible(timeout=20_000)
+            expect(page.get_by_role("heading", name="Products", exact=True)).to_be_visible(timeout=20_000)
 
             step("readiness")
             page.goto(BASE + "/integrations")
@@ -57,12 +57,12 @@ def main() -> int:
             page.get_by_role("button", name=re.compile("Check now")).click()
             expect(page.locator("[data-testid^=preflight-]").first).to_contain_text("Free app port")
 
-            step("order → delivered")
+            step("product → delivered")
             title = f"Smoke {int(time.time())}"
             page.goto(BASE + "/?new=1")
             page.get_by_label("Title").fill(title)
             page.get_by_label("Requirements").fill("A tiny API with GET /ping returning a counter that increments.")
-            page.get_by_role("button", name=re.compile("Start the line")).click()
+            page.get_by_role("button", name=re.compile("Create product")).click()
             expect(page.get_by_role("heading", name="Iteration 1")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
             expect(page.locator(".strip")).to_contain_text("Quality gate")
@@ -99,7 +99,7 @@ def main() -> int:
 
             step("archive")
             page.get_by_role("button", name="Archive").click()
-            page.get_by_role("button", name="Archive order").click()
+            page.get_by_role("button", name="Archive product").click()
             expect(page.get_by_text(re.compile("^Archived"))).to_be_visible(timeout=30_000)
             page.screenshot(path=f"{SHOTS}/archived.png", full_page=True)
         except Exception:

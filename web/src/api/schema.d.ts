@@ -32,8 +32,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Factory settings: product lines, their workflow versions, policies, gates
-         * @description Factory settings: product lines, their workflow versions, policies, gates
+         * Factory settings: blueprints, their workflow versions, policies, gates
+         * @description Factory settings: blueprints, their workflow versions, policies, gates
          */
         get: operations["get_config"];
         put?: never;
@@ -64,7 +64,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/orders": {
+    "/api/products": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,23 +72,23 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List orders, newest first (evaluation orders are not listed)
-         * @description List orders, newest first (evaluation orders are not listed)
+         * List products, newest first (evaluation products are not listed)
+         * @description List products, newest first (evaluation products are not listed)
          */
-        get: operations["list_orders"];
+        get: operations["list_products"];
         put?: never;
         /**
-         * Submit requirements; starts the first run
-         * @description Submit requirements; starts the first run
+         * Submit requirements for a new product; starts its first change
+         * @description Submit requirements for a new product; starts its first change
          */
-        post: operations["create_order"];
+        post: operations["create_product"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/orders/{order_id}": {
+    "/api/products/{product_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -96,10 +96,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Order with its runs and feedback
-         * @description Order with its runs and feedback
+         * Product with its changes and feedback
+         * @description Product with its changes and feedback
          */
-        get: operations["get_order"];
+        get: operations["get_product"];
         put?: never;
         post?: never;
         delete?: never;
@@ -108,7 +108,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/orders/{order_id}/feedback": {
+    "/api/products/{product_id}/feedback": {
         parameters: {
             query?: never;
             header?: never;
@@ -128,7 +128,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}": {
+    "/api/changes/{change_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -136,10 +136,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Run with station states
-         * @description Run with station states
+         * Change with station states
+         * @description Change with station states
          */
-        get: operations["get_run"];
+        get: operations["get_change"];
         put?: never;
         post?: never;
         delete?: never;
@@ -148,7 +148,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/events": {
+    "/api/changes/{change_id}/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -156,8 +156,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Append-only event/decision log for a run
-         * @description Append-only event/decision log for a run
+         * Append-only event/decision log for a change
+         * @description Append-only event/decision log for a change
          */
         get: operations["list_events"];
         put?: never;
@@ -168,7 +168,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/answers": {
+    "/api/changes/{change_id}/answers": {
         parameters: {
             query?: never;
             header?: never;
@@ -188,7 +188,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/resume": {
+    "/api/changes/{change_id}/resume": {
         parameters: {
             query?: never;
             header?: never;
@@ -198,17 +198,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resume a held, interrupted or paused run
-         * @description Resume a held, interrupted or paused run
+         * Resume a held, interrupted or paused change
+         * @description Resume a held, interrupted or paused change
          */
-        post: operations["resume_run"];
+        post: operations["resume_change"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/orders/{order_id}/archive": {
+    "/api/products/{product_id}/archive": {
         parameters: {
             query?: never;
             header?: never;
@@ -218,17 +218,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Archive an order: remove its app from the cluster and free its port; history is kept
-         * @description Archive an order: remove its app from the cluster and free its port; history is kept
+         * Archive a product: remove its app from the cluster and free its port; history is kept
+         * @description Archive a product: remove its app from the cluster and free its port; history is kept
          */
-        post: operations["archive_order"];
+        post: operations["archive_product"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/spec": {
+    "/api/changes/{change_id}/spec": {
         parameters: {
             query?: never;
             header?: never;
@@ -236,10 +236,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
-         * @description The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
+         * The change's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
+         * @description The change's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability
          */
-        get: operations["get_run_spec"];
+        get: operations["get_change_spec"];
         /**
          * Spec review gate: edit the product spec or technical design directly
          * @description Spec review gate: edit the product spec or technical design directly
@@ -252,7 +252,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/calls": {
+    "/api/changes/{change_id}/calls": {
         parameters: {
             query?: never;
             header?: never;
@@ -260,10 +260,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
-         * @description Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
+         * Every agent call of the change (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
+         * @description Every agent call of the change (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)
          */
-        get: operations["get_run_calls"];
+        get: operations["get_change_calls"];
         put?: never;
         post?: never;
         delete?: never;
@@ -272,7 +272,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/evidence": {
+    "/api/changes/{change_id}/evidence": {
         parameters: {
             query?: never;
             header?: never;
@@ -280,10 +280,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
-         * @description A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
+         * A change's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
+         * @description A change's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)
          */
-        get: operations["get_run_evidence"];
+        get: operations["get_change_evidence"];
         put?: never;
         post?: never;
         delete?: never;
@@ -292,7 +292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/evidence/bundle": {
+    "/api/changes/{change_id}/evidence/bundle": {
         parameters: {
             query?: never;
             header?: never;
@@ -300,10 +300,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin
-         * @description Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin
+         * Download a change's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the product's creator or an admin
+         * @description Download a change's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the product's creator or an admin
          */
-        get: operations["download_run_evidence"];
+        get: operations["download_change_evidence"];
         put?: never;
         post?: never;
         delete?: never;
@@ -312,7 +312,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/calls/{name}/transcript": {
+    "/api/changes/{change_id}/calls/{name}/transcript": {
         parameters: {
             query?: never;
             header?: never;
@@ -320,8 +320,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin
-         * @description One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin
+         * One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the product's creator or an admin
+         * @description One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the product's creator or an admin
          */
         get: operations["get_call_transcript"];
         put?: never;
@@ -332,7 +332,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/spec/approve": {
+    "/api/changes/{change_id}/spec/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -342,8 +342,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Spec review gate: approve the spec; the run continues to build
-         * @description Spec review gate: approve the spec; the run continues to build
+         * Spec review gate: approve the spec; the change continues to implement
+         * @description Spec review gate: approve the spec; the change continues to implement
          */
         post: operations["approve_spec"];
         delete?: never;
@@ -352,7 +352,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/risk/approve": {
+    "/api/changes/{change_id}/risk/approve": {
         parameters: {
             query?: never;
             header?: never;
@@ -372,7 +372,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/risk/send-back": {
+    "/api/changes/{change_id}/risk/send-back": {
         parameters: {
             query?: never;
             header?: never;
@@ -382,8 +382,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Change risk: don't accept the risky changes; the run goes back to its repair station with the reason
-         * @description Change risk: don't accept the risky changes; the run goes back to its repair station with the reason
+         * Change risk: don't accept the risky changes; the change goes back to its repair station with the reason
+         * @description Change risk: don't accept the risky changes; the change goes back to its repair station with the reason
          */
         post: operations["send_back_risk"];
         delete?: never;
@@ -392,7 +392,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/spec/changes": {
+    "/api/changes/{change_id}/spec/changes": {
         parameters: {
             query?: never;
             header?: never;
@@ -441,8 +441,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Replace the draft's evaluation suite: the fixed orders a new version is measured on
-         * @description Replace the draft's evaluation suite: the fixed orders a new version is measured on
+         * Replace the draft's evaluation suite: the fixed requests a new version is measured on
+         * @description Replace the draft's evaluation suite: the fixed requests a new version is measured on
          */
         put: operations["put_draft_evals"];
         post?: never;
@@ -506,8 +506,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated
-         * @description Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated
+         * Stop a running evaluation: its changes are cancelled, its products archived, nothing is activated
+         * @description Stop a running evaluation: its changes are cancelled, its products archived, nothing is activated
          */
         post: operations["cancel_eval"];
         delete?: never;
@@ -524,8 +524,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lessons suggested after runs that needed help, for an admin to accept or reject
-         * @description Lessons suggested after runs that needed help, for an admin to accept or reject
+         * Lessons suggested after changes that needed help, for an admin to accept or reject
+         * @description Lessons suggested after changes that needed help, for an admin to accept or reject
          */
         get: operations["list_learning_proposals"];
         put?: never;
@@ -584,8 +584,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Readiness checks per product line (cached; see ADR-0015)
-         * @description Readiness checks per product line (cached; see ADR-0015)
+         * Readiness checks per blueprint (cached; see ADR-0015)
+         * @description Readiness checks per blueprint (cached; see ADR-0015)
          */
         get: operations["get_preflight"];
         put?: never;
@@ -600,7 +600,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/cancel": {
+    "/api/changes/{change_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -610,10 +610,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel a run
-         * @description Cancel a run
+         * Cancel a change
+         * @description Cancel a change
          */
-        post: operations["cancel_run"];
+        post: operations["cancel_change"];
         delete?: never;
         options?: never;
         head?: never;
@@ -630,8 +630,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record a decision or assumption in the run's append-only log
-         * @description Record a decision or assumption in the run's append-only log
+         * Record a decision or assumption in the change's append-only log
+         * @description Record a decision or assumption in the change's append-only log
          */
         post: operations["log_decision"];
         delete?: never;
@@ -648,8 +648,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One workflow per product line
-         * @description One workflow per product line
+         * One workflow per blueprint
+         * @description One workflow per blueprint
          */
         get: operations["list_workflows"];
         put?: never;
@@ -730,8 +730,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Make a version active for new runs (runs in flight keep theirs)
-         * @description Make a version active for new runs (runs in flight keep theirs)
+         * Make a version active for new changes (changes in flight keep theirs)
+         * @description Make a version active for new changes (changes in flight keep theirs)
          */
         post: operations["activate_workflow_version"];
         delete?: never;
@@ -1140,7 +1140,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/stream": {
+    "/api/changes/{change_id}/stream": {
         parameters: {
             query?: never;
             header?: never;
@@ -1148,7 +1148,7 @@ export interface paths {
             cookie?: never;
         };
         /** Server-sent events: live run events and status */
-        get: operations["stream_run"];
+        get: operations["stream_change"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1195,7 +1195,7 @@ export interface components {
         };
         /**
          * AgentCallView
-         * @description One agent call in a run (ADR-0022).
+         * @description One agent call in a change (ADR-0022).
          */
         AgentCallView: {
             /** Station */
@@ -1328,12 +1328,12 @@ export interface components {
          * @description A live app's pillar scores, from its latest delivered iteration.
          */
         AppQuality: {
-            /** Order Id */
-            order_id: string;
-            /** Order Title */
-            order_title: string;
-            /** Run Id */
-            run_id: string;
+            /** Product Id */
+            product_id: string;
+            /** Product Title */
+            product_title: string;
+            /** Change Id */
+            change_id: string;
             /** Pillars */
             pillars?: components["schemas"]["PillarScore"][];
         };
@@ -1376,9 +1376,86 @@ export interface components {
             /** Max Learnings Chars */
             max_learnings_chars: number;
         };
+        /** Change */
+        Change: {
+            /** Id */
+            id: string;
+            /** Product Id */
+            product_id: string;
+            /** Iteration */
+            iteration: number;
+            status: components["schemas"]["ChangeStatus"];
+            /** Current Station */
+            current_station?: string | null;
+            /** Workflow Id */
+            workflow_id?: string | null;
+            /**
+             * Workflow Version
+             * @default 1
+             */
+            workflow_version: number;
+            /** Attempts */
+            attempts?: {
+                [key: string]: number;
+            };
+            /**
+             * Loops
+             * @default 0
+             */
+            loops: number;
+            /** Change Request */
+            change_request?: string | null;
+            /** Last Failure */
+            last_failure?: string | null;
+            /** Questions */
+            questions?: string[];
+            /** Answers */
+            answers?: string[];
+            /** Resume At */
+            resume_at?: string | null;
+            /** Summary */
+            summary?: string | null;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /** Spec Approved By */
+            spec_approved_by?: string | null;
+            risk_hold?: components["schemas"]["RiskHold"] | null;
+            /** Risk Approvals */
+            risk_approvals?: components["schemas"]["RiskApproval"][];
+            /** Review Notes */
+            review_notes?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ChangeCallsView */
+        ChangeCallsView: {
+            /** Calls */
+            calls?: components["schemas"]["AgentCallView"][];
+            /** Denials */
+            denials?: components["schemas"]["DenialView"][];
+        };
+        /** ChangeDetail */
+        ChangeDetail: {
+            change: components["schemas"]["Change"];
+            product: components["schemas"]["Product"];
+            /** Stations */
+            stations: components["schemas"]["StationView"][];
+            risk?: components["schemas"]["ChangeRiskView"] | null;
+        };
         /**
          * ChangeRiskView
-         * @description The latest change-risk check of a run (ADR-0027) and who may approve it.
+         * @description The latest change-risk check of a change (ADR-0027) and who may approve it.
          */
         ChangeRiskView: {
             /** Digest */
@@ -1413,8 +1490,13 @@ export interface components {
             self_approval_at?: string | null;
         };
         /**
+         * ChangeStatus
+         * @enum {string}
+         */
+        ChangeStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "awaiting_risk_approval" | "cancelled" | "failed";
+        /**
          * CheckView
-         * @description One readiness check. `failed` blocks what it guards (new orders and/or new
+         * @description One readiness check. `failed` blocks what it guards (new products and/or new
          *     iterations); `degraded` is shown but never blocks.
          */
         CheckView: {
@@ -1443,8 +1525,8 @@ export interface components {
             workflows: {
                 [key: string]: number;
             };
-            /** Product Lines */
-            product_lines: {
+            /** Blueprints */
+            blueprints: {
                 [key: string]: string;
             };
             /** Policies */
@@ -1454,17 +1536,17 @@ export interface components {
             /** Gates */
             gates: string[];
         };
-        /** CreateOrderInput */
-        CreateOrderInput: {
+        /** CreateProductInput */
+        CreateProductInput: {
             /** Title */
             title: string;
             /** Requirements */
             requirements: string;
             /**
-             * Product Line
+             * Blueprint
              * @default fastapi-service
              */
-            product_line: string;
+            blueprint: string;
             /**
              * Requirements Format
              * @default prose
@@ -1474,8 +1556,8 @@ export interface components {
         };
         /** DecisionInput */
         DecisionInput: {
-            /** Run Id */
-            run_id: string;
+            /** Change Id */
+            change_id: string;
             /** Station */
             station: string;
             /** Decision */
@@ -1598,8 +1680,8 @@ export interface components {
             bindings: {
                 [key: string]: string;
             };
-            /** Product Lines */
-            product_lines?: string[];
+            /** Blueprints */
+            blueprints?: string[];
         };
         /**
          * EvalCase
@@ -1624,10 +1706,10 @@ export interface components {
             case_id: string;
             /** Title */
             title: string;
-            /** Order Id */
-            order_id?: string | null;
-            /** Run Id */
-            run_id?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Change Id */
+            change_id?: string | null;
             /**
              * Status
              * @default queued
@@ -1782,8 +1864,8 @@ export interface components {
         Event: {
             /** Id */
             id: number;
-            /** Run Id */
-            run_id: string;
+            /** Change Id */
+            change_id: string;
             /**
              * Ts
              * Format: date-time
@@ -1815,7 +1897,7 @@ export interface components {
         };
         /**
          * EvidenceView
-         * @description A run's sealed evidence (ADR-0023) and whether it still matches its seal.
+         * @description A change's sealed evidence (ADR-0023) and whether it still matches its seal.
          */
         EvidenceView: {
             /** Sealed */
@@ -1856,10 +1938,10 @@ export interface components {
         Feedback: {
             /** Id */
             id: number;
-            /** Order Id */
-            order_id: string;
-            /** Run Id */
-            run_id: string | null;
+            /** Product Id */
+            product_id: string;
+            /** Change Id */
+            change_id: string | null;
             /** Text */
             text: string;
             /**
@@ -1927,8 +2009,8 @@ export interface components {
             model_auth: boolean;
             /** Github */
             github: boolean;
-            /** Active Runs */
-            active_runs: number;
+            /** Active Changes */
+            active_changes: number;
             /**
              * Sandbox
              * @default off
@@ -2012,7 +2094,7 @@ export interface components {
         };
         /**
          * LearningProposal
-         * @description A lesson the retro suggests for one agent after a run that needed help (ADR-0021).
+         * @description A lesson the retro suggests for one agent after a change that needed help (ADR-0021).
          *     Nothing changes until an admin accepts it into the workflow draft and publishes.
          */
         LearningProposal: {
@@ -2030,10 +2112,10 @@ export interface components {
             why: string;
             /** Evidence */
             evidence: string;
-            /** Run Id */
-            run_id: string;
-            /** Order Id */
-            order_id: string;
+            /** Change Id */
+            change_id: string;
+            /** Product Id */
+            product_id: string;
             /**
              * Status
              * @default pending
@@ -2049,57 +2131,6 @@ export interface components {
             decided_by?: string | null;
             /** Decided At */
             decided_at?: string | null;
-        };
-        /** Order */
-        Order: {
-            /** Id */
-            id: string;
-            /** Title */
-            title: string;
-            /** Requirements */
-            requirements: string;
-            /**
-             * Requirements Format
-             * @default prose
-             * @enum {string}
-             */
-            requirements_format: "prose" | "spec";
-            /** Product Line */
-            product_line: string;
-            /** Product Slug */
-            product_slug: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Latest Run Id */
-            latest_run_id?: string | null;
-            latest_status?: components["schemas"]["RunStatus"] | null;
-            /** Node Port */
-            node_port?: number | null;
-            /** Host Port */
-            host_port?: number | null;
-            /** App Url */
-            app_url?: string | null;
-            /** Repo Url */
-            repo_url?: string | null;
-            /** Created By */
-            created_by?: string | null;
-            /** Archived At */
-            archived_at?: string | null;
-            /** Archived By */
-            archived_by?: string | null;
-            /** Eval Run Id */
-            eval_run_id?: string | null;
-        };
-        /** OrderDetail */
-        OrderDetail: {
-            order: components["schemas"]["Order"];
-            /** Runs */
-            runs: components["schemas"]["Run"][];
-            /** Feedback */
-            feedback: components["schemas"]["Feedback"][];
         };
         /** OutcomesView */
         OutcomesView: {
@@ -2146,15 +2177,15 @@ export interface components {
             fix_loops_per_delivery?: number | null;
             time_split: components["schemas"]["TimeSplit"];
             /**
-             * Runs With Timeline
+             * Changes With Timeline
              * @default 0
              */
-            runs_with_timeline: number;
+            changes_with_timeline: number;
             /**
-             * Runs In Window
+             * Changes In Window
              * @default 0
              */
-            runs_in_window: number;
+            changes_in_window: number;
             /**
              * Products
              * @default 0
@@ -2235,8 +2266,8 @@ export interface components {
         };
         /** PreflightView */
         PreflightView: {
-            /** Product Line */
-            product_line: string;
+            /** Blueprint */
+            blueprint: string;
             /** Environment */
             environment: string;
             /** State */
@@ -2250,6 +2281,57 @@ export interface components {
             duration_ms: number;
             /** Checks */
             checks: components["schemas"]["CheckView"][];
+        };
+        /** Product */
+        Product: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Requirements */
+            requirements: string;
+            /**
+             * Requirements Format
+             * @default prose
+             * @enum {string}
+             */
+            requirements_format: "prose" | "spec";
+            /** Blueprint */
+            blueprint: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Latest Change Id */
+            latest_change_id?: string | null;
+            latest_status?: components["schemas"]["ChangeStatus"] | null;
+            /** Node Port */
+            node_port?: number | null;
+            /** Host Port */
+            host_port?: number | null;
+            /** App Url */
+            app_url?: string | null;
+            /** Repo Url */
+            repo_url?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Archived By */
+            archived_by?: string | null;
+            /** Eval Run Id */
+            eval_run_id?: string | null;
+        };
+        /** ProductDetail */
+        ProductDetail: {
+            product: components["schemas"]["Product"];
+            /** Changes */
+            changes: components["schemas"]["Change"][];
+            /** Feedback */
+            feedback: components["schemas"]["Feedback"][];
         };
         /** PublishInput */
         PublishInput: {
@@ -2323,7 +2405,7 @@ export interface components {
         };
         /**
          * ReviewView
-         * @description The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's.
+         * @description The latest spec review of the change (ADR-0020); the engine's judgement, not the agent's.
          */
         ReviewView: {
             /** Passed */
@@ -2404,88 +2486,6 @@ export interface components {
             /** Requested By */
             requested_by?: string | null;
         };
-        /** Run */
-        Run: {
-            /** Id */
-            id: string;
-            /** Order Id */
-            order_id: string;
-            /** Iteration */
-            iteration: number;
-            status: components["schemas"]["RunStatus"];
-            /** Current Station */
-            current_station?: string | null;
-            /** Workflow Id */
-            workflow_id?: string | null;
-            /**
-             * Workflow Version
-             * @default 1
-             */
-            workflow_version: number;
-            /** Attempts */
-            attempts?: {
-                [key: string]: number;
-            };
-            /**
-             * Loops
-             * @default 0
-             */
-            loops: number;
-            /** Change Request */
-            change_request?: string | null;
-            /** Last Failure */
-            last_failure?: string | null;
-            /** Questions */
-            questions?: string[];
-            /** Answers */
-            answers?: string[];
-            /** Resume At */
-            resume_at?: string | null;
-            /** Summary */
-            summary?: string | null;
-            /**
-             * Cost Usd
-             * @default 0
-             */
-            cost_usd: number;
-            /** Spec Approved By */
-            spec_approved_by?: string | null;
-            risk_hold?: components["schemas"]["RiskHold"] | null;
-            /** Risk Approvals */
-            risk_approvals?: components["schemas"]["RiskApproval"][];
-            /** Review Notes */
-            review_notes?: string[];
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** RunCallsView */
-        RunCallsView: {
-            /** Calls */
-            calls?: components["schemas"]["AgentCallView"][];
-            /** Denials */
-            denials?: components["schemas"]["DenialView"][];
-        };
-        /** RunDetail */
-        RunDetail: {
-            run: components["schemas"]["Run"];
-            order: components["schemas"]["Order"];
-            /** Stations */
-            stations: components["schemas"]["StationView"][];
-            risk?: components["schemas"]["ChangeRiskView"] | null;
-        };
-        /**
-         * RunStatus
-         * @enum {string}
-         */
-        RunStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "awaiting_risk_approval" | "cancelled" | "failed";
         /** ScenarioView */
         ScenarioView: {
             /** Id */
@@ -2621,8 +2621,8 @@ export interface components {
         };
         /** SpecView */
         SpecView: {
-            /** Run Id */
-            run_id: string;
+            /** Change Id */
+            change_id: string;
             /** Status */
             status: string;
             /** Gate */
@@ -2745,7 +2745,7 @@ export interface components {
         };
         /**
          * TimeSplit
-         * @description Seconds of run time in the window, by who the run was waiting on.
+         * @description Seconds of run time in the window, by who the change was waiting on.
          */
         TimeSplit: {
             /**
@@ -2825,15 +2825,15 @@ export interface components {
         };
         /** WaitingItem */
         WaitingItem: {
-            /** Order Id */
-            order_id: string;
-            /** Order Title */
-            order_title: string;
-            /** Run Id */
-            run_id: string;
+            /** Product Id */
+            product_id: string;
+            /** Product Title */
+            product_title: string;
+            /** Change Id */
+            change_id: string;
             /** Iteration */
             iteration: number;
-            status: components["schemas"]["RunStatus"];
+            status: components["schemas"]["ChangeStatus"];
             /**
              * Since
              * Format: date-time
@@ -2886,8 +2886,8 @@ export interface components {
         WorkflowSummary: {
             /** Workflow Id */
             workflow_id: string;
-            /** Product Line */
-            product_line: string;
+            /** Blueprint */
+            blueprint: string;
             /**
              * Environment
              * @default local
@@ -3065,7 +3065,7 @@ export interface operations {
             };
         };
     };
-    list_orders: {
+    list_products: {
         parameters: {
             query?: {
                 include_archived?: boolean;
@@ -3082,7 +3082,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Order"][];
+                    "application/json": components["schemas"]["Product"][];
                 };
             };
             /** @description Validation Error */
@@ -3096,7 +3096,7 @@ export interface operations {
             };
         };
     };
-    create_order: {
+    create_product: {
         parameters: {
             query?: never;
             header?: never;
@@ -3105,7 +3105,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateOrderInput"];
+                "application/json": components["schemas"]["CreateProductInput"];
             };
         };
         responses: {
@@ -3115,7 +3115,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrderDetail"];
+                    "application/json": components["schemas"]["ProductDetail"];
                 };
             };
             /** @description Validation Error */
@@ -3129,12 +3129,12 @@ export interface operations {
             };
         };
     };
-    get_order: {
+    get_product: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                order_id: string;
+                product_id: string;
             };
             cookie?: never;
         };
@@ -3146,7 +3146,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OrderDetail"];
+                    "application/json": components["schemas"]["ProductDetail"];
                 };
             };
             /** @description Validation Error */
@@ -3165,7 +3165,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                order_id: string;
+                product_id: string;
             };
             cookie?: never;
         };
@@ -3181,7 +3181,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3195,12 +3195,12 @@ export interface operations {
             };
         };
     };
-    get_run: {
+    get_change: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3212,7 +3212,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunDetail"];
+                    "application/json": components["schemas"]["ChangeDetail"];
                 };
             };
             /** @description Validation Error */
@@ -3233,7 +3233,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3264,7 +3264,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3280,7 +3280,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3294,12 +3294,12 @@ export interface operations {
             };
         };
     };
-    resume_run: {
+    resume_change: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3311,7 +3311,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3325,12 +3325,12 @@ export interface operations {
             };
         };
     };
-    archive_order: {
+    archive_product: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                order_id: string;
+                product_id: string;
             };
             cookie?: never;
         };
@@ -3342,7 +3342,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Order"];
+                    "application/json": components["schemas"]["Product"];
                 };
             };
             /** @description Validation Error */
@@ -3356,12 +3356,12 @@ export interface operations {
             };
         };
     };
-    get_run_spec: {
+    get_change_spec: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3392,7 +3392,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3422,12 +3422,12 @@ export interface operations {
             };
         };
     };
-    get_run_calls: {
+    get_change_calls: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3439,7 +3439,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunCallsView"];
+                    "application/json": components["schemas"]["ChangeCallsView"];
                 };
             };
             /** @description Validation Error */
@@ -3453,12 +3453,12 @@ export interface operations {
             };
         };
     };
-    get_run_evidence: {
+    get_change_evidence: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3484,12 +3484,12 @@ export interface operations {
             };
         };
     };
-    download_run_evidence: {
+    download_change_evidence: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3520,7 +3520,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
                 name: string;
             };
             cookie?: never;
@@ -3554,7 +3554,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3566,7 +3566,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3585,7 +3585,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3601,7 +3601,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3620,7 +3620,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3636,7 +3636,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -3655,7 +3655,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -3671,7 +3671,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -4022,12 +4022,12 @@ export interface operations {
             };
         };
     };
-    cancel_run: {
+    cancel_change: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };
@@ -4039,7 +4039,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Run"];
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
@@ -4988,14 +4988,14 @@ export interface operations {
             };
         };
     };
-    stream_run: {
+    stream_change: {
         parameters: {
             query?: {
                 after?: number;
             };
             header?: never;
             path: {
-                run_id: string;
+                change_id: string;
             };
             cookie?: never;
         };

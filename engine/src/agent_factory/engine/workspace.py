@@ -51,8 +51,8 @@ class Workspace:
     def product_dir(self, slug: str) -> Path:
         return self.data_dir / "products" / slug
 
-    def run_dir(self, run_id: str) -> Path:
-        return self.data_dir / "runs" / run_id
+    def change_dir(self, change_id: str) -> Path:
+        return self.data_dir / "runs" / change_id
 
     def holdout_dir(self, slug: str) -> Path:
         return self.data_dir / "holdout" / slug
@@ -73,12 +73,12 @@ class Workspace:
         await self.git(f'commit -q -m "chore: scaffold from {template}"', repo)
         return repo
 
-    async def create_worktree(self, slug: str, run_id: str) -> Path:
-        wt = self.run_dir(run_id)
+    async def create_worktree(self, slug: str, change_id: str) -> Path:
+        wt = self.change_dir(change_id)
         if wt.exists():
-            return wt  # resume: keep the run's own worktree untouched
+            return wt  # resume: keep the change's own worktree untouched
         wt.parent.mkdir(parents=True, exist_ok=True)
-        res = await self.git(f"worktree add -q -b run/{run_id} {wt} main", self.product_dir(slug))
+        res = await self.git(f"worktree add -q -b run/{change_id} {wt} main", self.product_dir(slug))
         if not res.ok:
             raise RuntimeError(f"worktree creation failed: {res.output}")
         return wt

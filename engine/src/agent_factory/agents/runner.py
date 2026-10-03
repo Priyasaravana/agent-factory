@@ -33,7 +33,7 @@ IMPORTED_PLUGIN = "imported-skills"  # see agent_factory.skills
 
 @dataclass
 class AgentRequest:
-    run_id: str
+    change_id: str
     station: str
     role: str  # agent spec id
     prompt: str
@@ -76,7 +76,7 @@ def plugins_for(factory_home: Path, req: AgentRequest) -> list[dict[str, str]]:
 
 def init_summary(data: dict[str, Any], req: AgentRequest) -> dict[str, Any]:
     """What the CLI actually loaded, from its init message: makes a missing
-    plugin or skill visible in the run log instead of silently absent."""
+    plugin or skill visible in the change log instead of silently absent."""
     plugins = [p.get("name", "?") if isinstance(p, dict) else str(p) for p in data.get("plugins") or []]
     # newer CLIs report "skills"; older ones only list them among slash commands
     loaded = [str(s) for s in data.get("skills") or data.get("slash_commands") or []]
@@ -125,7 +125,7 @@ class ClaudeAgentRunner:
         parts = [req.system_prompt, contract]
         if req.skill_overlay:
             parts.append(req.skill_overlay)
-        parts.append(f"Run id: {req.run_id}. Station: {req.station}. Working dir: {req.cwd}.")
+        parts.append(f"Change id: {req.change_id}. Station: {req.station}. Working dir: {req.cwd}.")
         return "\n\n".join(parts)
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:

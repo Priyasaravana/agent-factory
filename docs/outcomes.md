@@ -7,11 +7,11 @@ The **Outcomes** page (and `GET /api/outcomes?days=7|30|90`) answers four questi
 - Who is it waiting on right now?
 
 Every number has one definition, written here and shown next to it in the UI.
-Evaluation orders (ADR-0025) measure workflow versions, so they are never counted here.
+Evaluation products (ADR-0025) measure workflow versions, so they are never counted here.
 Decision record: [ADR-0019](adr/0019-outcome-metrics.md).
 
-An **iteration** is one run: the first build of an order, or one round of
-feedback. **Delivered** means the run reached *delivered, awaiting feedback*:
+An **iteration** is one change: the first build of a product, or one round of
+feedback. **Delivered** means the change reached *delivered, awaiting feedback*:
 - deployed;
 - verified by the hidden scenarios;
 - the feedback gate is open.
@@ -21,7 +21,7 @@ feedback. **Delivered** means the run reached *delivered, awaiting feedback*:
 | Metric | Definition | Why this way |
 |---|---|---|
 | **Deliveries** | Iterations delivered in the window, and that number per week. | DORA's deployment frequency. Small, frequent iterations are the goal. |
-| **Lead time** | From the moment an iteration was requested (order submitted or feedback sent) until it was delivered. Median and p90. | Includes time spent waiting on people. That's what the requester experiences, and "Where the time goes" shows how much of it was waiting. |
+| **Lead time** | From the moment an iteration was requested (product created or feedback sent) until it was delivered. Median and p90. | Includes time spent waiting on people. That's what the requester experiences, and "Where the time goes" shows how much of it was waiting. |
 | **Change failure rate** | Of the iterations that finished in the window (delivered or failed; cancelled ones excluded), the share that **failed** or was **held** and needed a person to rescue it. | Held means the factory could not finish on its own evidence, so for us it counts as a failed change even when a person later saved it. Cancelling is a human decision, not a failure. |
 | **Recovery time** | For delivered iterations that were held: median time from first held to delivered. | DORA's time to restore, applied to the factory's own failures. |
 
@@ -30,7 +30,7 @@ feedback. **Delivered** means the run reached *delivered, awaiting feedback*:
 | Metric | Definition |
 |---|---|
 | **Autonomy** | Share of deliveries that needed **no unplanned human touch** in their whole life. |
-| **Unplanned touches** | A person answered blocking intake questions, **rescued** a held run, or **resumed** a run after the factory restarted. |
+| **Unplanned touches** | A person answered blocking intake questions, **rescued** a held change, or **resumed** a change after the factory restarted. |
 | **Planned touches** | Spec reviews at the spec review gate, change-risk decisions (a risky change approved or sent back, [ADR-0027](adr/0027-change-risk-policy.md)), and feedback. These are the human checkpoints the workflow asks for, so they never count against autonomy. |
 
 **Fix loops don't count against autonomy.** A fix loop is agents repairing their
@@ -46,9 +46,9 @@ own work with evidence, which *is* autonomy working. It shows up as effort
 
 ## Where the time goes
 
-Each run's time in the window is split by who it was waiting on:
+Each change's time in the window is split by who it was waiting on:
 
-| Bucket | Run states |
+| Bucket | Change states |
 |---|---|
 | **Agents working** | queued, running |
 | **Waiting on a person** | needs answers, held, spec ready for review, interrupted |
@@ -57,24 +57,24 @@ Each run's time in the window is split by who it was waiting on:
 
 The factory notices host sleep by itself: the monotonic clock stops while the
 host is suspended and the wall clock jumps when it wakes, and a gap over 30
-seconds is recorded. Runs active at the time get an event saying so, and each
+seconds is recorded. Changes active at the time get an event saying so, and each
 agent call records the sleep that fell inside it (`suspended_s`). Lead time still
 includes it, because the requester waited; on a laptop, keep the machine awake
-during runs (for example `caffeinate -i` on macOS).
+while changes are active (for example `caffeinate -i` on macOS).
 
-Time after delivery is not counted: the run is done, and the next iteration is a
-new run.
+Time after delivery is not counted: the change is done, and the next iteration is a
+new change.
 
-Timing comes from the **status transition log**, which every run writes from
-this version on. Older runs still count for deliveries (their "delivered" event
+Timing comes from the **status transition log**, which every change writes from
+this version on. Older changes still count for deliveries (their "delivered" event
 gives the time), for cost and for quality, but not for the time split. The page
-says how many runs have a timeline.
+says how many changes have a timeline.
 
 ## Waiting on a person now
 
-Every run that can't continue until someone acts:
+Every change that can't continue until someone acts:
 - what they need to do;
-- **who** should do it: the order's creator, or "an admin" when unknown;
+- **who** should do it: the product's creator, or "an admin" when unknown;
 - how long it has waited.
 
 Longest wait first. The usage-window pause is listed last, with "system" as its
@@ -89,7 +89,7 @@ refused). The retro's own calls appear as the `retro` station.
 **Guardrail denials** counts every refused action in the window.
 
 Use it to see where model spend goes, which station is slow, and which agent
-keeps attempting things it must not. Open a run's **Agent calls** panel to read
+keeps attempting things it must not. Open a change's **Agent calls** panel to read
 the transcripts.
 
 ## Quality pillars of what is live
@@ -114,7 +114,7 @@ Apps delivered before the Quality gate station existed have no scorecard and are
 ## Using it
 - **Before and after a workflow change:** compare the **By workflow** table
   across windows. The evaluation harness (ADR-0025) measures each new version
-  on fixed orders before it goes live; see the workflow page's Evaluation card.
+  on fixed products before it goes live; see the workflow page's Evaluation card.
 - **When autonomy drops:** the touches line under "Where the time goes" says
   which kind of help was needed. Questions point to intake prompts; rescues
   point to templates, skills or budgets.

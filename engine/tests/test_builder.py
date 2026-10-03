@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory import actions
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec, WorkflowStation
 
 WF = "fastapi-service"
@@ -30,18 +30,18 @@ async def test_add_custom_station_publish_and_run(make_factory):
     f = make_factory()
     d = f.workflows[WF].draft
     d.upsert_agent(_reviewer())
-    order = [s.id for s in d.get()[1].stations]
+    product = [s.id for s in d.get()[1].stations]
     d.add_station(
         WorkflowStation(id="security-review", kind="agent", agent="security-reviewer", on_fail="implement"),
-        position=order.index("implement") + 1,
+        position=product.index("implement") + 1,
     )
     ids = [s.id for s in d.get()[1].stations]
     assert ids[ids.index("implement") + 1] == "security-review"
     assert d.problems() == []
     d.publish("add security review")
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    detail = actions.get_run(f, run.id)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    detail = actions.get_change(f, change.id)
     st = {s.id: s for s in detail.stations}
     assert st["security-review"].state == "passed" and st["security-review"].handler == "agent"
 
@@ -136,9 +136,9 @@ async def test_station_endpoints(make_factory):
         r = await c.patch(f"{base}/test-2", json={"on_fail": None})
         v2 = next(s for s in r.json()["stations"] if s["id"] == "test-2")
         assert v2["on_fail"] is None
-        order = [s["id"] for s in r.json()["stations"]]
-        order.insert(0, order.pop(order.index("test-2")))
-        r = await c.put(f"{base}/order", json={"order": order})
+        product = [s["id"] for s in r.json()["stations"]]
+        product.insert(0, product.pop(product.index("test-2")))
+        r = await c.put(f"{base}/order", json={"order": product})
         assert r.status_code == 200 and r.json()["stations"][0]["id"] == "test-2"
         r = await c.delete(f"{base}/test-2")
         assert r.status_code == 200 and "test-2" not in [s["id"] for s in r.json()["stations"]]

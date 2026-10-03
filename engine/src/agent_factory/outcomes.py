@@ -5,7 +5,7 @@ cost, and who is it waiting on?
 definition is tested exactly (tests/test_outcomes.py). Definitions, in plain words,
 are in docs/outcomes.md and in the UI next to each number.
 
-Time comes from the status transition log (`run_transitions`). Runs from before that
+Time comes from the status transition log (`run_transitions`). Changes from before that
 log existed still count for deliveries (their "delivered" event gives the time),
 cost and quality, but not for the time split; `runs_with_timeline` says how many do.
 """
@@ -22,13 +22,13 @@ from typing import Any
 from agent_factory.hostclock import merge, overlap_s
 from agent_factory.models import (
     AppQuality,
+    Change,
+    ChangeStatus,
     DurationStat,
     HumanTouches,
-    Order,
     OutcomesView,
     PillarScore,
-    Run,
-    RunStatus,
+    Product,
     StationEffort,
     TimeSplit,
     Transition,
@@ -41,27 +41,31 @@ from agent_factory.readiness import PILLAR_OF
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import LEGACY_HANDLERS
 
-AGENTS = {RunStatus.queued, RunStatus.running}
+AGENTS = {ChangeStatus.queued, ChangeStatus.running}
 PERSON = {
-    RunStatus.needs_input,
-    RunStatus.held,
-    RunStatus.awaiting_approval,
-    RunStatus.awaiting_risk_approval,
-    RunStatus.interrupted,
+    ChangeStatus.needs_input,
+    ChangeStatus.held,
+    ChangeStatus.awaiting_approval,
+    ChangeStatus.awaiting_risk_approval,
+    ChangeStatus.interrupted,
 }
-SYSTEM = {RunStatus.paused_limits}
-DONE = {RunStatus.awaiting_feedback, RunStatus.cancelled, RunStatus.failed}
+SYSTEM = {ChangeStatus.paused_limits}
+DONE = {ChangeStatus.awaiting_feedback, ChangeStatus.cancelled, ChangeStatus.failed}
 # leaving one of these states means a person acted; spec review is a planned touch
-UNPLANNED = {RunStatus.needs_input: "answered_questions", RunStatus.held: "rescued", RunStatus.interrupted: "restarts"}
-PLANNED = {RunStatus.awaiting_approval: "spec_reviews", RunStatus.awaiting_risk_approval: "risk_approvals"}
+UNPLANNED = {
+    ChangeStatus.needs_input: "answered_questions",
+    ChangeStatus.held: "rescued",
+    ChangeStatus.interrupted: "restarts",
+}
+PLANNED = {ChangeStatus.awaiting_approval: "spec_reviews", ChangeStatus.awaiting_risk_approval: "risk_approvals"}
 
 ACTIONS = {
-    RunStatus.needs_input: "Answer the intake questions",
-    RunStatus.held: "Read the evidence, then resume or change the order",
-    RunStatus.awaiting_approval: "Review the spec: approve, edit or request changes",
-    RunStatus.awaiting_risk_approval: "Risky changes: an admin other than the requester approves or sends them back",
-    RunStatus.interrupted: "Resume the run (the factory restarted)",
-    RunStatus.paused_limits: "Nothing: resumes when the model usage window resets",
+    ChangeStatus.needs_input: "Answer the intake questions",
+    ChangeStatus.held: "Read the evidence, then resume or change the request",
+    ChangeStatus.awaiting_approval: "Review the spec: approve, edit or request changes",
+    ChangeStatus.awaiting_risk_approval: "Risky changes: an admin other than the requester approves or sends them back",
+    ChangeStatus.interrupted: "Resume the change (the factory restarted)",
+    ChangeStatus.paused_limits: "Nothing: resumes when the model usage window resets",
 }
 DELIVERED_EVENT = "delivered"  # message prefix of the delivery event (fallback for runs without a timeline)
 
@@ -70,8 +74,8 @@ DELIVERED_EVENT = "delivered"  # message prefix of the delivery event (fallback 
 class Facts:
     now: datetime
     days: int
-    orders: dict[str, Order]
-    runs: list[Run]
+    products: dict[str, Product]
+    changes: list[Change]
     transitions: dict[str, list[Transition]]
     delivered_fallback: dict[str, datetime] = field(default_factory=dict)  # runs without a timeline
     readiness_level: dict[str, int] = field(default_factory=dict)  # run id -> Level
@@ -99,29 +103,29 @@ def _ratio(num: int | float, den: int | float) -> float | None:
     return round(num / den, 4) if den else None
 
 
-def delivered_at(run: Run, f: Facts) -> datetime | None:
-    for t in f.transitions.get(run.id, []):
-        if t.to_status == RunStatus.awaiting_feedback:
+def delivered_at(change: Change, f: Facts) -> datetime | None:
+    for t in f.transitions.get(change.id, []):
+        if t.to_status == ChangeStatus.awaiting_feedback:
             return t.ts
-    return f.delivered_fallback.get(run.id)
+    return f.delivered_fallback.get(change.id)
 
 
-def finished_at(run: Run, f: Facts) -> datetime | None:
-    for t in f.transitions.get(run.id, []):
+def finished_at(change: Change, f: Facts) -> datetime | None:
+    for t in f.transitions.get(change.id, []):
         if t.to_status in DONE:
             return t.ts
-    if run.status in DONE and run.id not in f.transitions:
-        return delivered_at(run, f) or run.updated_at
+    if change.status in DONE and change.id not in f.transitions:
+        return delivered_at(change, f) or change.updated_at
     return None
 
 
-def _first(run: Run, f: Facts, status: RunStatus) -> datetime | None:
-    return next((t.ts for t in f.transitions.get(run.id, []) if t.to_status == status), None)
+def _first(change: Change, f: Facts, status: ChangeStatus) -> datetime | None:
+    return next((t.ts for t in f.transitions.get(change.id, []) if t.to_status == status), None)
 
 
-def _touches(run: Run, f: Facts, since: datetime | None = None) -> HumanTouches:
+def _touches(change: Change, f: Facts, since: datetime | None = None) -> HumanTouches:
     h = HumanTouches()
-    for t in f.transitions.get(run.id, []):
+    for t in f.transitions.get(change.id, []):
         if since and t.ts < since:
             continue
         kind = UNPLANNED.get(t.from_status) or PLANNED.get(t.from_status)  # type: ignore[arg-type]
@@ -134,10 +138,10 @@ def _unplanned(h: HumanTouches) -> int:
     return h.answered_questions + h.rescued + h.restarts
 
 
-def _split(run: Run, f: Facts, start: datetime, end: datetime) -> TimeSplit:
-    """Seconds this run spent per bucket, clipped to [start, end]."""
+def _split(change: Change, f: Facts, start: datetime, end: datetime) -> TimeSplit:
+    """Seconds this change spent per bucket, clipped to [start, end]."""
     out = TimeSplit()
-    ts = f.transitions.get(run.id, [])
+    ts = f.transitions.get(change.id, [])
     for i, t in enumerate(ts):
         seg_end = ts[i + 1].ts if i + 1 < len(ts) else (end if t.to_status not in DONE else t.ts)
         a, b = max(t.ts, start), min(seg_end, end)
@@ -155,43 +159,43 @@ def _split(run: Run, f: Facts, start: datetime, end: datetime) -> TimeSplit:
     return out
 
 
-def _owner(order: Order | None, status: RunStatus) -> str:
+def _owner(product: Product | None, status: ChangeStatus) -> str:
     if status in SYSTEM:
         return "system"
-    return (order.created_by if order and order.created_by else None) or "an admin"
+    return (product.created_by if product and product.created_by else None) or "an admin"
 
 
 # ------------------------------------------------------------------ compute --
 def compute(f: Facts) -> OutcomesView:
     since, now = f.since, f.now
-    live_orders = {oid: o for oid, o in f.orders.items() if not o.archived_at}
+    live_products = {oid: o for oid, o in f.products.items() if not o.archived_at}
 
-    delivered = [(r, d) for r in f.runs if (d := delivered_at(r, f)) and since <= d <= now]
+    delivered = [(r, d) for r in f.changes if (d := delivered_at(r, f)) and since <= d <= now]
     deliveries = len(delivered)
     lead = _stat((d - r.created_at).total_seconds() for r, d in delivered)
 
     # change failure rate: of the iterations that finished (delivered or failed) in the
     # window, the share that failed or needed a person to rescue them from "held"
     finished = [
-        r for r in f.runs if (fa := finished_at(r, f)) and since <= fa <= now and r.status != RunStatus.cancelled
+        r for r in f.changes if (fa := finished_at(r, f)) and since <= fa <= now and r.status != ChangeStatus.cancelled
     ]
-    failed_or_rescued = [r for r in finished if r.status == RunStatus.failed or _first(r, f, RunStatus.held)]
+    failed_or_rescued = [r for r in finished if r.status == ChangeStatus.failed or _first(r, f, ChangeStatus.held)]
     recovery = _stat(
-        (d - held).total_seconds() for r, d in delivered if (held := _first(r, f, RunStatus.held)) and held < d
+        (d - held).total_seconds() for r, d in delivered if (held := _first(r, f, ChangeStatus.held)) and held < d
     )
 
     # autonomy: deliveries that needed no unplanned human touch in their whole life
-    per_run_touches = {r.id: _touches(r, f) for r, _ in delivered}
-    autonomous = sum(1 for r, _ in delivered if _unplanned(per_run_touches[r.id]) == 0)
+    per_change_touches = {r.id: _touches(r, f) for r, _ in delivered}
+    autonomous = sum(1 for r, _ in delivered if _unplanned(per_change_touches[r.id]) == 0)
 
-    in_window = [r for r in f.runs if r.created_at >= since or (finished_at(r, f) or now) >= since]
+    in_window = [r for r in f.changes if r.created_at >= since or (finished_at(r, f) or now) >= since]
     touches = HumanTouches()
     for r in in_window:
         h = _touches(r, f, since)
         for k in HumanTouches.model_fields:
             setattr(touches, k, getattr(touches, k) + getattr(h, k))
 
-    created = [r for r in f.runs if since <= r.created_at <= now]
+    created = [r for r in f.changes if since <= r.created_at <= now]
     cost_total = round(sum(r.cost_usd for r in created), 4)
 
     split = TimeSplit()
@@ -205,13 +209,13 @@ def compute(f: Facts) -> OutcomesView:
 
     # quality of what is live: each product's latest delivered iteration
     products = level3 = req_total = req_live = 0
-    latest_delivered: dict[str, Run] = {}
-    for r in f.runs:
-        if r.order_id in live_orders and delivered_at(r, f):
-            cur = latest_delivered.get(r.order_id)
+    latest_delivered: dict[str, Change] = {}
+    for r in f.changes:
+        if r.product_id in live_products and delivered_at(r, f):
+            cur = latest_delivered.get(r.product_id)
             if cur is None or r.iteration > cur.iteration:
-                latest_delivered[r.order_id] = r
-    products = len(live_orders)
+                latest_delivered[r.product_id] = r
+    products = len(live_products)
     for r in latest_delivered.values():
         if f.readiness_level.get(r.id, 0) >= 3:
             level3 += 1
@@ -222,29 +226,29 @@ def compute(f: Facts) -> OutcomesView:
                 req_live += 1
 
     waiting = []
-    for r in f.runs:
-        if r.status in PERSON | SYSTEM and r.order_id in live_orders:
-            order = live_orders[r.order_id]
+    for r in f.changes:
+        if r.status in PERSON | SYSTEM and r.product_id in live_products:
+            product = live_products[r.product_id]
             last = f.transitions.get(r.id, [])
             since_state = last[-1].ts if last else r.updated_at
             waiting.append(
                 WaitingItem(
-                    order_id=order.id,
-                    order_title=order.title,
-                    run_id=r.id,
+                    product_id=product.id,
+                    product_title=product.title,
+                    change_id=r.id,
                     iteration=r.iteration,
                     status=r.status,
                     since=since_state,
                     waiting_s=max(0.0, (now - since_state).total_seconds()),
-                    owner=_owner(order, r.status),
+                    owner=_owner(product, r.status),
                     action=ACTIONS[r.status],
                 )
             )
     waiting.sort(key=lambda w: (w.owner == "system", -w.waiting_s))
 
-    by_wf: dict[str, list[tuple[Run, datetime]]] = {}
+    by_wf: dict[str, list[tuple[Change, datetime]]] = {}
     for r, d in delivered:
-        wf = r.workflow_id or (f.orders[r.order_id].product_line if r.order_id in f.orders else "unknown")
+        wf = r.workflow_id or (f.products[r.product_id].blueprint if r.product_id in f.products else "unknown")
         by_wf.setdefault(wf, []).append((r, d))
     workflows = []
     for wf, items in sorted(by_wf.items()):
@@ -252,13 +256,15 @@ def compute(f: Facts) -> OutcomesView:
         cost_wf = sum(
             r.cost_usd
             for r in created
-            if (r.workflow_id or (f.orders[r.order_id].product_line if r.order_id in f.orders else "")) == wf
+            if (r.workflow_id or (f.products[r.product_id].blueprint if r.product_id in f.products else "")) == wf
         )
         workflows.append(
             WorkflowOutcome(
                 workflow_id=wf,
                 deliveries=len(items),
-                autonomy_ratio=_ratio(sum(1 for rid in runs_wf if _unplanned(per_run_touches[rid]) == 0), len(items)),
+                autonomy_ratio=_ratio(
+                    sum(1 for rid in runs_wf if _unplanned(per_change_touches[rid]) == 0), len(items)
+                ),
                 cost_per_delivery_usd=_ratio(cost_wf, len(items)),
                 lead_time_median_s=_stat((d - r.created_at).total_seconds() for r, d in items).median_s,
             )
@@ -295,19 +301,21 @@ def compute(f: Facts) -> OutcomesView:
         recovery_time=recovery,
         autonomy_ratio=_ratio(autonomous, deliveries),
         touches=touches,
-        unplanned_touches_per_delivery=_ratio(sum(_unplanned(per_run_touches[r.id]) for r, _ in delivered), deliveries),
+        unplanned_touches_per_delivery=_ratio(
+            sum(_unplanned(per_change_touches[r.id]) for r, _ in delivered), deliveries
+        ),
         cost_total_usd=cost_total,
         cost_per_delivery_usd=_ratio(cost_total, deliveries),
         fix_loops_per_delivery=_ratio(sum(r.loops for r, _ in delivered), deliveries),
         time_split=TimeSplit(**{k: round(v, 1) for k, v in split.model_dump().items()}),
-        runs_with_timeline=len(with_timeline),
-        runs_in_window=len(in_window),
+        changes_with_timeline=len(with_timeline),
+        changes_in_window=len(in_window),
         products=products,
         products_level3=level3,
         requirements_total=req_total,
         requirements_verified_live=req_live,
         waiting=waiting,
-        **_quality(f, latest_delivered, live_orders),
+        **_quality(f, latest_delivered, live_products),
         effort_by_station=_effort(f),
         guardrail_denials=sum(1 for _, ts, _d in f.denials if since <= ts <= now),
         by_workflow=workflows,
@@ -315,7 +323,7 @@ def compute(f: Facts) -> OutcomesView:
     )
 
 
-def _quality(f: Facts, latest: dict[str, Run], live: dict[str, Order]) -> dict[str, Any]:
+def _quality(f: Facts, latest: dict[str, Change], live: dict[str, Product]) -> dict[str, Any]:
     """Pillar coverage of live apps' latest delivered iterations (ADR-0024)."""
     signals_per_pillar = Counter(PILLAR_OF.values())
     totals = {p: {"passed": 0, "applicable": 0, "apps_full": 0} for p in IDS}
@@ -340,7 +348,7 @@ def _quality(f: Facts, latest: dict[str, Run], live: dict[str, Order]) -> dict[s
                     coverage=_ratio(passed, appl),
                 )
             )
-        apps.append(AppQuality(order_id=oid, order_title=live[oid].title, run_id=r.id, pillars=scores))
+        apps.append(AppQuality(product_id=oid, product_title=live[oid].title, change_id=r.id, pillars=scores))
     pillars = [
         PillarScore(
             pillar=p,
@@ -380,23 +388,23 @@ def _effort(f: Facts) -> list[StationEffort]:
 # ------------------------------------------------------------------- gather --
 def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     now = now or datetime.now(UTC)
-    # evaluation orders (ADR-0025) measure workflow versions, not the factory's real work
-    orders = {o.id: o for o in store.list_orders() if not o.eval_run_id}
-    runs = [r for r in store.all_runs() if r.order_id in orders]
-    ids = {r.id for r in runs}
+    # evaluation products (ADR-0025) measure workflow versions, not the factory's real work
+    products = {o.id: o for o in store.list_products() if not o.eval_run_id}
+    changes = [r for r in store.all_changes() if r.product_id in products]
+    ids = {r.id for r in changes}
     transitions = {k: v for k, v in store.transitions().items() if k in ids}
-    f = Facts(now=now, days=days, orders=orders, runs=runs, transitions=transitions)
-    for r in runs:
-        if r.id not in transitions and r.status == RunStatus.awaiting_feedback:
+    f = Facts(now=now, days=days, products=products, changes=changes, transitions=transitions)
+    for r in changes:
+        if r.id not in transitions and r.status == ChangeStatus.awaiting_feedback:
             t = store.first_event_time(r.id, DELIVERED_EVENT)
             if t:
                 f.delivered_fallback[r.id] = t
-    latest: dict[str, Run] = {}
-    for r in runs:
-        if r.order_id in orders and not orders[r.order_id].archived_at and delivered_at(r, f):
-            if r.order_id not in latest or r.iteration > latest[r.order_id].iteration:
-                latest[r.order_id] = r
-    active = [r.id for r in runs if r.created_at >= f.since or r.updated_at >= f.since]
+    latest: dict[str, Change] = {}
+    for r in changes:
+        if r.product_id in products and not products[r.product_id].archived_at and delivered_at(r, f):
+            if r.product_id not in latest or r.iteration > latest[r.product_id].iteration:
+                latest[r.product_id] = r
+    active = [r.id for r in changes if r.created_at >= f.since or r.updated_at >= f.since]
     f.calls = store.events_with_key(active, "agent_call")
     f.denials = store.events_with_key(active, "denied")
     f.pauses = merge(store.host_pauses(f.since))

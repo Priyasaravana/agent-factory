@@ -14,7 +14,7 @@ If anything looks wrong, roll back (below).
 | Unit and contract tests | engine, auth and UI logic; OpenAPI drift | CI `engine`, `auth`, `web` |
 | Golden path | the app template still verifies; the chart lints | CI `golden-path` |
 | **Images** | every image builds; engine tests pass **on the Python inside the factory image**; the sandbox image verifies the golden path as the sandbox user, without interpreter downloads | CI `images` |
-| **Whole stack** | `docker compose up` in dry-run; sandbox isolation from inside a real sandbox; a browser walks sign-in → readiness → order → delivered → feedback → archive | CI `e2e` (screenshots and logs kept as evidence) |
+| **Whole stack** | `docker compose up` in dry-run; sandbox isolation from inside a real sandbox; a browser walks sign-in → readiness → product → delivered → feedback → archive | CI `e2e` (screenshots and logs kept as evidence) |
 | Next Python | engine tests on 3.13 / 3.14, advisory | CI `engine-next-python` |
 | Version rules | factory image = auth image = CI Python; the sandbox offers the Python the golden path pins | `engine/tests/test_python_versions.py` |
 | Weekly run | base-image and upstream drift, even with no PRs | CI schedule |
@@ -32,15 +32,16 @@ make backup                                      # safe while running; → backu
 make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your current data aside
 ```
 - **What a backup holds:**
-  - a consistent SQLite snapshot of the factory database (orders, runs, events, workflows, skills);
+  - a consistent SQLite snapshot of the factory database (products, changes, events, workflows, skills);
   - the auth database (users, token hashes, audit);
-  - product repos, hidden scenarios, run worktrees and artifacts.
+  - product repos, hidden scenarios, change worktrees and artifacts.
 
   Not included: the kind cluster and images inside dind; they are rebuilt or re-delivered.
 - **Rolling back code:** `git checkout <previous commit>`, then `make up`. If that version's data format differs, restore the backup taken before the upgrade. `backups/<…>/factory-version.txt` records which commit a backup came from.
-- **Runs are safe across upgrades.** Each run is pinned to a workflow version and its pinned skills. Interrupted runs are marked on restart and resumed by a person.
+- **Changes are safe across upgrades.** Each change is pinned to a workflow version and its pinned skills. Interrupted changes are marked on restart and resumed by a person.
 
 ## Version notes
+- **New names.** Upgrading to the Product/Change/Blueprint names (ADR-0029) renames the database tables in place on first start; `product_lines:` and the old limit names in config still load.
 - **No root in the factory's containers (ADR-0018).** Nothing to do:
   - `make upgrade` (or `make up`) adds the one-shot `factory-init` step. It hands
     `/data` and dind's client certs to uid 10001, which also fixes files earlier

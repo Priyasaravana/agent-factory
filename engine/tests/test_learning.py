@@ -6,13 +6,13 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.executor import FakeExecutor
 from agent_factory.identity import Identity, _current
-from agent_factory.models import Event, EventKind, Run, RunStatus
+from agent_factory.models import Change, ChangeStatus, Event, EventKind
 from agent_factory.retro import signals, vet
 from agent_factory.workflow import load_workflow_dir
 
@@ -22,12 +22,12 @@ NOW = datetime(2026, 10, 1, tzinfo=UTC)
 
 
 def _ev(i: int, kind: EventKind, message: str, data: dict | None = None) -> Event:
-    return Event(id=i, run_id="r", ts=NOW, kind=kind, message=message, data=data or {})
+    return Event(id=i, change_id="r", ts=NOW, kind=kind, message=message, data=data or {})
 
 
-def _run(**kw) -> Run:
-    return Run(
-        id="r", order_id="o", iteration=1, status=RunStatus.awaiting_feedback, created_at=NOW, updated_at=NOW, **kw
+def _run(**kw) -> Change:
+    return Change(
+        id="r", product_id="o", iteration=1, status=ChangeStatus.awaiting_feedback, created_at=NOW, updated_at=NOW, **kw
     )
 
 
@@ -118,8 +118,8 @@ async def _proposals(f, status="pending", n=1, timeout=10.0):
 async def test_a_clean_run_asks_for_no_retro(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(agents=agents)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     await asyncio.sleep(0.2)
     assert not any(c.role == "retro" for c in agents.calls) and f.store.list_proposals(WF) == []
 
@@ -127,23 +127,23 @@ async def test_a_clean_run_asks_for_no_retro(make_factory):
 async def test_a_fix_loop_leads_to_a_suggested_learning(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(FakeExecutor(fail_on=["make verify"]), agents)
-    order = f.manager.create_order(ORDER)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     [p] = await _proposals(f)
-    assert (p.agent, p.run_id, p.order_id, p.workflow_version) == ("developer", run.id, order.id, 1)
-    routed = next(e for e in f.store.list_events(run.id) if "routed" in e.data)
+    assert (p.agent, p.change_id, p.product_id, p.workflow_version) == ("developer", change.id, product.id, 1)
+    routed = next(e for e in f.store.list_events(change.id) if "routed" in e.data)
     assert routed.data["routed"]["from"] == "test" and routed.data["routed"]["evidence"], "evidence is kept"
     retro = next(c for c in agents.calls if c.role == "retro")
     assert retro.observe_only and "test failed, routed to implement" in retro.prompt
-    assert any(e.message.startswith("retro: 1 learning(s) suggested") for e in f.store.list_events(run.id))
+    assert any(e.message.startswith("retro: 1 learning(s) suggested") for e in f.store.list_events(change.id))
 
     # the same lesson again is not suggested twice
-    run2 = f.manager.start_run(f.manager.create_order(ORDER))
+    change2 = f.manager.start_change(f.manager.create_product(PRODUCT))
     f.manager.ex.fail_on.append("make verify")  # type: ignore[attr-defined]
-    assert await wait_run(f, run2.id) == RunStatus.awaiting_feedback
+    assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback
     for _ in range(100):
-        if any(e.message.startswith("retro:") for e in f.store.list_events(run2.id)):
+        if any(e.message.startswith("retro:") for e in f.store.list_events(change2.id)):
             break
         await asyncio.sleep(0.05)
     assert len(f.store.list_proposals(WF, "pending")) == 1
@@ -157,8 +157,8 @@ async def test_learning_can_be_turned_off_per_workflow(make_factory):
         assert r.status_code == 200 and r.json()["learn_from_runs"] is False and r.json()["spec_review"] == "off"
         assert (await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "no learning"})).status_code == 201
     await ctx.__aexit__(None, None, None)
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     await asyncio.sleep(0.3)
     assert f.store.list_proposals(WF) == []
 
@@ -166,8 +166,8 @@ async def test_learning_can_be_turned_off_per_workflow(make_factory):
 # ------------------------------------------------------ admin decision --
 async def test_only_an_admin_accepts_and_it_lands_in_the_draft(make_factory):
     f = make_factory(FakeExecutor(fail_on=["make verify"] * 2))
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     [p] = await _proposals(f)
     from agent_factory.actions import accept_learning
 
@@ -200,8 +200,8 @@ async def test_only_an_admin_accepts_and_it_lands_in_the_draft(make_factory):
 
 async def test_reject(make_factory):
     f = make_factory(FakeExecutor(fail_on=["make verify"]))
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     [p] = await _proposals(f)
     app, ctx, c = await _client(f)
     async with c:

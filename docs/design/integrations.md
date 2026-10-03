@@ -8,7 +8,7 @@ Status: **accepted** · phases 1 (provider seam) and 2 (secret references) imple
 - Run the same workflow locally (kind) or against real infrastructure (registry,
   EKS/Argo CD, scanners, test tools, GitHub) by changing config, not code.
 - No long-lived secrets on disk, in the DB, in logs, or anywhere an agent runs.
-- Know an integration is ready **before** a run spends model tokens.
+- Know an integration is ready **before** a change spends model tokens.
 - Fit into a company's existing platform: its CI/CD, secret manager and portal.
 
 **Non-goals (this iteration)**
@@ -54,9 +54,9 @@ environments:
     publish: github-org
     approvals: [deploy]                    # a person approves before deploy
 
-product_lines:
+blueprints:
   fastapi-service:
-    environment: local                     # per product line; can be overridden per order
+    environment: local                     # per blueprint; can be overridden per product
 ```
 
 ## 3. Provider contract
@@ -98,7 +98,7 @@ class Provider(Protocol):
 
 ## 5. Agent sandbox
 
-- **One sandbox container per run.** It mounts only the run worktree. It has no
+- **One sandbox container per change.** It mounts only the change worktree. It has no
   engine secrets, no Docker socket or TLS keys, and no `/data` beyond the
   worktree.
 - **Egress allowlist:** the model API, package indexes and docs sites. It
@@ -113,7 +113,7 @@ class Provider(Protocol):
   acceptance sandbox, read-only.
 
 Open: Docker-in-dind sandbox containers vs Claude Code's built-in sandbox mode vs
-a k8s Job per run. We start with a container per run in dind (it works locally
+a k8s Job per change. We start with a container per change in dind (it works locally
 and maps to a k8s Job later).
 
 ## 6. Readiness and preflight
@@ -122,8 +122,8 @@ and maps to a k8s Job later).
   auth (not the value), last check, state and reasons.
 - `POST /api/integrations/{id}/check` runs a check on demand. Checks also run
   every 15 minutes and at startup.
-- **Order preflight:** when an order is submitted, every integration its
-  environment needs must be `ready`. Otherwise the order is refused with the
+- **Product preflight:** when a product is created, every integration its
+  environment needs must be `ready`. Otherwise the product is refused with the
   failing checks, before any model call.
 - Example checks:
   - ECR: `sts:GetCallerIdentity`, `ecr:DescribeRepositories` on the prefix.
@@ -154,7 +154,7 @@ status, and network access to the preview URL.
   - SecretRefs (references only);
   - policies and approvals (e.g. deploy to `dev` needs a person);
   - audit log (who changed an integration or policy, and who approved);
-  - runs, cost and success metrics.
+  - changes, cost and success metrics.
 - **Out:**
   - service catalog, ownership, scorecards, docs;
   - general self-service. Those belong to the company's portal.
@@ -167,13 +167,13 @@ Each phase is a separate PR with its own acceptance check.
 
 | Phase | Scope | Done when |
 |---|---|---|
-| 1. Provider seam ✅ | `Provider` interface (`engine/src/agent_factory/providers/`); today's code in `local`; `integrations` + `environments` in config | Local runs issue the same commands; a test environment routes registry/deploy to another provider and acceptance tests its URL |
-| 2. Secrets ✅ | SecretRef resolver (`env://`, `aws-sm://`, `k8s://`), redaction, audit | No secret in DB, events or logs (a test greps a run for known values) |
-| 3. Sandbox ✅ | Agent sessions and `make verify` in throw-away containers without secrets, egress allowlist ([ADR-0014](../adr/0014-agent-sandbox.md)) | The earlier env/cert bypasses fail inside the sandbox; a live run passes |
-| 4. Readiness ✅ | `check()` + `undeploy()`, readiness page, order preflight, archive ([ADR-0015](../adr/0015-readiness-and-preflight.md)) | A broken integration blocks an order in seconds, with reasons |
-| 5a. Cluster target ✅ | generic `registry/oci` + `deploy/helm`, an ingress host per app, egress routes, local trial ([ADR-0026](../adr/0026-cluster-target.md)) | A live run on `local-ingress` pushes to a registry, deploys behind the ingress and passes acceptance |
-| 5b. Cloud paths | ECR login via IAM, `deploy/argocd` (GitOps), GitHub App publish, image signing | A live run deploys to a dev EKS via Argo CD and passes acceptance |
-| 6. Handoff mode | `ci/github-actions` provider; acceptance against the preview URL | A run lands as a PR, the company pipeline deploys it, the factory verifies it |
+| 1. Provider seam ✅ | `Provider` interface (`engine/src/agent_factory/providers/`); today's code in `local`; `integrations` + `environments` in config | Local changes issue the same commands; a test environment routes registry/deploy to another provider and acceptance tests its URL |
+| 2. Secrets ✅ | SecretRef resolver (`env://`, `aws-sm://`, `k8s://`), redaction, audit | No secret in DB, events or logs (a test greps a change for known values) |
+| 3. Sandbox ✅ | Agent sessions and `make verify` in throw-away containers without secrets, egress allowlist ([ADR-0014](../adr/0014-agent-sandbox.md)) | The earlier env/cert bypasses fail inside the sandbox; a live change passes |
+| 4. Readiness ✅ | `check()` + `undeploy()`, readiness page, product preflight, archive ([ADR-0015](../adr/0015-readiness-and-preflight.md)) | A broken integration blocks a product in seconds, with reasons |
+| 5a. Cluster target ✅ | generic `registry/oci` + `deploy/helm`, an ingress host per app, egress routes, local trial ([ADR-0026](../adr/0026-cluster-target.md)) | A live change on `local-ingress` pushes to a registry, deploys behind the ingress and passes acceptance |
+| 5b. Cloud paths | ECR login via IAM, `deploy/argocd` (GitOps), GitHub App publish, image signing | A live change deploys to a dev EKS via Argo CD and passes acceptance |
+| 6. Handoff mode | `ci/github-actions` provider; acceptance against the preview URL | A change lands as a PR, the company pipeline deploys it, the factory verifies it |
 
 ## 10. Open questions for review
 
@@ -183,7 +183,7 @@ Each phase is a separate PR with its own acceptance check.
    start?
 3. **Where the factory runs** for a company: on their EKS (IRSA available), or
    still on a laptop, with OIDC or assumed roles?
-4. **Sandbox technology:** container per run (assumed), Claude Code sandbox
+4. **Sandbox technology:** container per change (assumed), Claude Code sandbox
    mode, or k8s Jobs?
 5. **Approval gates:** which steps always need a person (deploy to shared
    environments? first publish?).

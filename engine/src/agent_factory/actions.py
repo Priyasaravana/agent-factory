@@ -38,9 +38,13 @@ from agent_factory.models import (
     AgentView,
     AnswersInput,
     CatalogView,
+    Change,
+    ChangeCallsView,
+    ChangeDetail,
     ChangeRiskView,
+    ChangeStatus,
     ConfigView,
-    CreateOrderInput,
+    CreateProductInput,
     DecisionInput,
     DeliveryBinding,
     DeliveryView,
@@ -61,11 +65,11 @@ from agent_factory.models import (
     InstallSkillInput,
     IntegrationView,
     LearningProposal,
-    Order,
-    OrderDetail,
     OutcomesView,
     PhaseInfo,
     PreflightView,
+    Product,
+    ProductDetail,
     PublishInput,
     ReadinessView,
     ReorderStationsInput,
@@ -75,10 +79,6 @@ from agent_factory.models import (
     ReviewView,
     RiskDecisionInput,
     RiskFindingView,
-    Run,
-    RunCallsView,
-    RunDetail,
-    RunStatus,
     ScenarioView,
     SkillDetail,
     SkillInfo,
@@ -147,15 +147,15 @@ def action(
 
 
 # ------------------------------------------------------------------ views --
-def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
+def _station_views(f: Factory, change: Change, workflow_id: str) -> list[StationView]:
     views = []
-    flow = f.workflows[run.workflow_id or workflow_id].get(run.workflow_version)
+    flow = f.workflows[change.workflow_id or workflow_id].get(change.workflow_version)
     phase_of = flow.phases()
     for s in flow.stations:
-        attempts = run.attempts.get(s.id, 0) if run else 0
+        attempts = change.attempts.get(s.id, 0) if change else 0
         state = "pending"
-        if run:
-            if run.current_station == s.id:
+        if change:
+            if change.current_station == s.id:
                 state = {
                     "running": "running",
                     "held": "held",
@@ -163,10 +163,12 @@ def _station_views(f: Factory, run: Run, workflow_id: str) -> list[StationView]:
                     "awaiting_risk_approval": "waiting",
                     "paused_limits": "waiting",
                     "interrupted": "held",
-                }.get(run.status, "pending")
+                }.get(change.status, "pending")
             elif attempts:
                 last = [
-                    e for e in f.store.list_events(run.id) if e.station == s.id and e.kind == EventKind.station_finished
+                    e
+                    for e in f.store.list_events(change.id)
+                    if e.station == s.id and e.kind == EventKind.station_finished
                 ]
                 state = last[-1].data.get("outcome", "passed") if last else "passed"
         views.append(
@@ -193,7 +195,7 @@ def get_health(f: Factory) -> HealthView:
         mode=f.settings.factory_mode,
         model_auth=f.settings.model_auth_configured(),
         github=_publish_token_available(f),
-        active_runs=f.manager.active_count(),
+        active_changes=f.manager.active_count(),
         sandbox=_sandbox_state(f)[0],
         sandbox_detail=_sandbox_state(f)[1],
         preflight=_preflight_state(f),
@@ -217,14 +219,14 @@ def _sandbox_state(f: Factory) -> tuple[str, list[str]]:
     return {"unknown": "preparing"}.get(sb.state.state, sb.state.state), list(sb.state.reasons)
 
 
-@action("get_config", "Factory settings: product lines, their workflow versions, policies, gates", "GET", "/api/config")
+@action("get_config", "Factory settings: blueprints, their workflow versions, policies, gates", "GET", "/api/config")
 def get_config(f: Factory) -> ConfigView:
     p = f.cfg.policies
     return ConfigView(
         name=f.cfg.factory.name,
         mode=f.settings.factory_mode,
         workflows={w.workflow_id: w.active_version() for w in f.workflows},
-        product_lines={k: v.description for k, v in f.cfg.product_lines.items()},
+        blueprints={k: v.description for k, v in f.cfg.blueprints.items()},
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
         gates=[f"{g.kind} after {g.after}" for g in f.cfg.gates],
     )
@@ -240,64 +242,77 @@ def get_config(f: Factory) -> ConfigView:
 async def get_outcomes(f: Factory, days: Annotated[int, Query(ge=1, le=365)] = 30) -> OutcomesView:
     from agent_factory.outcomes import outcomes
 
-    # reads every run and its timeline: off the event loop (the store is thread-safe)
+    # reads every change and its timeline: off the event loop (the store is thread-safe)
     return await asyncio.to_thread(outcomes, f.store, days)
 
 
-@action("list_orders", "List orders, newest first (evaluation orders are not listed)", "GET", "/api/orders")
-def list_orders(f: Factory, include_archived: bool = False) -> list[Order]:
-    return [o for o in f.store.list_orders() if (include_archived or not o.archived_at) and not o.eval_run_id]
+@action("list_products", "List products, newest first (evaluation products are not listed)", "GET", "/api/products")
+def list_products(f: Factory, include_archived: bool = False) -> list[Product]:
+    return [o for o in f.store.list_products() if (include_archived or not o.archived_at) and not o.eval_run_id]
 
 
-@action("create_order", "Submit requirements; starts the first run", "POST", "/api/orders", status_code=201)
-async def create_order(f: Factory, body: CreateOrderInput) -> OrderDetail:
-    await _gate(f, body.product_line, "order")
-    order = f.manager.create_order(body)
-    order.created_by = current_identity().user
-    f.store.save_order(order)
-    f.manager.start_run(order)
-    return get_order(f, order.id)
+@action(
+    "create_product",
+    "Submit requirements for a new product; starts its first change",
+    "POST",
+    "/api/products",
+    status_code=201,
+)
+async def create_product(f: Factory, body: CreateProductInput) -> ProductDetail:
+    await _gate(f, body.blueprint, "product")
+    product = f.manager.create_product(body)
+    product.created_by = current_identity().user
+    f.store.save_product(product)
+    f.manager.start_change(product)
+    return get_product(f, product.id)
 
 
-@action("get_order", "Order with its runs and feedback", "GET", "/api/orders/{order_id}")
-def get_order(f: Factory, order_id: str) -> OrderDetail:
-    order = f.store.get_order(order_id)
-    if not order:
-        raise FactoryError("order not found")
-    return OrderDetail(order=order, runs=f.store.list_runs(order_id), feedback=f.store.list_feedback(order_id))
+@action("get_product", "Product with its changes and feedback", "GET", "/api/products/{product_id}")
+def get_product(f: Factory, product_id: str) -> ProductDetail:
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    return ProductDetail(
+        product=product, changes=f.store.list_changes(product_id), feedback=f.store.list_feedback(product_id)
+    )
 
 
 @action(
     "submit_feedback",
     "Post-deploy feedback; starts the next iteration",
     "POST",
-    "/api/orders/{order_id}/feedback",
+    "/api/products/{product_id}/feedback",
     status_code=201,
 )
-async def submit_feedback(f: Factory, order_id: str, body: FeedbackInput) -> Run:
-    _may_steer(f, order_id)
-    order = f.store.get_order(order_id)
-    if order:
-        await _gate(f, order.product_line, "iteration")
-    return f.manager.feedback(order_id, body.text)
+async def submit_feedback(f: Factory, product_id: str, body: FeedbackInput) -> Change:
+    _may_steer(f, product_id)
+    product = f.store.get_product(product_id)
+    if product:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.feedback(product_id, body.text)
 
 
-@action("get_run", "Run with station states", "GET", "/api/runs/{run_id}")
-def get_run(f: Factory, run_id: str) -> RunDetail:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    order = f.store.get_order(run.order_id)
-    assert order is not None
-    return RunDetail(run=run, order=order, stations=_station_views(f, run, order.product_line), risk=_risk_view(f, run))
+@action("get_change", "Change with station states", "GET", "/api/changes/{change_id}")
+def get_change(f: Factory, change_id: str) -> ChangeDetail:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    product = f.store.get_product(change.product_id)
+    assert product is not None
+    return ChangeDetail(
+        change=change,
+        product=product,
+        stations=_station_views(f, change, product.blueprint),
+        risk=_risk_view(f, change),
+    )
 
 
-def _risk_view(f: Factory, run: Run) -> ChangeRiskView | None:
-    got = f.store.last_event_data(run.id, "change_risk")
+def _risk_view(f: Factory, change: Change) -> ChangeRiskView | None:
+    got = f.store.last_event_data(change.id, "change_risk")
     data = got[1] if got else None
     if not isinstance(data, dict):
         return None
-    hold = run.risk_hold if run.status == RunStatus.awaiting_risk_approval else None
+    hold = change.risk_hold if change.status == ChangeStatus.awaiting_risk_approval else None
     policy = f.cfg.change_risk
     return ChangeRiskView(
         digest=str(data.get("digest", "")),
@@ -312,85 +327,85 @@ def _risk_view(f: Factory, run: Run) -> ChangeRiskView | None:
     )
 
 
-@action("list_events", "Append-only event/decision log for a run", "GET", "/api/runs/{run_id}/events")
-def list_events(f: Factory, run_id: str, after: int = 0) -> list[Event]:
-    return f.store.list_events(run_id, after)
+@action("list_events", "Append-only event/decision log for a change", "GET", "/api/changes/{change_id}/events")
+def list_events(f: Factory, change_id: str, after: int = 0) -> list[Event]:
+    return f.store.list_events(change_id, after)
 
 
-@action("answer_questions", "Answer intake's blocking questions", "POST", "/api/runs/{run_id}/answers")
-def answer_questions(f: Factory, run_id: str, body: AnswersInput) -> Run:
-    _may_steer_run(f, run_id)
-    return f.manager.answer(run_id, body.answers)
+@action("answer_questions", "Answer intake's blocking questions", "POST", "/api/changes/{change_id}/answers")
+def answer_questions(f: Factory, change_id: str, body: AnswersInput) -> Change:
+    _may_steer_change(f, change_id)
+    return f.manager.answer(change_id, body.answers)
 
 
-@action("resume_run", "Resume a held, interrupted or paused run", "POST", "/api/runs/{run_id}/resume")
-async def resume_run(f: Factory, run_id: str) -> Run:
-    _may_steer_run(f, run_id)
-    run = f.store.get_run(run_id)
-    order = f.store.get_order(run.order_id) if run else None
-    if order:
-        await _gate(f, order.product_line, "iteration")
-    return f.manager.resume(run_id)
+@action("resume_change", "Resume a held, interrupted or paused change", "POST", "/api/changes/{change_id}/resume")
+async def resume_change(f: Factory, change_id: str) -> Change:
+    _may_steer_change(f, change_id)
+    change = f.store.get_change(change_id)
+    product = f.store.get_product(change.product_id) if change else None
+    if product:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.resume(change_id)
 
 
-async def _gate(f: Factory, product_line: str, what: str) -> None:
-    if product_line in f.cfg.product_lines:
-        await f.manager.preflight.gate(product_line, what)
+async def _gate(f: Factory, blueprint: str, what: str) -> None:
+    if blueprint in f.cfg.blueprints:
+        await f.manager.preflight.gate(blueprint, what)
 
 
 @action(
-    "archive_order",
-    "Archive an order: remove its app from the cluster and free its port; history is kept",
+    "archive_product",
+    "Archive a product: remove its app from the cluster and free its port; history is kept",
     "POST",
-    "/api/orders/{order_id}/archive",
+    "/api/products/{product_id}/archive",
 )
-async def archive_order(f: Factory, order_id: str) -> Order:
-    _may_steer(f, order_id)
-    return await f.manager.archive(order_id, current_identity().user)
+async def archive_product(f: Factory, product_id: str) -> Product:
+    _may_steer(f, product_id)
+    return await f.manager.archive(product_id, current_identity().user)
 
 
-def _may_steer_run(f: Factory, run_id: str) -> None:
-    run = f.store.get_run(run_id)
-    if run:
-        _may_steer(f, run.order_id)
+def _may_steer_change(f: Factory, change_id: str) -> None:
+    change = f.store.get_change(change_id)
+    if change:
+        _may_steer(f, change.product_id)
 
 
-def _may_steer(f: Factory, order_id: str) -> None:
-    """Steering an order (feedback, answers, resume, cancel, spec decisions,
-    archive, transcripts): the order's creator or an admin."""
+def _may_steer(f: Factory, product_id: str) -> None:
+    """Steering a product (feedback, answers, resume, cancel, spec decisions,
+    archive, transcripts): the product's creator or an admin."""
     who = current_identity()
-    order = f.store.get_order(order_id)
-    if order and not who.is_admin and order.created_by and order.created_by != who.user:
-        raise PermissionError("only the order's creator or an admin can do this")
+    product = f.store.get_product(product_id)
+    if product and not who.is_admin and product.created_by and product.created_by != who.user:
+        raise PermissionError("only the product's creator or an admin can do this")
 
 
 @action(
-    "get_run_spec",
-    "The run's specification: product spec, technical design, API, numbered requirements, "
+    "get_change_spec",
+    "The change's specification: product spec, technical design, API, numbered requirements, "
     "acceptance scenarios, changes and traceability",
     "GET",
-    "/api/runs/{run_id}/spec",
+    "/api/changes/{change_id}/spec",
 )
-def get_run_spec(f: Factory, run_id: str) -> SpecView:
+def get_change_spec(f: Factory, change_id: str) -> SpecView:
     from agent_factory import traceability as tr
 
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    order = f.store.get_order(run.order_id)
-    wt = f.manager.ws.run_dir(run.id)
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    product = f.store.get_product(change.product_id)
+    wt = f.manager.ws.change_dir(change.id)
     read = lambda rel: (wt / rel).read_text(errors="replace") if (wt / rel).is_file() else ""  # noqa: E731
-    flow = f.workflows[run.workflow_id or (order.product_line if order else "")].get(run.workflow_version)
-    events = f.store.list_events(run.id)
+    flow = f.workflows[change.workflow_id or (product.blueprint if product else "")].get(change.workflow_version)
+    events = f.store.list_events(change.id)
     changes = next((e.data["spec_changes"] for e in reversed(events) if "spec_changes" in e.data), {})
     trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
     rev = next((e.data["review"] for e in reversed(events) if isinstance(e.data.get("review"), dict)), None)
-    holdout = f.manager.ws.holdout_dir(order.product_slug) / "scenarios.yaml" if order else None
+    holdout = f.manager.ws.holdout_dir(product.slug) / "scenarios.yaml" if product else None
     return SpecView(
-        run_id=run.id,
-        status=run.status,
+        change_id=change.id,
+        status=change.status,
         gate=flow.spec_review,
-        approved_by=run.spec_approved_by,
+        approved_by=change.spec_approved_by,
         product=read("docs/spec.md"),
         technical=read("docs/design.md"),
         openapi=read("docs/openapi.yaml"),
@@ -398,7 +413,7 @@ def get_run_spec(f: Factory, run_id: str) -> SpecView:
         acceptance=[ScenarioView(**s) for s in tr.acceptance_scenarios(wt)],
         holdout_count=len(tr.scenarios(holdout)) if holdout else 0,
         changes=changes,
-        review_notes=run.review_notes,
+        review_notes=change.review_notes,
         traceability=[TraceRow(**r) for r in (trace if trace is not None else tr.matrix(wt))],
         review=_review_view(rev),
     )
@@ -430,32 +445,32 @@ def _review_view(ev: dict[str, Any] | None) -> ReviewView | None:
 
 
 @action(
-    "get_run_calls",
-    "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) "
+    "get_change_calls",
+    "Every agent call of the change (station, role, model, turns, duration, cost, tools, denials) "
     "and every guardrail denial (ADR-0022)",
     "GET",
-    "/api/runs/{run_id}/calls",
+    "/api/changes/{change_id}/calls",
 )
-def get_run_calls(f: Factory, run_id: str) -> RunCallsView:
-    if not f.store.get_run(run_id):
-        raise FactoryError("run not found")
-    calls = [AgentCallView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "agent_call")]
-    denials = [DenialView(**v, at=ts) for _, ts, v in f.store.events_with_key([run_id], "denied")]
-    return RunCallsView(calls=calls, denials=denials)
+def get_change_calls(f: Factory, change_id: str) -> ChangeCallsView:
+    if not f.store.get_change(change_id):
+        raise FactoryError("change not found")
+    calls = [AgentCallView(**v, at=ts) for _, ts, v in f.store.events_with_key([change_id], "agent_call")]
+    denials = [DenialView(**v, at=ts) for _, ts, v in f.store.events_with_key([change_id], "denied")]
+    return ChangeCallsView(calls=calls, denials=denials)
 
 
 @action(
-    "get_run_evidence",
-    "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added "
+    "get_change_evidence",
+    "A change's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added "
     "files are reported)",
     "GET",
-    "/api/runs/{run_id}/evidence",
+    "/api/changes/{change_id}/evidence",
 )
-def get_run_evidence(f: Factory, run_id: str) -> EvidenceView:
-    if not f.store.get_run(run_id):
-        raise FactoryError("run not found")
-    folder = f.manager.ws.data_dir / "artifacts" / run_id
-    seal = evidence.latest_seal(f.store, run_id)
+def get_change_evidence(f: Factory, change_id: str) -> EvidenceView:
+    if not f.store.get_change(change_id):
+        raise FactoryError("change not found")
+    folder = f.manager.ws.data_dir / "artifacts" / change_id
+    seal = evidence.latest_seal(f.store, change_id)
     v = evidence.verify(folder, seal["sha256"] if seal else None)
     if not v.sealed or seal is None:
         return EvidenceView(sealed=False)
@@ -481,27 +496,27 @@ def get_run_evidence(f: Factory, run_id: str) -> EvidenceView:
 
 
 @action(
-    "download_run_evidence",
-    "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, "
-    "traceability, SBOM, provenance); the order's creator or an admin",
+    "download_change_evidence",
+    "Download a change's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, "
+    "traceability, SBOM, provenance); the product's creator or an admin",
     "GET",
-    "/api/runs/{run_id}/evidence/bundle",
+    "/api/changes/{change_id}/evidence/bundle",
 )
-def download_run_evidence(f: Factory, run_id: str) -> Response:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    _may_steer(f, run.order_id)  # transcripts hold full tool output (ADR-0022)
-    folder = f.manager.ws.data_dir / "artifacts" / run_id
-    if not evidence.latest_seal(f.store, run_id) or not (folder / evidence.MANIFEST).is_file():
-        raise FactoryError("no sealed evidence yet: it is sealed when the run stops")
+def download_change_evidence(f: Factory, change_id: str) -> Response:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    _may_steer(f, change.product_id)  # transcripts hold full tool output (ADR-0022)
+    folder = f.manager.ws.data_dir / "artifacts" / change_id
+    if not evidence.latest_seal(f.store, change_id) or not (folder / evidence.MANIFEST).is_file():
+        raise FactoryError("no sealed evidence yet: it is sealed when the change stops")
     fd, tmp = tempfile.mkstemp(suffix=".zip")
     os.close(fd)
     evidence.write_bundle(folder, Path(tmp))
     return FileResponse(
         tmp,
         media_type="application/zip",
-        filename=f"evidence-{run_id}.zip",
+        filename=f"evidence-{change_id}.zip",
         background=BackgroundTask(os.unlink, tmp),
     )
 
@@ -509,39 +524,39 @@ def download_run_evidence(f: Factory, run_id: str) -> Response:
 @action(
     "get_call_transcript",
     "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); "
-    "the order's creator or an admin",
+    "the product's creator or an admin",
     "GET",
-    "/api/runs/{run_id}/calls/{name}/transcript",
+    "/api/changes/{change_id}/calls/{name}/transcript",
 )
-def get_call_transcript(f: Factory, run_id: str, name: str) -> list[dict[str, Any]]:
+def get_call_transcript(f: Factory, change_id: str, name: str) -> list[dict[str, Any]]:
     from agent_factory.observe import read_transcript
 
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    # full tool output (code, command results): the order's creator or an admin (ADR-0022)
-    _may_steer(f, run.order_id)
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    # full tool output (code, command results): the product's creator or an admin (ADR-0022)
+    _may_steer(f, change.product_id)
     try:
-        return read_transcript(f.manager.ws.data_dir / "artifacts" / run_id, name)
+        return read_transcript(f.manager.ws.data_dir / "artifacts" / change_id, name)
     except (ValueError, FileNotFoundError) as exc:
         raise FactoryError(f"transcript not found: {name}") from exc
 
 
 @action(
     "approve_spec",
-    "Spec review gate: approve the spec; the run continues to build",
+    "Spec review gate: approve the spec; the change continues to implement",
     "POST",
-    "/api/runs/{run_id}/spec/approve",
+    "/api/changes/{change_id}/spec/approve",
 )
-async def approve_spec(f: Factory, run_id: str) -> Run:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    _may_steer(f, run.order_id)
-    order = f.store.get_order(run.order_id)
-    if order:
-        await _gate(f, order.product_line, "iteration")
-    return f.manager.approve_spec(run_id, current_identity().user)
+async def approve_spec(f: Factory, change_id: str) -> Change:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    _may_steer(f, change.product_id)
+    product = f.store.get_product(change.product_id)
+    if product:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.approve_spec(change_id, current_identity().user)
 
 
 @action(
@@ -549,62 +564,62 @@ async def approve_spec(f: Factory, run_id: str) -> Run:
     "Change risk: an admin other than the requester accepts the risky changes, with a reason "
     "(the requester only as break-glass, after the cooling-off delay)",
     "POST",
-    "/api/runs/{run_id}/risk/approve",
+    "/api/changes/{change_id}/risk/approve",
 )
-async def approve_risk(f: Factory, run_id: str, body: RiskDecisionInput) -> Run:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    order = f.store.get_order(run.order_id)
-    if order:
-        await _gate(f, order.product_line, "iteration")
-    return f.manager.approve_risk(run_id, current_identity().user, body.reason)
+async def approve_risk(f: Factory, change_id: str, body: RiskDecisionInput) -> Change:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    product = f.store.get_product(change.product_id)
+    if product:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.approve_risk(change_id, current_identity().user, body.reason)
 
 
 @action(
     "send_back_risk",
-    "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
+    "Change risk: don't accept the risky changes; the change goes back to its repair station with the reason",
     "POST",
-    "/api/runs/{run_id}/risk/send-back",
+    "/api/changes/{change_id}/risk/send-back",
 )
-async def send_back_risk(f: Factory, run_id: str, body: RiskDecisionInput) -> Run:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    _may_steer(f, run.order_id)
-    return f.manager.send_back_risk(run_id, current_identity().user, body.reason)
+async def send_back_risk(f: Factory, change_id: str, body: RiskDecisionInput) -> Change:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    _may_steer(f, change.product_id)
+    return f.manager.send_back_risk(change_id, current_identity().user, body.reason)
 
 
 @action(
     "request_spec_changes",
     "Spec review gate: send the spec back to intake and design with your notes",
     "POST",
-    "/api/runs/{run_id}/spec/changes",
+    "/api/changes/{change_id}/spec/changes",
 )
-async def request_spec_changes(f: Factory, run_id: str, body: SpecReviewInput) -> Run:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    _may_steer(f, run.order_id)
-    order = f.store.get_order(run.order_id)
-    if order:
-        await _gate(f, order.product_line, "iteration")
-    return f.manager.request_spec_changes(run_id, current_identity().user, body.comment)
+async def request_spec_changes(f: Factory, change_id: str, body: SpecReviewInput) -> Change:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    _may_steer(f, change.product_id)
+    product = f.store.get_product(change.product_id)
+    if product:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.request_spec_changes(change_id, current_identity().user, body.comment)
 
 
 @action(
     "edit_spec",
     "Spec review gate: edit the product spec or technical design directly",
     "PUT",
-    "/api/runs/{run_id}/spec",
+    "/api/changes/{change_id}/spec",
 )
-async def edit_spec(f: Factory, run_id: str, body: SpecEditInput) -> SpecView:
-    run = f.store.get_run(run_id)
-    if not run:
-        raise FactoryError("run not found")
-    _may_steer(f, run.order_id)
-    await f.manager.edit_spec(run_id, current_identity().user, body.product, body.technical)
-    return get_run_spec(f, run_id)
+async def edit_spec(f: Factory, change_id: str, body: SpecEditInput) -> SpecView:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    _may_steer(f, change.product_id)
+    await f.manager.edit_spec(change_id, current_identity().user, body.product, body.technical)
+    return get_change_spec(f, change_id)
 
 
 @action(
@@ -628,7 +643,7 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
 # ------------------------------------------------------ evaluation (ADR-0025) --
 @action(
     "put_draft_evals",
-    "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
+    "Replace the draft's evaluation suite: the fixed requests a new version is measured on",
     "PUT",
     "/api/workflows/{workflow_id}/draft/evals",
 )
@@ -673,13 +688,13 @@ async def start_eval(f: Factory, workflow_id: str, body: StartEvalInput) -> Eval
 
     w = f.workflows[workflow_id]
     version = body.version or max(i.version for i in w.versions())
-    await _gate(f, workflow_id, "order")
+    await _gate(f, workflow_id, "product")
     return evals.start(f.manager, workflow_id, version, current_identity().user)
 
 
 @action(
     "cancel_eval",
-    "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
+    "Stop a running evaluation: its changes are cancelled, its products archived, nothing is activated",
     "POST",
     "/api/workflows/{workflow_id}/evals/{eval_id}/cancel",
 )
@@ -693,7 +708,7 @@ async def cancel_eval(f: Factory, workflow_id: str, eval_id: str) -> EvalRun:
 # ------------------------------------------------------ learnings (ADR-0021) --
 @action(
     "list_learning_proposals",
-    "Lessons suggested after runs that needed help, for an admin to accept or reject",
+    "Lessons suggested after changes that needed help, for an admin to accept or reject",
     "GET",
     "/api/workflows/{workflow_id}/learnings",
 )
@@ -740,10 +755,10 @@ def reject_learning(f: Factory, workflow_id: str, proposal_id: str) -> LearningP
     return p
 
 
-@action("get_preflight", "Readiness checks per product line (cached; see ADR-0015)", "GET", "/api/preflight")
+@action("get_preflight", "Readiness checks per blueprint (cached; see ADR-0015)", "GET", "/api/preflight")
 async def get_preflight(f: Factory) -> list[PreflightView]:
     pf = f.manager.preflight
-    return [pf.refresh_local(await pf.product_line(pl, max_age=float("inf"))) for pl in f.cfg.product_lines]
+    return [pf.refresh_local(await pf.blueprint(pl, max_age=float("inf"))) for pl in f.cfg.blueprints]
 
 
 @action("run_preflight", "Run every readiness check now", "POST", "/api/preflight")
@@ -751,29 +766,29 @@ async def run_preflight(f: Factory) -> list[PreflightView]:
     return await f.manager.preflight.all(max_age=0)
 
 
-@action("cancel_run", "Cancel a run", "POST", "/api/runs/{run_id}/cancel")
-def cancel_run(f: Factory, run_id: str) -> Run:
-    _may_steer_run(f, run_id)
-    return f.manager.cancel(run_id)
+@action("cancel_change", "Cancel a change", "POST", "/api/changes/{change_id}/cancel")
+def cancel_change(f: Factory, change_id: str) -> Change:
+    _may_steer_change(f, change_id)
+    return f.manager.cancel(change_id)
 
 
 @action(
     "log_decision",
-    "Record a decision or assumption in the run's append-only log",
+    "Record a decision or assumption in the change's append-only log",
     "POST",
     "/api/decisions",
     agent_tool=True,
     status_code=201,
 )
 def log_decision(f: Factory, body: DecisionInput) -> Event:
-    if not f.store.get_run(body.run_id):
-        raise FactoryError("run not found")
+    if not f.store.get_change(body.change_id):
+        raise FactoryError("change not found")
     msg = body.decision + (f" — because {body.rationale}" if body.rationale else "")
-    return f.store.add_event(body.run_id, EventKind.decision, msg, station=body.station)
+    return f.store.add_event(body.change_id, EventKind.decision, msg, station=body.station)
 
 
 # -------------------------------------------------------------- workflows --
-@action("list_workflows", "One workflow per product line", "GET", "/api/workflows")
+@action("list_workflows", "One workflow per blueprint", "GET", "/api/workflows")
 def list_workflows(f: Factory) -> list[WorkflowSummary]:
     out = []
     for w in f.workflows:
@@ -781,8 +796,8 @@ def list_workflows(f: Factory) -> list[WorkflowSummary]:
         out.append(
             WorkflowSummary(
                 workflow_id=w.workflow_id,
-                product_line=f.cfg.product_lines[w.workflow_id].description,
-                environment=f.cfg.product_lines[w.workflow_id].environment,
+                blueprint=f.cfg.blueprints[w.workflow_id].description,
+                environment=f.cfg.blueprints[w.workflow_id].environment,
                 active_version=w.active_version(),
                 description=doc.description,
                 template=doc.template,
@@ -822,7 +837,7 @@ def list_workflow_versions(f: Factory, workflow_id: str) -> list[WorkflowVersion
 
 @action(
     "activate_workflow_version",
-    "Make a version active for new runs (runs in flight keep theirs)",
+    "Make a version active for new changes (changes in flight keep theirs)",
     "POST",
     "/api/workflows/{workflow_id}/versions/{version}/activate",
 )
@@ -861,7 +876,7 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
-        environment=f.cfg.product_lines[workflow_id].environment,
+        environment=f.cfg.blueprints[workflow_id].environment,
         delivery=_bindings(f, workflow_id),
     )
 
@@ -873,18 +888,18 @@ def _auth_label(auth: Any) -> str | None:
 
 
 def _publish_token_available(f: Factory) -> bool:
-    """Whether the default product line's publish integration has a usable token (never the value)."""
+    """Whether the default blueprint's publish integration has a usable token (never the value)."""
     try:
-        pl = next(iter(f.cfg.product_lines))
-        publish = f.manager.providers.for_product_line(pl).publish
+        pl = next(iter(f.cfg.blueprints))
+        publish = f.manager.providers.for_blueprint(pl).publish
     except (StopIteration, Exception):  # noqa: BLE001
         return False
     ref = getattr(getattr(publish, "auth", None), "secret_ref", None)
     return f.manager.secrets.available(ref)[0]
 
 
-def _bindings(f: Factory, product_line: str) -> list[DeliveryBinding]:
-    ps = f.manager.providers.for_product_line(product_line)
+def _bindings(f: Factory, blueprint: str) -> list[DeliveryBinding]:
+    ps = f.manager.providers.for_blueprint(blueprint)
     return [
         DeliveryBinding(capability=c, integration=getattr(ps, c).name, provider=getattr(ps, c).kind)
         for c in CAPABILITIES
@@ -1151,14 +1166,14 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
 
     w = f.workflows[workflow_id]
     _, doc, _ = w.draft.get()
-    gate = doc.eval_gate if doc.evals and workflow_id in f.cfg.product_lines else "off"
+    gate = doc.eval_gate if doc.evals and workflow_id in f.cfg.blueprints else "off"
     before = w.active_version()
     who = current_identity().user
     info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")
     if gate == "off":
         return info
     try:
-        await _gate(f, workflow_id, "order")
+        await _gate(f, workflow_id, "product")
         e = evals.start(f.manager, workflow_id, info.version, who, trigger="publish", baseline=before)
         note = f"evaluation {e.id} running against version {before}"
     except (FactoryError, PreflightFailed) as exc:
@@ -1191,7 +1206,7 @@ async def get_delivery(f: Factory) -> DeliveryView:
                 checks[c.integration] = ReadinessView(state=c.state, reasons=c.reasons)
     integrations = []
     for name, p in providers.integrations.items():
-        ready = checks.get(name) or ReadinessView(state="unknown", reasons=["not used by any product line"])
+        ready = checks.get(name) or ReadinessView(state="unknown", reasons=["not used by any blueprint"])
         integrations.append(
             IntegrationView(
                 id=name,
@@ -1207,7 +1222,7 @@ async def get_delivery(f: Factory) -> DeliveryView:
         EnvironmentView(
             name=e,
             bindings=env.model_dump(),
-            product_lines=[pl for pl, cfg in f.cfg.product_lines.items() if cfg.environment == e],
+            blueprints=[pl for pl, cfg in f.cfg.blueprints.items() if cfg.environment == e],
         )
         for e, env in envs.items()
     ]

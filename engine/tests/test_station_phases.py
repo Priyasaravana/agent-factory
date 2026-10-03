@@ -6,12 +6,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, default_skill_names, wait_run
+from conftest import PRODUCT, default_skill_names, wait_run
 from test_api import _client
 
 from agent_factory import actions
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.outcomes import compute
 from agent_factory.workflow import (
     AGENT_HANDLERS,
@@ -134,17 +134,17 @@ async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
 
 # ------------------------------------------------- versions with old names --
 async def test_a_version_stored_with_the_old_names_still_runs(make_factory, tmp_path) -> None:
-    """Runs and evidence are pinned to station ids, so old versions keep theirs;
+    """Changes and evidence are pinned to station ids, so old versions keep theirs;
     people still read the new names and phases."""
     f = make_factory()
     legacy = _legacy(load_workflow_dir(DEFAULT))
     assert validate_workflow(legacy, SKILLS, default_skill_names()) == []
     export_workflow_dir(legacy, tmp_path / "old")
     f.workflows[WF].import_dir(tmp_path / "old", "as stored before ADR-0028")
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
-    views = {s.id: s for s in actions.get_run(f, run.id).stations}
+    views = {s.id: s for s in actions.get_change(f, change.id).stations}
     assert (views["build"].handler, views["build"].label, views["build"].phase) == ("implement", "Implement", "code")
     assert (views["package"].handler, views["package"].label, views["package"].phase) == ("build", "Build", "release")
     assert views["deliver"].label == "Handover" and views["deliver"].state == "passed"

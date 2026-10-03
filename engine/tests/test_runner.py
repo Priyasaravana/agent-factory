@@ -17,7 +17,7 @@ LINE = load_workflow_dir(REPO / "workflow-templates" / "default")
 def _req(tmp_path: Path, role: str = "developer", schema=None) -> AgentRequest:
     spec = LINE.agents[role]
     return AgentRequest(
-        run_id="r1",
+        change_id="r1",
         station="build",
         role=role,
         system_prompt=spec.prompt,

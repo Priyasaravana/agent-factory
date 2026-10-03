@@ -3,7 +3,7 @@ forwards, and enforces roles; without it, nothing reaches the API."""
 
 from __future__ import annotations
 
-from conftest import ORDER
+from conftest import PRODUCT
 from test_api import _client
 
 ADMIN = {"X-Auth-User": "saravana", "X-Auth-Role": "admin"}
@@ -17,11 +17,11 @@ async def test_gateway_mode_requires_identity_and_enforces_roles(make_factory):
     app, ctx, c = await _client(f)
     async with c:
         assert (await c.get("/api/health")).status_code == 200, "health stays open for container checks"
-        assert (await c.get("/api/orders")).status_code == 401
-        assert (await c.get("/api/orders", headers={"X-Auth-User": "x", "X-Auth-Role": "root"})).status_code == 401
+        assert (await c.get("/api/products")).status_code == 401
+        assert (await c.get("/api/products", headers={"X-Auth-User": "x", "X-Auth-Role": "root"})).status_code == 401
 
-        r = await c.post("/api/orders", json=ORDER.model_dump(), headers=MEMBER)
-        assert r.status_code == 201 and r.json()["order"]["created_by"] == "priya"
+        r = await c.post("/api/products", json=PRODUCT.model_dump(), headers=MEMBER)
+        assert r.status_code == 201 and r.json()["product"]["created_by"] == "priya"
         assert (await c.get(WF, headers=MEMBER)).status_code == 200, "members can read workflows"
         assert (await c.delete(f"{WF}/draft", headers=MEMBER)).status_code == 403
         assert (await c.post("/api/skills/preview", json={"repo": "a/b"}, headers=MEMBER)).status_code == 403
@@ -37,6 +37,6 @@ async def test_gateway_mode_requires_identity_and_enforces_roles(make_factory):
 async def test_off_mode_is_single_user(make_factory):
     app, ctx, c = await _client(make_factory())
     async with c:
-        r = await c.post("/api/orders", json=ORDER.model_dump())
-        assert r.status_code == 201 and r.json()["order"]["created_by"] == "local"
+        r = await c.post("/api/products", json=PRODUCT.model_dump())
+        assert r.status_code == 201 and r.json()["product"]["created_by"] == "local"
     await ctx.__aexit__(None, None, None)

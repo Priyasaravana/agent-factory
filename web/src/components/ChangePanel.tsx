@@ -22,35 +22,35 @@ import StatusPill from "./StatusPill";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
-export default function RunPanel({
-  runId,
-  orderId,
+export default function ChangePanel({
+  changeId,
+  productId,
   archived = false,
 }: {
-  runId: string;
-  orderId: string;
+  changeId: string;
+  productId: string;
   archived?: boolean;
 }) {
   const qc = useQueryClient();
-  const run = useQuery({
-    queryKey: ["run", runId],
+  const change = useQuery({
+    queryKey: ["change", changeId],
     queryFn: () =>
       unwrap(
-        api.GET("/api/runs/{run_id}", { params: { path: { run_id: runId } } }),
+        api.GET("/api/changes/{change_id}", { params: { path: { change_id: changeId } } }),
       ),
     refetchInterval: (q) =>
-      q.state.data && ACTIVE.has(q.state.data.run.status) ? 2_000 : 8_000,
+      q.state.data && ACTIVE.has(q.state.data.change.status) ? 2_000 : 8_000,
   });
-  const events = useRunEvents(runId);
+  const events = useRunEvents(changeId);
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["run", runId] });
-    qc.invalidateQueries({ queryKey: ["order", orderId] });
+    qc.invalidateQueries({ queryKey: ["change", changeId] });
+    qc.invalidateQueries({ queryKey: ["product", productId] });
   };
   const resume = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/runs/{run_id}/resume", {
-          params: { path: { run_id: runId } },
+        api.POST("/api/changes/{change_id}/resume", {
+          params: { path: { change_id: changeId } },
         }),
       ),
     onSuccess: refresh,
@@ -58,22 +58,22 @@ export default function RunPanel({
   const cancel = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/runs/{run_id}/cancel", {
-          params: { path: { run_id: runId } },
+        api.POST("/api/changes/{change_id}/cancel", {
+          params: { path: { change_id: changeId } },
         }),
       ),
     onSuccess: refresh,
   });
 
-  // the order header (status, archive) follows the run: refresh it whenever the run changes state
-  const status = run.data?.run.status;
+  // the product header (status, archive) follows the change: refresh it whenever the change changes state
+  const status = change.data?.change.status;
   useEffect(() => {
-    if (status) qc.invalidateQueries({ queryKey: ["order", orderId] });
-  }, [status, orderId, qc]);
+    if (status) qc.invalidateQueries({ queryKey: ["product", productId] });
+  }, [status, productId, qc]);
 
-  if (!run.data)
+  if (!change.data)
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
-  const { run: r, stations, risk } = run.data;
+  const { change: r, stations, risk } = change.data;
 
   return (
     <Card>
@@ -83,7 +83,7 @@ export default function RunPanel({
           <StatusPill status={r.status} />
           <span
             className="pill muted"
-            title="Workflow version this run is pinned to"
+            title="Workflow version this change is pinned to"
           >
             {r.workflow_id ?? "workflow"} v{r.workflow_version}
           </span>
@@ -127,8 +127,8 @@ export default function RunPanel({
         )}
         <Problems error={resume.error} />
         <StationStrip stations={stations} />
-        <SpecPanel runId={runId} runStatus={r.status} />
-        {risk && <ChangeRiskPanel runId={runId} orderId={orderId} risk={risk} />}
+        <SpecPanel changeId={changeId} runStatus={r.status} />
+        {risk && <ChangeRiskPanel changeId={changeId} productId={productId} risk={risk} />}
         {r.summary && (
           <p
             className={cn(
@@ -147,24 +147,24 @@ export default function RunPanel({
         )}
         {r.status === "needs_input" && (
           <Questions
-            runId={runId}
+            changeId={changeId}
             questions={r.questions ?? []}
             onDone={refresh}
           />
         )}
         {r.status === "awaiting_feedback" && !archived && (
-          <FeedbackForm orderId={orderId} onDone={refresh} />
+          <FeedbackForm productId={productId} onDone={refresh} />
         )}
         <RunPillars events={events} />
-        <AgentCallsPanel runId={runId} runStatus={r.status} />
-        <EvidencePanel runId={runId} runStatus={r.status} />
+        <AgentCallsPanel changeId={changeId} runStatus={r.status} />
+        <EvidencePanel changeId={changeId} runStatus={r.status} />
         <EventLog events={events} live={ACTIVE.has(r.status)} />
       </CardContent>
     </Card>
   );
 }
 
-function useRunEvents(runId: string): FactoryEvent[] {
+function useRunEvents(changeId: string): FactoryEvent[] {
   const [events, setEvents] = useState<FactoryEvent[]>([]);
   useEffect(() => {
     setEvents([]);
@@ -186,8 +186,8 @@ function useRunEvents(runId: string): FactoryEvent[] {
     // tabs): fetch whatever was missed over plain HTTP.
     const catchUp = async () => {
       try {
-        const res = await api.GET("/api/runs/{run_id}/events", {
-          params: { path: { run_id: runId }, query: { after: last } },
+        const res = await api.GET("/api/changes/{change_id}/events", {
+          params: { path: { change_id: changeId }, query: { after: last } },
         });
         if (res.data && !closed) add(res.data);
       } catch {
@@ -195,11 +195,11 @@ function useRunEvents(runId: string): FactoryEvent[] {
       }
     };
     const connect = () => {
-      source = new EventSource(`/api/runs/${runId}/stream?after=${last}`);
+      source = new EventSource(`/api/changes/${changeId}/stream?after=${last}`);
       source.addEventListener("event", (m) =>
         add([JSON.parse((m as MessageEvent).data) as FactoryEvent]),
       );
-      // The server closes the stream when the run parks; reconnect slowly to catch resumes.
+      // The server closes the stream when the change parks; reconnect slowly to catch resumes.
       source.onerror = () => {
         source?.close();
         void catchUp();
@@ -212,7 +212,7 @@ function useRunEvents(runId: string): FactoryEvent[] {
       closed = true;
       source?.close();
     };
-  }, [runId]);
+  }, [changeId]);
   return events;
 }
 
@@ -282,11 +282,11 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
 }
 
 function Questions({
-  runId,
+  changeId,
   questions,
   onDone,
 }: {
-  runId: string;
+  changeId: string;
   questions: string[];
   onDone: () => void;
 }) {
@@ -294,8 +294,8 @@ function Questions({
   const submit = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/runs/{run_id}/answers", {
-          params: { path: { run_id: runId } },
+        api.POST("/api/changes/{change_id}/answers", {
+          params: { path: { change_id: changeId } },
           body: { answers },
         }),
       ),
@@ -331,18 +331,18 @@ function Questions({
 }
 
 function FeedbackForm({
-  orderId,
+  productId,
   onDone,
 }: {
-  orderId: string;
+  productId: string;
   onDone: () => void;
 }) {
   const [text, setText] = useState("");
   const send = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/orders/{order_id}/feedback", {
-          params: { path: { order_id: orderId } },
+        api.POST("/api/products/{product_id}/feedback", {
+          params: { path: { product_id: productId } },
           body: { text },
         }),
       ),
@@ -380,7 +380,7 @@ function FeedbackForm({
   );
 }
 
-/** The latest readiness scorecard of this run, by quality pillar (ADR-0024). */
+/** The latest readiness scorecard of this change, by quality pillar (ADR-0024). */
 function RunPillars({ events }: { events: FactoryEvent[] }) {
   const card = [...events]
     .reverse()
@@ -395,7 +395,7 @@ function RunPillars({ events }: { events: FactoryEvent[] }) {
   return (
     <details
       className="rounded-xl border bg-card p-4"
-      data-testid="run-pillars"
+      data-testid="change-pillars"
     >
       <summary className="flex cursor-pointer flex-wrap items-center gap-2">
         <span className="font-semibold">Quality pillars</span>

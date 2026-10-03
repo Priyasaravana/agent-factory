@@ -4,39 +4,39 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
-from agent_factory.models import Order, Run, RunStatus, Transition
+from agent_factory.models import Change, ChangeStatus, Product, Transition
 from agent_factory.outcomes import Facts, compute
 from agent_factory.state.sqlite import SqliteStateStore
 
 NOW = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 T0 = NOW - timedelta(days=2)
-S = RunStatus
+S = ChangeStatus
 
 
-def _t(run: str, secs: int, old: RunStatus | None, new: RunStatus) -> Transition:
-    return Transition(run_id=run, ts=T0 + timedelta(seconds=secs), from_status=old, to_status=new)
+def _t(change: str, secs: int, old: ChangeStatus | None, new: ChangeStatus) -> Transition:
+    return Transition(change_id=change, ts=T0 + timedelta(seconds=secs), from_status=old, to_status=new)
 
 
-def _order(oid: str, by: str | None = "priya", archived: bool = False) -> Order:
-    return Order(
+def _order(oid: str, by: str | None = "priya", archived: bool = False) -> Product:
+    return Product(
         id=oid,
         title=f"Order {oid}",
         requirements="r",
-        product_line="fastapi-service",
-        product_slug=oid,
+        blueprint="fastapi-service",
+        slug=oid,
         created_at=T0,
         created_by=by,
         archived_at=NOW if archived else None,
     )
 
 
-def _run(rid: str, oid: str, status: RunStatus, cost: float = 0.0, loops: int = 0, created: datetime = T0) -> Run:
-    return Run(
+def _run(rid: str, oid: str, status: ChangeStatus, cost: float = 0.0, loops: int = 0, created: datetime = T0) -> Change:
+    return Change(
         id=rid,
-        order_id=oid,
+        product_id=oid,
         iteration=1,
         status=status,
         cost_usd=cost,
@@ -48,9 +48,9 @@ def _run(rid: str, oid: str, status: RunStatus, cost: float = 0.0, loops: int = 
 
 
 def _facts() -> Facts:
-    orders = {o.id: o for o in [_order("oA"), _order("oB"), _order("oC"), _order("oD", by="alice"), _order("oE")]}
-    orders["oX"] = _order("oX", archived=True)
-    runs = [
+    products = {o.id: o for o in [_order("oA"), _order("oB"), _order("oC"), _order("oD", by="alice"), _order("oE")]}
+    products["oX"] = _order("oX", archived=True)
+    changes = [
         _run("A", "oA", S.awaiting_feedback, cost=1.0, loops=1),  # clean delivery
         _run("B", "oB", S.awaiting_feedback, cost=2.0, loops=3),  # questions + held, then delivered
         _run("C", "oC", S.failed, cost=0.5),
@@ -87,8 +87,8 @@ def _facts() -> Facts:
     return Facts(
         now=NOW,
         days=30,
-        orders=orders,
-        runs=runs,
+        products=products,
+        changes=changes,
         transitions=transitions,
         delivered_fallback={"OLD": NOW - timedelta(days=59)},
         readiness_level={"A": 3, "B": 2},
@@ -136,17 +136,17 @@ def test_where_the_time_goes():
     assert s.agents_s == 600 + 700 + 200 + 500 + 300
     assert s.person_s == 600 + (until_now - 500)
     assert s.system_s == until_now - 300
-    assert o.runs_with_timeline == 5 and o.runs_in_window == 6, "X is in the window but has no timeline"
+    assert o.changes_with_timeline == 5 and o.changes_in_window == 6, "X is in the window but has no timeline"
 
 
 def test_the_waiting_board_names_who_must_act():
     o = compute(_facts())
-    assert [(w.run_id, w.owner) for w in o.waiting] == [("D", "alice"), ("E", "system")]
+    assert [(w.change_id, w.owner) for w in o.waiting] == [("D", "alice"), ("E", "system")]
     d = o.waiting[0]
     assert d.status == S.awaiting_approval and "Review the spec" in d.action
     assert d.waiting_s == (NOW - (T0 + timedelta(seconds=500))).total_seconds()
     no_owner = _facts()
-    no_owner.orders["oD"].created_by = None
+    no_owner.products["oD"].created_by = None
     assert compute(no_owner).waiting[0].owner == "an admin"
 
 
@@ -171,7 +171,7 @@ def test_by_workflow_and_weekly():
 
 
 def test_empty_factory_has_no_made_up_numbers():
-    o = compute(Facts(now=NOW, days=7, orders={}, runs=[], transitions={}))
+    o = compute(Facts(now=NOW, days=7, products={}, changes=[], transitions={}))
     assert o.deliveries == 0 and o.autonomy_ratio is None and o.cost_per_delivery_usd is None
     assert o.change_failure_rate is None and o.lead_time.median_s is None and o.waiting == []
 
@@ -179,13 +179,13 @@ def test_empty_factory_has_no_made_up_numbers():
 # --------------------------------------------------------- transition log --
 def test_every_status_change_is_recorded_once(tmp_path):
     st = SqliteStateStore(tmp_path / "f.db")
-    run = st.create_run(_run("r1", "o1", S.queued))
-    run.status = S.running
-    st.save_run(run)
-    run.cost_usd = 1.0
-    st.save_run(run)  # no status change: nothing recorded
-    run.status = S.held
-    st.save_run(run)
+    change = st.create_change(_run("r1", "o1", S.queued))
+    change.status = S.running
+    st.save_change(change)
+    change.cost_usd = 1.0
+    st.save_change(change)  # no status change: nothing recorded
+    change.status = S.held
+    st.save_change(change)
     got = [(t.from_status, t.to_status) for t in st.transitions(["r1"])["r1"]]
     assert got == [(None, S.queued), (S.queued, S.running), (S.running, S.held)]
     assert st.transitions([]) == {}
@@ -197,20 +197,20 @@ async def test_outcomes_api_after_a_real_run(make_factory):
     w = f.workflows["fastapi-service"]
     w.draft.set_spec_review("first")
     w.draft.publish("gate on")
-    order = f.manager.create_order(ORDER)
-    order.created_by = "alice"
-    f.store.save_order(order)
-    run = f.manager.start_run(order)
-    assert await wait_run(f, run.id) == S.awaiting_approval
+    product = f.manager.create_product(PRODUCT)
+    product.created_by = "alice"
+    f.store.save_product(product)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == S.awaiting_approval
 
     app, ctx, c = await _client(f)
     async with c:
         o = (await c.get("/api/outcomes")).json()
-        assert o["deliveries"] == 0 and o["runs_with_timeline"] == 1
+        assert o["deliveries"] == 0 and o["changes_with_timeline"] == 1
         [waiting] = o["waiting"]
         assert (waiting["owner"], waiting["status"]) == ("alice", "awaiting_approval")
-        assert (await c.post(f"/api/runs/{run.id}/spec/approve")).status_code == 200
-        assert await wait_run(f, run.id) == S.awaiting_feedback
+        assert (await c.post(f"/api/changes/{change.id}/spec/approve")).status_code == 200
+        assert await wait_run(f, change.id) == S.awaiting_feedback
         o = (await c.get("/api/outcomes?days=7")).json()
         assert o["deliveries"] == 1 and o["window_days"] == 7
         assert o["autonomy_ratio"] == 1.0, "a spec review is a planned touch"

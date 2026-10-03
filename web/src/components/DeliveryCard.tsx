@@ -9,7 +9,7 @@ const WHAT: Record<string, string> = {
   publish: "where the product repo is pushed",
 };
 
-/** Where this product line's delivery steps run, with each integration's readiness. */
+/** Where this blueprint's delivery steps run, with each integration's readiness. */
 export default function DeliveryCard({ w }: { w: WorkflowView }) {
   const delivery = useQuery({
     queryKey: ["integrations"],
@@ -59,7 +59,7 @@ export default function DeliveryCard({ w }: { w: WorkflowView }) {
       </table>
       <p className="muted small">
         Set in <code>.agent-factory/config.yaml</code> (
-        <code>product_lines.{w.workflow_id}.environment</code>,{" "}
+        <code>blueprints.{w.workflow_id}.environment</code>,{" "}
         <code>environments</code>, <code>integrations</code>). Credentials are
         never stored there.
       </p>

@@ -6,14 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_api import _client
 
 import agent_factory.actions as actions
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.agents.runner import AgentRequest, init_summary, plugins_for, sdk_tools, skill_refs
 from agent_factory.github import Fetched
-from agent_factory.models import InstallSkillInput, RunStatus, SkillSourceInput
+from agent_factory.models import ChangeStatus, InstallSkillInput, SkillSourceInput
 from agent_factory.skills import SkillError
 
 WF = "fastapi-service"
@@ -109,8 +109,8 @@ async def test_pinned_skill_reaches_the_agent_and_old_versions_keep_their_pin(ma
     d.publish("verifier uses owasp-check")
     assert f.workflows[WF].get(2).skill_pins["owasp-check"] == SHA1
 
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     req = next(c for c in runner.calls if c.role == "verifier")
     assert "owasp-check" in req.imported_skills and "owasp-check" not in req.skills
     assert (req.imported_plugin / "skills" / "owasp-check" / "SKILL.md").read_text() == SKILL_V1
@@ -163,7 +163,9 @@ async def test_switching_source_needs_removal(make_factory, gh):
 
 
 def test_runner_loads_imported_plugin_only_when_used(tmp_path: Path) -> None:
-    base = AgentRequest(run_id="r", station="s", role="x", prompt="p", cwd=tmp_path, model="m", skills=["plow-ahead"])
+    base = AgentRequest(
+        change_id="r", station="s", role="x", prompt="p", cwd=tmp_path, model="m", skills=["plow-ahead"]
+    )
     assert len(plugins_for(tmp_path, base)) == 1 and skill_refs(base) == ["agent-factory:plow-ahead"]
     req = AgentRequest(**{**base.__dict__, "imported_skills": ["owasp-check"], "imported_plugin": tmp_path / "p"})
     assert plugins_for(tmp_path, req)[1]["path"] == str(tmp_path / "p")
@@ -189,7 +191,7 @@ async def test_skill_endpoints(make_factory, gh):
 def test_skill_tool_is_available_only_when_skills_are_listed(tmp_path: Path) -> None:
     """Regression: `tools` is the SDK's base tool set; without Skill in it the
     agent could never load a skill (built-in or imported)."""
-    base = AgentRequest(run_id="r", station="s", role="x", prompt="p", cwd=tmp_path, model="m", tools=["Read"])
+    base = AgentRequest(change_id="r", station="s", role="x", prompt="p", cwd=tmp_path, model="m", tools=["Read"])
     assert sdk_tools(base) == ["Read"]
     with_skill = AgentRequest(**{**base.__dict__, "skills": ["factory-station-contract"]})
     assert sdk_tools(with_skill) == ["Read", "Skill"] and with_skill.tools == ["Read"]
@@ -197,7 +199,7 @@ def test_skill_tool_is_available_only_when_skills_are_listed(tmp_path: Path) -> 
 
 def test_init_summary_flags_missing_skills(tmp_path: Path) -> None:
     req = AgentRequest(
-        run_id="r",
+        change_id="r",
         station="s",
         role="x",
         prompt="p",

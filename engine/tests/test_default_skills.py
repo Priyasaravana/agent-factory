@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, REPO, make_seeds, wait_run
+from conftest import PRODUCT, REPO, make_seeds, wait_run
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.app_factory import build_factory
@@ -16,7 +16,7 @@ from agent_factory.config import load_config
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.executor import FakeExecutor
 from agent_factory.github import Fetched, GitHubError
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 
@@ -50,8 +50,8 @@ async def test_first_start_installs_defaults_pinned(tmp_path):
     rec = installed["agent-watchdog"]
     assert (rec.repo, rec.path, rec.ref, rec.sha) == (SRC.repo, "skills/agent-watchdog", "main", SRC.sha)
     assert f.workflows[WF].get(1).skill_pins["agent-watchdog"] == SRC.sha
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     verifier = next(c for c in runner.calls if c.role == "verifier")
     assert "agent-watchdog" in verifier.imported_skills and "agent-watchdog" not in verifier.skills
     assert (verifier.imported_plugin / "skills" / "agent-watchdog" / "SKILL.md").exists()

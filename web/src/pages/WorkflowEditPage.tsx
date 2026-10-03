@@ -139,12 +139,12 @@ export default function WorkflowEditPage() {
         {publish.error && <p className="error">{publish.error.message}</p>}
         <p className="muted small">
           Changes are saved to the draft as you go. Publishing validates the workflow (including each station's role and
-          tool needs) and makes it the active version for new runs; runs in flight keep their version.
+          tool needs) and makes it the active version for new changes; changes in flight keep their version.
           {d.eval_gate === "block" && (d.evals?.length ?? 0) > 0 && (
             <>
               {" "}
               <strong>Evaluation gate is on:</strong> the new version is first measured on {d.evals!.length} fixed
-              orders against the active version, and activates only if nothing regressed. This draft is kept until then.
+              requests against the active version, and activates only if nothing regressed. This draft is kept until then.
             </>
           )}
         </p>
@@ -153,14 +153,14 @@ export default function WorkflowEditPage() {
       <section className="card" data-testid="spec-review-setting">
         <h3>Spec review gate</h3>
         <p className="muted small">
-          Pause each run after design until a person approves the specification (product spec, technical design,
+          Pause each change after design until a person approves the specification (product spec, technical design,
           numbered requirements and acceptance scenarios). Reviewers can approve, request changes or edit the spec.
         </p>
         <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="Spec review">
           {(
             [
               ["off", "Off", "never pause (fully automatic)"],
-              ["first", "First iteration", "new orders pause; feedback iterations continue"],
+              ["first", "First iteration", "new products pause; feedback changes continue"],
               ["always", "Every iteration", "every run pauses after design"],
             ] as const
           ).map(([value, label, hint]) => (
@@ -209,7 +209,7 @@ export default function WorkflowEditPage() {
       />
 
       <section className="card" data-testid="learn-setting">
-        <h3>Learn from runs</h3>
+        <h3>Learn from changes</h3>
         <p className="muted small">
           After a run that needed help, suggest short lessons for the agent that caused it. Suggestions appear on the
           workflow page for an admin to accept into this draft or reject; nothing changes until you publish.
@@ -516,7 +516,7 @@ function EvalSettings({
     <section className="card" data-testid="eval-setting">
       <h3>Evaluation gate</h3>
       <p className="muted small">
-        Measure every new version on fixed orders against the active version before it serves real ones: pass rate,
+        Measure every new version on fixed requests against the active version before it serves real ones: pass rate,
         autonomy, Level 3, requirements verified live, cost and fix loops. Each case is a full build, test and deploy.
       </p>
       <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="Evaluation gate">

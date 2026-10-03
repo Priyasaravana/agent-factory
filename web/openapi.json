@@ -33,8 +33,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Factory settings: product lines, their workflow versions, policies, gates",
-        "description": "Factory settings: product lines, their workflow versions, policies, gates",
+        "summary": "Factory settings: blueprints, their workflow versions, policies, gates",
+        "description": "Factory settings: blueprints, their workflow versions, policies, gates",
         "operationId": "get_config",
         "responses": {
           "200": {
@@ -96,14 +96,14 @@
         }
       }
     },
-    "/api/orders": {
+    "/api/products": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "List orders, newest first (evaluation orders are not listed)",
-        "description": "List orders, newest first (evaluation orders are not listed)",
-        "operationId": "list_orders",
+        "summary": "List products, newest first (evaluation products are not listed)",
+        "description": "List products, newest first (evaluation products are not listed)",
+        "operationId": "list_products",
         "parameters": [
           {
             "name": "include_archived",
@@ -124,9 +124,9 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Order"
+                    "$ref": "#/components/schemas/Product"
                   },
-                  "title": "Response List Orders"
+                  "title": "Response List Products"
                 }
               }
             }
@@ -147,15 +147,15 @@
         "tags": [
           "factory"
         ],
-        "summary": "Submit requirements; starts the first run",
-        "description": "Submit requirements; starts the first run",
-        "operationId": "create_order",
+        "summary": "Submit requirements for a new product; starts its first change",
+        "description": "Submit requirements for a new product; starts its first change",
+        "operationId": "create_product",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateOrderInput"
+                "$ref": "#/components/schemas/CreateProductInput"
               }
             }
           }
@@ -166,7 +166,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrderDetail"
+                  "$ref": "#/components/schemas/ProductDetail"
                 }
               }
             }
@@ -184,22 +184,22 @@
         }
       }
     },
-    "/api/orders/{order_id}": {
+    "/api/products/{product_id}": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "Order with its runs and feedback",
-        "description": "Order with its runs and feedback",
-        "operationId": "get_order",
+        "summary": "Product with its changes and feedback",
+        "description": "Product with its changes and feedback",
+        "operationId": "get_product",
         "parameters": [
           {
-            "name": "order_id",
+            "name": "product_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Order Id"
+              "title": "Product Id"
             }
           }
         ],
@@ -209,7 +209,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OrderDetail"
+                  "$ref": "#/components/schemas/ProductDetail"
                 }
               }
             }
@@ -227,7 +227,7 @@
         }
       }
     },
-    "/api/orders/{order_id}/feedback": {
+    "/api/products/{product_id}/feedback": {
       "post": {
         "tags": [
           "factory"
@@ -237,12 +237,12 @@
         "operationId": "submit_feedback",
         "parameters": [
           {
-            "name": "order_id",
+            "name": "product_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Order Id"
+              "title": "Product Id"
             }
           }
         ],
@@ -262,7 +262,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -280,22 +280,22 @@
         }
       }
     },
-    "/api/runs/{run_id}": {
+    "/api/changes/{change_id}": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "Run with station states",
-        "description": "Run with station states",
-        "operationId": "get_run",
+        "summary": "Change with station states",
+        "description": "Change with station states",
+        "operationId": "get_change",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -305,7 +305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunDetail"
+                  "$ref": "#/components/schemas/ChangeDetail"
                 }
               }
             }
@@ -323,22 +323,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/events": {
+    "/api/changes/{change_id}/events": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "Append-only event/decision log for a run",
-        "description": "Append-only event/decision log for a run",
+        "summary": "Append-only event/decision log for a change",
+        "description": "Append-only event/decision log for a change",
         "operationId": "list_events",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           },
           {
@@ -380,7 +380,7 @@
         }
       }
     },
-    "/api/runs/{run_id}/answers": {
+    "/api/changes/{change_id}/answers": {
       "post": {
         "tags": [
           "factory"
@@ -390,12 +390,12 @@
         "operationId": "answer_questions",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -415,7 +415,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -433,22 +433,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/resume": {
+    "/api/changes/{change_id}/resume": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Resume a held, interrupted or paused run",
-        "description": "Resume a held, interrupted or paused run",
-        "operationId": "resume_run",
+        "summary": "Resume a held, interrupted or paused change",
+        "description": "Resume a held, interrupted or paused change",
+        "operationId": "resume_change",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -458,7 +458,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -476,22 +476,22 @@
         }
       }
     },
-    "/api/orders/{order_id}/archive": {
+    "/api/products/{product_id}/archive": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Archive an order: remove its app from the cluster and free its port; history is kept",
-        "description": "Archive an order: remove its app from the cluster and free its port; history is kept",
-        "operationId": "archive_order",
+        "summary": "Archive a product: remove its app from the cluster and free its port; history is kept",
+        "description": "Archive a product: remove its app from the cluster and free its port; history is kept",
+        "operationId": "archive_product",
         "parameters": [
           {
-            "name": "order_id",
+            "name": "product_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Order Id"
+              "title": "Product Id"
             }
           }
         ],
@@ -501,7 +501,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Order"
+                  "$ref": "#/components/schemas/Product"
                 }
               }
             }
@@ -519,22 +519,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/spec": {
+    "/api/changes/{change_id}/spec": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
-        "description": "The run's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
-        "operationId": "get_run_spec",
+        "summary": "The change's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
+        "description": "The change's specification: product spec, technical design, API, numbered requirements, acceptance scenarios, changes and traceability",
+        "operationId": "get_change_spec",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -570,12 +570,12 @@
         "operationId": "edit_spec",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -613,22 +613,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/calls": {
+    "/api/changes/{change_id}/calls": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
-        "description": "Every agent call of the run (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
-        "operationId": "get_run_calls",
+        "summary": "Every agent call of the change (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
+        "description": "Every agent call of the change (station, role, model, turns, duration, cost, tools, denials) and every guardrail denial (ADR-0022)",
+        "operationId": "get_change_calls",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -638,7 +638,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunCallsView"
+                  "$ref": "#/components/schemas/ChangeCallsView"
                 }
               }
             }
@@ -656,22 +656,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/evidence": {
+    "/api/changes/{change_id}/evidence": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
-        "description": "A run's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
-        "operationId": "get_run_evidence",
+        "summary": "A change's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
+        "description": "A change's sealed evidence manifest: every file with its SHA-256, re-verified now (changed, missing or added files are reported)",
+        "operationId": "get_change_evidence",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -699,22 +699,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/evidence/bundle": {
+    "/api/changes/{change_id}/evidence/bundle": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin",
-        "description": "Download a run's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the order's creator or an admin",
-        "operationId": "download_run_evidence",
+        "summary": "Download a change's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the product's creator or an admin",
+        "description": "Download a change's sealed evidence as a zip (manifest, SHA256SUMS, events, spec, transcripts, review, traceability, SBOM, provenance); the product's creator or an admin",
+        "operationId": "download_change_evidence",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -740,22 +740,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/calls/{name}/transcript": {
+    "/api/changes/{change_id}/calls/{name}/transcript": {
       "get": {
         "tags": [
           "factory"
         ],
-        "summary": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin",
-        "description": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the order's creator or an admin",
+        "summary": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the product's creator or an admin",
+        "description": "One agent call's transcript: text, tool calls with inputs, tool results, denials (secrets redacted); the product's creator or an admin",
         "operationId": "get_call_transcript",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           },
           {
@@ -797,22 +797,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/spec/approve": {
+    "/api/changes/{change_id}/spec/approve": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Spec review gate: approve the spec; the run continues to build",
-        "description": "Spec review gate: approve the spec; the run continues to build",
+        "summary": "Spec review gate: approve the spec; the change continues to implement",
+        "description": "Spec review gate: approve the spec; the change continues to implement",
         "operationId": "approve_spec",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -822,7 +822,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -840,7 +840,7 @@
         }
       }
     },
-    "/api/runs/{run_id}/risk/approve": {
+    "/api/changes/{change_id}/risk/approve": {
       "post": {
         "tags": [
           "factory"
@@ -850,12 +850,12 @@
         "operationId": "approve_risk",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -875,7 +875,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -893,22 +893,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/risk/send-back": {
+    "/api/changes/{change_id}/risk/send-back": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
-        "description": "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
+        "summary": "Change risk: don't accept the risky changes; the change goes back to its repair station with the reason",
+        "description": "Change risk: don't accept the risky changes; the change goes back to its repair station with the reason",
         "operationId": "send_back_risk",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -928,7 +928,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -946,7 +946,7 @@
         }
       }
     },
-    "/api/runs/{run_id}/spec/changes": {
+    "/api/changes/{change_id}/spec/changes": {
       "post": {
         "tags": [
           "factory"
@@ -956,12 +956,12 @@
         "operationId": "request_spec_changes",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -981,7 +981,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -1057,8 +1057,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
-        "description": "Replace the draft's evaluation suite: the fixed orders a new version is measured on",
+        "summary": "Replace the draft's evaluation suite: the fixed requests a new version is measured on",
+        "description": "Replace the draft's evaluation suite: the fixed requests a new version is measured on",
         "operationId": "put_draft_evals",
         "parameters": [
           {
@@ -1260,8 +1260,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
-        "description": "Stop a running evaluation: its runs are cancelled, its orders archived, nothing is activated",
+        "summary": "Stop a running evaluation: its changes are cancelled, its products archived, nothing is activated",
+        "description": "Stop a running evaluation: its changes are cancelled, its products archived, nothing is activated",
         "operationId": "cancel_eval",
         "parameters": [
           {
@@ -1312,8 +1312,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Lessons suggested after runs that needed help, for an admin to accept or reject",
-        "description": "Lessons suggested after runs that needed help, for an admin to accept or reject",
+        "summary": "Lessons suggested after changes that needed help, for an admin to accept or reject",
+        "description": "Lessons suggested after changes that needed help, for an admin to accept or reject",
         "operationId": "list_learning_proposals",
         "parameters": [
           {
@@ -1480,8 +1480,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Readiness checks per product line (cached; see ADR-0015)",
-        "description": "Readiness checks per product line (cached; see ADR-0015)",
+        "summary": "Readiness checks per blueprint (cached; see ADR-0015)",
+        "description": "Readiness checks per blueprint (cached; see ADR-0015)",
         "operationId": "get_preflight",
         "responses": {
           "200": {
@@ -1525,22 +1525,22 @@
         }
       }
     },
-    "/api/runs/{run_id}/cancel": {
+    "/api/changes/{change_id}/cancel": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Cancel a run",
-        "description": "Cancel a run",
-        "operationId": "cancel_run",
+        "summary": "Cancel a change",
+        "description": "Cancel a change",
+        "operationId": "cancel_change",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           }
         ],
@@ -1550,7 +1550,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Run"
+                  "$ref": "#/components/schemas/Change"
                 }
               }
             }
@@ -1573,8 +1573,8 @@
         "tags": [
           "agent-tool"
         ],
-        "summary": "Record a decision or assumption in the run's append-only log",
-        "description": "Record a decision or assumption in the run's append-only log",
+        "summary": "Record a decision or assumption in the change's append-only log",
+        "description": "Record a decision or assumption in the change's append-only log",
         "operationId": "log_decision",
         "requestBody": {
           "content": {
@@ -1615,8 +1615,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "One workflow per product line",
-        "description": "One workflow per product line",
+        "summary": "One workflow per blueprint",
+        "description": "One workflow per blueprint",
         "operationId": "list_workflows",
         "responses": {
           "200": {
@@ -1783,8 +1783,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Make a version active for new runs (runs in flight keep theirs)",
-        "description": "Make a version active for new runs (runs in flight keep theirs)",
+        "summary": "Make a version active for new changes (changes in flight keep theirs)",
+        "description": "Make a version active for new changes (changes in flight keep theirs)",
         "operationId": "activate_workflow_version",
         "parameters": [
           {
@@ -2967,21 +2967,21 @@
         }
       }
     },
-    "/api/runs/{run_id}/stream": {
+    "/api/changes/{change_id}/stream": {
       "get": {
         "tags": [
           "factory"
         ],
         "summary": "Server-sent events: live run events and status",
-        "operationId": "stream_run",
+        "operationId": "stream_change",
         "parameters": [
           {
-            "name": "run_id",
+            "name": "change_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Run Id"
+              "title": "Change Id"
             }
           },
           {
@@ -3227,7 +3227,7 @@
           "at"
         ],
         "title": "AgentCallView",
-        "description": "One agent call in a run (ADR-0022)."
+        "description": "One agent call in a change (ADR-0022)."
       },
       "AgentSpec": {
         "properties": {
@@ -3388,17 +3388,17 @@
       },
       "AppQuality": {
         "properties": {
-          "order_id": {
+          "product_id": {
             "type": "string",
-            "title": "Order Id"
+            "title": "Product Id"
           },
-          "order_title": {
+          "product_title": {
             "type": "string",
-            "title": "Order Title"
+            "title": "Product Title"
           },
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "pillars": {
             "items": {
@@ -3410,9 +3410,9 @@
         },
         "type": "object",
         "required": [
-          "order_id",
-          "order_title",
-          "run_id"
+          "product_id",
+          "product_title",
+          "change_id"
         ],
         "title": "AppQuality",
         "description": "A live app's pillar scores, from its latest delivered iteration."
@@ -3519,6 +3519,237 @@
         ],
         "title": "CatalogView"
       },
+      "Change": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChangeStatus"
+          },
+          "current_station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Station"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_version": {
+            "type": "integer",
+            "title": "Workflow Version",
+            "default": 1
+          },
+          "attempts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Attempts"
+          },
+          "loops": {
+            "type": "integer",
+            "title": "Loops",
+            "default": 0
+          },
+          "change_request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Request"
+          },
+          "last_failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure"
+          },
+          "questions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Answers"
+          },
+          "resume_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "spec_approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spec Approved By"
+          },
+          "risk_hold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RiskHold"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "risk_approvals": {
+            "items": {
+              "$ref": "#/components/schemas/RiskApproval"
+            },
+            "type": "array",
+            "title": "Risk Approvals"
+          },
+          "review_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Review Notes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "iteration",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Change"
+      },
+      "ChangeCallsView": {
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCallView"
+            },
+            "type": "array",
+            "title": "Calls"
+          },
+          "denials": {
+            "items": {
+              "$ref": "#/components/schemas/DenialView"
+            },
+            "type": "array",
+            "title": "Denials"
+          }
+        },
+        "type": "object",
+        "title": "ChangeCallsView"
+      },
+      "ChangeDetail": {
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/Change"
+          },
+          "product": {
+            "$ref": "#/components/schemas/Product"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationView"
+            },
+            "type": "array",
+            "title": "Stations"
+          },
+          "risk": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeRiskView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "change",
+          "product",
+          "stations"
+        ],
+        "title": "ChangeDetail"
+      },
       "ChangeRiskView": {
         "properties": {
           "digest": {
@@ -3592,7 +3823,24 @@
           "digest"
         ],
         "title": "ChangeRiskView",
-        "description": "The latest change-risk check of a run (ADR-0027) and who may approve it."
+        "description": "The latest change-risk check of a change (ADR-0027) and who may approve it."
+      },
+      "ChangeStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "needs_input",
+          "paused_limits",
+          "held",
+          "interrupted",
+          "awaiting_feedback",
+          "awaiting_approval",
+          "awaiting_risk_approval",
+          "cancelled",
+          "failed"
+        ],
+        "title": "ChangeStatus"
       },
       "CheckView": {
         "properties": {
@@ -3646,7 +3894,7 @@
           "state"
         ],
         "title": "CheckView",
-        "description": "One readiness check. `failed` blocks what it guards (new orders and/or new\niterations); `degraded` is shown but never blocks."
+        "description": "One readiness check. `failed` blocks what it guards (new products and/or new\niterations); `degraded` is shown but never blocks."
       },
       "ConfigView": {
         "properties": {
@@ -3665,12 +3913,12 @@
             "type": "object",
             "title": "Workflows"
           },
-          "product_lines": {
+          "blueprints": {
             "additionalProperties": {
               "type": "string"
             },
             "type": "object",
-            "title": "Product Lines"
+            "title": "Blueprints"
           },
           "policies": {
             "additionalProperties": {
@@ -3692,13 +3940,13 @@
           "name",
           "mode",
           "workflows",
-          "product_lines",
+          "blueprints",
           "policies",
           "gates"
         ],
         "title": "ConfigView"
       },
-      "CreateOrderInput": {
+      "CreateProductInput": {
         "properties": {
           "title": {
             "type": "string",
@@ -3712,9 +3960,9 @@
             "minLength": 10,
             "title": "Requirements"
           },
-          "product_line": {
+          "blueprint": {
             "type": "string",
-            "title": "Product Line",
+            "title": "Blueprint",
             "default": "fastapi-service"
           },
           "requirements_format": {
@@ -3732,13 +3980,13 @@
           "title",
           "requirements"
         ],
-        "title": "CreateOrderInput"
+        "title": "CreateProductInput"
       },
       "DecisionInput": {
         "properties": {
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "station": {
             "type": "string",
@@ -3757,7 +4005,7 @@
         },
         "type": "object",
         "required": [
-          "run_id",
+          "change_id",
           "station",
           "decision"
         ],
@@ -4037,12 +4285,12 @@
             "type": "object",
             "title": "Bindings"
           },
-          "product_lines": {
+          "blueprints": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Product Lines"
+            "title": "Blueprints"
           }
         },
         "type": "object",
@@ -4097,7 +4345,7 @@
             "type": "string",
             "title": "Title"
           },
-          "order_id": {
+          "product_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -4106,9 +4354,9 @@
                 "type": "null"
               }
             ],
-            "title": "Order Id"
+            "title": "Product Id"
           },
-          "run_id": {
+          "change_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -4117,7 +4365,7 @@
                 "type": "null"
               }
             ],
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "status": {
             "type": "string",
@@ -4528,9 +4776,9 @@
             "type": "integer",
             "title": "Id"
           },
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "ts": {
             "type": "string",
@@ -4564,7 +4812,7 @@
         "type": "object",
         "required": [
           "id",
-          "run_id",
+          "change_id",
           "ts",
           "kind",
           "message"
@@ -4708,7 +4956,7 @@
           "sealed"
         ],
         "title": "EvidenceView",
-        "description": "A run's sealed evidence (ADR-0023) and whether it still matches its seal."
+        "description": "A change's sealed evidence (ADR-0023) and whether it still matches its seal."
       },
       "Feedback": {
         "properties": {
@@ -4716,11 +4964,11 @@
             "type": "integer",
             "title": "Id"
           },
-          "order_id": {
+          "product_id": {
             "type": "string",
-            "title": "Order Id"
+            "title": "Product Id"
           },
-          "run_id": {
+          "change_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -4729,7 +4977,7 @@
                 "type": "null"
               }
             ],
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "text": {
             "type": "string",
@@ -4744,8 +4992,8 @@
         "type": "object",
         "required": [
           "id",
-          "order_id",
-          "run_id",
+          "product_id",
+          "change_id",
           "text",
           "created_at"
         ],
@@ -4884,9 +5132,9 @@
             "type": "boolean",
             "title": "Github"
           },
-          "active_runs": {
+          "active_changes": {
             "type": "integer",
-            "title": "Active Runs"
+            "title": "Active Changes"
           },
           "sandbox": {
             "type": "string",
@@ -4912,7 +5160,7 @@
           "mode",
           "model_auth",
           "github",
-          "active_runs"
+          "active_changes"
         ],
         "title": "HealthView"
       },
@@ -5069,13 +5317,13 @@
             "type": "string",
             "title": "Evidence"
           },
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
-          "order_id": {
+          "product_id": {
             "type": "string",
-            "title": "Order Id"
+            "title": "Product Id"
           },
           "status": {
             "type": "string",
@@ -5125,198 +5373,12 @@
           "lesson",
           "why",
           "evidence",
-          "run_id",
-          "order_id",
+          "change_id",
+          "product_id",
           "created_at"
         ],
         "title": "LearningProposal",
-        "description": "A lesson the retro suggests for one agent after a run that needed help (ADR-0021).\nNothing changes until an admin accepts it into the workflow draft and publishes."
-      },
-      "Order": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "title": {
-            "type": "string",
-            "title": "Title"
-          },
-          "requirements": {
-            "type": "string",
-            "title": "Requirements"
-          },
-          "requirements_format": {
-            "type": "string",
-            "enum": [
-              "prose",
-              "spec"
-            ],
-            "title": "Requirements Format",
-            "default": "prose"
-          },
-          "product_line": {
-            "type": "string",
-            "title": "Product Line"
-          },
-          "product_slug": {
-            "type": "string",
-            "title": "Product Slug"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "latest_run_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Run Id"
-          },
-          "latest_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RunStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "node_port": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Node Port"
-          },
-          "host_port": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Host Port"
-          },
-          "app_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "App Url"
-          },
-          "repo_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Repo Url"
-          },
-          "created_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created By"
-          },
-          "archived_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archived At"
-          },
-          "archived_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archived By"
-          },
-          "eval_run_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Eval Run Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "requirements",
-          "product_line",
-          "product_slug",
-          "created_at"
-        ],
-        "title": "Order"
-      },
-      "OrderDetail": {
-        "properties": {
-          "order": {
-            "$ref": "#/components/schemas/Order"
-          },
-          "runs": {
-            "items": {
-              "$ref": "#/components/schemas/Run"
-            },
-            "type": "array",
-            "title": "Runs"
-          },
-          "feedback": {
-            "items": {
-              "$ref": "#/components/schemas/Feedback"
-            },
-            "type": "array",
-            "title": "Feedback"
-          }
-        },
-        "type": "object",
-        "required": [
-          "order",
-          "runs",
-          "feedback"
-        ],
-        "title": "OrderDetail"
+        "description": "A lesson the retro suggests for one agent after a change that needed help (ADR-0021).\nNothing changes until an admin accepts it into the workflow draft and publishes."
       },
       "OutcomesView": {
         "properties": {
@@ -5423,14 +5485,14 @@
           "time_split": {
             "$ref": "#/components/schemas/TimeSplit"
           },
-          "runs_with_timeline": {
+          "changes_with_timeline": {
             "type": "integer",
-            "title": "Runs With Timeline",
+            "title": "Changes With Timeline",
             "default": 0
           },
-          "runs_in_window": {
+          "changes_in_window": {
             "type": "integer",
-            "title": "Runs In Window",
+            "title": "Changes In Window",
             "default": 0
           },
           "products": {
@@ -5586,9 +5648,9 @@
       },
       "PreflightView": {
         "properties": {
-          "product_line": {
+          "blueprint": {
             "type": "string",
-            "title": "Product Line"
+            "title": "Blueprint"
           },
           "environment": {
             "type": "string",
@@ -5617,7 +5679,7 @@
         },
         "type": "object",
         "required": [
-          "product_line",
+          "blueprint",
           "environment",
           "state",
           "checked_at",
@@ -5625,6 +5687,192 @@
           "checks"
         ],
         "title": "PreflightView"
+      },
+      "Product": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "requirements": {
+            "type": "string",
+            "title": "Requirements"
+          },
+          "requirements_format": {
+            "type": "string",
+            "enum": [
+              "prose",
+              "spec"
+            ],
+            "title": "Requirements Format",
+            "default": "prose"
+          },
+          "blueprint": {
+            "type": "string",
+            "title": "Blueprint"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "latest_change_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Change Id"
+          },
+          "latest_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "node_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Port"
+          },
+          "host_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Port"
+          },
+          "app_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Url"
+          },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By"
+          },
+          "eval_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eval Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "requirements",
+          "blueprint",
+          "slug",
+          "created_at"
+        ],
+        "title": "Product"
+      },
+      "ProductDetail": {
+        "properties": {
+          "product": {
+            "$ref": "#/components/schemas/Product"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/Feedback"
+            },
+            "type": "array",
+            "title": "Feedback"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product",
+          "changes",
+          "feedback"
+        ],
+        "title": "ProductDetail"
       },
       "PublishInput": {
         "properties": {
@@ -5817,7 +6065,7 @@
           "total"
         ],
         "title": "ReviewView",
-        "description": "The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's."
+        "description": "The latest spec review of the change (ADR-0020); the engine's judgement, not the agent's."
       },
       "RiskApproval": {
         "properties": {
@@ -5961,254 +6209,6 @@
           "findings"
         ],
         "title": "RiskHold"
-      },
-      "Run": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "order_id": {
-            "type": "string",
-            "title": "Order Id"
-          },
-          "iteration": {
-            "type": "integer",
-            "title": "Iteration"
-          },
-          "status": {
-            "$ref": "#/components/schemas/RunStatus"
-          },
-          "current_station": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Station"
-          },
-          "workflow_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workflow Id"
-          },
-          "workflow_version": {
-            "type": "integer",
-            "title": "Workflow Version",
-            "default": 1
-          },
-          "attempts": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Attempts"
-          },
-          "loops": {
-            "type": "integer",
-            "title": "Loops",
-            "default": 0
-          },
-          "change_request": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Change Request"
-          },
-          "last_failure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Failure"
-          },
-          "questions": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Questions"
-          },
-          "answers": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Answers"
-          },
-          "resume_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resume At"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          },
-          "cost_usd": {
-            "type": "number",
-            "title": "Cost Usd",
-            "default": 0.0
-          },
-          "spec_approved_by": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Spec Approved By"
-          },
-          "risk_hold": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/RiskHold"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "risk_approvals": {
-            "items": {
-              "$ref": "#/components/schemas/RiskApproval"
-            },
-            "type": "array",
-            "title": "Risk Approvals"
-          },
-          "review_notes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Review Notes"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "order_id",
-          "iteration",
-          "status",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "Run"
-      },
-      "RunCallsView": {
-        "properties": {
-          "calls": {
-            "items": {
-              "$ref": "#/components/schemas/AgentCallView"
-            },
-            "type": "array",
-            "title": "Calls"
-          },
-          "denials": {
-            "items": {
-              "$ref": "#/components/schemas/DenialView"
-            },
-            "type": "array",
-            "title": "Denials"
-          }
-        },
-        "type": "object",
-        "title": "RunCallsView"
-      },
-      "RunDetail": {
-        "properties": {
-          "run": {
-            "$ref": "#/components/schemas/Run"
-          },
-          "order": {
-            "$ref": "#/components/schemas/Order"
-          },
-          "stations": {
-            "items": {
-              "$ref": "#/components/schemas/StationView"
-            },
-            "type": "array",
-            "title": "Stations"
-          },
-          "risk": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChangeRiskView"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "run",
-          "order",
-          "stations"
-        ],
-        "title": "RunDetail"
-      },
-      "RunStatus": {
-        "type": "string",
-        "enum": [
-          "queued",
-          "running",
-          "needs_input",
-          "paused_limits",
-          "held",
-          "interrupted",
-          "awaiting_feedback",
-          "awaiting_approval",
-          "awaiting_risk_approval",
-          "cancelled",
-          "failed"
-        ],
-        "title": "RunStatus"
       },
       "ScenarioView": {
         "properties": {
@@ -6591,9 +6591,9 @@
       },
       "SpecView": {
         "properties": {
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "status": {
             "type": "string",
@@ -6685,7 +6685,7 @@
         },
         "type": "object",
         "required": [
-          "run_id",
+          "change_id",
           "status",
           "gate"
         ],
@@ -6926,7 +6926,7 @@
         },
         "type": "object",
         "title": "TimeSplit",
-        "description": "Seconds of run time in the window, by who the run was waiting on."
+        "description": "Seconds of run time in the window, by who the change was waiting on."
       },
       "TraceRow": {
         "properties": {
@@ -7102,24 +7102,24 @@
       },
       "WaitingItem": {
         "properties": {
-          "order_id": {
+          "product_id": {
             "type": "string",
-            "title": "Order Id"
+            "title": "Product Id"
           },
-          "order_title": {
+          "product_title": {
             "type": "string",
-            "title": "Order Title"
+            "title": "Product Title"
           },
-          "run_id": {
+          "change_id": {
             "type": "string",
-            "title": "Run Id"
+            "title": "Change Id"
           },
           "iteration": {
             "type": "integer",
             "title": "Iteration"
           },
           "status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/ChangeStatus"
           },
           "since": {
             "type": "string",
@@ -7141,9 +7141,9 @@
         },
         "type": "object",
         "required": [
-          "order_id",
-          "order_title",
-          "run_id",
+          "product_id",
+          "product_title",
+          "change_id",
           "iteration",
           "status",
           "since",
@@ -7294,9 +7294,9 @@
             "type": "string",
             "title": "Workflow Id"
           },
-          "product_line": {
+          "blueprint": {
             "type": "string",
-            "title": "Product Line"
+            "title": "Blueprint"
           },
           "environment": {
             "type": "string",
@@ -7338,7 +7338,7 @@
         "type": "object",
         "required": [
           "workflow_id",
-          "product_line",
+          "blueprint",
           "active_version",
           "description",
           "template",

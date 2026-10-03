@@ -1,6 +1,6 @@
 """Learning from runs that needed help (ADR-0021).
 
-After a run is delivered, if it needed help (a fix loop, a review that sent it
+After a change is delivered, if it needed help (a fix loop, a review that sent it
 back, a hold, blocking intake questions), an observe-only "retro" agent reads the
 recorded evidence and suggests at most three short lessons, each for the agent
 whose work caused the problem. The engine vets them (`vet`) and stores the
@@ -21,12 +21,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.agents.runner import AgentRequest
-from agent_factory.models import Event, EventKind, LearningProposal, Order, Run
+from agent_factory.models import Change, Event, EventKind, LearningProposal, Product
 from agent_factory.observe import AgentCall
 from agent_factory.workflow import MAX_LEARNINGS_CHARS, WorkflowDoc
 
 if TYPE_CHECKING:
-    from agent_factory.engine.pipeline import RunManager
+    from agent_factory.engine.pipeline import ChangeManager
 
 MAX_PROPOSALS = 3
 MIN_LESSON, MAX_LESSON = 20, 300
@@ -73,7 +73,7 @@ class Signals:
         return bool(self.routed or self.held or self.questions or self.denied)
 
 
-def signals(run: Run, events: list[Event]) -> Signals:
+def signals(change: Change, events: list[Event]) -> Signals:
     s = Signals()
     for e in events:
         if isinstance(e.data.get("denied"), dict):
@@ -84,8 +84,8 @@ def signals(run: Run, events: list[Event]) -> Signals:
             s.routed.append(e.data["routed"])
         elif e.kind == EventKind.status and e.message.startswith("held at"):
             s.held.append(f"{e.message}\n{e.data.get('evidence', '')}".strip())
-    if run.answers:
-        s.questions = list(run.questions)
+    if change.answers:
+        s.questions = list(change.questions)
     return s
 
 
@@ -162,7 +162,9 @@ def vet(
     return kept, rejected
 
 
-def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc, pending: dict[str, list[str]] | None = None) -> str:
+def prompt(
+    product: Product, change: Change, sig: Signals, doc: WorkflowDoc, pending: dict[str, list[str]] | None = None
+) -> str:
     roster = "\n".join(
         f"- `{a.id}`: {a.description or '(no description)'}"
         + (f"\n  current learnings:\n  {a.learnings.strip().replace(chr(10), chr(10) + '  ')}" if a.learnings else "")
@@ -183,7 +185,7 @@ def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc, pending: dict
         f"{c.get('tool_calls')} tool calls {c.get('tools')}" + (" FAILED" if not c.get("ok", True) else "")
         for c in sig.calls
     )
-    return f"""You run the retrospective for a delivered run of the software factory. The run
+    return f"""You run the retrospective for a delivered change of the software factory. The change
 needed help. Suggest at most {MAX_PROPOSALS} lessons that would have prevented that help being
 needed, each for the ONE agent whose work caused the problem. A person will review every
 lesson before any agent sees it.
@@ -196,9 +198,9 @@ A good lesson:
 - never tells an agent to skip, weaken or work around a test, check, review or guardrail.
 Suggest nothing (an empty list) if the problems were one-off or already covered.
 
-## Order: {order.title}
-{order.requirements[:1500]}
-Iteration {run.iteration}; fix loops: {run.loops}.
+## Product: {product.title}
+{product.requirements[:1500]}
+Iteration {change.iteration}; fix loops: {change.loops}.
 
 ## Agents in this workflow (use these ids)
 {roster}
@@ -206,7 +208,7 @@ Iteration {run.iteration}; fix loops: {run.loops}.
 ## Lessons already waiting for a person's decision (never suggest these again, even reworded)
 {waiting or "none"}
 
-## Fix loops (a station failed and the run was routed back)
+## Fix loops (a station failed and the change was routed back)
 {routed or "none"}
 
 ## Holds a person had to resolve
@@ -218,33 +220,33 @@ Iteration {run.iteration}; fix loops: {run.loops}.
 ## Actions a guardrail refused (the agent tried something it must not do)
 {denied or "none"}
 
-## Agent calls in this run (spot wasted effort, e.g. many turns spent searching)
+## Agent calls in this change (spot wasted effort, e.g. many turns spent searching)
 {calls or "none"}
 
 For each lesson give `agent`, `lesson`, `why` (the pattern it prevents) and `evidence`
 (quote the evidence above that shows it)."""
 
 
-async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningProposal]:
-    """Suggest learnings for a delivered run that needed help. Never raises into the run."""
-    wf_id = run.workflow_id or order.product_line
+async def run_retro(mgr: ChangeManager, change: Change, product: Product) -> list[LearningProposal]:
+    """Suggest learnings for a delivered run that needed help. Never raises into the change."""
+    wf_id = change.workflow_id or product.blueprint
     service = mgr.workflows[wf_id]
-    doc = service.get(run.workflow_version)
+    doc = service.get(change.workflow_version)
     if not doc.learn_from_runs:
         return []
-    events = mgr.store.list_events(run.id)
-    sig = signals(run, events)
+    events = mgr.store.list_events(change.id)
+    sig = signals(change, events)
     if not sig.needs_retro():
         return []
     pending: dict[str, list[str]] = {}
     for p in mgr.store.list_proposals(wf_id, "pending"):
         pending.setdefault(p.agent, []).append(p.lesson)
     req = AgentRequest(
-        run_id=run.id,
+        change_id=change.id,
         station="retro",
         role="retro",
-        prompt=prompt(order, run, sig, doc, pending),
-        cwd=mgr.ws.run_dir(run.id),
+        prompt=prompt(product, change, sig, doc, pending),
+        cwd=mgr.ws.change_dir(change.id),
         model=mgr.cfg.models.resolve("judgment"),
         tools=["Read", "Glob", "Grep"],
         observe_only=True,
@@ -258,14 +260,14 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
         return None
 
     async def emit(kind: EventKind, message: str, data: dict[str, Any]) -> None:
-        mgr.store.add_event(run.id, kind, message, station="retro", data=data)
+        mgr.store.add_event(change.id, kind, message, station="retro", data=data)
 
-    call = AgentCall(mgr.ws.data_dir / "artifacts" / run.id, "retro", "retro", req.model, emit)
+    call = AgentCall(mgr.ws.data_dir / "artifacts" / change.id, "retro", "retro", req.model, emit)
     res = await mgr.agents.run(req, call.wrap(quiet))
-    run.cost_usd += res.cost_usd
+    change.cost_usd += res.cost_usd
     await call.finish(res)
     if not res.ok or not isinstance(res.structured, dict):
-        mgr.store.add_event(run.id, EventKind.log, "retro: no suggestions (the retro agent gave no answer)")
+        mgr.store.add_event(change.id, EventKind.log, "retro: no suggestions (the retro agent gave no answer)")
         return []
     kept, rejected = vet(list(res.structured.get("proposals", [])), doc, pending)
     now = datetime.now(UTC)
@@ -274,9 +276,9 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
             LearningProposal(
                 id=uuid.uuid4().hex[:12],
                 workflow_id=wf_id,
-                workflow_version=run.workflow_version,
-                run_id=run.id,
-                order_id=order.id,
+                workflow_version=change.workflow_version,
+                change_id=change.id,
+                product_id=product.id,
                 created_at=now,
                 **k,
             )
@@ -284,7 +286,7 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
         for k in kept
     ]
     mgr.store.add_event(
-        run.id,
+        change.id,
         EventKind.decision,
         f"retro: {len(stored)} learning(s) suggested for an admin to review"
         + (f" ({len(rejected)} discarded)" if rejected else ""),

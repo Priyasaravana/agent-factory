@@ -9,7 +9,7 @@ open http://localhost:8080
 Sign in as `admin`. Either set `FACTORY_ADMIN_PASSWORD` in `.env` before the
 first start, or use the one-time password `make up` prints
 (`docker compose exec auth cat /data/initial-admin-password`). You'll then be
-asked to choose your own. Submit an order and watch all 8 stations pass. The generated repo is real: see
+asked to choose your own. Create a product and watch all 8 stations pass. The generated repo is real: see
 `.factory-data/products/<slug>` (`git log`).
 
 ## First live run
@@ -21,35 +21,35 @@ asked to choose your own. Submit an order and watch all 8 stations pass. The gen
 3. Set `FACTORY_MODE=live`, then `make up`, then `make logs`. Wait for
    `[bootstrap] cluster ready`.
 4. The header pills should show `live`, `model ready` and `github on`.
-5. Submit the order. A first iteration usually takes 20–60 minutes, depending
+5. Create the product. A first iteration usually takes 20–60 minutes, depending
    on fix loops.
 
 ## Operating
 | Situation | What to do |
 |---|---|
-| Run **held** | Read the Evidence panel. Fix the cause (config/template/prompt), or just click Resume to grant a fresh budget. |
-| **Needs your answers** | Answer in the run panel; the run continues. |
+| Change **held** | Read the Evidence panel. Fix the cause (config/template/prompt), or just click Resume to grant a fresh budget. |
+| **Needs your answers** | Answer in the change panel; the change continues. |
 | **Paused (usage limit)** | Nothing. It resumes when the window resets, or you can click Resume. |
-| **Interrupted** after a restart | Click Resume. The run continues in its own worktree. |
+| **Interrupted** after a restart | Click Resume. The change continues in its own worktree. |
 | App not reachable on :8081 | `docker compose exec -u factory factory kubectl get pods -A` |
 | **Locked out** / forgot the admin password | `make reset-admin` prints a one-time password (must be changed at sign-in). |
 | Add a person | Admin → Add user (member or admin) with a temporary password; they choose their own at first sign-in. |
 | Script or CI access | Account → API tokens; send `Authorization: Bearer <token>` to `http://localhost:8080/api/...` |
-| **Sandbox preparing / failed** (header pill) | First start builds the sandbox image inside dind (a few minutes); runs wait for it. If it failed, the pill's tooltip and `docker compose logs factory` say why. Then `make sandbox-check`. |
+| **Sandbox preparing / failed** (header pill) | First start builds the sandbox image inside dind (a few minutes); changes wait for it. If it failed, the pill's tooltip and `docker compose logs factory` say why. Then `make sandbox-check`. |
 | An agent needs a site that is blocked | Add `host:443` to `sandbox.egress` in `.agent-factory/config.yaml` and restart the factory. Denied attempts: `docker compose exec dind docker logs factory-egress \| grep deny` |
-| Run **failed at readiness** | The repo lost an agent-readiness Level 3 signal (see the scorecard event). The build agent gets the missing list and fixes it; a secret found by the scan must also be rotated. |
-| **Order refused: "preflight failed"** | The message lists the failing checks. Integrations shows every check with its reasons. Fix the cause, then **Check now**. Nothing was started and no model usage was spent. |
-| **No free app port** | Open an order you no longer need → **Archive**. The app is removed from the cluster and its port freed; its repo and history are kept. |
-| Want all 20 app ports (installs from before ADR-0015) | `make reset-cluster`, then re-deliver apps you still need (new order or feedback). Until then the readiness page shows how many ports the cluster maps. |
+| Change **failed at readiness** | The repo lost an agent-readiness Level 3 signal (see the scorecard event). The build agent gets the missing list and fixes it; a secret found by the scan must also be rotated. |
+| **Product refused: "preflight failed"** | The message lists the failing checks. Integrations shows every check with its reasons. Fix the cause, then **Check now**. Nothing was started and no model usage was spent. |
+| **No free app port** | Open a product you no longer need → **Archive**. The app is removed from the cluster and its port freed; its repo and history are kept. |
+| Want all 20 app ports (installs from before ADR-0015) | `make reset-cluster`, then re-deliver apps you still need (new product or feedback). Until then the readiness page shows how many ports the cluster maps. |
 | **Upgrade the factory** | `make upgrade` (backup → pull → rebuild → check). Details and rollback: [upgrading.md](upgrading.md). |
-| **Is the factory delivering? Who is it waiting on?** | **Outcomes** page (or `GET /api/outcomes?days=30`). Definitions: [outcomes.md](outcomes.md). The "Waiting on a person now" board lists every run that needs someone, and who. |
-| **What did an agent actually do?** | Open the run → **Agent calls**: every call with model, turns, time, cost and tools, plus a transcript for the order's creator or an admin (what it said, each tool call and what came back; secrets redacted). Refused actions are listed at the top. |
-| **Who may do what?** | Any signed-in member can place orders and see everything. Only the order's creator or an admin can steer it: feedback, answers, resume, cancel, spec decisions, archive, transcripts. Workflows and skills are changed by admins only. Everyone else gets 403. |
-| **Hand over a run's evidence** | Open the run → **Evidence** → **Download bundle**: events, spec, review, traceability, SBOM, provenance and transcripts in one zip. Check it with `unzip` then `sha256sum -c SHA256SUMS`. The panel says **intact** while every file still matches its seal. |
+| **Is the factory delivering? Who is it waiting on?** | **Outcomes** page (or `GET /api/outcomes?days=30`). Definitions: [outcomes.md](outcomes.md). The "Waiting on a person now" board lists every change that needs someone, and who. |
+| **What did an agent actually do?** | Open the change → **Agent calls**: every call with model, turns, time, cost and tools, plus a transcript for the product's creator or an admin (what it said, each tool call and what came back; secrets redacted). Refused actions are listed at the top. |
+| **Who may do what?** | Any signed-in member can create products and see everything. Only the product's creator or an admin can steer it: feedback, answers, resume, cancel, spec decisions, archive, transcripts. Workflows and skills are changed by admins only. Everyone else gets 403. |
+| **Hand over a change's evidence** | Open the change → **Evidence** → **Download bundle**: events, spec, review, traceability, SBOM, provenance and transcripts in one zip. Check it with `unzip` then `sha256sum -c SHA256SUMS`. The panel says **intact** while every file still matches its seal. |
 | **Did a workflow change make things worse?** | Workflow page → **Evaluation**: the new version against the active one on the fixed suite, with the reasons for any regression. A blocked candidate activates by itself once it passes; **Activate anyway** needs a recorded reason. Rollback (activating an older version) is never gated. |
-| **A run took far longer than its agents worked** | The machine probably slept. Look for "factory host was asleep" in the run's events, and **Host asleep** under Outcomes → Where the time goes. On a Mac, keep it awake during runs: `caffeinate -i` in a terminal, or Energy settings. |
-| **A version says "candidate: not evaluated" or "evaluation not started"** | The evaluation couldn't start; the version list and the Evaluation card say why. Most often: not enough app ports (each case needs one; 6 for a first gated publish). Archive orders you no longer need, or `make reset-cluster` if the cluster maps only a few ports (then re-deliver apps you still need). Then click **Run evaluation**. |
-| **Try the cluster target locally** | `make reset-cluster` once (new kind settings; removes running apps), then `make local-ingress` (a registry next to kind and ingress-nginx). Set the product line's `environment: local-ingress` in `.agent-factory/config.yaml` and `make up`. Apps are then at `http://<app>.localtest.me:8180`. Readiness shows the registry and cluster checks ([ADR-0026](adr/0026-cluster-target.md)). |
+| **A change took far longer than its agents worked** | The machine probably slept. Look for "factory host was asleep" in the change's events, and **Host asleep** under Outcomes → Where the time goes. On a Mac, keep it awake while changes are active: `caffeinate -i` in a terminal, or Energy settings. |
+| **A version says "candidate: not evaluated" or "evaluation not started"** | The evaluation couldn't start; the version list and the Evaluation card say why. Most often: not enough app ports (each case needs one; 6 for a first gated publish). Archive products you no longer need, or `make reset-cluster` if the cluster maps only a few ports (then re-deliver apps you still need). Then click **Run evaluation**. |
+| **Try the cluster target locally** | `make reset-cluster` once (new kind settings; removes running apps), then `make local-ingress` (a registry next to kind and ingress-nginx). Set the blueprint's `environment: local-ingress` in `.agent-factory/config.yaml` and `make up`. Apps are then at `http://<app>.localtest.me:8180`. Readiness shows the registry and cluster checks ([ADR-0026](adr/0026-cluster-target.md)). |
 | **Deploy to a real cluster** | Copy the `kind-registry` / `kind-ingress` integrations: e.g. `repository: ghcr.io/<owner>/factory` + `username` + `secret_ref`; `ingress_domain: apps.example.com`, `public_scheme: https`, `cluster_issuer`, kubeconfig as `secret_ref`, `pull_secret_ref` for a private registry. Add `*.apps.example.com:443` to `sandbox.egress`. Readiness tells you what's missing. |
 | Check least privilege | `make privilege-check`: factory, auth and web are non-root with no capabilities; only dind is privileged (ADR-0018). |
 | Back up / restore | `make backup` (safe while running) · `make restore BACKUP=backups/agent-factory-<ts>` |

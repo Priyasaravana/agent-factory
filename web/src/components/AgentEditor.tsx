@@ -136,7 +136,7 @@ export default function AgentEditor({
           <span className="small muted">
             {observeOnly
               ? "Observe-only: cannot modify files; shell limited to read commands."
-              : "Can modify files in the run worktree."}
+              : "Can modify files in the change's worktree."}
           </span>
         </label>
       </div>

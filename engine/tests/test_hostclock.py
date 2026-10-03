@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 from test_outcomes import NOW, T0, _facts
 
 from agent_factory.hostclock import SuspendWatcher, detect, merge, overlap_s
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.outcomes import compute
 
 E = datetime(2026, 10, 1, 18, 0, tzinfo=UTC)
@@ -45,7 +45,7 @@ async def test_the_watcher_reports_a_jump():
 def test_outcomes_moves_host_sleep_out_of_agent_time():
     f = _facts()
     base = compute(f).time_split
-    # the host slept from +100s to +400s (see test_outcomes for each run's timeline)
+    # the host slept from +100s to +400s (see test_outcomes for each change's timeline)
     f.pauses = [(T0 + timedelta(seconds=100), T0 + timedelta(seconds=400))]
     s = compute(f).time_split
     # running then: A 300s, C 100s (until +200), D 300s, E 200s (until +300)
@@ -59,13 +59,13 @@ def test_outcomes_moves_host_sleep_out_of_agent_time():
 
 async def test_active_runs_are_told_and_the_pause_is_recorded(make_factory):
     f = make_factory()
-    run = f.manager.start_run(f.manager.create_order(ORDER))
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
     f.manager.host_suspended(E, E + timedelta(minutes=16))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
-    [ev] = [e for e in f.store.list_events(run.id) if "host_suspended" in e.data]
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    [ev] = [e for e in f.store.list_events(change.id) if "host_suspended" in e.data]
     assert ev.message.startswith("factory host was asleep for 0:16:00") and ev.data["host_suspended"]["seconds"] == 960
     assert f.store.host_pauses() == [(E, E + timedelta(minutes=16))]
     assert f.store.host_pauses(E + timedelta(hours=1)) == []
     f.manager.host_suspended(E + timedelta(hours=2), E + timedelta(hours=3))  # nothing active: recorded only
     assert len(f.store.host_pauses()) == 2
-    assert len([e for e in f.store.list_events(run.id) if "host_suspended" in e.data]) == 1
+    assert len([e for e in f.store.list_events(change.id) if "host_suspended" in e.data]) == 1

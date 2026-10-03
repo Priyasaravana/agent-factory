@@ -7,8 +7,8 @@ from a GitHub repo):
     agents/<id>.md         one agent spec: YAML frontmatter + system prompt
     docs/<id>.md           reference documents (team standards)
 
-Each product line has one *workflow*: seeded from a template into the database
-as immutable, numbered versions; every run is pinned to the version it started
+Each blueprint has one *workflow*: seeded from a template into the database
+as immutable, numbered versions; every change is pinned to the version it started
 with. Versions export back to the same folder format.
 """
 
@@ -268,11 +268,11 @@ class WorkflowDoc(BaseModel):
     # imported skill -> commit sha, fixed when the version is published
     skill_pins: dict[str, str] = Field(default_factory=dict)
     # spec review gate (ADR-0017): pause after design until a person approves the spec
-    #   off: never · first: the first iteration of an order · always: every iteration
+    #   off: never · first: the first iteration of a product · always: every iteration
     spec_review: Literal["off", "first", "always"] = "off"
-    # after a run that needed help, suggest learnings for an admin to accept (ADR-0021)
+    # after a change that needed help, suggest learnings for an admin to accept (ADR-0021)
     learn_from_runs: bool = True
-    # evaluation harness (ADR-0025): fixed orders run against a new version before it
+    # evaluation harness (ADR-0025): fixed products run against a new version before it
     # becomes active. off: no gate · warn: activate, then evaluate and report ·
     # block: a published version stays a candidate until its evaluation shows no regression
     evals: list[EvalCase] = Field(default_factory=list)

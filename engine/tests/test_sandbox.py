@@ -10,12 +10,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import ORDER, wait_run
+from conftest import PRODUCT, wait_run
 
 from agent_factory.agents.runner import AgentRequest, ClaudeAgentRunner
 from agent_factory.config import SandboxConfig
 from agent_factory.executor import CommandResult, FakeExecutor
-from agent_factory.models import RunStatus
+from agent_factory.models import ChangeStatus
 from agent_factory.providers.base import Readiness
 from agent_factory.sandbox import SandboxManager, egress, wrapper
 from agent_factory.sandbox.spec import Mount, SandboxSpec, forwarded_env_names, git_mounts
@@ -206,7 +206,7 @@ async def test_nothing_runs_while_the_sandbox_is_not_ready(tmp_path):
     res = await mgr.executor().run("make verify", cwd=tmp_path)
     assert not res.ok and "sandbox not ready" in res.output and ex.calls == []
     runner = ClaudeAgentRunner(tmp_path, sandbox=mgr)
-    req = AgentRequest(run_id="r1", station="build", role="developer", prompt="p", cwd=tmp_path, model="m")
+    req = AgentRequest(change_id="r1", station="build", role="developer", prompt="p", cwd=tmp_path, model="m")
     out = await runner.run(req, _noop_sink)
     assert not out.ok and "sandbox not ready" in (out.error or "")
 
@@ -222,7 +222,7 @@ async def test_agent_sessions_use_the_wrapper_and_are_removed_afterwards(tmp_pat
     monkeypatch.setattr("shutil.which", lambda name: f"/usr/local/bin/{name}")
     seen: dict = {}
 
-    async def fake_run(req, sink, transport, plugin_home=None):  # noqa: ANN001, ASYNC240
+    async def fake_change(req, sink, transport, plugin_home=None):  # noqa: ANN001, ASYNC240
         seen.update(transport)
         spec = SandboxSpec.from_json(Path(transport["env"]["AF_SANDBOX_SPEC"]).read_text())  # noqa: ASYNC240
         seen["spec"] = spec
@@ -230,7 +230,7 @@ async def test_agent_sessions_use_the_wrapper_and_are_removed_afterwards(tmp_pat
 
         return AgentResult(ok=True)
 
-    monkeypatch.setattr(runner, "_run", fake_run)
+    monkeypatch.setattr(runner, "_run", fake_change)
     events: list = []
 
     async def sink(kind, data):  # noqa: ANN001
@@ -239,7 +239,7 @@ async def test_agent_sessions_use_the_wrapper_and_are_removed_afterwards(tmp_pat
     plugin = tmp_path / "imported"
     plugin.mkdir()
     req = AgentRequest(
-        run_id="r1", station="build", role="developer", prompt="p", cwd=tmp_path, model="m", imported_plugin=plugin
+        change_id="r1", station="build", role="developer", prompt="p", cwd=tmp_path, model="m", imported_plugin=plugin
     )
     assert (await runner.run(req, sink)).ok
     assert seen["cli_path"].endswith("agent-factory-sandbox-claude")
@@ -257,8 +257,8 @@ async def test_verify_runs_in_the_sandbox_while_engine_steps_do_not(make_factory
     f = make_factory(engine_ex)
     mgr = _ready_manager(tmp_path, sandbox_ex)
     f.manager.sandbox = mgr
-    run = f.manager.start_run(f.manager.create_order(ORDER))
-    assert await wait_run(f, run.id) == RunStatus.awaiting_feedback
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     assert any("make verify" in c and c.startswith("docker run") for c in sandbox_ex.calls)
     assert not any(c == "make verify" for c in engine_ex.calls), "agent-written tests never run in the engine"
     assert any(c.startswith("docker build") for c in engine_ex.calls), "privileged steps stay in the engine"
@@ -309,7 +309,7 @@ async def _build(tmp_path: Path, monkeypatch, fail_builds: int) -> tuple[str | N
 
 async def test_image_build_keeps_step_output_and_retries_once(tmp_path, monkeypatch):
     """CI e2e: a failed `uv python install` inside dind showed only the Dockerfile
-    excerpt (docker build -q drops step output), and one network blip failed the run."""
+    excerpt (docker build -q drops step output), and one network blip failed the change."""
     problem, ex = await _build(tmp_path, monkeypatch, fail_builds=1)
     builds = [c for c in ex.calls if c.startswith("docker build")]
     assert problem is None and len(builds) == 2, "a transient failure is retried"

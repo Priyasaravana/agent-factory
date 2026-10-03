@@ -1,4 +1,4 @@
-# Default workflow for a FastAPI service product line.
+# Default workflow for the FastAPI service blueprint.
 # Stations run top to bottom, grouped by DevOps phase (ADR-0028):
 #   plan: requirements, design · code: implement · test: test, quality-gate, code-review, change-risk
 #   release: build · deploy: deploy (+ deploy-repair) · validate: acceptance · handover
@@ -8,7 +8,7 @@
 name: default
 description: Plan → code → test → release → deploy → validate → handover
 # Spec review gate (ADR-0017): pause after design until a person approves the spec.
-#   off (default) · first: the first iteration of an order · always: every iteration
+#   off (default) · first: the first change to a product · always: every iteration
 spec_review: "off"
 # Evaluation gate (ADR-0025): a published version is measured on evals.yaml first.
 #   block: it stays a candidate until it shows no regression against the active

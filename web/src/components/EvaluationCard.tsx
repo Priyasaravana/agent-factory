@@ -127,11 +127,11 @@ export default function EvaluationCard({
         )}
       </div>
       <p className="muted small">
-        Every new version is measured on the same fixed orders as the active
+        Every new version is measured on the same fixed requests as the active
         version: pass rate, autonomy, Level 3, requirements verified live, cost
         and fix loops. With the gate on <code>block</code>, a published version
         stays a candidate until it shows no regression, then activates. Each
-        case is a full build, so an evaluation costs about {suiteSize} order
+        case is a full build, so an evaluation costs about {suiteSize} build
         {suiteSize === 1 ? "" : "s"} per version measured.
       </p>
       <Problems error={start.error ?? cancel.error ?? null} />

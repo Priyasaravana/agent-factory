@@ -127,7 +127,7 @@ async def test_a_gated_publish_is_a_candidate_until_its_evaluation_passes(make_f
         assert (await c.get(f"/api/workflows/{WF}/draft")).json()["dirty"], "the draft is kept until activation"
         [running] = (await c.get(f"/api/workflows/{WF}/evals")).json()
         assert len(running["candidate"]["results"]) == 3 and len(running["baseline"]["results"]) == 3
-        assert (await c.get("/api/orders")).json() == [], "evaluation orders are not listed"
+        assert (await c.get("/api/products")).json() == [], "evaluation orders are not listed"
         refused = await c.post(f"/api/workflows/{WF}/versions/2/activate")
         assert refused.status_code == 409 and "no finished evaluation" in refused.json()["detail"]
 
@@ -137,8 +137,8 @@ async def test_a_gated_publish_is_a_candidate_until_its_evaluation_passes(make_f
         assert all(r.status == "delivered" and r.readiness_level == 3 for r in e.candidate.results)
         assert f.workflows[WF].active_version() == 2
         assert f.store.get_workflow_draft(WF) is None, "the draft is dropped once its version is active"
-        assert all(f.store.get_order(r.order_id).archived_at for _, r in evals._results(e)), "ports freed"
-        assert (await c.get("/api/outcomes")).json()["runs_in_window"] == 0, "not on Outcomes"
+        assert all(f.store.get_product(r.product_id).archived_at for _, r in evals._results(e)), "ports freed"
+        assert (await c.get("/api/outcomes")).json()["changes_in_window"] == 0, "not on Outcomes"
         versions = {v["version"]: v for v in (await c.get(f"/api/workflows/{WF}/versions")).json()}
         assert versions[2]["active"] and versions[2]["evaluation"] == "evaluation passed"
 
@@ -215,7 +215,7 @@ async def test_human_gates_in_an_evaluation(make_factory):
     assert e.verdict.passed and "baseline" in e.verdict.warnings[0]
     assert all(r.status == "delivered" for r in e.candidate.results)
     assert sum(r.unplanned_touch for r in e.candidate.results) == 1 and e.candidate.summary.autonomy == 0.6667
-    events = [ev.message for r in e.candidate.results for ev in f.store.list_events(r.run_id)]
+    events = [ev.message for r in e.candidate.results for ev in f.store.list_events(r.change_id)]
     assert any(m == "spec approved by evaluation" for m in events)
     assert any(m == "evaluation answered intake questions" for m in events)
 
@@ -229,7 +229,7 @@ async def test_a_case_without_answers_ends_as_needed_input(make_factory):
     [r] = e.candidate.results
     assert r.status == "needed_input" and "blocking questions" in r.note
     assert e.candidate.summary.pass_rate == 0.0
-    assert f.store.get_order(r.order_id).archived_at, "archived even though it stopped waiting"
+    assert f.store.get_product(r.product_id).archived_at, "archived even though it stopped waiting"
 
 
 async def test_cancel_and_one_evaluation_at_a_time(make_factory):
@@ -241,7 +241,7 @@ async def test_cancel_and_one_evaluation_at_a_time(make_factory):
         evals.start(f.manager, WF, 1, "saravana")
     done = await evals.cancel(f.manager, f.store.get_eval(e.id))
     assert done.status == "cancelled" and done.verdict is None
-    assert all(f.store.get_order(r.order_id).archived_at for r in done.candidate.results)
+    assert all(f.store.get_product(r.product_id).archived_at for r in done.candidate.results)
     assert evals.version_states(f.manager, WF)[1] == "evaluation cancelled"
 
 
@@ -252,23 +252,25 @@ async def test_a_restart_cancels_a_running_evaluation(make_factory):
     f.manager.recover_on_startup()
     assert await evals.recover_on_startup(f.manager) == [e.id]
     got = f.store.get_eval(e.id)
-    assert got.status == "cancelled" and all(f.store.get_order(r.order_id).archived_at for r in got.candidate.results)
+    assert got.status == "cancelled" and all(
+        f.store.get_product(r.product_id).archived_at for r in got.candidate.results
+    )
 
 
 async def test_an_evaluation_starts_all_or_nothing_and_counts_only_mapped_ports(make_factory):
     """Live check: an older cluster mapped 5 ports, so the 3rd case had no port; 2 orphan
-    orders kept running. Now ports are counted as the cluster maps them, before anything starts."""
+    products kept running. Now ports are counted as the cluster maps them, before anything starts."""
     from agent_factory.engine.pipeline import FactoryError
 
     f = make_factory()
-    line = f.cfg.product_lines[WF]
+    line = f.cfg.blueprints[WF]
     f.manager.preflight.mapped_node_ports = set(line.node_ports[:2])
     with pytest.raises(FactoryError, match=r"needs 3 free app ports and 2 are usable.*make reset-cluster"):
         evals.start(f.manager, WF, 1, "saravana")
-    assert f.store.list_orders() == [], "nothing was created"
+    assert f.store.list_products() == [], "nothing was created"
 
     # a failure half way (here: the 3rd order) cancels and archives what was created
-    real = f.manager.create_order
+    real = f.manager.create_product
     calls = {"n": 0}
 
     def flaky(data):  # noqa: ANN001, ANN202
@@ -278,18 +280,18 @@ async def test_an_evaluation_starts_all_or_nothing_and_counts_only_mapped_ports(
         return real(data)
 
     f.manager.preflight.mapped_node_ports = None
-    f.manager.create_order = flaky  # type: ignore[method-assign]
+    f.manager.create_product = flaky  # type: ignore[method-assign]
     with pytest.raises(FactoryError):
         evals.start(f.manager, WF, 1, "saravana")
     await asyncio.sleep(0.2)
-    orders = f.store.list_orders()
-    assert len(orders) == 2 and all(o.archived_at for o in orders)
-    assert all(r.status.value == "cancelled" for o in orders for r in f.store.list_runs(o.id))
+    products = f.store.list_products()
+    assert len(products) == 2 and all(o.archived_at for o in products)
+    assert all(r.status.value == "cancelled" for o in products for r in f.store.list_changes(o.id))
 
 
 async def test_a_gated_publish_that_cannot_evaluate_says_why(make_factory):
     f = make_factory()
-    f.manager.preflight.mapped_node_ports = set(f.cfg.product_lines[WF].node_ports[:2])
+    f.manager.preflight.mapped_node_ports = set(f.cfg.blueprints[WF].node_ports[:2])
     app, ctx, c = await _client(f)
     async with c:
         await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})
@@ -308,13 +310,15 @@ async def test_a_gated_publish_that_cannot_evaluate_says_why(make_factory):
 
 
 async def test_orphan_evaluation_orders_are_cleaned_up_on_start(make_factory):
-    from agent_factory.models import CreateOrderInput
+    from agent_factory.models import CreateProductInput
 
     f = make_factory()
-    order = f.manager.create_order(CreateOrderInput(title="[eval x v4] Bookmarks", requirements="Save bookmarks."))
-    order.eval_run_id = "gone"
-    f.store.save_order(order)
-    run = f.manager.start_run(order)
+    product = f.manager.create_product(
+        CreateProductInput(title="[eval x v4] Bookmarks", requirements="Save bookmarks.")
+    )
+    product.eval_run_id = "gone"
+    f.store.save_product(product)
+    change = f.manager.start_change(product)
     await f.manager.shutdown()
-    assert await evals.recover_on_startup(f.manager) == [order.id]
-    assert f.store.get_order(order.id).archived_at and f.store.get_run(run.id).status.value == "cancelled"
+    assert await evals.recover_on_startup(f.manager) == [product.id]
+    assert f.store.get_product(product.id).archived_at and f.store.get_change(change.id).status.value == "cancelled"

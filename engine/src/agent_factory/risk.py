@@ -2,12 +2,12 @@
 
 Two pure checks, both deterministic and explainable by the rule that matched:
 
-- `screen_request`: an order or feedback text against the acceptable-use rules
+- `screen_request`: a product or feedback text against the acceptable-use rules
   (category 5, abuse apps). A match refuses the work before anything is built.
   The shipped rules can't be removed; operators add their own in config.
-- `check_diff`: a run's change (unified diff against `main`) against rules for
+- `check_diff`: a change's change (unified diff against `main`) against rules for
   categories 1-4: weakening security, removing safety nets, destroying data,
-  exfiltration or backdoors. A `hold` finding stops the run until an admin other
+  exfiltration or backdoors. A `hold` finding stops the change until an admin other
   than the requester approves it with a reason (break-glass on a single-admin
   install); a `note` is recorded only.
 
