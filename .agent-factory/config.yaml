@@ -118,6 +118,14 @@ preflight:
   interval_minutes: 15
   max_age_seconds: 60
 
+# Trust and change risk (docs/adr/0027-change-risk-policy.md). The shipped
+# acceptable-use rules always apply; rules here only add to them.
+change_risk:
+  break_glass: true               # single-admin install: the requester may approve their own risky change…
+  cooling_off_minutes: 60         # …after this delay, flagged as break-glass in the evidence
+  allowed_hosts: []               # outside hosts apps may call without a hold, e.g. "api.stripe.com", "*.partner.io"
+  acceptable_use: []              # e.g. {id: no-gambling, title: gambling apps, pattern: "\\b(casino|betting)\\b"}
+
 # ---------------------------------------------------------------------------
 # Action policies (Builder Factory style). Modes: auto | manual | off
 # ---------------------------------------------------------------------------

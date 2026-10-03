@@ -57,7 +57,7 @@ export default function OrdersPage() {
         <Stat
           label="Need attention"
           value={count((s) =>
-            ["held", "failed", "needs_input", "interrupted", "paused_limits", "awaiting_approval"].includes(s),
+            ["held", "failed", "needs_input", "interrupted", "paused_limits", "awaiting_approval", "awaiting_risk_approval"].includes(s),
           )}
           tone="bad"
         />

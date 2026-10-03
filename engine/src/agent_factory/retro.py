@@ -93,9 +93,35 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", text.lower()).strip()
 
 
+_STOP = set(
+    "a an the to of and or for in on with by as is are be it its this that these those do not no per each "
+    "your you use using from at into via since then than when only one any all".split()
+)
+SAME_IDEA = 0.4  # share of the shorter lesson's content words found in the other
+
+
+def _words(text: str) -> set[str]:
+    out = set()
+    for w in re.findall(r"[a-z][a-z0-9-]+", text.lower()):
+        if w in _STOP:
+            continue
+        out.add(re.sub(r"(es|s)$", "", w) if len(w) > 4 else w)
+    return out
+
+
 def _duplicate(lesson: str, existing: list[str]) -> bool:
-    n = _norm(lesson)
-    return any(n == _norm(x) or difflib.SequenceMatcher(None, n, _norm(x)).ratio() >= SIMILAR for x in existing)
+    """Same text, nearly the same text, or the same idea in other words (most of the
+    shorter lesson's content words appear in the other)."""
+    n, words = _norm(lesson), _words(lesson)
+
+    def same(x: str) -> bool:
+        if n == _norm(x) or difflib.SequenceMatcher(None, n, _norm(x)).ratio() >= SIMILAR:
+            return True
+        other = _words(x)
+        small = min(len(words), len(other))
+        return small >= 4 and len(words & other) / small >= SAME_IDEA
+
+    return any(same(x) for x in existing)
 
 
 def vet(
@@ -136,7 +162,7 @@ def vet(
     return kept, rejected
 
 
-def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc) -> str:
+def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc, pending: dict[str, list[str]] | None = None) -> str:
     roster = "\n".join(
         f"- `{a.id}`: {a.description or '(no description)'}"
         + (f"\n  current learnings:\n  {a.learnings.strip().replace(chr(10), chr(10) + '  ')}" if a.learnings else "")
@@ -151,6 +177,7 @@ def prompt(order: Order, run: Run, sig: Signals, doc: WorkflowDoc) -> str:
         f"- {d.get('role')} at {d.get('station')}: {d.get('tool')} `{d.get('input')}` -> {d.get('reason')}"
         for d in sig.denied
     )
+    waiting = "\n".join(f"- `{a}`: {lesson}" for a, ls in (pending or {}).items() for lesson in ls)
     calls = "\n".join(
         f"- {c.get('station')} / {c.get('role')}: {c.get('turns')} turns, {c.get('duration_s')}s, "
         f"{c.get('tool_calls')} tool calls {c.get('tools')}" + (" FAILED" if not c.get("ok", True) else "")
@@ -175,6 +202,9 @@ Iteration {run.iteration}; fix loops: {run.loops}.
 
 ## Agents in this workflow (use these ids)
 {roster}
+
+## Lessons already waiting for a person's decision (never suggest these again, even reworded)
+{waiting or "none"}
 
 ## Fix loops (a station failed and the run was routed back)
 {routed or "none"}
@@ -206,11 +236,14 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
     sig = signals(run, events)
     if not sig.needs_retro():
         return []
+    pending: dict[str, list[str]] = {}
+    for p in mgr.store.list_proposals(wf_id, "pending"):
+        pending.setdefault(p.agent, []).append(p.lesson)
     req = AgentRequest(
         run_id=run.id,
         station="retro",
         role="retro",
-        prompt=prompt(order, run, sig, doc),
+        prompt=prompt(order, run, sig, doc, pending),
         cwd=mgr.ws.run_dir(run.id),
         model=mgr.cfg.models.resolve("judgment"),
         tools=["Read", "Glob", "Grep"],
@@ -234,9 +267,6 @@ async def run_retro(mgr: RunManager, run: Run, order: Order) -> list[LearningPro
     if not res.ok or not isinstance(res.structured, dict):
         mgr.store.add_event(run.id, EventKind.log, "retro: no suggestions (the retro agent gave no answer)")
         return []
-    pending: dict[str, list[str]] = {}
-    for p in mgr.store.list_proposals(wf_id, "pending"):
-        pending.setdefault(p.agent, []).append(p.lesson)
     kept, rejected = vet(list(res.structured.get("proposals", [])), doc, pending)
     now = datetime.now(UTC)
     stored = [

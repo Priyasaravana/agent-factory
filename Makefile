@@ -49,6 +49,8 @@ reset-cluster: ## delete and recreate the kind cluster inside dind
 	docker compose restart factory
 
 local-ingress: ## local trial of the cluster target: registry + ingress-nginx in kind (ADR-0026)
+	@docker compose exec -T -u factory factory cat /opt/factory/cluster/local-ingress.sh 2>/dev/null | cmp -s - cluster/local-ingress.sh \
+		|| { echo "the running factory image is older than this checkout: run 'make up' first, then 'make local-ingress'"; exit 1; }
 	docker compose exec -u factory factory /opt/factory/cluster/local-ingress.sh
 
 test: ## engine + auth tests (dry-run, no model usage)

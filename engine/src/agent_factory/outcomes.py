@@ -42,17 +42,24 @@ from agent_factory.state.base import StateStore
 from agent_factory.workflow import LEGACY_HANDLERS
 
 AGENTS = {RunStatus.queued, RunStatus.running}
-PERSON = {RunStatus.needs_input, RunStatus.held, RunStatus.awaiting_approval, RunStatus.interrupted}
+PERSON = {
+    RunStatus.needs_input,
+    RunStatus.held,
+    RunStatus.awaiting_approval,
+    RunStatus.awaiting_risk_approval,
+    RunStatus.interrupted,
+}
 SYSTEM = {RunStatus.paused_limits}
 DONE = {RunStatus.awaiting_feedback, RunStatus.cancelled, RunStatus.failed}
 # leaving one of these states means a person acted; spec review is a planned touch
 UNPLANNED = {RunStatus.needs_input: "answered_questions", RunStatus.held: "rescued", RunStatus.interrupted: "restarts"}
-PLANNED = {RunStatus.awaiting_approval: "spec_reviews"}
+PLANNED = {RunStatus.awaiting_approval: "spec_reviews", RunStatus.awaiting_risk_approval: "risk_approvals"}
 
 ACTIONS = {
     RunStatus.needs_input: "Answer the intake questions",
     RunStatus.held: "Read the evidence, then resume or change the order",
     RunStatus.awaiting_approval: "Review the spec: approve, edit or request changes",
+    RunStatus.awaiting_risk_approval: "Risky changes: an admin other than the requester approves or sends them back",
     RunStatus.interrupted: "Resume the run (the factory restarted)",
     RunStatus.paused_limits: "Nothing: resumes when the model usage window resets",
 }

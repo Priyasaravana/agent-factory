@@ -34,9 +34,14 @@ def current_identity() -> Identity:
 
 
 def requires_admin(method: str, path: str) -> bool:
-    """Changing workflows or the skills library is admin work; everyone signed in
-    can order, give feedback, operate runs and read everything."""
-    return method not in {"GET", "HEAD", "OPTIONS"} and path.startswith(("/api/workflows", "/api/skills"))
+    """Changing workflows or the skills library, and approving a risky change
+    (ADR-0027), is admin work; everyone signed in can order, give feedback,
+    operate runs and read everything."""
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return False
+    return path.startswith(("/api/workflows", "/api/skills")) or (
+        path.startswith("/api/runs/") and path.endswith("/risk/approve")
+    )
 
 
 class IdentityMiddleware:

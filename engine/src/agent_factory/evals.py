@@ -226,6 +226,10 @@ def on_run_stopped(mgr: RunManager, run: Run, order: Order) -> None:
     if run.status == RunStatus.awaiting_approval:
         mgr.approve_spec(run.id, by="evaluation")  # the spec gate is a planned touch
         return
+    if run.status == RunStatus.awaiting_risk_approval:
+        # never approved automatically: a fixed case that trips the change-risk rules is a finding
+        _final(mgr, res, run, "held", "risky changes held for an admin (change risk, ADR-0027)")
+        return
     if run.status == RunStatus.needs_input:
         case = next(
             (c for c in mgr.workflows[e.workflow_id].get(e.candidate.version).evals if c.id == res.case_id), None

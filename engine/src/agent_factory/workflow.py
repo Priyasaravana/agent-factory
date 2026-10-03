@@ -41,7 +41,7 @@ SAFE_EXTRA_TOOLS = {"WebFetch", "WebSearch"}  # read-only additions any preset m
 # serve (ADR-0028). `agent` is the generic, spec-driven handler used for any
 # custom agent station.
 AGENT_HANDLERS = {"requirements", "design", "implement", "code-review", "deploy-repair", "acceptance", "agent"}
-CHECK_HANDLERS = {"test", "quality-gate", "build", "deploy", "handover"}
+CHECK_HANDLERS = {"test", "quality-gate", "change-risk", "build", "deploy", "handover"}
 
 # Names used before ADR-0028. Versions stored with them keep working and keep their
 # station ids (runs and evidence are pinned to them); they resolve to the new
@@ -91,6 +91,12 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     ),
     "code-review": HandlerInfo(
         kind="agent", label="Code review", phase="test", hint="reviews the change against the spec; the engine judges"
+    ),
+    "change-risk": HandlerInfo(
+        kind="check",
+        label="Change risk",
+        phase="test",
+        hint="rules over the diff; risky changes wait for a second admin (ADR-0027)",
     ),
     "build": HandlerInfo(
         kind="check", label="Build", phase="release", hint="builds, scans and pushes the image (SBOM, provenance)"
@@ -446,6 +452,11 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
         if aid not in used:
             warnings.append(f"agent '{aid}' is not used by any station")
     handlers = {s.resolved_handler() for s in doc.stations}
+    if "implement" in handlers and "change-risk" not in handlers:
+        warnings.append(
+            "no change-risk station: risky changes (security, tests, data, outside hosts) are not held "
+            "for a second admin (add the `change-risk` check after code-review, ADR-0027)"
+        )
     if "implement" in handlers and "quality-gate" not in handlers:
         warnings.append(
             "no quality-gate station: delivered apps are not held to agent-readiness Level 3 "

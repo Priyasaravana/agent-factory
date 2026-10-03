@@ -12,6 +12,7 @@ stations:
   - {id: test,            kind: check, on_fail: implement}
   - {id: quality-gate,    kind: check, on_fail: implement}
   - {id: code-review,     kind: agent, agent: reviewer, on_fail: implement}  # spec review (ADR-0020)
+  - {id: change-risk,     kind: check, on_fail: implement}  # rules over the diff; risky changes wait for a second admin (ADR-0027)
   - {id: build,           kind: check, on_fail: implement}
   - {id: deploy,          kind: check, on_fail: deploy-repair}
   - {id: deploy-repair,   kind: agent, agent: devops, next: deploy, only_on_fail: true}

@@ -38,6 +38,7 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
         "test",
         "quality-gate",
         "code-review",
+        "change-risk",
         "build",
         "deploy",
         "acceptance",

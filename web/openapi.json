@@ -840,6 +840,112 @@
         }
       }
     },
+    "/api/runs/{run_id}/risk/approve": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Change risk: an admin other than the requester accepts the risky changes, with a reason (the requester only as break-glass, after the cooling-off delay)",
+        "description": "Change risk: an admin other than the requester accepts the risky changes, with a reason (the requester only as break-glass, after the cooling-off delay)",
+        "operationId": "approve_risk",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskDecisionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/risk/send-back": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
+        "description": "Change risk: don't accept the risky changes; the run goes back to its repair station with the reason",
+        "operationId": "send_back_risk",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskDecisionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs/{run_id}/spec/changes": {
       "post": {
         "tags": [
@@ -3413,6 +3519,81 @@
         ],
         "title": "CatalogView"
       },
+      "ChangeRiskView": {
+        "properties": {
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "files_changed": {
+            "type": "integer",
+            "title": "Files Changed",
+            "default": 0
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/RiskFindingView"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "holds": {
+            "type": "integer",
+            "title": "Holds",
+            "default": 0
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "waiting": {
+            "type": "boolean",
+            "title": "Waiting",
+            "default": false
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "break_glass": {
+            "type": "boolean",
+            "title": "Break Glass",
+            "default": true
+          },
+          "self_approval_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Approval At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "digest"
+        ],
+        "title": "ChangeRiskView",
+        "description": "The latest change-risk check of a run (ADR-0027) and who may approve it."
+      },
       "CheckView": {
         "properties": {
           "id": {
@@ -4756,6 +4937,11 @@
             "type": "integer",
             "title": "Spec Reviews",
             "default": 0
+          },
+          "risk_approvals": {
+            "type": "integer",
+            "title": "Risk Approvals",
+            "default": 0
           }
         },
         "type": "object",
@@ -5633,6 +5819,149 @@
         "title": "ReviewView",
         "description": "The latest spec review of the run (ADR-0020); the engine's judgement, not the agent's."
       },
+      "RiskApproval": {
+        "properties": {
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "by": {
+            "type": "string",
+            "title": "By"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "break_glass": {
+            "type": "boolean",
+            "title": "Break Glass",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "digest",
+          "by",
+          "reason",
+          "at"
+        ],
+        "title": "RiskApproval"
+      },
+      "RiskDecisionInput": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "RiskDecisionInput"
+      },
+      "RiskFindingView": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "category": {
+            "type": "integer",
+            "title": "Category"
+          },
+          "category_title": {
+            "type": "string",
+            "title": "Category Title"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "file": {
+            "type": "string",
+            "title": "File"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "snippet": {
+            "type": "string",
+            "title": "Snippet",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "category",
+          "category_title",
+          "severity",
+          "title",
+          "file"
+        ],
+        "title": "RiskFindingView"
+      },
+      "RiskHold": {
+        "properties": {
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "findings": {
+            "type": "integer",
+            "title": "Findings"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "digest",
+          "station",
+          "since",
+          "findings"
+        ],
+        "title": "RiskHold"
+      },
       "Run": {
         "properties": {
           "id": {
@@ -5764,6 +6093,23 @@
             ],
             "title": "Spec Approved By"
           },
+          "risk_hold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RiskHold"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "risk_approvals": {
+            "items": {
+              "$ref": "#/components/schemas/RiskApproval"
+            },
+            "type": "array",
+            "title": "Risk Approvals"
+          },
           "review_notes": {
             "items": {
               "type": "string"
@@ -5827,6 +6173,16 @@
             },
             "type": "array",
             "title": "Stations"
+          },
+          "risk": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeRiskView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -5848,6 +6204,7 @@
           "interrupted",
           "awaiting_feedback",
           "awaiting_approval",
+          "awaiting_risk_approval",
           "cancelled",
           "failed"
         ],
