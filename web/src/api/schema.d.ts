@@ -88,6 +88,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)
+         * @description Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)
+         */
+        post: operations["onboard_repo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/assessment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An existing repo's assessment: stack, readiness signals, findings, risks, test gaps, recommended changes and a proposed AGENTS.md (ADR-0031)
+         * @description An existing repo's assessment: stack, readiness signals, findings, risks, test gaps, recommended changes and a proposed AGENTS.md (ADR-0031)
+         */
+        get: operations["get_change_assessment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}": {
         parameters: {
             query?: never;
@@ -1337,6 +1377,121 @@ export interface components {
             /** Pillars */
             pillars?: components["schemas"]["PillarScore"][];
         };
+        /** AssessmentFinding */
+        AssessmentFinding: {
+            /** Rule */
+            rule: string;
+            /** Severity */
+            severity: string;
+            /** Area */
+            area: string;
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** At */
+            at?: string[];
+        };
+        /** AssessmentSignal */
+        AssessmentSignal: {
+            /** Id */
+            id: string;
+            /** Level */
+            level: number;
+            /** Title */
+            title: string;
+            /** Ok */
+            ok: boolean;
+            /** Pillar */
+            pillar: string;
+            /**
+             * Hint
+             * @default
+             */
+            hint: string;
+        };
+        /**
+         * AssessmentView
+         * @description An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported
+         *     and the engine kept.
+         */
+        AssessmentView: {
+            /** Change Id */
+            change_id: string;
+            /** Repo */
+            repo?: {
+                [key: string]: unknown;
+            };
+            /** Stack */
+            stack?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Stack Summary
+             * @default
+             */
+            stack_summary: string;
+            /**
+             * Level
+             * @default 0
+             */
+            level: number;
+            /**
+             * Points
+             * @default 0
+             */
+            points: number;
+            /**
+             * Max Points
+             * @default 0
+             */
+            max_points: number;
+            /** Signals */
+            signals?: components["schemas"]["AssessmentSignal"][];
+            /** Pillars */
+            pillars?: {
+                [key: string]: unknown;
+            }[];
+            /** Findings */
+            findings?: components["schemas"]["AssessmentFinding"][];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Risks */
+            risks?: {
+                [key: string]: unknown;
+            }[];
+            /** Test Gaps */
+            test_gaps?: {
+                [key: string]: unknown;
+            }[];
+            /** Recommendations */
+            recommendations?: {
+                [key: string]: unknown;
+            }[];
+            /** Dropped */
+            dropped?: string[];
+            /**
+             * Agents Md
+             * @default
+             */
+            agents_md: string;
+            /**
+             * Markdown
+             * @default
+             */
+            markdown: string;
+            /**
+             * Assessed At
+             * @default
+             */
+            assessed_at: string;
+        };
         /** CatalogView */
         CatalogView: {
             /** Presets */
@@ -1545,6 +1700,10 @@ export interface components {
             };
             /** Blueprints */
             blueprints: {
+                [key: string]: string;
+            };
+            /** Repo Blueprints */
+            repo_blueprints?: {
                 [key: string]: string;
             };
             /** Policies */
@@ -2157,6 +2316,32 @@ export interface components {
             /** Decided At */
             decided_at?: string | null;
         };
+        /**
+         * OnboardRepoInput
+         * @description An existing repository to assess (ADR-0031): public https URLs on allowed hosts.
+         */
+        OnboardRepoInput: {
+            /**
+             * Repo Url
+             * @description https://github.com/owner/repo
+             */
+            repo_url: string;
+            /**
+             * Branch
+             * @description default: the repo's default branch
+             */
+            branch?: string | null;
+            /**
+             * Title
+             * @description default: owner/repo
+             */
+            title?: string | null;
+            /**
+             * Notes
+             * @description what the team wants to know
+             */
+            notes?: string | null;
+        };
         /** OutcomesView */
         OutcomesView: {
             /** Window Days */
@@ -2343,6 +2528,8 @@ export interface components {
             app_url?: string | null;
             /** Repo Url */
             repo_url?: string | null;
+            /** Repo Ref */
+            repo_ref?: string | null;
             /** Created By */
             created_by?: string | null;
             /** Archived At */
@@ -3149,6 +3336,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    onboard_repo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardRepoInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_assessment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssessmentView"];
                 };
             };
             /** @description Validation Error */

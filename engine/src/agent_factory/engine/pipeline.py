@@ -21,15 +21,17 @@ from agent_factory.executor import Executor
 from agent_factory.models import (
     AVAILABLE_KINDS,
     AVAILABLE_TARGETS,
-    ITERATION_KINDS,
     RESUMABLE,
+    TARGET_KINDS,
     Change,
     ChangeKind,
     ChangeSource,
     ChangeStatus,
     CreateProductInput,
     EventKind,
+    OnboardRepoInput,
     Product,
+    ProductTarget,
     RiskApproval,
     RiskHold,
     StationOutcome,
@@ -162,16 +164,13 @@ class ChangeManager:
         if not line:
             raise FactoryError(f"unknown blueprint '{data.blueprint}'")
         if data.target not in AVAILABLE_TARGETS:
+            raise InvalidRequestError(f"target '{data.target}' is not available yet")
+        if data.target != ProductTarget.new or line.target != "new":
             raise InvalidRequestError(
-                f"target '{data.target}' is not available yet: only new products can be built today"
+                "an existing repository is onboarded with its URL (POST /api/repos), not built from a blueprint"
             )
         self.screen(f"{data.title}\n{data.requirements}", "product")
-        products = self.store.list_products()
-        taken_slugs = {o.slug for o in products}
-        slug, n = slugify(data.title), 2
-        base = slug
-        while slug in taken_slugs:
-            slug, n = f"{base}-{n}", n + 1
+        slug = self._free_slug(slugify(data.title))
         node_port = host_port = None
         if self.uses_node_ports(data.blueprint):
             free = self.usable_node_ports(data.blueprint)
@@ -193,6 +192,50 @@ class ChangeManager:
         )
         return self.store.create_product(product)
 
+    def _free_slug(self, base: str) -> str:
+        taken = {o.slug for o in self.store.list_products()}
+        slug, n = base, 2
+        while slug in taken:
+            slug, n = f"{base}-{n}", n + 1
+        return slug
+
+    def onboard_repo(self, data: OnboardRepoInput) -> Product:
+        """An existing repository becomes a product with target `repo` (ADR-0031). Nothing
+        is cloned yet: the first change (an assessment) clones it read-only."""
+        from agent_factory.assess import RepoUrlError, parse_repo_url
+
+        bp = self.cfg.existing_repos.blueprint
+        line = self.cfg.blueprints.get(bp)
+        if not line or line.target != "repo":
+            raise FactoryError(f"existing_repos.blueprint '{bp}' is not a blueprint with target: repo")
+        try:
+            ref = parse_repo_url(data.repo_url, self.cfg.existing_repos.allowed_hosts)
+        except RepoUrlError as exc:
+            raise InvalidRequestError(str(exc)) from exc
+        same = [
+            p
+            for p in self.store.list_products()
+            if p.target == ProductTarget.repo
+            and not p.archived_at
+            and (p.repo_url or "").lower() == ref.web_url.lower()
+        ]
+        if same:
+            raise FactoryError(f"{ref.slug} is already onboarded as '{same[0].title}': assess it again from there")
+        title = data.title or ref.slug
+        self.screen(f"{title}\n{data.notes or ''}", "repo")
+        product = Product(
+            id=uuid.uuid4().hex[:12],
+            title=title,
+            requirements=data.notes or f"Assess {ref.web_url}",
+            blueprint=bp,
+            target=ProductTarget.repo,
+            slug=self._free_slug(slugify(f"{ref.owner}-{ref.name}")),
+            created_at=_now(),
+            repo_url=ref.web_url,
+            repo_ref=data.branch,
+        )
+        return self.store.create_product(product)
+
     def free_node_ports(self, blueprint: str) -> list[int]:
         """App ports not held by a live (non-archived) order of this blueprint."""
         line = self.cfg.blueprints[blueprint]
@@ -200,7 +243,10 @@ class ChangeManager:
         return [p for p in line.node_ports if p not in used]
 
     def uses_node_ports(self, blueprint: str) -> bool:
-        """Local kind needs one node port per app; an ingress-based target does not (ADR-0026)."""
+        """Local kind needs one node port per app; an ingress-based target does not (ADR-0026);
+        an existing repo deploys nothing (ADR-0031)."""
+        if self.cfg.blueprints[blueprint].target == "repo":
+            return False
         deploy = self.providers.for_blueprint(blueprint).deploy
         return bool(getattr(deploy, "uses_node_ports", True))
 
@@ -227,7 +273,18 @@ class ChangeManager:
             if product.latest_change_id
             else (changes[0] if changes else None)
         )
-        if latest is not None:
+        if latest is not None and product.target == ProductTarget.repo:
+            if self.sandbox is not None:
+                for r in changes:
+                    await self.sandbox.remove_change(r.id)
+            self.store.add_event(
+                latest.id,
+                EventKind.decision,
+                f"product archived by {by}: an existing repo, nothing was deployed",
+                station="archive",
+                data={"archived_by": by},
+            )
+        elif latest is not None:
             ctx = StationContext(
                 self.cfg,
                 self.settings,
@@ -256,7 +313,9 @@ class ChangeManager:
                 station="archive",
                 data={"archived_by": by, "app_url": product.app_url},
             )
-        product.archived_at, product.archived_by, product.app_url = _now(), by, None
+        product.archived_at, product.archived_by = _now(), by
+        if product.target != ProductTarget.repo:
+            product.app_url = None
         self.store.save_product(product)
         return product
 
@@ -281,14 +340,14 @@ class ChangeManager:
         # that never blocks the next iteration
         if any(self.is_active(r.id) and r.status not in FEEDBACK_OPEN for r in changes):
             raise FactoryError("a change to this product is already in progress")
-        kind = kind or (ChangeKind.feature if changes else ChangeKind.new)
+        first, later = TARGET_KINDS[product.target]
+        kind = kind or (later[0] if changes else first)
         if kind not in AVAILABLE_KINDS:
             raise InvalidRequestError(f"'{kind}' changes are not available yet")
-        if (kind == ChangeKind.new) != (not changes):
+        allowed = later if changes else (first,)
+        if kind not in allowed:
             raise InvalidRequestError(
-                "a product's first change builds it ('new')"
-                if not changes
-                else "this product is built: ask for a feature, bug fix or upkeep"
+                f"a {'later' if changes else 'first'} change to this product can be: {', '.join(allowed)}"
             )
         now = _now()
         change = Change(
@@ -499,14 +558,14 @@ class ChangeManager:
         return change
 
     def feedback(self, product_id: str, text: str, kind: ChangeKind = ChangeKind.feature) -> Change:
-        """A change to a delivered product: a feature, a bug fix or upkeep (ADR-0030)."""
-        if kind not in ITERATION_KINDS:
-            raise InvalidRequestError(
-                f"'{kind}' is not a change to a delivered product: ask for a feature, bug fix or upkeep"
-            )
+        """A change to a delivered product (ADR-0030): a feature, a bug fix or upkeep; an
+        existing repo is assessed again (ADR-0031)."""
         product = self.store.get_product(product_id)
         if not product:
             raise FactoryError("product not found")
+        later = TARGET_KINDS[product.target][1]
+        if kind not in later:
+            raise InvalidRequestError(f"this product's next change can be: {', '.join(later)} (not '{kind}')")
         latest = self.store.get_change(product.latest_change_id) if product.latest_change_id else None
         if latest and latest.status not in FEEDBACK_OPEN:
             raise FactoryError(f"latest change is '{latest.status}'; feedback opens after delivery")
@@ -637,11 +696,34 @@ class ChangeManager:
         self.store.save_change(change)
         self._sync_product(change, product)
         blueprint = self.cfg.blueprints[product.blueprint]
-        owner = str(getattr(self.cfg.policies.publish, "owner", "") or "")
-        await self.ws.ensure_product_repo(product.slug, blueprint.template, owner)
         # pinned: later workflow edits never affect this change
         flow = self.workflows[change.workflow_id or product.blueprint].get(change.workflow_version)
-        worktree = await self.ws.create_worktree(product.slug, change.id)
+        if blueprint.target == "repo":
+            if not self.ws.change_dir(change.id).exists():
+                from agent_factory.assess import parse_repo_url
+
+                url = parse_repo_url(product.repo_url or "", self.cfg.existing_repos.allowed_hosts).url
+                try:
+                    branch, base = await self.ws.sync_repo(
+                        product.slug, url, product.repo_ref, self.cfg.existing_repos.clone_timeout_seconds
+                    )
+                except RuntimeError as exc:
+                    first = flow.forward_stations()[0].id
+                    return self._hold(change, first, "the repository could not be read", str(exc))
+                if product.repo_ref != branch:
+                    product.repo_ref = branch
+                    self.store.save_product(product)
+                self.store.add_event(
+                    change.id,
+                    EventKind.decision,
+                    f"cloned {product.repo_url} ({branch}) read-only",
+                    data={"repo": {"url": product.repo_url, "branch": branch}},
+                )
+            worktree = await self.ws.create_worktree(product.slug, change.id, f"origin/{product.repo_ref}")
+        else:
+            owner = str(getattr(self.cfg.policies.publish, "owner", "") or "")
+            await self.ws.ensure_product_repo(product.slug, blueprint.template or "", owner)
+            worktree = await self.ws.create_worktree(product.slug, change.id)
         deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
 
         while change.current_station:

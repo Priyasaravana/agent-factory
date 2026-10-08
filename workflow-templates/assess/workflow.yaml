@@ -1,0 +1,13 @@
+# Assessment of an existing repository (ADR-0031). Read-only: nothing is built,
+# deployed or pushed. The engine clones the repo before the first station.
+#   plan: onboard · test: repo-scan, assess · handover: report
+name: assess
+description: Onboard an existing repo read-only and report its readiness, findings and test gaps
+spec_review: "off"
+eval_gate: "off"
+learn_from_runs: false
+stations:
+  - {id: onboard,   kind: check}                   # commit, size, detected stack
+  - {id: repo-scan, kind: check}                   # readiness signals for any stack, rules, secret scan
+  - {id: assess,    kind: agent, agent: assessor}  # test gaps, risks, recommendations; the engine judges
+  - {id: report,    kind: check}                   # assessment.md + .json and a proposed AGENTS.md

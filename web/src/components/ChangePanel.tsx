@@ -20,6 +20,7 @@ import {
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
+import AssessmentPanel from "./AssessmentPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
@@ -33,10 +34,12 @@ export default function ChangePanel({
   changeId,
   productId,
   archived = false,
+  target = "new",
 }: {
   changeId: string;
   productId: string;
   archived?: boolean;
+  target?: string;
 }) {
   const qc = useQueryClient();
   const change = useQuery({
@@ -151,7 +154,11 @@ export default function ChangePanel({
         )}
         <Problems error={resume.error} />
         <StationStrip stations={stations} />
-        <SpecPanel changeId={changeId} runStatus={r.status} />
+        {r.kind === "assess" ? (
+          <AssessmentPanel changeId={changeId} runStatus={r.status} />
+        ) : (
+          <SpecPanel changeId={changeId} runStatus={r.status} />
+        )}
         {risk && <ChangeRiskPanel changeId={changeId} productId={productId} risk={risk} />}
         {r.summary && (
           <p
@@ -176,7 +183,10 @@ export default function ChangePanel({
             onDone={refresh}
           />
         )}
-        {r.status === "awaiting_feedback" && !archived && (
+        {r.status === "awaiting_feedback" && !archived && target === "repo" && (
+          <AssessAgain productId={productId} onDone={refresh} />
+        )}
+        {r.status === "awaiting_feedback" && !archived && target !== "repo" && (
           <FeedbackForm productId={productId} onDone={refresh} />
         )}
         <RunPillars events={events} />
@@ -351,6 +361,34 @@ function Questions({
       </Button>
       {submit.error && <p className="error">{submit.error.message}</p>}
     </form>
+  );
+}
+
+/** An existing repo is assessed again on its latest commit (ADR-0031). */
+function AssessAgain({ productId, onDone }: { productId: string; onDone: () => void }) {
+  const send = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST("/api/products/{product_id}/feedback", {
+          params: { path: { product_id: productId } },
+          body: { text: "Assess the latest commit again", kind: "assess" },
+        }),
+      ),
+    onSuccess: () => {
+      toast.success("Assessment started", { description: "The latest commit is fetched read-only." });
+      onDone();
+    },
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border p-4">
+      <p className="m-0 flex-1 text-sm text-muted-foreground">
+        Changes to this repo as pull requests come next. For now, assess it again after the team pushes changes.
+      </p>
+      <Button variant="outline" disabled={send.isPending} onClick={() => send.mutate()}>
+        <RefreshCw /> Assess again
+      </Button>
+      <Problems error={send.error} />
+    </div>
   );
 }
 

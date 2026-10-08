@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Inbox, Plus, Rocket, Sparkles } from "lucide-react";
+import { ArrowUpRight, FolderGit2, Inbox, Plus, Rocket, ScanSearch, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -92,12 +92,14 @@ export default function ProductsPage() {
                     className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-3 py-3 text-foreground no-underline hover:no-underline"
                   >
                     <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-sm font-semibold uppercase text-primary">
-                      {o.title.slice(0, 1)}
+                      {o.target === "repo" ? <FolderGit2 className="size-4" /> : o.title.slice(0, 1)}
                     </span>
                     <span className="min-w-0 flex-1 basis-40">
                       <span className="block truncate font-medium">{o.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {o.slug} · {o.blueprint} · {ago(o.created_at)}
+                        {o.target === "repo" ? (o.repo_url ?? "").replace(/^https:\/\//, "") : `${o.slug} · ${o.blueprint}`}
+                        {" · "}
+                        {ago(o.created_at)}
                         {o.created_by ? ` · by ${o.created_by}` : ""}
                       </span>
                     </span>
@@ -125,6 +127,120 @@ export default function ProductsPage() {
 }
 
 function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
+  const [mode, setMode] = useState<"new" | "repo">("new");
+  return (
+    <Card className="relative overflow-hidden lg:sticky lg:top-20">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-fuchsia-500 to-info" />
+      <CardHeader>
+        <div className="grid gap-3">
+          <div className="flex w-fit gap-1 rounded-lg border bg-card p-0.5" role="radiogroup" aria-label="What to start">
+            {(
+              [
+                ["new", "Build new"],
+                ["repo", "Existing repo"],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={mode === v}
+                className={`tab ${mode === v ? "active" : ""}`}
+                onClick={() => setMode(v)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mode === "new" ? (
+            <>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" /> New product
+              </CardTitle>
+              <CardDescription>
+                Describe what you want. The factory specifies, designs, builds, tests, deploys and verifies it, then asks
+                for your feedback.
+              </CardDescription>
+            </>
+          ) : (
+            <>
+              <CardTitle className="flex items-center gap-2">
+                <ScanSearch className="size-4 text-primary" /> Assess an existing repo
+              </CardTitle>
+              <CardDescription>
+                The factory clones it read-only and reports its stack, readiness, findings, test gaps and the changes to
+                make first. Nothing is pushed to the repo.
+              </CardDescription>
+            </>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>{mode === "new" ? <NewProductForm titleRef={titleRef} /> : <RepoForm />}</CardContent>
+    </Card>
+  );
+}
+
+function RepoForm() {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const [url, setUrl] = useState("");
+  const [branch, setBranch] = useState("");
+  const [notes, setNotes] = useState("");
+  const onboard = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST("/api/repos", {
+          body: { repo_url: url.trim(), branch: branch.trim() || null, notes: notes.trim() || null },
+        }),
+      ),
+    onSuccess: (d) => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      toast.success("Assessment started", { description: d.product.title });
+      nav(`/products/${d.product.id}`);
+    },
+  });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onboard.mutate();
+      }}
+    >
+      <label>
+        Repository URL
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://github.com/owner/repo"
+          required
+          type="url"
+          pattern="https://.*"
+        />
+      </label>
+      <label>
+        Branch <span className="font-normal text-muted-foreground">(optional: default branch)</span>
+        <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+      </label>
+      <label>
+        What do you want to know? <span className="font-normal text-muted-foreground">(optional)</span>
+        <textarea
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. Is it ready for production? What should we fix first?"
+          className="font-sans text-sm"
+        />
+      </label>
+      <p className="m-0 text-xs text-muted-foreground">Public repositories for now.</p>
+      <Button disabled={onboard.isPending} size="lg">
+        <ScanSearch /> {onboard.isPending ? "Starting…" : "Assess repository"}
+      </Button>
+      <Problems error={onboard.error} />
+    </form>
+  );
+}
+
+function NewProductForm({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const config = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });
@@ -150,105 +266,89 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
     },
   });
   return (
-    <Card className="relative overflow-hidden lg:sticky lg:top-20">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-fuchsia-500 to-info" />
-      <CardHeader>
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" /> New product
-          </CardTitle>
-          <CardDescription>
-            Describe what you want. The factory specifies, designs, builds, tests, deploys and verifies it, then asks for
-            your feedback.
-          </CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate();
-          }}
-        >
-          <label>
-            Title
-            <input
-              ref={titleRef}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Bookmarks service"
-              required
-              minLength={3}
-            />
-          </label>
-          <label>
-            Blueprint
-            <select value={line} onChange={(e) => setLine(e.target.value)}>
-              {Object.entries(config.data?.blueprints ?? { "fastapi-service": "" }).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {k} {v ? `— ${v}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid gap-1.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium" id="req-label">
-                {format === "spec" ? "Specification" : "Requirements"}
-              </span>
-              <div className="flex gap-1 rounded-lg border bg-card p-0.5" role="radiogroup" aria-label="How you describe it">
-                {(
-                  [
-                    ["prose", "Describe it"],
-                    ["spec", "I have a spec"],
-                  ] as const
-                ).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={format === v}
-                    className={`tab ${format === v ? "active" : ""}`}
-                    onClick={() => setFormat(v)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <textarea
-              aria-labelledby="req-label"
-              rows={format === "spec" ? 14 : 9}
-              value={requirements}
-              onChange={(e) => setRequirements(e.target.value)}
-              placeholder={
-                format === "spec"
-                  ? "Paste your specification (Markdown). Its wording and numbering are kept; intake only fills gaps."
-                  : "A REST service to save bookmarks and notes with tags. Filter by tag, search notes…"
-              }
-              required
-              minLength={10}
-              className="font-sans text-sm"
-            />
-            {format === "spec" && (
-              <label className="text-xs font-normal text-muted-foreground">
-                or load a Markdown file
-                <input
-                  type="file"
-                  accept=".md,.markdown,.txt,text/markdown,text/plain"
-                  onChange={(e) => void loadSpec(e.target.files?.[0])}
-                  className="text-xs"
-                />
-              </label>
-            )}
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        create.mutate();
+      }}
+    >
+      <label>
+        Title
+        <input
+          ref={titleRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Bookmarks service"
+          required
+          minLength={3}
+        />
+      </label>
+      <label>
+        Blueprint
+        <select value={line} onChange={(e) => setLine(e.target.value)}>
+          {Object.entries(config.data?.blueprints ?? { "fastapi-service": "" }).map(([k, v]) => (
+            <option key={k} value={k}>
+              {k} {v ? `— ${v}` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="grid gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium" id="req-label">
+            {format === "spec" ? "Specification" : "Requirements"}
+          </span>
+          <div className="flex gap-1 rounded-lg border bg-card p-0.5" role="radiogroup" aria-label="How you describe it">
+            {(
+              [
+                ["prose", "Describe it"],
+                ["spec", "I have a spec"],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={format === v}
+                className={`tab ${format === v ? "active" : ""}`}
+                onClick={() => setFormat(v)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <Button disabled={create.isPending} size="lg">
-            <Rocket /> {create.isPending ? "Submitting…" : "Create product"}
-          </Button>
-          <Problems error={create.error} />
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+        <textarea
+          aria-labelledby="req-label"
+          rows={format === "spec" ? 14 : 9}
+          value={requirements}
+          onChange={(e) => setRequirements(e.target.value)}
+          placeholder={
+            format === "spec"
+              ? "Paste your specification (Markdown). Its wording and numbering are kept; intake only fills gaps."
+              : "A REST service to save bookmarks and notes with tags. Filter by tag, search notes…"
+          }
+          required
+          minLength={10}
+          className="font-sans text-sm"
+        />
+        {format === "spec" && (
+          <label className="text-xs font-normal text-muted-foreground">
+            or load a Markdown file
+            <input
+              type="file"
+              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              onChange={(e) => void loadSpec(e.target.files?.[0])}
+              className="text-xs"
+            />
+          </label>
+        )}
+      </div>
+      <Button disabled={create.isPending} size="lg">
+        <Rocket /> {create.isPending ? "Submitting…" : "Create product"}
+      </Button>
+      <Problems error={create.error} />
+    </form>
   );
 }
 

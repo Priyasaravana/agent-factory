@@ -59,6 +59,21 @@ blueprints:
     node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 
+  # Teams' existing repositories (ADR-0031): cloned read-only and assessed. Nothing is
+  # built, deployed or pushed; the report and a proposed AGENTS.md are sealed evidence.
+  existing-repo:
+    description: An existing repository, assessed read-only (stack, readiness, findings, test gaps)
+    target: repo
+    workflow_template: workflow-templates/assess
+    # the same secret scan as built apps, over the cloned repo
+    secret_scan_command: >-
+      docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
+      detect --no-git --source {path} --redact --no-banner --exit-code 1
+    environment: local
+
+existing_repos:
+  allowed_hosts: [github.com]     # https URLs on these hosts only; private repos come later (token reference)
+
 # ---------------------------------------------------------------------------
 # Delivery integrations (docs/design/integrations.md). Stations call the
 # provider bound to the blueprint's environment for each capability.

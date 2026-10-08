@@ -36,7 +36,10 @@ class Models(BaseModel):
 
 class Blueprint(BaseModel):
     description: str = ""
-    template: str
+    # what the blueprint works on (ADR-0030/0031): `new` builds from `template`;
+    # `repo` works on a team's existing repository (no template, nothing deployed)
+    target: Literal["new", "repo"] = "new"
+    template: str | None = None
     workflow_template: str = "workflow-templates/default"  # seeds this blueprint's workflow
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
@@ -53,6 +56,14 @@ class Blueprint(BaseModel):
     # about before any build (stack.py). Empty: no check.
     stack: list[str] = Field(default_factory=list)
     node_ports: list[int] = Field(default_factory=lambda: [30080])
+
+    @model_validator(mode="after")
+    def _template_for_new(self) -> Blueprint:
+        if self.target == "new" and not self.template:
+            raise ValueError("a blueprint that builds new products needs a `template`")
+        if self.target == "repo":
+            self.node_ports = []  # nothing is deployed
+        return self
 
     @field_validator("node_ports", mode="before")
     @classmethod
@@ -208,6 +219,16 @@ class ChangeRiskConfig(BaseModel):
     allowed_hosts: list[str] = Field(default_factory=list)
 
 
+class ExistingReposConfig(BaseModel):
+    """Onboarding teams' existing repositories (ADR-0031)."""
+
+    # hosts a repository URL may point at (https only, never credentials in the URL)
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["github.com"])
+    # the blueprint new repo products use
+    blueprint: str = "existing-repo"
+    clone_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -228,6 +249,7 @@ class FactoryConfig(BaseModel):
     sandbox: SandboxConfig = SandboxConfig()
     preflight: PreflightConfig = PreflightConfig()
     change_risk: ChangeRiskConfig = ChangeRiskConfig()
+    existing_repos: ExistingReposConfig = ExistingReposConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

@@ -29,6 +29,7 @@ from agent_factory.models import (
     OutcomesView,
     PillarScore,
     Product,
+    ProductTarget,
     StationEffort,
     TimeSplit,
     Transition,
@@ -388,8 +389,9 @@ def _effort(f: Facts) -> list[StationEffort]:
 # ------------------------------------------------------------------- gather --
 def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     now = now or datetime.now(UTC)
-    # evaluation products (ADR-0025) measure workflow versions, not the factory's real work
-    products = {o.id: o for o in store.list_products() if not o.eval_run_id}
+    # evaluation products (ADR-0025) measure workflow versions, not the factory's real work;
+    # assessments of existing repos (ADR-0031) deliver a report, not software
+    products = {o.id: o for o in store.list_products() if not o.eval_run_id and o.target == ProductTarget.new}
     changes = [r for r in store.all_changes() if r.product_id in products]
     ids = {r.id for r in changes}
     transitions = {k: v for k, v in store.transitions().items() if k in ids}

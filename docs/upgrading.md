@@ -41,6 +41,7 @@ make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your
 - **Changes are safe across upgrades.** Each change is pinned to a workflow version and its pinned skills. Interrupted changes are marked on restart and resumed by a person.
 
 ## Version notes
+- **Existing repos (ADR-0031).** `.agent-factory/config.yaml` gains the `existing-repo` blueprint and an `existing_repos:` section; merge them into a customised config. Its workflow is seeded on first start.
 - **Work items (ADR-0030).** Nothing to do: changes from before read as `new` (first iteration) or `feature`, products as target `new`.
 - **New names.** Upgrading to the Product/Change/Blueprint names (ADR-0029) renames the database tables in place on first start; `product_lines:` and the old limit names in config still load.
 - **No root in the factory's containers (ADR-0018).** Nothing to do:

@@ -100,10 +100,14 @@ async def test_a_first_change_must_build_the_product(make_factory):
     assert f.store.list_changes(product.id) == []
 
 
-def test_only_new_products_can_be_built_yet(make_factory):
+def test_only_new_products_are_built_from_a_blueprint(make_factory):
     f = make_factory()
     with pytest.raises(InvalidRequestError, match="not available yet"):
+        f.manager.create_product(PRODUCT.model_copy(update={"target": "factory"}))
+    with pytest.raises(InvalidRequestError, match="onboarded with its URL"):
         f.manager.create_product(PRODUCT.model_copy(update={"target": "repo"}))
+    with pytest.raises(InvalidRequestError, match="onboarded with its URL"):
+        f.manager.create_product(PRODUCT.model_copy(update={"blueprint": "existing-repo"}))
     assert f.store.list_products() == []
 
 
@@ -121,7 +125,7 @@ async def test_work_items_over_http(make_factory):
     async with c:
         bad = await c.post(
             "/api/products",
-            json={"title": "Repo work", "requirements": "Look after our repository.", "target": "repo"},
+            json={"title": "Factory work", "requirements": "Improve the factory itself.", "target": "factory"},
         )
         assert bad.status_code == 422 and "not available yet" in bad.json()["detail"]
         r = await c.post("/api/products", json={"title": "Bookmarks", "requirements": "Save and tag bookmarks."})

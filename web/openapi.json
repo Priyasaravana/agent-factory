@@ -184,6 +184,91 @@
         }
       }
     },
+    "/api/repos": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
+        "description": "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
+        "operationId": "onboard_repo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardRepoInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/assessment": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "An existing repo's assessment: stack, readiness signals, findings, risks, test gaps, recommended changes and a proposed AGENTS.md (ADR-0031)",
+        "description": "An existing repo's assessment: stack, readiness signals, findings, risks, test gaps, recommended changes and a proposed AGENTS.md (ADR-0031)",
+        "operationId": "get_change_assessment",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssessmentView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}": {
       "get": {
         "tags": [
@@ -3417,6 +3502,201 @@
         "title": "AppQuality",
         "description": "A live app's pillar scores, from its latest delivered iteration."
       },
+      "AssessmentFinding": {
+        "properties": {
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "at": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule",
+          "severity",
+          "area",
+          "title"
+        ],
+        "title": "AssessmentFinding"
+      },
+      "AssessmentSignal": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "pillar": {
+            "type": "string",
+            "title": "Pillar"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "level",
+          "title",
+          "ok",
+          "pillar"
+        ],
+        "title": "AssessmentSignal"
+      },
+      "AssessmentView": {
+        "properties": {
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          },
+          "repo": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Repo"
+          },
+          "stack": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Stack"
+          },
+          "stack_summary": {
+            "type": "string",
+            "title": "Stack Summary",
+            "default": ""
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level",
+            "default": 0
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points",
+            "default": 0
+          },
+          "max_points": {
+            "type": "integer",
+            "title": "Max Points",
+            "default": 0
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentSignal"
+            },
+            "type": "array",
+            "title": "Signals"
+          },
+          "pillars": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Pillars"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentFinding"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "risks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "test_gaps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Test Gaps"
+          },
+          "recommendations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "dropped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dropped"
+          },
+          "agents_md": {
+            "type": "string",
+            "title": "Agents Md",
+            "default": ""
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown",
+            "default": ""
+          },
+          "assessed_at": {
+            "type": "string",
+            "title": "Assessed At",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "change_id"
+        ],
+        "title": "AssessmentView",
+        "description": "An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported\nand the engine kept."
+      },
       "CatalogView": {
         "properties": {
           "presets": {
@@ -3961,6 +4241,13 @@
             },
             "type": "object",
             "title": "Blueprints"
+          },
+          "repo_blueprints": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Repo Blueprints"
           },
           "policies": {
             "additionalProperties": {
@@ -5431,6 +5718,64 @@
         "title": "LearningProposal",
         "description": "A lesson the retro suggests for one agent after a change that needed help (ADR-0021).\nNothing changes until an admin accepts it into the workflow draft and publishes."
       },
+      "OnboardRepoInput": {
+        "properties": {
+          "repo_url": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 10,
+            "title": "Repo Url",
+            "description": "https://github.com/owner/repo"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^[A-Za-z0-9._/-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch",
+            "description": "default: the repo's default branch"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "default: owner/repo"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "what the team wants to know"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo_url"
+        ],
+        "title": "OnboardRepoInput",
+        "description": "An existing repository to assess (ADR-0031): public https URLs on allowed hosts."
+      },
       "OutcomesView": {
         "properties": {
           "window_days": {
@@ -5843,6 +6188,17 @@
               }
             ],
             "title": "Repo Url"
+          },
+          "repo_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Ref"
           },
           "created_by": {
             "anyOf": [
