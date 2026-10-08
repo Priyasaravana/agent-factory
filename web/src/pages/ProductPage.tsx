@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ACTIVE, api, unwrap } from "../api/client";
+import { ACTIVE, KIND_LABEL, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
 import { Button } from "../components/ui/button";
@@ -173,7 +173,7 @@ export default function ProductPage() {
           {feedback.length > 0 && (
             <details>
               <summary className="font-medium">
-                Feedback history ({feedback.length})
+                Change requests ({feedback.length})
               </summary>
               <ol className="mt-2 grid gap-2 pl-5 text-sm">
                 {feedback.map((f) => (
@@ -200,6 +200,9 @@ export default function ProductPage() {
               onClick={() => setSelected(r.id)}
             >
               iteration {r.iteration}
+              {r.kind && r.kind !== "new" && r.kind !== "feature"
+                ? ` · ${KIND_LABEL[r.kind]}`
+                : ""}
             </button>
           ))}
         </div>

@@ -192,6 +192,9 @@ async def seal(mgr: Any, change: Any, product: Any) -> str:
             "summary": change.summary,
             "station": change.current_station,
             "change_request": change.change_request,
+            "kind": str(change.kind),  # the work item (ADR-0030); added keys keep schema v1
+            "source": str(change.source),
+            "requested_by": change.requested_by,
             "spec_approved_by": change.spec_approved_by,
             "fix_loops": change.loops,
             "cost_usd": round(change.cost_usd, 4),

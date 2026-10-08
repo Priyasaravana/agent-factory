@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
 from agent_factory.config import FactoryConfig, load_config
-from agent_factory.engine.pipeline import ChangeManager, FactoryError, RefusedError
+from agent_factory.engine.pipeline import ChangeManager, FactoryError, InvalidRequestError, RefusedError
 from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
@@ -179,7 +179,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
 
     @app.exception_handler(FactoryError)
     async def factory_error(_: Request, exc: FactoryError) -> JSONResponse:
-        code = 422 if isinstance(exc, RefusedError) else 404 if "not found" in str(exc) else 409
+        code = 422 if isinstance(exc, RefusedError | InvalidRequestError) else 404 if "not found" in str(exc) else 409
         return JSONResponse(status_code=code, content={"detail": str(exc)})
 
     class _Lazy:

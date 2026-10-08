@@ -279,7 +279,7 @@ def get_product(f: Factory, product_id: str) -> ProductDetail:
 
 @action(
     "submit_feedback",
-    "Post-deploy feedback; starts the next iteration",
+    "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
     "POST",
     "/api/products/{product_id}/feedback",
     status_code=201,
@@ -289,7 +289,7 @@ async def submit_feedback(f: Factory, product_id: str, body: FeedbackInput) -> C
     product = f.store.get_product(product_id)
     if product:
         await _gate(f, product.blueprint, "change")
-    return f.manager.feedback(product_id, body.text)
+    return f.manager.feedback(product_id, body.text, body.kind)
 
 
 @action("get_change", "Change with station states", "GET", "/api/changes/{change_id}")

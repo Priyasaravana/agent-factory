@@ -96,4 +96,10 @@
   API, UI and docs. Stored names that must stay (`runs/` and `artifacts/` folders,
   `run/<id>` branches, the evidence manifest's `run`/`order` keys, `EvalRun`) are
   listed in the ADR. A renamed persisted field keeps its old name as a read alias.
+- Work items (ADR-0030): every change has a `kind`, a `source` and `requested_by`; every
+  product a `target`. Start changes through `ChangeManager.start_change` / `feedback`,
+  which refuse kinds and targets that are not available yet (`AVAILABLE_KINDS`,
+  `AVAILABLE_TARGETS`). Kind-specific agent instructions live in
+  `stations.KIND_GUIDANCE`; keep `new` and `feature` prompts unchanged unless an
+  evaluation measures the change.
 - Record significant decisions as ADRs in `docs/adr/`.

@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from agent_factory.workflow import AgentSpec, EvalCase, HandlerInfo, Phase, RefDoc
 
@@ -28,6 +28,42 @@ class ChangeStatus(StrEnum):
 
 TERMINAL = {ChangeStatus.awaiting_feedback, ChangeStatus.cancelled, ChangeStatus.failed}
 RESUMABLE = {ChangeStatus.held, ChangeStatus.interrupted, ChangeStatus.paused_limits}
+
+
+class ChangeKind(StrEnum):
+    """What a change is for (ADR-0030). Every request is a change to a product."""
+
+    new = "new"  # build the product from its requirements (its first change)
+    feature = "feature"  # add or change behaviour
+    bug = "bug"  # behaviour differs from a requirement: reproduce with a failing test, then fix
+    upkeep = "upkeep"  # keep behaviour: dependencies, tooling, docs, refactors
+    assess = "assess"  # report on a repo without changing it (existing repos, next)
+    remove = "remove"  # remove a feature; the product owner confirms the list first (later)
+
+
+# kinds a person can ask for today; the others are part of the model and come with their workflows
+AVAILABLE_KINDS = {ChangeKind.new, ChangeKind.feature, ChangeKind.bug, ChangeKind.upkeep}
+# kinds that iterate on a delivered product
+ITERATION_KINDS = (ChangeKind.feature, ChangeKind.bug, ChangeKind.upkeep)
+
+
+class ChangeSource(StrEnum):
+    """Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API."""
+
+    ui = "ui"
+    ticket = "ticket"  # a ticket system, accepted by a linked member (later)
+    schedule = "schedule"  # scheduled upkeep (later)
+
+
+class ProductTarget(StrEnum):
+    """What the factory works on (ADR-0030)."""
+
+    new = "new"  # built here from a blueprint's template
+    repo = "repo"  # a team's existing repository (next)
+    factory = "factory"  # the factory itself, with the safety core out of bounds (later)
+
+
+AVAILABLE_TARGETS = {ProductTarget.new}
 
 
 class StationOutcome(StrEnum):
@@ -58,6 +94,7 @@ class Product(BaseModel):
     # "spec": the requirements are an existing specification (keep its wording/numbering)
     requirements_format: Literal["prose", "spec"] = "prose"
     blueprint: str = Field(validation_alias=AliasChoices("blueprint", "product_line"))
+    target: ProductTarget = ProductTarget.new
     slug: str = Field(validation_alias=AliasChoices("slug", "product_slug"))
     created_at: datetime
     latest_change_id: str | None = Field(
@@ -84,9 +121,13 @@ class Change(BaseModel):
     workflow_version: int = Field(  # the workflow version this change is pinned to
         default=1, validation_alias=AliasChoices("workflow_version", "line_version")
     )
+    # the work item (ADR-0030): what this change is for, where it came from and who asked
+    kind: ChangeKind = ChangeKind.new
+    source: ChangeSource = ChangeSource.ui
+    requested_by: str | None = None
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
-    change_request: str | None = None  # feedback that started this iteration
+    change_request: str | None = None  # what was asked for this iteration (feedback, bug report, upkeep)
     last_failure: str | None = None  # evidence handed to the repair station
     questions: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)
@@ -100,6 +141,15 @@ class Change(BaseModel):
     review_notes: list[str] = Field(default_factory=list)  # requested spec changes, fed to intake/design
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _kind_of_older_changes(cls, data: Any) -> Any:
+        """Changes stored before work items have no kind: the first iteration built the
+        product, later ones came from feedback."""
+        if isinstance(data, dict) and "kind" not in data and "iteration" in data:
+            data = {**data, "kind": ChangeKind.new if data["iteration"] == 1 else ChangeKind.feature}
+        return data
 
 
 class RiskHold(BaseModel):
@@ -277,6 +327,7 @@ class CreateProductInput(BaseModel):
     requirements: str = Field(min_length=10, max_length=60_000)
     blueprint: str = Field(default="fastapi-service", validation_alias=AliasChoices("blueprint", "product_line"))
     requirements_format: Literal["prose", "spec"] = "prose"
+    target: ProductTarget = ProductTarget.new  # only `new` is available yet (ADR-0030)
 
 
 class SpecReviewInput(BaseModel):
@@ -532,7 +583,10 @@ class AnswersInput(BaseModel):
 
 
 class FeedbackInput(BaseModel):
+    """A change to a delivered product: what to do and what kind of change it is (ADR-0030)."""
+
     text: str = Field(min_length=3, max_length=20_000)
+    kind: ChangeKind = ChangeKind.feature  # feature | bug | upkeep
 
 
 class RiskDecisionInput(BaseModel):

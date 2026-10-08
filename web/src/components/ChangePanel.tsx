@@ -9,7 +9,14 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ACTIVE, api, unwrap, type FactoryEvent } from "../api/client";
+import {
+  ACTIVE,
+  KIND_LABEL,
+  api,
+  unwrap,
+  type ChangeKind,
+  type FactoryEvent,
+} from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
@@ -82,6 +89,16 @@ export default function ChangePanel({
           <CardTitle>Iteration {r.iteration}</CardTitle>
           <StatusPill status={r.status} />
           <span
+            className={cn("pill", r.kind === "bug" ? "warn" : "info")}
+            title={
+              r.requested_by
+                ? `Asked by ${r.requested_by} (${r.source})`
+                : "Kind of change"
+            }
+          >
+            {KIND_LABEL[r.kind ?? "new"]}
+          </span>
+          <span
             className="pill muted"
             title="Workflow version this change is pinned to"
           >
@@ -120,7 +137,14 @@ export default function ChangePanel({
           <p className="note m-0 flex items-start gap-2">
             <MessageSquareText className="mt-0.5 size-4 shrink-0 text-info" />
             <span>
-              <span className="font-medium">Change request:</span>{" "}
+              <span className="font-medium">
+                {r.kind === "bug"
+                  ? "Bug report"
+                  : r.kind === "upkeep"
+                    ? "Upkeep"
+                    : "Change request"}
+                :
+              </span>{" "}
               {r.change_request}
             </span>
           </p>
@@ -330,6 +354,30 @@ function Questions({
   );
 }
 
+type IterationKind = Extract<ChangeKind, "feature" | "bug" | "upkeep">;
+
+/** Kinds of change a delivered product can get (ADR-0030). */
+const ITERATION_KINDS: Record<
+  IterationKind,
+  { title: string; hint: string; placeholder: string }
+> = {
+  feature: {
+    title: "Feature",
+    hint: "Add or change behaviour; requirements are updated.",
+    placeholder: "e.g. add pagination to the list endpoint…",
+  },
+  bug: {
+    title: "Bug fix",
+    hint: "Something doesn't work as a requirement says: the factory reproduces it with a failing test, then fixes it.",
+    placeholder: "e.g. tags with spaces are dropped when saving a bookmark…",
+  },
+  upkeep: {
+    title: "Upkeep",
+    hint: "Dependencies, tooling, docs or refactoring; behaviour stays the same.",
+    placeholder: "e.g. update dependencies to their latest minor versions…",
+  },
+};
+
 function FeedbackForm({
   productId,
   onDone,
@@ -338,17 +386,18 @@ function FeedbackForm({
   onDone: () => void;
 }) {
   const [text, setText] = useState("");
+  const [kind, setKind] = useState<IterationKind>("feature");
   const send = useMutation({
     mutationFn: () =>
       unwrap(
         api.POST("/api/products/{product_id}/feedback", {
           params: { path: { product_id: productId } },
-          body: { text },
+          body: { text, kind },
         }),
       ),
     onSuccess: () => {
       setText("");
-      toast.success("Feedback sent", {
+      toast.success(`${ITERATION_KINDS[kind].title} requested`, {
         description: "The next iteration is starting.",
       });
       onDone();
@@ -363,9 +412,29 @@ function FeedbackForm({
       }}
     >
       <h4 className="m-0">Try the app, then tell the factory what to change</h4>
+      <div
+        className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-1"
+        role="radiogroup"
+        aria-label="Kind of change"
+      >
+        {(Object.keys(ITERATION_KINDS) as IterationKind[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={k === kind}
+            className={cn("tab", k === kind && "active")}
+            onClick={() => setKind(k)}
+            title={ITERATION_KINDS[k].hint}
+          >
+            {ITERATION_KINDS[k].title}
+          </button>
+        ))}
+      </div>
+      <p className="m-0 text-xs text-muted-foreground">{ITERATION_KINDS[kind].hint}</p>
       <textarea
         className="font-sans text-sm"
-        placeholder="e.g. add pagination to the list endpoint…"
+        placeholder={ITERATION_KINDS[kind].placeholder}
         rows={4}
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -373,7 +442,8 @@ function FeedbackForm({
         minLength={3}
       />
       <Button className="w-fit" disabled={send.isPending}>
-        <Send /> Send feedback &amp; start next iteration
+        <Send /> Request {ITERATION_KINDS[kind].title.toLowerCase()} &amp; start
+        next iteration
       </Button>
       <Problems error={send.error} />
     </form>

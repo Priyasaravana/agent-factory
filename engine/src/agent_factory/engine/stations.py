@@ -217,6 +217,10 @@ def skill_text(ctx: StationContext, name: str) -> str:
     return ""
 
 
+def _label(change: Change) -> str:
+    return f"[{change.kind}] " if change.change_request and str(change.kind) in KIND_GUIDANCE else ""
+
+
 def iteration_history(ctx: StationContext, limit: int) -> str:
     """What was asked, what was delivered and which decisions were made in the
     previous iterations of this product (newest first)."""
@@ -226,7 +230,7 @@ def iteration_history(ctx: StationContext, limit: int) -> str:
         decisions = [e.message for e in ctx.store.list_events(r.id) if e.kind == EventKind.decision][:12]
         lines = [
             f"### Iteration {r.iteration} ({r.status})",
-            f"- asked: {r.change_request or 'initial requirements'}",
+            f"- asked: {_label(r) + (r.change_request or 'initial requirements')}",
             f"- outcome: {r.summary or 'n/a'}",
         ]
         lines += [f"- decision: {d}" for d in decisions]
@@ -306,6 +310,36 @@ SPEC_SCHEMA: dict[str, Any] = {
         }
     },
 }
+
+
+# What each kind of change asks of the agents (ADR-0030). `new` and `feature` add
+# nothing: their prompts are the ones the evaluation suites measured.
+KIND_GUIDANCE: dict[str, str] = {
+    "bug": (
+        "This change is a BUG REPORT: the product does not behave as an existing requirement says. "
+        "Keep the requirements unless the report shows one is missing or wrong (record why as an "
+        "assumption). Reproduce the bug first with a failing test tagged with the affected requirement "
+        "id, then fix it, and keep the test."
+    ),
+    "upkeep": (
+        "This change is UPKEEP: dependencies, tooling, docs or refactoring. The product's behaviour must "
+        "stay the same: keep the requirements and scenarios unchanged, and keep every existing test passing."
+    ),
+}
+
+
+def _work_item(ctx: StationContext) -> str:
+    """Guidance for bug and upkeep changes; empty for new products and features."""
+    guidance = KIND_GUIDANCE.get(str(ctx.change.kind))
+    return f"## Kind of change: {ctx.change.kind}\n{guidance}\n" if guidance else ""
+
+
+def _asked(ctx: StationContext, none: str) -> str:
+    """What was asked this iteration, labelled with its kind when it is not a plain feature."""
+    text = ctx.change.change_request
+    if not text:
+        return none
+    return f"[{ctx.change.kind}] {text}" if str(ctx.change.kind) in KIND_GUIDANCE else text
 
 
 def _review_notes(ctx: StationContext) -> str:
@@ -394,8 +428,8 @@ async def requirements(ctx: StationContext) -> StationResult:
 {ctx.product.requirements}
 
 ## Change request for this iteration (from human feedback)
-{ctx.change.change_request or "none — first iteration"}
-
+{_asked(ctx, "none — first iteration")}
+{_work_item(ctx)}
 {_review_notes(ctx)}
 ## Answers to your earlier questions
 {qa or "none"}
@@ -488,8 +522,8 @@ Write:
   docs/tasks.md    — ordered implementation tasks, each with its test and the
                      requirement ids it implements
 
-Change request this iteration: {ctx.change.change_request or "none"}
-{_review_notes(ctx)}"""
+Change request this iteration: {_asked(ctx, "none")}
+{_work_item(ctx)}{_review_notes(ctx)}"""
     res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
@@ -510,7 +544,7 @@ Traceability: tag every test with the requirement ids it covers, e.g.
 `@pytest.mark.req("R1", "R3")` (ids from docs/requirements.yaml). Every requirement
 needs at least one tagged test; the Quality gate station checks this.
 
-{"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
+{_work_item(ctx)}{"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
     res = await ctx.agent(prompt)
     if lim := _limit_result(res):
         return lim
@@ -805,8 +839,8 @@ You are observe-only: read files and use read-only git (`git diff main...HEAD`, 
 {diff.output.strip()[-3000:] or "(no changes)"}
 
 ## Change request for this iteration
-{ctx.change.change_request or "none (first build)"}
-{_review_notes(ctx)}
+{_asked(ctx, "none (first build)")}
+{_work_item(ctx)}{_review_notes(ctx)}
 ## Your earlier review of this iteration sent it back for (check each is fixed)
 {earlier or "nothing: this is the first review of this iteration"}
 
@@ -939,7 +973,7 @@ current repository.
 {ctx.product.requirements}
 
 ## Change request for this iteration
-{ctx.change.change_request or "none"}
+{_asked(ctx, "none")}
 
 ## Evidence routed to you from a failed station
 {ctx.change.last_failure or "none"}
