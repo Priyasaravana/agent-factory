@@ -77,9 +77,12 @@ def main() -> int:
                 ev.get_by_role("button", name=re.compile("Download bundle")).click()
             assert dl.value.suggested_filename.startswith("evidence-"), dl.value.suggested_filename
 
-            step("feedback → iteration 2")
+            step("change request (feature) → iteration 2")
+            kinds = page.get_by_role("radiogroup", name="Kind of change")
+            expect(kinds.get_by_role("radio", name="Bug fix")).to_be_visible()
+            expect(kinds.get_by_role("radio", name="Feature")).to_have_attribute("aria-checked", "true")
             page.get_by_placeholder(re.compile("pagination")).fill("Add a reset endpoint")
-            page.get_by_role("button", name=re.compile("Send feedback")).click()
+            page.get_by_role("button", name=re.compile("Request feature")).click()
             expect(page.get_by_role("tab", name="iteration 2")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
 
