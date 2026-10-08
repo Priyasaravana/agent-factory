@@ -37,6 +37,7 @@ from agent_factory.models import (
     AgentCallView,
     AgentView,
     AnswersInput,
+    AssessmentView,
     CatalogView,
     Change,
     ChangeCallsView,
@@ -65,6 +66,7 @@ from agent_factory.models import (
     InstallSkillInput,
     IntegrationView,
     LearningProposal,
+    OnboardRepoInput,
     OutcomesView,
     PhaseInfo,
     PreflightView,
@@ -226,7 +228,8 @@ def get_config(f: Factory) -> ConfigView:
         name=f.cfg.factory.name,
         mode=f.settings.factory_mode,
         workflows={w.workflow_id: w.active_version() for w in f.workflows},
-        blueprints={k: v.description for k, v in f.cfg.blueprints.items()},
+        blueprints={k: v.description for k, v in f.cfg.blueprints.items() if v.target == "new"},
+        repo_blueprints={k: v.description for k, v in f.cfg.blueprints.items() if v.target == "repo"},
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
         gates=[f"{g.kind} after {g.after}" for g in f.cfg.gates],
     )
@@ -265,6 +268,65 @@ async def create_product(f: Factory, body: CreateProductInput) -> ProductDetail:
     f.store.save_product(product)
     f.manager.start_change(product)
     return get_product(f, product.id)
+
+
+@action(
+    "onboard_repo",
+    "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
+    "POST",
+    "/api/repos",
+    status_code=201,
+)
+async def onboard_repo(f: Factory, body: OnboardRepoInput) -> ProductDetail:
+    await _gate(f, f.cfg.existing_repos.blueprint, "product")
+    product = f.manager.onboard_repo(body)
+    product.created_by = current_identity().user
+    f.store.save_product(product)
+    f.manager.start_change(product)
+    return get_product(f, product.id)
+
+
+@action(
+    "get_change_assessment",
+    "An existing repo's assessment: stack, readiness signals, findings, risks, test gaps, "
+    "recommended changes and a proposed AGENTS.md (ADR-0031)",
+    "GET",
+    "/api/changes/{change_id}/assessment",
+)
+def get_change_assessment(f: Factory, change_id: str) -> AssessmentView:
+    import json
+
+    from agent_factory import assess
+
+    if not f.store.get_change(change_id):
+        raise FactoryError("change not found")
+    folder = f.manager.ws.data_dir / "artifacts" / change_id
+    file = folder / "assessment.json"
+    if not file.is_file():
+        raise FactoryError("assessment not found: the report station has not run for this change")
+    d = json.loads(file.read_text())
+    card = d.get("readiness", {})
+    md = folder / "assessment.md"
+    return AssessmentView(
+        change_id=change_id,
+        repo=d.get("repo", {}),
+        stack=d.get("stack", {}),
+        stack_summary=d.get("stack_summary", ""),
+        level=card.get("level", 0),
+        points=card.get("points", 0),
+        max_points=card.get("max_points", 0),
+        signals=card.get("signals", []),
+        pillars=card.get("pillars", []),
+        findings=assess.group_findings(d.get("findings", [])),
+        summary=d.get("summary", ""),
+        risks=d.get("risks", []),
+        test_gaps=d.get("test_gaps", []),
+        recommendations=d.get("recommendations", []),
+        dropped=d.get("dropped", []),
+        agents_md=d.get("agents_md", ""),
+        markdown=md.read_text() if md.is_file() else "",
+        assessed_at=d.get("assessed_at", ""),
+    )
 
 
 @action("get_product", "Product with its changes and feedback", "GET", "/api/products/{product_id}")
@@ -1222,7 +1284,7 @@ async def get_delivery(f: Factory) -> DeliveryView:
         EnvironmentView(
             name=e,
             bindings=env.model_dump(),
-            blueprints=[pl for pl, cfg in f.cfg.blueprints.items() if cfg.environment == e],
+            blueprints=[pl for pl, cfg in f.cfg.blueprints.items() if cfg.environment == e and cfg.target == "new"],
         )
         for e, env in envs.items()
     ]

@@ -136,6 +136,9 @@ class Preflight:
         env = self.m.providers.for_blueprint(pl)
         live = self.m.settings.factory_mode == "live"
         checks: list[CheckView] = [self._model(live), self._sandbox(live)]
+        if line.target == "repo":  # an existing repo is read, never built or deployed (ADR-0031)
+            checks.append(self._workflow(pl))
+            return self._view(pl, env.environment, checks, start)
         # one check per distinct integration, reported under the capabilities it serves
         by_integration: dict[str, list[str]] = {}
         for cap in ("registry", "deploy", "scan", "publish"):
@@ -145,10 +148,14 @@ class Preflight:
         checks.append(self._ports(pl))
         checks.append(self._scanner(line.scan_command))
         checks.append(self._workflow(pl))
+        return self._view(pl, env.environment, checks, start)
+
+    @staticmethod
+    def _view(pl: str, environment: str, checks: list[CheckView], start: float) -> PreflightView:
         state = max((c.state for c in checks), key=lambda s: _RANK.get(s, 2))
         return PreflightView(
             blueprint=pl,
-            environment=env.environment,
+            environment=environment,
             state=state,
             checked_at=datetime.now(UTC),
             duration_ms=int((time.perf_counter() - start) * 1000),
@@ -275,6 +282,10 @@ class Preflight:
             "Workflow",
             "workflow",
             "ready",
-            [f"{pl} v{wf.active_version()} holds apps to Level 3"],
+            [
+                f"{pl} v{wf.active_version()} reads the repo, never changes it"
+                if self.m.cfg.blueprints[pl].target == "repo"
+                else f"{pl} v{wf.active_version()} holds apps to Level 3"
+            ],
             blocks=[],
         )

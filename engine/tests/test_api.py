@@ -77,5 +77,6 @@ async def test_workflow_endpoints(make_factory):
         assert (await c.get("/api/workflows/fastapi-service/versions")).json()[0]["version"] == 1
         assert (await c.get("/api/workflows/fastapi-service/versions/9")).status_code == 404
         cfg = (await c.get("/api/config")).json()
-        assert cfg["workflows"] == {"fastapi-service": 1}
+        assert cfg["workflows"] == {"fastapi-service": 1, "existing-repo": 1}
+        assert cfg["repo_blueprints"] and "existing-repo" not in cfg["blueprints"]
     await ctx.__aexit__(None, None, None)

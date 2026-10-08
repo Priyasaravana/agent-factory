@@ -42,7 +42,7 @@ class ChangeKind(StrEnum):
 
 
 # kinds a person can ask for today; the others are part of the model and come with their workflows
-AVAILABLE_KINDS = {ChangeKind.new, ChangeKind.feature, ChangeKind.bug, ChangeKind.upkeep}
+AVAILABLE_KINDS = {ChangeKind.new, ChangeKind.feature, ChangeKind.bug, ChangeKind.upkeep, ChangeKind.assess}
 # kinds that iterate on a delivered product
 ITERATION_KINDS = (ChangeKind.feature, ChangeKind.bug, ChangeKind.upkeep)
 
@@ -63,7 +63,12 @@ class ProductTarget(StrEnum):
     factory = "factory"  # the factory itself, with the safety core out of bounds (later)
 
 
-AVAILABLE_TARGETS = {ProductTarget.new}
+AVAILABLE_TARGETS = {ProductTarget.new, ProductTarget.repo}
+# what each target's changes may be (ADR-0031): (first change, later changes)
+TARGET_KINDS: dict[ProductTarget, tuple[ChangeKind, tuple[ChangeKind, ...]]] = {
+    ProductTarget.new: (ChangeKind.new, ITERATION_KINDS),
+    ProductTarget.repo: (ChangeKind.assess, (ChangeKind.assess,)),  # changes → PRs come next
+}
 
 
 class StationOutcome(StrEnum):
@@ -104,7 +109,8 @@ class Product(BaseModel):
     node_port: int | None = None
     host_port: int | None = None
     app_url: str | None = None
-    repo_url: str | None = None
+    repo_url: str | None = None  # published repo; for an existing repo (target repo), its web URL
+    repo_ref: str | None = None  # an existing repo's branch (ADR-0031)
     created_by: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
@@ -328,6 +334,17 @@ class CreateProductInput(BaseModel):
     blueprint: str = Field(default="fastapi-service", validation_alias=AliasChoices("blueprint", "product_line"))
     requirements_format: Literal["prose", "spec"] = "prose"
     target: ProductTarget = ProductTarget.new  # only `new` is available yet (ADR-0030)
+
+
+class OnboardRepoInput(BaseModel):
+    """An existing repository to assess (ADR-0031): public https URLs on allowed hosts."""
+
+    repo_url: str = Field(min_length=10, max_length=300, description="https://github.com/owner/repo")
+    branch: str | None = Field(
+        default=None, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$", description="default: the repo's default branch"
+    )
+    title: str | None = Field(default=None, min_length=3, max_length=120, description="default: owner/repo")
+    notes: str | None = Field(default=None, max_length=5_000, description="what the team wants to know")
 
 
 class SpecReviewInput(BaseModel):
@@ -640,6 +657,48 @@ class ChangeRiskView(BaseModel):
     self_approval_at: datetime | None = None  # when the requester's break-glass approval opens
 
 
+class AssessmentFinding(BaseModel):
+    rule: str
+    severity: str  # high | medium | low
+    area: str
+    title: str
+    detail: str = ""
+    at: list[str] = Field(default_factory=list)  # file[:line], one per place it was found
+
+
+class AssessmentSignal(BaseModel):
+    id: str
+    level: int
+    title: str
+    ok: bool
+    pillar: str
+    hint: str = ""
+
+
+class AssessmentView(BaseModel):
+    """An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported
+    and the engine kept."""
+
+    change_id: str
+    repo: dict[str, Any] = Field(default_factory=dict)  # slug, url, ref, commit, files
+    stack: dict[str, Any] = Field(default_factory=dict)
+    stack_summary: str = ""
+    level: int = 0
+    points: int = 0
+    max_points: int = 0
+    signals: list[AssessmentSignal] = Field(default_factory=list)
+    pillars: list[dict[str, Any]] = Field(default_factory=list)
+    findings: list[AssessmentFinding] = Field(default_factory=list)
+    summary: str = ""
+    risks: list[dict[str, Any]] = Field(default_factory=list)
+    test_gaps: list[dict[str, Any]] = Field(default_factory=list)
+    recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    dropped: list[str] = Field(default_factory=list)
+    agents_md: str = ""
+    markdown: str = ""
+    assessed_at: str = ""
+
+
 class ChangeDetail(BaseModel):
     change: Change
     product: Product
@@ -670,7 +729,8 @@ class ConfigView(BaseModel):
     name: str
     mode: str
     workflows: dict[str, int]  # blueprint -> active workflow version
-    blueprints: dict[str, str]
+    blueprints: dict[str, str]  # blueprints that build new products
+    repo_blueprints: dict[str, str] = Field(default_factory=dict)  # blueprints for existing repos (ADR-0031)
     policies: dict[str, str]
     gates: list[str]
 

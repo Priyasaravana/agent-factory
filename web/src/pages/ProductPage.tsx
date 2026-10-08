@@ -129,25 +129,31 @@ export default function ProductPage() {
         <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
         </Fact>
-        <Fact icon={<Globe />} label="App">
-          {product.app_url ? (
-            <a
-              href={product.app_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-0.5"
-            >
-              {product.app_url.replace(/^https?:\/\//, "")}{" "}
-              <ArrowUpRight className="size-3" />
-            </a>
-          ) : (
-            <span className="text-muted-foreground">
-              {product.host_port
-                ? `will be served on :${product.host_port}`
-                : "not deployed yet"}
-            </span>
-          )}
-        </Fact>
+        {product.target === "repo" ? (
+          <Fact icon={<GitBranch />} label="Branch">
+            {product.repo_ref ?? <span className="text-muted-foreground">default (found on clone)</span>}
+          </Fact>
+        ) : (
+          <Fact icon={<Globe />} label="App">
+            {product.app_url ? (
+              <a
+                href={product.app_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5"
+              >
+                {product.app_url.replace(/^https?:\/\//, "")}{" "}
+                <ArrowUpRight className="size-3" />
+              </a>
+            ) : (
+              <span className="text-muted-foreground">
+                {product.host_port
+                  ? `will be served on :${product.host_port}`
+                  : "not deployed yet"}
+              </span>
+            )}
+          </Fact>
+        )}
         <Fact icon={<GitBranch />} label="Repository">
           {product.repo_url ? (
             <a
@@ -167,7 +173,9 @@ export default function ProductPage() {
       <Card>
         <CardContent className="grid gap-2 pt-4">
           <details>
-            <summary className="font-medium">Requirements</summary>
+            <summary className="font-medium">
+              {product.target === "repo" ? "What the team wants to know" : "Requirements"}
+            </summary>
             <pre className="pre mt-2">{product.requirements}</pre>
           </details>
           {feedback.length > 0 && (
@@ -213,6 +221,7 @@ export default function ProductPage() {
           changeId={changeId}
           productId={product.id}
           archived={!!product.archived_at}
+          target={product.target}
         />
       )}
     </div>

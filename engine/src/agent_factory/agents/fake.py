@@ -130,6 +130,40 @@ class FakeAgentRunner:
                     }
                 ]
             }
+        if "test_gaps" in props:  # repository assessment (ADR-0031): cite real files, plus one that isn't
+            files = sorted(
+                p.relative_to(req.cwd).as_posix()
+                for p in Path(req.cwd).rglob("*")
+                if p.is_file() and ".git" not in p.parts
+            )
+            main = files[0] if files else "README.md"
+            return {
+                "summary": "[dry-run] a small service; add tests and CI before changing it",
+                "test_gaps": [{"area": "request handling", "why": "no test exercises it", "files": [main]}],
+                "risks": [
+                    {
+                        "severity": "medium",
+                        "title": "no input validation",
+                        "detail": "requests are trusted",
+                        "files": [main],
+                    },
+                    {
+                        "severity": "high",
+                        "title": "imagined",
+                        "detail": "cites a file that isn't there",
+                        "files": ["nope.py"],
+                    },
+                ],
+                "recommendations": [
+                    {
+                        "title": "Add unit tests and a CI workflow",
+                        "why": "nothing checks changes",
+                        "kind": "upkeep",
+                        "effort": "M",
+                    }
+                ],
+                "agents_md": "# AGENTS.md\n\n- Run the tests before every change.\n",
+            }
         if "findings" in props and "requirements" in props:  # spec review (ADR-0020)
             reqs = yaml.safe_load((Path(req.cwd) / "docs" / "requirements.yaml").read_text()) or []
             return {

@@ -24,6 +24,7 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 # order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
     "create_product",
+    "onboard_repo",
     "submit_feedback",
     "answer_questions",
     "resume_change",

@@ -40,8 +40,29 @@ SAFE_EXTRA_TOOLS = {"WebFetch", "WebSearch"}  # read-only additions any preset m
 # Station handlers implemented by the engine, named after the DevOps phase they
 # serve (ADR-0028). `agent` is the generic, spec-driven handler used for any
 # custom agent station.
-AGENT_HANDLERS = {"requirements", "design", "implement", "code-review", "deploy-repair", "acceptance", "agent"}
-CHECK_HANDLERS = {"test", "quality-gate", "change-risk", "build", "deploy", "handover"}
+AGENT_HANDLERS = {
+    "requirements",
+    "design",
+    "implement",
+    "code-review",
+    "deploy-repair",
+    "acceptance",
+    "agent",
+    "assess",
+}
+CHECK_HANDLERS = {
+    "test",
+    "quality-gate",
+    "change-risk",
+    "build",
+    "deploy",
+    "handover",
+    "onboard",
+    "repo-scan",
+    "report",
+}
+# Handlers for existing repositories (ADR-0031): they read the repo and never change it.
+REPO_HANDLERS = {"onboard", "repo-scan", "assess", "report"}
 
 # Names used before ADR-0028. Versions stored with them keep working and keep their
 # station ids (runs and evidence are pinned to them); they resolve to the new
@@ -111,6 +132,24 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     "handover": HandlerInfo(
         kind="check", label="Handover", phase="handover", hint="commits, tags, opens the PR and hands over the app"
     ),
+    "onboard": HandlerInfo(
+        kind="check", label="Onboard", phase="plan", hint="records the commit and detects the repo's stack (ADR-0031)"
+    ),
+    "repo-scan": HandlerInfo(
+        kind="check",
+        label="Repo scan",
+        phase="test",
+        hint="readiness signals for any stack, rules over Dockerfiles and manifests, secret scan",
+    ),
+    "assess": HandlerInfo(
+        kind="agent",
+        label="Assess",
+        phase="test",
+        hint="reads the code for test gaps, risks and next changes; the engine keeps what the repo supports",
+    ),
+    "report": HandlerInfo(
+        kind="check", label="Report", phase="handover", hint="the assessment report and a proposed AGENTS.md"
+    ),
     "agent": HandlerInfo(
         kind="agent",
         label="Custom agent step",
@@ -133,13 +172,14 @@ HANDLER_REQUIREMENTS: dict[str, dict[str, bool]] = {
     "deploy-repair": {"write": True, "shell": True},
     "acceptance": {"write": False, "shell": True},
     "code-review": {"write": False, "shell": True},  # reads the diff with git; judges, never fixes
+    "assess": {"write": False},  # reads someone else's repository: never changes it
 }
 # Advice (warnings, not errors).
 RECOMMENDED_SKILLS: dict[str, list[str]] = {
     "acceptance": ["agent-watchdog"],
     "deploy-repair": ["helm-kind-deploy"],
 }
-JUDGMENT_HANDLERS = {"requirements", "design", "code-review", "acceptance"}
+JUDGMENT_HANDLERS = {"requirements", "design", "code-review", "acceptance", "assess"}
 
 # Context budgets: reference material is useful, but unbounded context is
 # expensive and dilutes the agent's attention.
