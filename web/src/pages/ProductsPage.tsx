@@ -141,7 +141,7 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
   const create = useMutation({
     mutationFn: () =>
       unwrap(
-        api.POST("/api/products", { body: { title, requirements, blueprint: line, requirements_format: format } }),
+        api.POST("/api/products", { body: { title, requirements, blueprint: line, requirements_format: format, target: "new" } }),
       ),
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["products"] });

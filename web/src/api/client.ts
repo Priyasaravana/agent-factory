@@ -4,6 +4,17 @@ import type { components, paths } from "./schema";
 // Types come straight from the engine's OpenAPI contract (npm run gen:api).
 export type Product = components["schemas"]["Product"];
 export type Change = components["schemas"]["Change"];
+export type ChangeKind = components["schemas"]["ChangeKind"];
+
+/** How each kind of change reads in the UI (ADR-0030). */
+export const KIND_LABEL: Record<ChangeKind, string> = {
+  new: "new product",
+  feature: "feature",
+  bug: "bug fix",
+  upkeep: "upkeep",
+  assess: "assessment",
+  remove: "removal",
+};
 export type ChangeDetail = components["schemas"]["ChangeDetail"];
 export type ProductDetail = components["schemas"]["ProductDetail"];
 export type FactoryEvent = components["schemas"]["Event"];

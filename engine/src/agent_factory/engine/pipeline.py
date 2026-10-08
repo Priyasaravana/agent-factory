@@ -19,8 +19,13 @@ from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
 from agent_factory.models import (
+    AVAILABLE_KINDS,
+    AVAILABLE_TARGETS,
+    ITERATION_KINDS,
     RESUMABLE,
     Change,
+    ChangeKind,
+    ChangeSource,
     ChangeStatus,
     CreateProductInput,
     EventKind,
@@ -40,6 +45,11 @@ if TYPE_CHECKING:
 
 class FactoryError(Exception):
     """A request the factory refuses (surfaced as HTTP 409/404)."""
+
+
+class InvalidRequestError(FactoryError):
+    """A request that can never succeed as sent, e.g. a kind of change or target that is
+    not available yet (ADR-0030, HTTP 422)."""
 
 
 class RefusedError(FactoryError):
@@ -151,6 +161,10 @@ class ChangeManager:
         line = self.cfg.blueprints.get(data.blueprint)
         if not line:
             raise FactoryError(f"unknown blueprint '{data.blueprint}'")
+        if data.target not in AVAILABLE_TARGETS:
+            raise InvalidRequestError(
+                f"target '{data.target}' is not available yet: only new products can be built today"
+            )
         self.screen(f"{data.title}\n{data.requirements}", "product")
         products = self.store.list_products()
         taken_slugs = {o.slug for o in products}
@@ -172,6 +186,7 @@ class ChangeManager:
             blueprint=data.blueprint,
             slug=slug,
             requirements_format=data.requirements_format,
+            target=data.target,
             created_at=_now(),
             node_port=node_port,
             host_port=host_port,
@@ -245,7 +260,20 @@ class ChangeManager:
         self.store.save_product(product)
         return product
 
-    def start_change(self, product: Product, change_request: str | None = None, version: int | None = None) -> Change:
+    def start_change(
+        self,
+        product: Product,
+        change_request: str | None = None,
+        version: int | None = None,
+        *,
+        kind: ChangeKind | None = None,
+        source: ChangeSource = ChangeSource.ui,
+        requested_by: str | None = None,
+    ) -> Change:
+        """Start a change to a product (ADR-0030). The kind defaults to `new` for the
+        first change and `feature` after it; the requester to the signed-in user."""
+        from agent_factory.identity import current_identity
+
         if product.archived_at:
             raise FactoryError("this product is archived: create a new product instead")
         changes = self.store.list_changes(product.id)
@@ -253,6 +281,15 @@ class ChangeManager:
         # that never blocks the next iteration
         if any(self.is_active(r.id) and r.status not in FEEDBACK_OPEN for r in changes):
             raise FactoryError("a change to this product is already in progress")
+        kind = kind or (ChangeKind.feature if changes else ChangeKind.new)
+        if kind not in AVAILABLE_KINDS:
+            raise InvalidRequestError(f"'{kind}' changes are not available yet")
+        if (kind == ChangeKind.new) != (not changes):
+            raise InvalidRequestError(
+                "a product's first change builds it ('new')"
+                if not changes
+                else "this product is built: ask for a feature, bug fix or upkeep"
+            )
         now = _now()
         change = Change(
             id=uuid.uuid4().hex[:12],
@@ -263,6 +300,9 @@ class ChangeManager:
             workflow_version=(version := version or self.workflows[product.blueprint].active_version()),
             current_station=self.workflows[product.blueprint].get(version).forward_stations()[0].id,
             change_request=change_request,
+            kind=kind,
+            source=source,
+            requested_by=requested_by or current_identity().user,
             created_at=now,
             updated_at=now,
         )
@@ -270,6 +310,12 @@ class ChangeManager:
         product.latest_change_id, product.latest_status = change.id, change.status
         self.store.save_product(product)
         self.store.add_event(change.id, EventKind.status, f"change queued (iteration {change.iteration})")
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"work item: {change.kind} from {change.source}, asked by {change.requested_by}",
+            data={"work_item": {"kind": change.kind, "source": change.source, "requested_by": change.requested_by}},
+        )
         env = self.providers.for_blueprint(product.blueprint)
         self.store.add_event(
             change.id,
@@ -452,7 +498,12 @@ class ChangeManager:
         )
         return change
 
-    def feedback(self, product_id: str, text: str) -> Change:
+    def feedback(self, product_id: str, text: str, kind: ChangeKind = ChangeKind.feature) -> Change:
+        """A change to a delivered product: a feature, a bug fix or upkeep (ADR-0030)."""
+        if kind not in ITERATION_KINDS:
+            raise InvalidRequestError(
+                f"'{kind}' is not a change to a delivered product: ask for a feature, bug fix or upkeep"
+            )
         product = self.store.get_product(product_id)
         if not product:
             raise FactoryError("product not found")
@@ -461,8 +512,8 @@ class ChangeManager:
             raise FactoryError(f"latest change is '{latest.status}'; feedback opens after delivery")
         self.screen(text, f"feedback on {product_id}")
         self.store.add_feedback(product_id, latest.id if latest else None, text)
-        change = self.start_change(product, change_request=text)
-        self.store.add_event(change.id, EventKind.feedback, text)
+        change = self.start_change(product, change_request=text, kind=kind)
+        self.store.add_event(change.id, EventKind.feedback, text, data={"kind": kind})
         return change
 
     def recover_on_startup(self) -> list[str]:

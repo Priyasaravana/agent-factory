@@ -232,8 +232,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Post-deploy feedback; starts the next iteration",
-        "description": "Post-deploy feedback; starts the next iteration",
+        "summary": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
+        "description": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
         "operationId": "submit_feedback",
         "parameters": [
           {
@@ -3563,6 +3563,25 @@
             "title": "Workflow Version",
             "default": 1
           },
+          "kind": {
+            "$ref": "#/components/schemas/ChangeKind",
+            "default": "new"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ChangeSource",
+            "default": "ui"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
           "attempts": {
             "additionalProperties": {
               "type": "integer"
@@ -3750,6 +3769,19 @@
         ],
         "title": "ChangeDetail"
       },
+      "ChangeKind": {
+        "type": "string",
+        "enum": [
+          "new",
+          "feature",
+          "bug",
+          "upkeep",
+          "assess",
+          "remove"
+        ],
+        "title": "ChangeKind",
+        "description": "What a change is for (ADR-0030). Every request is a change to a product."
+      },
       "ChangeRiskView": {
         "properties": {
           "digest": {
@@ -3824,6 +3856,16 @@
         ],
         "title": "ChangeRiskView",
         "description": "The latest change-risk check of a change (ADR-0027) and who may approve it."
+      },
+      "ChangeSource": {
+        "type": "string",
+        "enum": [
+          "ui",
+          "ticket",
+          "schedule"
+        ],
+        "title": "ChangeSource",
+        "description": "Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API."
       },
       "ChangeStatus": {
         "type": "string",
@@ -3973,6 +4015,10 @@
             ],
             "title": "Requirements Format",
             "default": "prose"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ProductTarget",
+            "default": "new"
           }
         },
         "type": "object",
@@ -5006,13 +5052,18 @@
             "maxLength": 20000,
             "minLength": 3,
             "title": "Text"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChangeKind",
+            "default": "feature"
           }
         },
         "type": "object",
         "required": [
           "text"
         ],
-        "title": "FeedbackInput"
+        "title": "FeedbackInput",
+        "description": "A change to a delivered product: what to do and what kind of change it is (ADR-0030)."
       },
       "FromGitHubInput": {
         "properties": {
@@ -5715,6 +5766,10 @@
             "type": "string",
             "title": "Blueprint"
           },
+          "target": {
+            "$ref": "#/components/schemas/ProductTarget",
+            "default": "new"
+          },
           "slug": {
             "type": "string",
             "title": "Slug"
@@ -5873,6 +5928,16 @@
           "feedback"
         ],
         "title": "ProductDetail"
+      },
+      "ProductTarget": {
+        "type": "string",
+        "enum": [
+          "new",
+          "repo",
+          "factory"
+        ],
+        "title": "ProductTarget",
+        "description": "What the factory works on (ADR-0030)."
       },
       "PublishInput": {
         "properties": {

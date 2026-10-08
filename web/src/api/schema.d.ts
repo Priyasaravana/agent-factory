@@ -118,8 +118,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Post-deploy feedback; starts the next iteration
-         * @description Post-deploy feedback; starts the next iteration
+         * Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration
+         * @description Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration
          */
         post: operations["submit_feedback"];
         delete?: never;
@@ -1394,6 +1394,12 @@ export interface components {
              * @default 1
              */
             workflow_version: number;
+            /** @default new */
+            kind: components["schemas"]["ChangeKind"];
+            /** @default ui */
+            source: components["schemas"]["ChangeSource"];
+            /** Requested By */
+            requested_by?: string | null;
             /** Attempts */
             attempts?: {
                 [key: string]: number;
@@ -1454,6 +1460,12 @@ export interface components {
             risk?: components["schemas"]["ChangeRiskView"] | null;
         };
         /**
+         * ChangeKind
+         * @description What a change is for (ADR-0030). Every request is a change to a product.
+         * @enum {string}
+         */
+        ChangeKind: "new" | "feature" | "bug" | "upkeep" | "assess" | "remove";
+        /**
          * ChangeRiskView
          * @description The latest change-risk check of a change (ADR-0027) and who may approve it.
          */
@@ -1489,6 +1501,12 @@ export interface components {
             /** Self Approval At */
             self_approval_at?: string | null;
         };
+        /**
+         * ChangeSource
+         * @description Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API.
+         * @enum {string}
+         */
+        ChangeSource: "ui" | "ticket" | "schedule";
         /**
          * ChangeStatus
          * @enum {string}
@@ -1553,6 +1571,8 @@ export interface components {
              * @enum {string}
              */
             requirements_format: "prose" | "spec";
+            /** @default new */
+            target: components["schemas"]["ProductTarget"];
         };
         /** DecisionInput */
         DecisionInput: {
@@ -1950,10 +1970,15 @@ export interface components {
              */
             created_at: string;
         };
-        /** FeedbackInput */
+        /**
+         * FeedbackInput
+         * @description A change to a delivered product: what to do and what kind of change it is (ADR-0030).
+         */
         FeedbackInput: {
             /** Text */
             text: string;
+            /** @default feature */
+            kind: components["schemas"]["ChangeKind"];
         };
         /** FromGitHubInput */
         FromGitHubInput: {
@@ -2298,6 +2323,8 @@ export interface components {
             requirements_format: "prose" | "spec";
             /** Blueprint */
             blueprint: string;
+            /** @default new */
+            target: components["schemas"]["ProductTarget"];
             /** Slug */
             slug: string;
             /**
@@ -2333,6 +2360,12 @@ export interface components {
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
         };
+        /**
+         * ProductTarget
+         * @description What the factory works on (ADR-0030).
+         * @enum {string}
+         */
+        ProductTarget: "new" | "repo" | "factory";
         /** PublishInput */
         PublishInput: {
             /** Note */
