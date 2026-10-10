@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import assess, repo_change, risk, stack, traceability
+from agent_factory import assess, repo_change, risk, stack, tools, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
@@ -1144,6 +1144,7 @@ async def report(ctx: StationContext) -> StationResult:
         "recommendations": j.get("recommendations", []),
         "dropped": j.get("dropped", []),
         "agents_md": j.get("agents_md", "") if not (ctx.worktree / "AGENTS.md").is_file() else "",
+        "tools": tool_reports(ctx),
         "assessed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
     }
     out = artifacts_dir(ctx)
@@ -1327,6 +1328,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
         risk=risk_data,
         change_id=ctx.change.id,
         files=files,
+        tools=tool_reports(ctx),
     )
     body_file = artifacts_dir(ctx) / "pull-request.md"
     body_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1387,6 +1389,76 @@ async def pull_request(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, f"pull request opened: {url or branch} (a person merges)")
 
 
+# ------------------------------------------------------------ tool stations --
+# Security and quality tools as stations (ADR-0034): the tool runs in dind against the
+# worktree, read-only; its output is normalised and judged by the station's policy.
+async def tool_station(ctx: StationContext) -> StationResult:
+    station = ctx.workflow_doc.station(ctx.station_id)
+    catalogue = tools.catalogue(ctx.cfg.tools)
+    tool = catalogue.get(station.tool or "")
+    if tool is None:
+        return StationResult(
+            StationOutcome.held,
+            f"unknown tool '{station.tool}'",
+            f"known tools: {', '.join(sorted(catalogue))} (add one under `tools:` in the config)",
+        )
+    fail_on = station.fail_on or "high"
+    # a change to a team's repo answers only for the files it touched
+    pr_change = ctx.product.target == ProductTarget.repo and str(ctx.change.kind) in ctx.cfg.CHANGE_KINDS
+    changed = await _changed_files(ctx) if pr_change else None
+    out = artifacts_dir(ctx) / "tools"
+    out.mkdir(parents=True, exist_ok=True)
+    if ctx.settings.factory_mode == "dry-run":
+        report = tools.judge(tool, [], fail_on, changed)
+        data = {"station": ctx.station_id, **report.as_data(), "simulated": True}
+        (out / f"{ctx.station_id}.json").write_text(json.dumps(data, indent=2))
+        await ctx.emit(EventKind.decision, f"{tool.title}: simulated (dry-run)", {"tool": data})
+        return StationResult(StationOutcome.passed, f"{tool.title}: simulated (dry-run)")
+    cmd = tool.command.format(image=tool.image, path=ctx.worktree)
+    # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
+    res = await ctx.ex.run(cmd, cwd=ctx.worktree, timeout=900)
+    await ctx.emit(
+        EventKind.command,
+        f"{tool.title}: exit {res.returncode}, {len(res.output)} bytes of output (raw output not kept)",
+        {"returncode": res.returncode, "image": tool.image},
+    )
+    try:
+        findings = tools.parse(tool, res.output)
+    except tools.ToolOutputError as exc:
+        return StationResult(StationOutcome.held, f"{tool.title} did not run: {exc}", res.output[-600:])
+    report = tools.judge(tool, findings, fail_on, changed)
+    data = {"station": ctx.station_id, **report.as_data(), "image": tool.image}
+    (out / f"{ctx.station_id}.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023)
+    await ctx.emit(
+        EventKind.decision,
+        report.headline(),
+        {"tool": {k: data[k] for k in ("station", "tool", "counts", "passed", "blocking", "outside", "fail_on")}},
+    )
+    if report.passed:
+        return StationResult(StationOutcome.passed, report.headline())
+    lines = [
+        f"- {f.severity}: {f.file}{':' + str(f.line) if f.line else ''}: {f.title} ({f.rule})"
+        for f in report.blocking[:25]
+    ]
+    return StationResult(
+        StationOutcome.failed,
+        report.headline(),
+        f"{tool.title} found {len(report.blocking)} problem(s) at or above {fail_on} to fix:\n" + "\n".join(lines),
+    )
+
+
+def tool_reports(ctx: StationContext) -> list[dict[str, Any]]:
+    """The change's tool reports so far, for the report and the pull request."""
+    folder = artifacts_dir(ctx) / "tools"
+    out = []
+    for p in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime) if folder.is_dir() else []:
+        try:
+            out.append(json.loads(p.read_text()))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 STATIONS: dict[str, Station] = {
     "requirements": requirements,
     "design": design,
@@ -1409,6 +1481,7 @@ STATIONS: dict[str, Station] = {
     "repo-test": repo_test,
     "repo-review": repo_review,
     "pull-request": pull_request,
+    "tool": tool_station,
 }
 
 

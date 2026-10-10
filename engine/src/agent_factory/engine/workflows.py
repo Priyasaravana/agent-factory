@@ -388,7 +388,7 @@ class Draft:
         are fixed; remove and add instead."""
         _, doc, _ = self.get()
         st = self._station(doc, station_id)
-        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent", "phase"}
+        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent", "phase", "tool", "fail_on"}
         unknown = set(patch) - allowed
         if unknown:
             raise WorkflowError(f"cannot change {sorted(unknown)} (allowed: {sorted(allowed)})")
@@ -403,6 +403,12 @@ class Draft:
                 setattr(st, key, target)
         if "only_on_fail" in patch:
             st.only_on_fail = bool(patch["only_on_fail"])
+        if "tool" in patch:
+            st.tool = str(patch["tool"]) if patch["tool"] else None
+        if "fail_on" in patch:
+            if patch["fail_on"] not in (None, "critical", "high", "medium", "low", "none"):
+                raise WorkflowError("fail_on must be critical, high, medium, low or none")
+            st.fail_on = patch["fail_on"]  # type: ignore[assignment]
         if "handler" in patch:
             h = canonical_handler(st.kind, str(patch["handler"])) if patch["handler"] else None
             known = AGENT_HANDLERS if st.kind == "agent" else CHECK_HANDLERS

@@ -300,7 +300,7 @@ async def test_repos_over_http(make_factory, tmp_path):
         assert eol["at"] == ["Dockerfile:1"]
         assert view["recommendations"][0]["kind"] == "upkeep" and view["markdown"].startswith("# Assessment")
         stations = [s["id"] for s in (await c.get(f"/api/changes/{cid}")).json()["stations"]]
-        assert stations == ["onboard", "repo-scan", "assess", "report"]
+        assert stations == ["onboard", "repo-scan", "sast", "dependencies", "iac", "assess", "report"]
         checks = {v["blueprint"]: [x["id"] for x in v["checks"]] for v in (await c.get("/api/preflight")).json()}
         assert checks["existing-repo"] == ["model", "sandbox", "workflow"]  # nothing to build or deploy
     await ctx.__aexit__(None, None, None)

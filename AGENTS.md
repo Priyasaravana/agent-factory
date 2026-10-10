@@ -115,4 +115,8 @@
   merges. Pure helpers live in `repo_change.py`. New signals and rules go in
   `assess.py` with a test in `tests/test_existing_repos.py` that also shows a well-kept
   repo doesn't trip them.
+- Tool stations (ADR-0034): a `tool` check names a catalogue entry (`tools.TOOLS`, extended
+  by `tools:` in the config) and a `fail_on` policy. Parsers are pure (`tools.PARSERS`);
+  a new tool or parser gets a test in `tests/test_tools.py` on its real output format.
+  Never keep or log a tool's raw output: only normalised findings, without matched text.
 - Record significant decisions as ADRs in `docs/adr/`.

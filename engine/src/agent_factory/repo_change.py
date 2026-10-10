@@ -129,6 +129,7 @@ def pr_body(
     risk: dict[str, Any],
     change_id: str,
     files: list[str],
+    tools: list[dict[str, Any]] | None = None,
 ) -> str:
     """The pull request's description: what was asked, what changed, and the evidence."""
     lines = [
@@ -157,6 +158,11 @@ def pr_body(
         lines.append(f"- **Change risk:** no risky changes ({len(findings)} note(s))")
     else:
         lines.append("- **Change risk:** no risky changes")
+    for t in tools or []:
+        counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
+        scope = " in the changed files" if t.get("scope") == "changed" else ""
+        verdict = "simulated" if t.get("simulated") else ("passed" if t.get("passed") else "not passed")
+        lines.append(f"- **{t.get('title')}:** {counts}{scope} ({verdict})")
     if review.get("notes") or notes:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in [*review.get("notes", []), *notes]]
     lines += [

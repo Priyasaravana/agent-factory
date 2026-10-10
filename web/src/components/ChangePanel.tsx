@@ -21,6 +21,7 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
+import ToolsPanel from "./ToolsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
@@ -201,6 +202,7 @@ export default function ChangePanel({
           <AssessAgain productId={productId} onDone={refresh} />
         )}
         <RunPillars events={events} />
+        <ToolsPanel changeId={changeId} runStatus={r.status} />
         <AgentCallsPanel changeId={changeId} runStatus={r.status} />
         <EvidencePanel changeId={changeId} runStatus={r.status} />
         <EventLog events={events} live={ACTIVE.has(r.status)} />

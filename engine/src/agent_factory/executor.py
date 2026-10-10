@@ -63,6 +63,15 @@ class LocalExecutor:
         return CommandResult(command, proc.returncode or 0, text[-TAIL_CHARS:])
 
 
+# Reports of the built-in tool stations when they find nothing (tools.py, ADR-0034)
+CLEAN_SCANS = {
+    "semgrep scan": '{"version": "2.1.0", "runs": []}',
+    "osv-scanner": '{"results": []}',
+    "--report-format json --report-path /dev/stdout": "[]",  # gitleaks
+    " config --format json": '{"Results": []}',  # trivy config
+}
+
+
 @dataclass
 class FakeExecutor:
     """Dry-run / test executor. Succeeds unless a substring in `fail_on` matches.
@@ -70,6 +79,8 @@ class FakeExecutor:
 
     fail_on: list[str] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    # what a command prints, by a substring of it: scanners answer like a clean scan (ADR-0034)
+    scan_outputs: dict[str, str] = field(default_factory=lambda: dict(CLEAN_SCANS))
 
     async def run(
         self,
@@ -84,4 +95,7 @@ class FakeExecutor:
                 self.fail_on.remove(needle)
                 return CommandResult(command, 1, f"[dry-run] simulated failure for '{needle}'")
         await asyncio.sleep(0.05)
+        for needle, output in self.scan_outputs.items():
+            if needle in command:
+                return CommandResult(command, 0, output)
         return CommandResult(command, 0, f"[dry-run] ok: {command}")

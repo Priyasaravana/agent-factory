@@ -632,6 +632,35 @@ class StationView(BaseModel):
     repair: bool
     state: str  # pending | running | passed | failed | held
     attempts: int
+    tool: str | None = None  # tool stations (ADR-0034)
+    fail_on: str | None = None
+
+
+class ToolFindingView(BaseModel):
+    tool: str
+    rule: str
+    severity: str  # critical | high | medium | low | info
+    title: str
+    file: str = ""
+    line: int | None = None
+    detail: str = ""
+
+
+class ToolReportView(BaseModel):
+    """One tool station's report on a change (ADR-0034): normalised findings and the verdict."""
+
+    station: str
+    tool: str
+    title: str
+    fail_on: str
+    scope: str  # all | changed (a change to an existing repo answers only for its files)
+    passed: bool
+    simulated: bool = False
+    counts: dict[str, int] = Field(default_factory=dict)
+    blocking: int = 0
+    outside: int = 0
+    findings: list[ToolFindingView] = Field(default_factory=list)
+    truncated: bool = False
 
 
 class RiskFindingView(BaseModel):
@@ -861,6 +890,8 @@ class AddStationInput(BaseModel):
     next: str | None = None
     only_on_fail: bool = False
     phase: Phase | None = None  # custom steps only; built-in handlers have their own
+    tool: str | None = None  # tool stations (ADR-0034)
+    fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
     position: int | None = None  # index in the lane; end when omitted
 
 
@@ -873,6 +904,8 @@ class UpdateStationInput(BaseModel):
     handler: str | None = None
     agent: str | None = None
     phase: Phase | None = None
+    tool: str | None = None  # tool stations (ADR-0034)
+    fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
 
 
 class ReorderStationsInput(BaseModel):

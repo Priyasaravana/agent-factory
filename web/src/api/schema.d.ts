@@ -128,6 +128,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order
+         * @description The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order
+         */
+        get: operations["get_change_tools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}": {
         parameters: {
             query?: never;
@@ -1230,6 +1250,10 @@ export interface components {
             only_on_fail: boolean;
             /** Phase */
             phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            /** Tool */
+            tool?: string | null;
+            /** Fail On */
+            fail_on?: ("critical" | "high" | "medium" | "low" | "none") | null;
             /** Position */
             position?: number | null;
         };
@@ -2951,6 +2975,10 @@ export interface components {
             state: string;
             /** Attempts */
             attempts: number;
+            /** Tool */
+            tool?: string | null;
+            /** Fail On */
+            fail_on?: string | null;
         };
         /** TemplateInfo */
         TemplateInfo: {
@@ -2990,6 +3018,73 @@ export interface components {
              * @default 0
              */
             suspended_s: number;
+        };
+        /** ToolFindingView */
+        ToolFindingView: {
+            /** Tool */
+            tool: string;
+            /** Rule */
+            rule: string;
+            /** Severity */
+            severity: string;
+            /** Title */
+            title: string;
+            /**
+             * File
+             * @default
+             */
+            file: string;
+            /** Line */
+            line?: number | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
+        /**
+         * ToolReportView
+         * @description One tool station's report on a change (ADR-0034): normalised findings and the verdict.
+         */
+        ToolReportView: {
+            /** Station */
+            station: string;
+            /** Tool */
+            tool: string;
+            /** Title */
+            title: string;
+            /** Fail On */
+            fail_on: string;
+            /** Scope */
+            scope: string;
+            /** Passed */
+            passed: boolean;
+            /**
+             * Simulated
+             * @default false
+             */
+            simulated: boolean;
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Blocking
+             * @default 0
+             */
+            blocking: number;
+            /**
+             * Outside
+             * @default 0
+             */
+            outside: number;
+            /** Findings */
+            findings?: components["schemas"]["ToolFindingView"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
         };
         /**
          * TraceRow
@@ -3031,6 +3126,10 @@ export interface components {
             agent?: string | null;
             /** Phase */
             phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            /** Tool */
+            tool?: string | null;
+            /** Fail On */
+            fail_on?: ("critical" | "high" | "medium" | "low" | "none") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -3402,6 +3501,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssessmentView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_tools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolReportView"][];
                 };
             };
             /** @description Validation Error */

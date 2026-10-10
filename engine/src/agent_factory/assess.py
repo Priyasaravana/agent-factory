@@ -905,6 +905,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- **{g['severity']}** · {g['title']}: {g['detail']} ({at})")
     if not r["findings"]:
         lines.append("None.")
+    if r.get("tools"):
+        lines += ["", "## Tools", ""]
+        for t in r["tools"]:
+            counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
+            lines.append(f"- **{t.get('title')}:** {counts}" + (" (simulated)" if t.get("simulated") else ""))
+            for f in (t.get("findings") or [])[:10]:
+                at = f["file"] + (f":{f['line']}" if f.get("line") else "")
+                lines.append(f"  - {f['severity']} · {f['title']} (`{at}`)")
     lines += ["", "## Risks (assessor, checked against the repo)", ""]
     lines += [
         f"- **{x['severity']}**{' · ' + x['pillar'] if x.get('pillar') else ''} · {x['title']}: {x['detail']} "

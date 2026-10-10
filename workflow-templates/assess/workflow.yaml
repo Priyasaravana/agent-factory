@@ -1,6 +1,6 @@
 # Assessment of an existing repository (ADR-0031). Read-only: nothing is built,
 # deployed or pushed. The engine clones the repo before the first station.
-#   plan: onboard · test: repo-scan, assess · handover: report
+#   plan: onboard · test: repo-scan, sast, dependencies, iac, assess · handover: report
 name: assess
 description: Onboard an existing repo read-only and report its readiness, findings and test gaps
 spec_review: "off"
@@ -9,5 +9,9 @@ learn_from_runs: false
 stations:
   - {id: onboard,   kind: check}                   # commit, size, detected stack
   - {id: repo-scan, kind: check}                   # readiness signals for any stack, rules, secret scan
+  # tool stations (ADR-0034): an assessment reports, so they never fail
+  - {id: sast,         kind: check, handler: tool, tool: semgrep,      fail_on: none}
+  - {id: dependencies, kind: check, handler: tool, tool: osv-scanner,  fail_on: none}
+  - {id: iac,          kind: check, handler: tool, tool: trivy-config, fail_on: none}
   - {id: assess,    kind: agent, agent: assessor}  # test gaps, risks, recommendations; the engine judges
   - {id: report,    kind: check}                   # assessment.md + .json and a proposed AGENTS.md
