@@ -38,7 +38,10 @@ def _factory(tmp_path, seeds: Path, db: str = ":memory:", agents=None):
 
 def test_builderio_skills_are_not_in_the_repo() -> None:
     names = {p.name for p in (REPO / "plugin" / "skills").iterdir() if p.is_dir()}
-    assert names == {"factory-station-contract", "fastapi-golden-path", "helm-kind-deploy"}
+    own = {"factory-station-contract", "fastapi-golden-path", "helm-kind-deploy"}
+    engineering = {p.name for p in (REPO / ".claude" / "skills").iterdir() if p.is_dir()}  # ADR-0032
+    assert names == own | engineering
+    assert not names & {Path(p).name for p in SRC.paths}, "upstream skills are imported, never copied"
     assert SRC.repo == "BuilderIO/skills" and len(SRC.sha) == 40
 
 

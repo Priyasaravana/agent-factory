@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi check
+.PHONY: help init up up-live down logs ps reset-cluster local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -60,6 +60,10 @@ test: ## engine + auth tests (dry-run, no model usage)
 lint:
 	cd engine && uv run --extra dev ruff check src tests
 	cd auth && uv run --extra dev ruff check src tests
+
+skills-sync: ## copy the engineering standards skills from plugin/skills to .claude/skills (ADR-0032)
+	@for d in .claude/skills/*/; do n=$$(basename $$d); cp plugin/skills/$$n/SKILL.md .claude/skills/$$n/SKILL.md; done
+	@echo "synced: $$(ls .claude/skills | tr '\n' ' ')"
 
 openapi: ## regenerate the API contract and the UI's typed client
 	cd engine && uv run agent-factory openapi --out ../web/openapi.json

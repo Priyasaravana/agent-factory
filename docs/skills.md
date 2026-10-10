@@ -7,9 +7,34 @@ editor.
 
 | Source | Where | Changes by |
 |---|---|---|
-| Built in | `plugin/skills/`: the factory's own (`factory-station-contract`, `fastapi-golden-path`, `helm-kind-deploy`) | a PR to this repo |
+| Built in | `plugin/skills/`: the factory's own (`factory-station-contract`, `fastapi-golden-path`, `helm-kind-deploy`) and the engineering standards below | a PR to this repo |
 | Default imports | `default_skills` in `.agent-factory/config.yaml`: BuilderIO/skills at a pinned commit, installed on first start | the pin in config (new installs), then the Skills page |
 | Imported | a folder in any GitHub repo, stored in the factory DB and pinned to a commit | **Skills** page in the UI (or the API) |
+
+## Engineering standards (ADR-0032)
+
+Nine skills hold the standards the factory builds to: `well-architected-standards`
+(the router) and six pillar skills (`security-`, `reliability-`, `performance-`,
+`operability-`, `cost-`, `sustainability-pillar`), `devsecops-practices` and
+`iso-12207-sdlc`. They load on demand, by stage:
+
+| Agent (station) | Standards skills |
+|---|---|
+| intake (requirements) | iso-12207-sdlc, well-architected-standards |
+| architect (design) | well-architected-standards and the six pillars; writes the Pillar check in docs/design.md |
+| developer (implement) | devsecops-practices, security-pillar |
+| reviewer (code-review) | well-architected-standards, security, reliability, performance |
+| devops (deploy-repair) | devsecops-practices, reliability, operability |
+| security-reviewer | security-pillar, devsecops-practices |
+| assessor (existing repos) | well-architected-standards, the six pillars, devsecops-practices; files each risk under a pillar |
+
+The acceptance agent has none: it stays on the hidden scenarios. `skill_prompts` keeps
+them in proportion: no cloud services the request doesn't ask for, and a pillar gap the
+request doesn't cover is never a blocker.
+
+The same files are in `.claude/skills/` for people working on this repo with Claude
+Code. Edit `plugin/skills/<name>/SKILL.md`, then `make skills-sync`; a test fails if
+the two copies differ.
 
 ## Default skills (BuilderIO)
 

@@ -7,6 +7,13 @@ skills:
 - read-the-damn-docs
 - factory-station-contract
 - fastapi-golden-path
+- well-architected-standards
+- security-pillar
+- reliability-pillar
+- performance-pillar
+- operability-pillar
+- cost-pillar
+- sustainability-pillar
 max_turns: 40
 produces:
 - docs/design.md

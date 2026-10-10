@@ -199,6 +199,19 @@ default_skills:
 skills_github_token_ref: env://SKILLS_GITHUB_TOKEN
 
 skill_prompts:
+  # Engineering standards skills (ADR-0032): apply them in proportion to the request.
+  well-architected-standards: |
+    In the factory, apply the pillars in proportion to the product and the request.
+    The platform is the blueprint's (a container and Helm on Kubernetes): don't add
+    cloud services the request doesn't ask for; name them as recommendations instead.
+    The Design station records the Pillar check in docs/design.md; other stations
+    report through the station contract and never add the table to their output.
+    A pillar gap the request doesn't cover is a note or a minor finding, never a blocker.
+  devsecops-practices: |
+    In the factory, CI, scans, SBOM and provenance already run in the Test, Quality gate,
+    Change risk and Build stations. Do the code-level practices (tests with the code, no
+    secrets, pinned dependencies, structured logs, health probes) and don't add pipeline
+    tooling the request doesn't ask for.
   plow-ahead: |
     Humans only give requirements and post-deploy feedback. Turn routine
     ambiguity into recorded assumptions (log_decision) and keep going.

@@ -143,6 +143,7 @@ class FakeAgentRunner:
                 "risks": [
                     {
                         "severity": "medium",
+                        "pillar": "security",
                         "title": "no input validation",
                         "detail": "requests are trusted",
                         "files": [main],
