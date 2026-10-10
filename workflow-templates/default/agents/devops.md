@@ -7,6 +7,9 @@ skills:
 - read-the-damn-docs
 - factory-station-contract
 - helm-kind-deploy
+- devsecops-practices
+- reliability-pillar
+- operability-pillar
 max_turns: 40
 produces: []
 ---

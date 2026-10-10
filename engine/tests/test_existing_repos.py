@@ -176,7 +176,14 @@ def test_the_engine_keeps_only_what_the_repo_supports():
             {"severity": "critical", "title": "odd severity", "detail": "", "files": ["app.js"]},
             {"severity": "low", "title": "real", "detail": "", "files": ["./k8s/deployment.yaml:12"]},
             {"severity": "low", "title": "a folder", "detail": "", "files": ["k8s/"]},
-            {"severity": "low", "title": "a dotfile", "detail": "", "files": [".github/workflows/ci.yml"]},
+            {
+                "severity": "low",
+                "pillar": "operational-excellence",
+                "title": "a dotfile",
+                "detail": "",
+                "files": [".github/workflows/ci.yml"],
+            },
+            {"severity": "low", "pillar": "vibes", "title": "odd pillar", "detail": "", "files": ["app.js"]},
         ],
         "recommendations": [
             {"title": "Add tests", "why": "none", "kind": "upkeep", "effort": "XL"},
@@ -186,7 +193,8 @@ def test_the_engine_keeps_only_what_the_repo_supports():
     }
     j = assess.judge(report, ["app.js", "k8s/deployment.yaml", ".github/workflows/ci.yml"])
     assert [g["files"] for g in j.test_gaps] == [["app.js"]]
-    assert [r["title"] for r in j.risks] == ["real", "a folder", "a dotfile"]
+    assert [r["title"] for r in j.risks] == ["real", "a folder", "a dotfile", "odd pillar"]
+    assert [r.get("pillar") for r in j.risks] == [None, None, "operational-excellence", None]  # unknown pillar dropped
     assert j.risks[0]["files"] == ["k8s/deployment.yaml"]
     assert [(r["title"], r["effort"]) for r in j.recommendations] == [("Add tests", "M")]
     assert len(j.agents_md) == assess.MAX_AGENTS_MD
@@ -217,7 +225,7 @@ async def test_onboard_assess_and_assess_again(make_factory, tmp_path):
     report = json.loads((out / "assessment.json").read_text())
     assert report["repo"]["commit"] == before and report["stack"]["runtimes"] == {"node": "18"}
     assert any(x["rule"] == "runtime-eol" for x in report["findings"])
-    assert [r["title"] for r in report["risks"]] == ["no input validation"]  # the uncited one was left out
+    assert [(r["title"], r["pillar"]) for r in report["risks"]] == [("no input validation", "security")]
     assert [g["area"] for g in report["test_gaps"]] == ["request handling"]
     assert any("nope.py" in d for d in report["dropped"])
     assert report["agents_md"] and (out / "AGENTS.proposed.md").is_file()

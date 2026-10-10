@@ -539,6 +539,8 @@ def score(root: Path, stack: Stack, paths: list[str] | None = None, secret_scan_
 # A runtime at or below the version is past end of life.
 RUNTIME_EOL = {"node": 20, "python": 3.9, "golang": 1.24, "openjdk": 17, "ruby": 3.2, "php": 8.1}
 SEVERITIES = ("high", "medium", "low")
+# Well-Architected pillars an assessor's risk is filed under (ADR-0032)
+WA_PILLARS = ("operational-excellence", "security", "reliability", "performance", "cost", "sustainability")
 
 
 @dataclass(frozen=True)
@@ -760,6 +762,7 @@ ASSESS_SCHEMA: dict[str, Any] = {
                 "required": ["severity", "title", "detail", "files"],
                 "properties": {
                     "severity": {"type": "string", "enum": list(SEVERITIES)},
+                    "pillar": {"type": "string", "enum": list(WA_PILLARS)},
                     "title": {"type": "string"},
                     "detail": {"type": "string"},
                     "files": {"type": "array", "items": {"type": "string"}},
@@ -839,6 +842,8 @@ def judge(report: dict[str, Any], paths: list[str]) -> Judgement:
     def risk(item: dict[str, Any]) -> str | None:
         if item.get("severity") not in SEVERITIES:
             return f"unknown severity '{item.get('severity')}'"
+        if item.get("pillar") not in WA_PILLARS:
+            item.pop("pillar", None)
         return cited(item)
 
     def rec(item: dict[str, Any]) -> str | None:
@@ -901,9 +906,11 @@ def render_markdown(report: dict[str, Any]) -> str:
     if not r["findings"]:
         lines.append("None.")
     lines += ["", "## Risks (assessor, checked against the repo)", ""]
-    lines += [f"- **{x['severity']}** · {x['title']}: {x['detail']} ({', '.join(x['files'])})" for x in r["risks"]] or [
-        "None reported."
-    ]
+    lines += [
+        f"- **{x['severity']}**{' · ' + x['pillar'] if x.get('pillar') else ''} · {x['title']}: {x['detail']} "
+        f"({', '.join(x['files'])})"
+        for x in r["risks"]
+    ] or ["None reported."]
     lines += ["", "## Test gaps", ""]
     lines += [f"- **{x['area']}**: {x['why']} ({', '.join(x['files'])})" for x in r["test_gaps"]] or ["None reported."]
     lines += ["", "## Recommended changes", ""]

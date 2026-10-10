@@ -127,6 +127,7 @@ export default function AssessmentPanel({ changeId, runStatus }: { changeId: str
             <li key={i} className="grid gap-0.5">
               <span>
                 <span className={`pill ${SEV[String(r.severity)] ?? "muted"}`}>{String(r.severity)}</span>{" "}
+                {r.pillar ? <span className="pill muted">{String(r.pillar)}</span> : null}{" "}
                 <span className="font-medium">{String(r.title)}</span>
               </span>
               <span className="text-muted-foreground">{String(r.detail)}</span>

@@ -6,6 +6,8 @@ tools: reviewer
 skills:
 - read-the-damn-docs
 - factory-station-contract
+- security-pillar
+- devsecops-practices
 max_turns: 40
 context_docs:
 - secure-coding

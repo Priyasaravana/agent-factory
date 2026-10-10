@@ -5,6 +5,10 @@ model: judgment
 tools: reviewer
 skills:
 - factory-station-contract
+- well-architected-standards
+- security-pillar
+- reliability-pillar
+- performance-pillar
 max_turns: 40
 context_docs:
 - api-conventions

@@ -8,6 +8,8 @@ skills:
 - plow-ahead
 - read-the-damn-docs
 - factory-station-contract
+- iso-12207-sdlc
+- well-architected-standards
 max_turns: 30
 produces: []
 previous_iterations: 3

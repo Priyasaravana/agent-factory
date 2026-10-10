@@ -11,6 +11,10 @@
 - `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
   imported at a pinned commit via `default_skills` in the config; never copy
   them into the repo. Layer guidance through `skill_prompts` instead of editing them.
+- The engineering standards skills (ADR-0032: Well-Architected pillars, DevSecOps,
+  ISO 12207) are in `plugin/skills/` and mirrored in `.claude/skills/` for Claude Code:
+  use them when you design, build or review here too. Edit the `plugin/skills` copy and
+  run `make skills-sync` (`tests/test_engineering_skills.py` checks they match).
 - Stations must never report success without evidence. Missing evidence means
   FAILED or HELD.
 - Guardrails live in `engine/src/agent_factory/agents/hooks.py`. Add a test in

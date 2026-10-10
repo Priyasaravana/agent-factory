@@ -5,6 +5,14 @@ model: judgment
 tools: reviewer
 skills:
 - factory-station-contract
+- well-architected-standards
+- security-pillar
+- reliability-pillar
+- performance-pillar
+- operability-pillar
+- cost-pillar
+- sustainability-pillar
+- devsecops-practices
 max_turns: 40
 previous_iterations: 1
 produces: []
@@ -26,7 +34,9 @@ Report:
 - **risks**: concrete problems in the code or its delivery (error handling, input
   validation, secrets handling, single points of failure, intentional failure modes
   left enabled). `high` only for something that can cause an outage, data loss or a
-  security incident. Name the files.
+  security incident. Name the files, and file each risk under its Well-Architected
+  `pillar` (use the pillar skills to check each one; a pillar with nothing to report
+  is fine).
 - **recommendations**: the next changes, most valuable first, each one a work item
   the factory could do: `feature`, `bug` or `upkeep`, effort `S`, `M` or `L`.
 - **agents_md**: a proposed AGENTS.md for this repo: how to set up, build, test and
