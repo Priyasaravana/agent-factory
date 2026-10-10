@@ -74,8 +74,10 @@ def test_the_default_lane_reads_as_the_devops_loop() -> None:
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     phases = doc.phases()
     assert [phases[s.id] for s in doc.forward_stations()] == [
-        "plan", "plan", "code", "test", "test", "test", "test", "release", "deploy", "validate", "handover",
+        "plan", "plan", "code", "test", "test", "test", "test", "test", "test", "test", "release", "deploy",
+        "validate", "handover",
     ]  # fmt: skip
+    assert {s.id: s.label() for s in doc.stations}["sast"] == "Semgrep (code)"
     assert phases["deploy-repair"] == "deploy"
     assert {s.id: s.label() for s in doc.stations}["quality-gate"] == "Quality gate"
     assert not [w for w in workflow_warnings(doc) if "out of order" in w]

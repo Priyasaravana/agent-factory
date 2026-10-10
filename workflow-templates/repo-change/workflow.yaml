@@ -1,7 +1,8 @@
 # A change to an existing repository, delivered as a pull request (ADR-0033).
 # The engine fetches the repo's branch before the first station; the change is made on a
 # branch of that clone and leaves only as a pull request. A person merges.
-#   plan: onboard · code: implement · test: test, review, change-risk · handover: pull-request
+#   plan: onboard · code: implement · test: test, secrets, sast, dependencies, iac, review, change-risk
+#   handover: pull-request
 name: repo-change
 description: Feature, bug fix or upkeep on an existing repo, tested and reviewed, opened as a pull request
 spec_review: "off"
@@ -10,6 +11,11 @@ stations:
   - {id: onboard,      kind: check}                                                  # commit and stack
   - {id: implement,    kind: agent, agent: repo-developer, handler: repo-implement}
   - {id: test,         kind: check, handler: repo-test, on_fail: implement}          # the repo's own checks, in the sandbox
+  # tool stations (ADR-0034): only findings in the files this change touched count
+  - {id: secrets,      kind: check, handler: tool, tool: gitleaks,     fail_on: high, on_fail: implement}
+  - {id: sast,         kind: check, handler: tool, tool: semgrep,      fail_on: high, on_fail: implement}
+  - {id: dependencies, kind: check, handler: tool, tool: osv-scanner,  fail_on: high, on_fail: implement}
+  - {id: iac,          kind: check, handler: tool, tool: trivy-config, fail_on: high, on_fail: implement}
   - {id: review,       kind: agent, agent: repo-reviewer, handler: repo-review, on_fail: implement}
   - {id: change-risk,  kind: check, on_fail: implement}                              # rules over the diff (ADR-0027)
   - {id: pull-request, kind: check}                                                  # push the branch, open the PR

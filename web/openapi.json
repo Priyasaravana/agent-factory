@@ -269,6 +269,53 @@
         }
       }
     },
+    "/api/changes/{change_id}/tools": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
+        "description": "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
+        "operationId": "get_change_tools",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolReportView"
+                  },
+                  "title": "Response Get Change Tools"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}": {
       "get": {
         "tags": [
@@ -3206,6 +3253,35 @@
               }
             ],
             "title": "Phase"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          },
+          "fail_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fail On"
           },
           "position": {
             "anyOf": [
@@ -7277,6 +7353,28 @@
           "attempts": {
             "type": "integer",
             "title": "Attempts"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          },
+          "fail_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fail On"
           }
         },
         "type": "object",
@@ -7359,6 +7457,128 @@
         "type": "object",
         "title": "TimeSplit",
         "description": "Seconds of run time in the window, by who the change was waiting on."
+      },
+      "ToolFindingView": {
+        "properties": {
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "file": {
+            "type": "string",
+            "title": "File",
+            "default": ""
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool",
+          "rule",
+          "severity",
+          "title"
+        ],
+        "title": "ToolFindingView"
+      },
+      "ToolReportView": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "fail_on": {
+            "type": "string",
+            "title": "Fail On"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "simulated": {
+            "type": "boolean",
+            "title": "Simulated",
+            "default": false
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          },
+          "blocking": {
+            "type": "integer",
+            "title": "Blocking",
+            "default": 0
+          },
+          "outside": {
+            "type": "integer",
+            "title": "Outside",
+            "default": 0
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ToolFindingView"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "tool",
+          "title",
+          "fail_on",
+          "scope",
+          "passed"
+        ],
+        "title": "ToolReportView",
+        "description": "One tool station's report on a change (ADR-0034): normalised findings and the verdict."
       },
       "TraceRow": {
         "properties": {
@@ -7486,6 +7706,35 @@
               }
             ],
             "title": "Phase"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          },
+          "fail_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fail On"
           }
         },
         "type": "object",

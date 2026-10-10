@@ -64,6 +64,7 @@ CHECK_HANDLERS = {
     "report",
     "repo-test",
     "pull-request",
+    "tool",
 }
 # Handlers for existing repositories: assessment reads the repo (ADR-0031); a change is made
 # on a branch of the clone and leaves only as a pull request (ADR-0033).
@@ -175,6 +176,12 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     ),
     "pull-request": HandlerInfo(
         kind="check", label="Pull request", phase="handover", hint="pushes the branch and opens a PR; a person merges"
+    ),
+    "tool": HandlerInfo(
+        kind="check",
+        label="Tool",
+        phase="test",
+        hint="runs a scanner (Semgrep, OSV-Scanner, gitleaks, Trivy …) with a pass/fail policy (ADR-0034)",
     ),
     "agent": HandlerInfo(
         kind="agent",
@@ -291,6 +298,10 @@ class WorkflowStation(BaseModel):
     # DevOps phase the station is shown under (ADR-0028). Built-in handlers have
     # one; a custom step without it takes the phase of the station before it.
     phase: Phase | None = None
+    # tool stations (ADR-0034): which tool from the catalogue, and the lowest severity
+    # that fails the station (lower ones are warnings; `none` never fails)
+    tool: str | None = None
+    fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
 
     def resolved_handler(self) -> str:
         if self.handler:
@@ -305,6 +316,10 @@ class WorkflowStation(BaseModel):
 
     def label(self) -> str:
         """What people read: the built-in handler's name, or the custom station's id."""
+        if self.resolved_handler() == "tool":
+            from agent_factory.tools import TOOLS
+
+            return TOOLS[self.tool].title if self.tool in TOOLS else (self.tool or self.id)
         info = HANDLER_INFO.get(self.resolved_handler())
         return info.label if info and self.resolved_handler() != "agent" else self.id
 
@@ -443,6 +458,10 @@ def validate_workflow(
         else:
             if handler not in CHECK_HANDLERS:
                 errors.append(f"check station '{s.id}': unknown handler '{handler}'")
+            if handler == "tool" and not s.tool:
+                errors.append(
+                    f"tool station '{s.id}' must name a tool (e.g. semgrep, osv-scanner, gitleaks, trivy-config)"
+                )
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)

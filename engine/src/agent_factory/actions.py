@@ -93,6 +93,7 @@ from agent_factory.models import (
     StationAgentInput,
     StationView,
     TemplateInfo,
+    ToolReportView,
     TraceRow,
     UpdateStationInput,
     WorkflowSettingsInput,
@@ -184,6 +185,8 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
                 repair=s.only_on_fail,
                 state=state,
                 attempts=attempts,
+                tool=s.tool,
+                fail_on=s.fail_on,
             )
         )
     return views
@@ -327,6 +330,29 @@ def get_change_assessment(f: Factory, change_id: str) -> AssessmentView:
         markdown=md.read_text() if md.is_file() else "",
         assessed_at=d.get("assessed_at", ""),
     )
+
+
+@action(
+    "get_change_tools",
+    "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
+    "GET",
+    "/api/changes/{change_id}/tools",
+)
+def get_change_tools(f: Factory, change_id: str) -> list[ToolReportView]:
+    import json
+
+    if not f.store.get_change(change_id):
+        raise FactoryError("change not found")
+    folder = f.manager.ws.data_dir / "artifacts" / change_id / "tools"
+    if not folder.is_dir():
+        return []
+    reports = []
+    for p in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime):
+        try:
+            reports.append(ToolReportView.model_validate(json.loads(p.read_text())))
+        except (OSError, ValueError):
+            continue
+    return reports
 
 
 @action("get_product", "Product with its changes and feedback", "GET", "/api/products/{product_id}")
@@ -996,6 +1022,8 @@ def _station_views_for(doc: WorkflowDoc) -> list[StationView]:
             next=s.next,
             state="pending",
             attempts=0,
+            tool=s.tool,
+            fail_on=s.fail_on,
         )
         for s in doc.stations
     ]

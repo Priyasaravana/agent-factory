@@ -112,7 +112,10 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     body = (out / "pull-request.md").read_text()
     assert body.startswith("# chore: Add unit tests and a CI workflow") and "`test/app.test.js`" in body
     stations = [e.station for e in f.store.list_events(change.id) if e.message.endswith("started (attempt 1)")]
-    assert stations == ["onboard", "implement", "test", "review", "change-risk", "pull-request"]
+    assert stations == [
+        "onboard", "implement", "test", "secrets", "sast", "dependencies", "iac", "review", "change-risk",
+        "pull-request",
+    ]  # fmt: skip
 
     # the team's repository is untouched: the change only leaves as a pull request
     assert _git(origin, "rev-parse", "HEAD").strip() == before
@@ -200,3 +203,21 @@ def test_the_change_workflow_is_registered_per_repo_blueprint(cfg):
 
 def test_git_is_available():  # the end-to-end tests clone a local repository
     assert subprocess.run(["git", "--version"], capture_output=True).returncode == 0
+
+
+async def test_tools_on_a_pr_answer_only_for_the_changed_files(make_factory, tmp_path, monkeypatch):
+    from test_tools import TRIVY, ScanExecutor
+
+    ex = ScanExecutor(queue={" config --format json": [json.dumps(TRIVY)]})  # Dockerfile + k8s findings
+    f = _factory(lambda **kw: make_factory(executor=ex, **kw), _origin(tmp_path))
+    product = await _assessed(f)
+    f.manager.settings.factory_mode = "live"
+    monkeypatch.setenv("REPO_GITHUB_TOKEN", TOKEN)
+    change = f.manager.feedback(product.id, "Add unit tests", ChangeKind.upkeep)  # touches package.json + test/
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback  # fail_on high, but not its files
+    out = f.manager.ws.data_dir / "artifacts" / change.id
+    iac = json.loads((out / "tools" / "iac.json").read_text())
+    assert (iac["scope"], iac["passed"], iac["outside"], iac["findings"]) == ("changed", True, 3, [])
+    body = (out / "pull-request.md").read_text()
+    assert "- **Trivy (Dockerfile, Kubernetes):** no findings in the changed files (passed)" in body
+    assert "- **gitleaks (secrets):** no findings in the changed files (passed)" in body

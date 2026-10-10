@@ -265,6 +265,9 @@ class FactoryConfig(BaseModel):
     preflight: PreflightConfig = PreflightConfig()
     change_risk: ChangeRiskConfig = ChangeRiskConfig()
     existing_repos: ExistingReposConfig = ExistingReposConfig()
+    # tool stations (ADR-0034): add tools or override the built-in ones (image, command …),
+    # e.g. pin a reviewed digest: {semgrep: {image: "semgrep/semgrep@sha256:…"}}
+    tools: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:
