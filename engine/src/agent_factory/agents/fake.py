@@ -4,6 +4,7 @@ Lets you exercise a whole workflow (UI, gates, loops, resume) for free."""
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,8 @@ class FakeAgentRunner:
     # files the developer writes on its first call and removes on its next one
     # (simulates a risky change, then fixing it after it was sent back; ADR-0027)
     risky_once: dict[str, str] = field(default_factory=dict)
+    # a repo developer that never adds tests (simulates a repo with no test command, ADR-0033)
+    repo_no_tests: bool = False
     calls: list[AgentRequest] = field(default_factory=list)
     _risky_state: str = "pending"  # pending -> written -> removed
 
@@ -96,6 +99,21 @@ class FakeAgentRunner:
                 out = req.cwd / rel
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(f"# {req.role} output (dry-run)\n")
+        if req.role == "repo-developer" and not self.repo_no_tests:  # a change to an existing repo (ADR-0033)
+            pkg = req.cwd / "package.json"
+            if pkg.is_file():
+                data = json.loads(pkg.read_text() or "{}")
+                data.setdefault("scripts", {})["test"] = "node --test"
+                pkg.write_text(json.dumps(data, indent=2) + "\n")
+                (req.cwd / "test").mkdir(exist_ok=True)
+                (req.cwd / "test" / "app.test.js").write_text(
+                    "const test = require('node:test');\ntest('dry-run', () => {});\n"
+                )
+            else:
+                (req.cwd / "tests").mkdir(exist_ok=True)
+                (req.cwd / "tests" / "test_change.py").write_text("def test_dry_run() -> None:\n    assert True\n")
+        elif req.role == "repo-developer":
+            (req.cwd / "CHANGES.md").write_text("- dry-run change without tests\n")
         if req.role == "developer":
             tests = req.cwd / "tests"
             tests.mkdir(exist_ok=True)
@@ -130,6 +148,8 @@ class FakeAgentRunner:
                     }
                 ]
             }
+        if "test_command" in props:  # a change to an existing repo (ADR-0033)
+            return {"summary": "[dry-run] made the requested change, with a test", "test_command": "", "notes": []}
         if "test_gaps" in props:  # repository assessment (ADR-0031): cite real files, plus one that isn't
             files = sorted(
                 p.relative_to(req.cwd).as_posix()

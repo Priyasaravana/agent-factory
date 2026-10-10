@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1
+# Node.js for existing repos' own checks (npm test, ADR-0033), taken from the official image.
+FROM node:22-bookworm-slim AS node
+
 # Agent sandbox image (ADR-0014). Built by the engine INSIDE dind on first start
 # (agent_factory.sandbox.SandboxManager), from a context it assembles:
 #   Dockerfile (this file), claude (the CLI the engine's Agent SDK bundles),
@@ -10,6 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       bash git make curl jq ripgrep ca-certificates procps less \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version && npm --version
 
 # Interpreters for the generated apps, independent of this image's own Python:
 # an app pins its version (.python-version) and uv picks it from here, offline

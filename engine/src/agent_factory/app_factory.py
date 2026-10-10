@@ -78,7 +78,7 @@ def build_factory(
     library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
     workflows = WorkflowRegistry(
         store,
-        {pl: home / line.workflow_template for pl, line in cfg.blueprints.items()},
+        {wid: home / template for wid, template in cfg.workflow_templates().items()},
         home / "workflow-templates",
         home / "plugin" / "skills",
         library,

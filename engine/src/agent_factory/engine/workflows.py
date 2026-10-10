@@ -113,7 +113,8 @@ class WorkflowService:
 
 
 class WorkflowRegistry:
-    """One WorkflowService per blueprint. The workflow id is the blueprint id."""
+    """One WorkflowService per workflow: the blueprint's own (id = blueprint id), plus a
+    repo blueprint's change workflow (id `<blueprint>-change`, ADR-0033)."""
 
     def __init__(
         self,

@@ -41,6 +41,7 @@ make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your
 - **Changes are safe across upgrades.** Each change is pinned to a workflow version and its pinned skills. Interrupted changes are marked on restart and resumed by a person.
 
 ## Version notes
+- **Pull requests to existing repos (ADR-0033).** `config.yaml` gains `change_workflow_template` on `existing-repo`, `existing_repos.write_token_ref` and `registry.npmjs.org` in `sandbox.egress`; add `REPO_GITHUB_TOKEN` to `.env`. The sandbox image now includes Node.js and is rebuilt on first start.
 - **Existing repos (ADR-0031).** `.agent-factory/config.yaml` gains the `existing-repo` blueprint and an `existing_repos:` section; merge them into a customised config. Its workflow is seeded on first start.
 - **Work items (ADR-0030).** Nothing to do: changes from before read as `new` (first iteration) or `feature`, products as target `new`.
 - **New names.** Upgrading to the Product/Change/Blueprint names (ADR-0029) renames the database tables in place on first start; `product_lines:` and the old limit names in config still load.

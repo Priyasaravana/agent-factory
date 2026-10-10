@@ -49,6 +49,8 @@ AGENT_HANDLERS = {
     "acceptance",
     "agent",
     "assess",
+    "repo-implement",
+    "repo-review",
 }
 CHECK_HANDLERS = {
     "test",
@@ -60,9 +62,21 @@ CHECK_HANDLERS = {
     "onboard",
     "repo-scan",
     "report",
+    "repo-test",
+    "pull-request",
 }
-# Handlers for existing repositories (ADR-0031): they read the repo and never change it.
-REPO_HANDLERS = {"onboard", "repo-scan", "assess", "report"}
+# Handlers for existing repositories: assessment reads the repo (ADR-0031); a change is made
+# on a branch of the clone and leaves only as a pull request (ADR-0033).
+REPO_HANDLERS = {
+    "onboard",
+    "repo-scan",
+    "assess",
+    "report",
+    "repo-implement",
+    "repo-test",
+    "repo-review",
+    "pull-request",
+}
 
 # Names used before ADR-0028. Versions stored with them keep working and keep their
 # station ids (runs and evidence are pinned to them); they resolve to the new
@@ -150,6 +164,18 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     "report": HandlerInfo(
         kind="check", label="Report", phase="handover", hint="the assessment report and a proposed AGENTS.md"
     ),
+    "repo-implement": HandlerInfo(
+        kind="agent", label="Implement", phase="code", hint="changes the team's repo on a branch (ADR-0033)"
+    ),
+    "repo-test": HandlerInfo(
+        kind="check", label="Test", phase="test", hint="runs the repo's own checks in the sandbox"
+    ),
+    "repo-review": HandlerInfo(
+        kind="agent", label="Code review", phase="test", hint="reviews the change; the engine decides what blocks"
+    ),
+    "pull-request": HandlerInfo(
+        kind="check", label="Pull request", phase="handover", hint="pushes the branch and opens a PR; a person merges"
+    ),
     "agent": HandlerInfo(
         kind="agent",
         label="Custom agent step",
@@ -173,13 +199,15 @@ HANDLER_REQUIREMENTS: dict[str, dict[str, bool]] = {
     "acceptance": {"write": False, "shell": True},
     "code-review": {"write": False, "shell": True},  # reads the diff with git; judges, never fixes
     "assess": {"write": False},  # reads someone else's repository: never changes it
+    "repo-implement": {"write": True, "shell": True},
+    "repo-review": {"write": False, "shell": True},
 }
 # Advice (warnings, not errors).
 RECOMMENDED_SKILLS: dict[str, list[str]] = {
     "acceptance": ["agent-watchdog"],
     "deploy-repair": ["helm-kind-deploy"],
 }
-JUDGMENT_HANDLERS = {"requirements", "design", "code-review", "acceptance", "assess"}
+JUDGMENT_HANDLERS = {"requirements", "design", "code-review", "acceptance", "assess", "repo-review"}
 
 # Context budgets: reference material is useful, but unbounded context is
 # expensive and dilutes the agent's attention.

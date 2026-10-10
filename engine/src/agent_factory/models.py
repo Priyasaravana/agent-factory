@@ -67,7 +67,8 @@ AVAILABLE_TARGETS = {ProductTarget.new, ProductTarget.repo}
 # what each target's changes may be (ADR-0031): (first change, later changes)
 TARGET_KINDS: dict[ProductTarget, tuple[ChangeKind, tuple[ChangeKind, ...]]] = {
     ProductTarget.new: (ChangeKind.new, ITERATION_KINDS),
-    ProductTarget.repo: (ChangeKind.assess, (ChangeKind.assess,)),  # changes → PRs come next
+    # assessed first; later changes are assessments or pull requests (ADR-0033)
+    ProductTarget.repo: (ChangeKind.assess, (ChangeKind.assess, *ITERATION_KINDS)),
 }
 
 
@@ -134,6 +135,7 @@ class Change(BaseModel):
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
     change_request: str | None = None  # what was asked for this iteration (feedback, bug report, upkeep)
+    pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     last_failure: str | None = None  # evidence handed to the repair station
     questions: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)

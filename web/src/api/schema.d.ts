@@ -1566,6 +1566,8 @@ export interface components {
             loops: number;
             /** Change Request */
             change_request?: string | null;
+            /** Pr Url */
+            pr_url?: string | null;
             /** Last Failure */
             last_failure?: string | null;
             /** Questions */
