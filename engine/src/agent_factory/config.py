@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import yaml
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
@@ -40,6 +40,9 @@ class Blueprint(BaseModel):
     # `repo` works on a team's existing repository (no template, nothing deployed)
     target: Literal["new", "repo"] = "new"
     template: str | None = None
+    # repo blueprints (ADR-0033): the workflow for feature, bug and upkeep changes, which end
+    # in a pull request; its workflow id is `<blueprint>-change`. Assessments use workflow_template.
+    change_workflow_template: str | None = None
     workflow_template: str = "workflow-templates/default"  # seeds this blueprint's workflow
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
@@ -158,6 +161,7 @@ DEFAULT_EGRESS = [
     "api.anthropic.com:443",  # the model
     "pypi.org:443",  # Python packages (uv/pip)
     "files.pythonhosted.org:443",
+    "registry.npmjs.org:443",  # Node packages (ADR-0033)
     "dind:8081-8100",  # apps on the local cluster (acceptance calls them over HTTP)
 ]
 
@@ -227,6 +231,17 @@ class ExistingReposConfig(BaseModel):
     # the blueprint new repo products use
     blueprint: str = "existing-repo"
     clone_timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    # pushing a branch and opening a pull request (ADR-0033): a reference, never a value.
+    # A fine-grained token with Contents and Pull requests read/write on the repos.
+    write_token_ref: str | None = "env://REPO_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
+    pr_branch_prefix: str = Field(default="factory/", pattern=r"^[A-Za-z0-9._/-]{1,40}$")
+
+    @field_validator("write_token_ref")
+    @classmethod
+    def _is_reference(cls, v: str | None) -> str | None:
+        if v is not None and "://" not in v:
+            raise ValueError("write_token_ref must be a reference like env://NAME, never a value")
+        return v
 
 
 class FactoryConfig(BaseModel):
@@ -263,6 +278,33 @@ class FactoryConfig(BaseModel):
             local.auth.secret_ref = "env://GITHUB_TOKEN"  # noqa: S105 - the pre-phase-2 default, as a reference
         self.environments.setdefault("local", Environment())
         return self
+
+    # ---------------------------------------------------------- workflows --
+    CHANGE_KINDS: ClassVar[tuple[str, ...]] = ("feature", "bug", "upkeep")
+
+    def workflow_templates(self) -> dict[str, str]:
+        """Every workflow id and the template it is seeded from: one per blueprint, plus
+        `<blueprint>-change` for repo blueprints with a change workflow (ADR-0033)."""
+        out: dict[str, str] = {}
+        for name, bp in self.blueprints.items():
+            out[name] = bp.workflow_template
+            if bp.change_workflow_template:
+                out[f"{name}-change"] = bp.change_workflow_template
+        return out
+
+    def blueprint_of(self, workflow_id: str) -> str:
+        """The blueprint a workflow belongs to."""
+        if workflow_id in self.blueprints:
+            return workflow_id
+        base = workflow_id.removesuffix("-change")
+        if base in self.blueprints and self.blueprints[base].change_workflow_template:
+            return base
+        raise KeyError(workflow_id)
+
+    def workflow_for(self, blueprint: str, kind: str) -> str:
+        """The workflow a change of this kind runs on."""
+        bp = self.blueprints[blueprint]
+        return f"{blueprint}-change" if bp.change_workflow_template and kind in self.CHANGE_KINDS else blueprint
 
     def skill_overlay(self, skills: list[str]) -> str:
         parts = [

@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Download, ScanSearch, X } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Check, Copy, Download, GitPullRequest, ScanSearch, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, unwrap } from "../api/client";
 import { cn } from "../lib/utils";
+import Problems from "./Problems";
 import { Button } from "./ui/button";
 
 type Tab = "findings" | "risks" | "tests" | "next" | "signals" | "agents";
@@ -13,8 +14,34 @@ const KIND: Record<string, string> = { feature: "feature", bug: "bug fix", upkee
 
 /** An existing repo's assessment (ADR-0031): what the engine measured, and what the
  * assessor reported that the engine could check against the repository. */
-export default function AssessmentPanel({ changeId, runStatus }: { changeId: string; runStatus: string }) {
+export default function AssessmentPanel({
+  changeId,
+  runStatus,
+  productId,
+  canRequest = false,
+  onRequested,
+}: {
+  changeId: string;
+  runStatus: string;
+  productId?: string;
+  canRequest?: boolean;
+  onRequested?: () => void;
+}) {
   const ready = runStatus === "awaiting_feedback";
+  // a recommendation becomes a change, delivered as a pull request (ADR-0033)
+  const request = useMutation({
+    mutationFn: (r: { title: string; why: string; kind: "feature" | "bug" | "upkeep" }) =>
+      unwrap(
+        api.POST("/api/products/{product_id}/feedback", {
+          params: { path: { product_id: productId! } },
+          body: { text: `${r.title}\n\n${r.why}`, kind: r.kind },
+        }),
+      ),
+    onSuccess: () => {
+      toast.success("Change requested", { description: "The factory will open a pull request." });
+      onRequested?.();
+    },
+  });
   const a = useQuery({
     queryKey: ["assessment", changeId],
     queryFn: () =>
@@ -148,6 +175,7 @@ export default function AssessmentPanel({ changeId, runStatus }: { changeId: str
         </List>
       )}
       {tab === "next" && (
+        <>
         <ol className="m-0 grid gap-2 pl-5 text-sm">
           {v.recommendations.map((r, i) => (
             <li key={i}>
@@ -155,10 +183,29 @@ export default function AssessmentPanel({ changeId, runStatus }: { changeId: str
               <span className="pill info">{KIND[String(r.kind)] ?? String(r.kind)}</span>{" "}
               <span className="pill muted">effort {String(r.effort)}</span>
               <div className="text-muted-foreground">{String(r.why)}</div>
+              {canRequest && productId && ["feature", "bug", "upkeep"].includes(String(r.kind)) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-1"
+                  disabled={request.isPending}
+                  onClick={() =>
+                    request.mutate({
+                      title: String(r.title),
+                      why: String(r.why),
+                      kind: String(r.kind) as "feature" | "bug" | "upkeep",
+                    })
+                  }
+                >
+                  <GitPullRequest /> Make this change
+                </Button>
+              )}
             </li>
           ))}
           {v.recommendations.length === 0 && <p className="m-0 text-muted-foreground">None.</p>}
         </ol>
+        <Problems error={request.error} />
+        </>
       )}
       {tab === "signals" && (
         <ul className="m-0 grid list-none gap-1 p-0 text-sm">

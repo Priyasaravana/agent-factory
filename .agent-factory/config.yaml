@@ -65,6 +65,8 @@ blueprints:
     description: An existing repository, assessed read-only (stack, readiness, findings, test gaps)
     target: repo
     workflow_template: workflow-templates/assess
+    # feature, bug and upkeep changes: tested, reviewed, opened as a pull request (ADR-0033)
+    change_workflow_template: workflow-templates/repo-change
     # the same secret scan as built apps, over the cloned repo
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
@@ -73,6 +75,9 @@ blueprints:
 
 existing_repos:
   allowed_hosts: [github.com]     # https URLs on these hosts only; private repos come later (token reference)
+  # pull requests (ADR-0033): a fine-grained token with Contents + Pull requests read/write
+  # on the repos, in .env. A reference, never the value.
+  write_token_ref: env://REPO_GITHUB_TOKEN
 
 # ---------------------------------------------------------------------------
 # Delivery integrations (docs/design/integrations.md). Stations call the
@@ -122,6 +127,7 @@ sandbox:
     - api.anthropic.com:443       # the model
     - pypi.org:443                # Python packages
     - files.pythonhosted.org:443
+    - registry.npmjs.org:443      # Node packages (existing repos' own checks, ADR-0033)
     - dind:8081-8100              # apps on the local cluster (acceptance)
     - "*.localtest.me:8180"       # apps behind the local ingress (kind-ingress)
   routes:                         # keep the host name, connect elsewhere (sandbox/egress.py)

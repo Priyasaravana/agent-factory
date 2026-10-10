@@ -3885,6 +3885,17 @@
             ],
             "title": "Change Request"
           },
+          "pr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Url"
+          },
           "last_failure": {
             "anyOf": [
               {

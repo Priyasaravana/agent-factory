@@ -101,6 +101,11 @@ export default function ChangePanel({
           >
             {KIND_LABEL[r.kind ?? "new"]}
           </span>
+          {r.pr_url && (
+            <a className="pill ok" href={r.pr_url} target="_blank" rel="noreferrer">
+              pull request ↗
+            </a>
+          )}
           <span
             className="pill muted"
             title="Workflow version this change is pinned to"
@@ -155,7 +160,13 @@ export default function ChangePanel({
         <Problems error={resume.error} />
         <StationStrip stations={stations} />
         {r.kind === "assess" ? (
-          <AssessmentPanel changeId={changeId} runStatus={r.status} />
+          <AssessmentPanel
+            changeId={changeId}
+            runStatus={r.status}
+            productId={productId}
+            canRequest={r.status === "awaiting_feedback" && !archived}
+            onRequested={refresh}
+          />
         ) : (
           <SpecPanel changeId={changeId} runStatus={r.status} />
         )}
@@ -183,11 +194,11 @@ export default function ChangePanel({
             onDone={refresh}
           />
         )}
+        {r.status === "awaiting_feedback" && !archived && (
+          <FeedbackForm productId={productId} onDone={refresh} repo={target === "repo"} />
+        )}
         {r.status === "awaiting_feedback" && !archived && target === "repo" && (
           <AssessAgain productId={productId} onDone={refresh} />
-        )}
-        {r.status === "awaiting_feedback" && !archived && target !== "repo" && (
-          <FeedbackForm productId={productId} onDone={refresh} />
         )}
         <RunPillars events={events} />
         <AgentCallsPanel changeId={changeId} runStatus={r.status} />
@@ -382,7 +393,7 @@ function AssessAgain({ productId, onDone }: { productId: string; onDone: () => v
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border p-4">
       <p className="m-0 flex-1 text-sm text-muted-foreground">
-        Changes to this repo as pull requests come next. For now, assess it again after the team pushes changes.
+        After the team merges changes, assess the repo again to see where it stands.
       </p>
       <Button variant="outline" disabled={send.isPending} onClick={() => send.mutate()}>
         <RefreshCw /> Assess again
@@ -419,9 +430,11 @@ const ITERATION_KINDS: Record<
 function FeedbackForm({
   productId,
   onDone,
+  repo = false,
 }: {
   productId: string;
   onDone: () => void;
+  repo?: boolean;
 }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<IterationKind>("feature");
@@ -436,7 +449,7 @@ function FeedbackForm({
     onSuccess: () => {
       setText("");
       toast.success(`${ITERATION_KINDS[kind].title} requested`, {
-        description: "The next iteration is starting.",
+        description: repo ? "The factory will open a pull request." : "The next iteration is starting.",
       });
       onDone();
     },
@@ -449,7 +462,11 @@ function FeedbackForm({
         send.mutate();
       }}
     >
-      <h4 className="m-0">Try the app, then tell the factory what to change</h4>
+      <h4 className="m-0">
+        {repo
+          ? "Ask for a change: the factory opens a pull request, and you merge it"
+          : "Try the app, then tell the factory what to change"}
+      </h4>
       <div
         className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-1"
         role="radiogroup"
@@ -469,7 +486,9 @@ function FeedbackForm({
           </button>
         ))}
       </div>
-      <p className="m-0 text-xs text-muted-foreground">{ITERATION_KINDS[kind].hint}</p>
+      <p className="m-0 text-xs text-muted-foreground">
+        {repo && kind === "feature" ? "Add or change behaviour, with tests that prove it." : ITERATION_KINDS[kind].hint}
+      </p>
       <textarea
         className="font-sans text-sm"
         placeholder={ITERATION_KINDS[kind].placeholder}
@@ -480,8 +499,8 @@ function FeedbackForm({
         minLength={3}
       />
       <Button className="w-fit" disabled={send.isPending}>
-        <Send /> Request {ITERATION_KINDS[kind].title.toLowerCase()} &amp; start
-        next iteration
+        <Send /> Request {ITERATION_KINDS[kind].title.toLowerCase()}
+        {repo ? " as a pull request" : " & start next iteration"}
       </Button>
       <Problems error={send.error} />
     </form>

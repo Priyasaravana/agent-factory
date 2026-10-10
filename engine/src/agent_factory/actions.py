@@ -858,8 +858,8 @@ def list_workflows(f: Factory) -> list[WorkflowSummary]:
         out.append(
             WorkflowSummary(
                 workflow_id=w.workflow_id,
-                blueprint=f.cfg.blueprints[w.workflow_id].description,
-                environment=f.cfg.blueprints[w.workflow_id].environment,
+                blueprint=f.cfg.blueprints[f.cfg.blueprint_of(w.workflow_id)].description,
+                environment=f.cfg.blueprints[f.cfg.blueprint_of(w.workflow_id)].environment,
                 active_version=w.active_version(),
                 description=doc.description,
                 template=doc.template,
@@ -938,8 +938,8 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
-        environment=f.cfg.blueprints[workflow_id].environment,
-        delivery=_bindings(f, workflow_id),
+        environment=f.cfg.blueprints[f.cfg.blueprint_of(workflow_id)].environment,
+        delivery=_bindings(f, f.cfg.blueprint_of(workflow_id)),
     )
 
 

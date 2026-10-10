@@ -250,7 +250,7 @@ async def test_onboard_assess_and_assess_again(make_factory, tmp_path):
     _git(origin, "commit", "-qam", "docs")
     after = _git(origin, "rev-parse", "HEAD").strip()
     with pytest.raises(InvalidRequestError, match="assess"):
-        f.manager.feedback(product.id, "add a feature", ChangeKind.feature)
+        f.manager.feedback(product.id, "build it again", ChangeKind.new)  # changes are PRs (ADR-0033)
     again = f.manager.feedback(product.id, "assess again", ChangeKind.assess)
     assert (again.kind, again.iteration) == (ChangeKind.assess, 2)
     assert await wait_run(f, again.id) == ChangeStatus.awaiting_feedback

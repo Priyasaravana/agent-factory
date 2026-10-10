@@ -136,7 +136,7 @@ def two_products(tmp_path):
 
 async def test_each_blueprint_runs_its_own_workflow(two_products):
     f = two_products
-    assert f.workflows.ids() == [WF, "existing-repo", "secure-api"]
+    assert f.workflows.ids() == [WF, "existing-repo", "existing-repo-change", "secure-api"]
     a = f.manager.start_change(f.manager.create_product(PRODUCT))
     b = f.manager.start_change(
         f.manager.create_product(

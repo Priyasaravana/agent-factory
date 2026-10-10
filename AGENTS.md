@@ -108,8 +108,11 @@
   evaluation measures the change.
 - Existing repos (ADR-0031): onboarded by URL (`assess.parse_repo_url`, https on allowed
   hosts) and cloned read-only by `Workspace.sync_repo` (no hooks, submodules or push).
-  Repo stations (`workflow.REPO_HANDLERS`) never change the repository; the assessor is
-  observe-only and judged by the pure `assess.judge`. New signals and rules go in
+  Assessment stations never change the repository; the assessor is observe-only and
+  judged by the pure `assess.judge`. Changes (ADR-0033) run on `<blueprint>-change`, are
+  made on a branch of the clone and leave only as a pull request (`pull-request` station,
+  token from `existing_repos.write_token_ref` via the environment); the factory never
+  merges. Pure helpers live in `repo_change.py`. New signals and rules go in
   `assess.py` with a test in `tests/test_existing_repos.py` that also shows a well-kept
   repo doesn't trip them.
 - Record significant decisions as ADRs in `docs/adr/`.
