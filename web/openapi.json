@@ -3401,6 +3401,18 @@
             "title": "Denied",
             "default": 0
           },
+          "gateway": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway"
+          },
           "transcript": {
             "anyOf": [
               {

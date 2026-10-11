@@ -102,6 +102,10 @@ try the UI, gates, fix loops and resume without spending any model usage.
    - **Subscription:** run `claude setup-token` on your Mac and paste the
      token into `CLAUDE_CODE_OAUTH_TOKEN`.
    - **API key:** set `ANTHROPIC_API_KEY`.
+   - **Through the model gateway** (optional, [ADR-0036](docs/adr/0036-model-gateway.md)):
+     agents get a capped virtual key per call instead of the credential. Set
+     `COMPOSE_PROFILES=gateway`, `LITELLM_MASTER_KEY` and `MODEL_GATEWAY_DB_PASSWORD` in
+     `.env`, and `model_gateway.provider: litellm` in the config.
 2. To publish generated apps to GitHub, set `GITHUB_TOKEN`, `GIT_AUTHOR_NAME`
    and `GIT_AUTHOR_EMAIL`.
 3. Set `FACTORY_MODE=live`, then `make up`. The first start creates the kind

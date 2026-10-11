@@ -114,8 +114,48 @@ services:
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
+  # Model gateway (ADR-0036), off by default: set COMPOSE_PROFILES=gateway in .env and
+  # `model_gateway.provider: litellm` in the config. Agents then reach the model only
+  # through it, with a virtual key per agent call; it never gets the factory's .env.
+  model-gateway:
+    profiles: [gateway]
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:main-stable}   # pin a reviewed version (>= 1.81.14)
+    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}               # required with the gateway profile
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}             # api_key mode only; empty in subscription mode
+      DATABASE_URL: postgresql://litellm:${MODEL_GATEWAY_DB_PASSWORD:-}@model-gateway-db:5432/litellm
+    volumes:
+      - ./images/model-gateway/config.yaml:/etc/litellm/config.yaml:ro
+    depends_on:
+      model-gateway-db:
+        condition: service_healthy
+    # no published port: only the engine and the sandboxes' egress proxy reach it
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  model-gateway-db:
+    profiles: [gateway]
+    image: postgres:17-alpine
+    user: "70:70"                        # the image's postgres user; the volume inherits its ownership
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_DB: litellm
+      POSTGRES_PASSWORD: ${MODEL_GATEWAY_DB_PASSWORD:-}   # required with the gateway profile
+    volumes:
+      - model-gateway-db:/var/lib/postgresql/data   # keys, budgets, spend; the factory stays on SQLite
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "litellm"]
+      interval: 5s
+      retries: 30
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
 volumes:
   dind-certs:
   factory-certs:                         # dind client certs for uid 10001 (written by factory-init)
   dind-data:
   auth-data:
+  model-gateway-db:

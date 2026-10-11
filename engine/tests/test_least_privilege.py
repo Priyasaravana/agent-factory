@@ -61,3 +61,18 @@ def test_auth_and_web_images_are_non_root():
     assert "nginx-unprivileged" in web, "unprivileged nginx (uid 101)"
     assert "listen 8080;" in (ROOT / "web" / "nginx.conf").read_text()
     assert "127.0.0.1:8080:8080" in COMPOSE["web"]["ports"]
+
+
+def test_the_model_gateway_is_optional_unprivileged_and_isolated():
+    """ADR-0036: off unless the `gateway` profile is on; no capabilities, no published port,
+    and never the factory's .env (it gets only its own key and the provider key)."""
+    for name in ("model-gateway", "model-gateway-db"):
+        svc = COMPOSE[name]
+        assert svc.get("profiles") == ["gateway"], f"{name}: only with COMPOSE_PROFILES=gateway"
+        assert svc.get("cap_drop") == ["ALL"] and not svc.get("cap_add"), f"{name}: cap_drop [ALL]"
+        assert "no-new-privileges:true" in svc.get("security_opt", []), f"{name}: no-new-privileges"
+        assert not svc.get("ports"), f"{name}: reached only inside the stack"
+        assert "env_file" not in svc, f"{name}: never the factory's .env (GitHub tokens …)"
+    assert COMPOSE["model-gateway-db"]["user"] == "70:70"
+    assert "non_root" in COMPOSE["model-gateway"]["image"]
+    assert set(COMPOSE["model-gateway"]["environment"]) == {"LITELLM_MASTER_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL"}

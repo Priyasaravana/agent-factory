@@ -19,6 +19,16 @@ for svc in factory auth web; do
     "$(docker compose exec -T "$svc" id -u 2>/dev/null | tr -d '\r')"
 done
 
+# the optional model gateway (ADR-0036), when its profile is on
+for svc in model-gateway model-gateway-db; do
+  [ -n "$(docker compose ps -q "$svc" 2>/dev/null)" ] || continue
+  st=$(docker compose exec -T "$svc" cat /proc/1/status 2>&1)
+  field() { printf '%s\n' "$st" | awk -v k="$1:" '$1 == k { print $2; exit }'; }
+  not_root "$svc: main process is not root" "$(field Uid)"
+  check "$svc: no effective capabilities" "$(field CapEff)" 0000000000000000
+  check "$svc: no-new-privileges" "$(field NoNewPrivs)" 1
+done
+
 check "factory runs as uid 10001" "$(docker compose exec -T factory id -u | tr -d '\r')" 10001
 init=$(docker compose ps -a -q factory-init)
 check "factory-init finished successfully" "$([ -n "$init" ] && docker inspect -f '{{.State.ExitCode}}' "$init")" 0

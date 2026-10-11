@@ -1312,6 +1312,10 @@ export interface components {
              * @default 0
              */
             denied: number;
+            /** Gateway */
+            gateway?: {
+                [key: string]: unknown;
+            } | null;
             /** Transcript */
             transcript?: string | null;
             /**

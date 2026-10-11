@@ -24,6 +24,7 @@ from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
+from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, resolve_address
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, ChangeStatus
@@ -49,6 +50,15 @@ class Factory:
 
 def sandbox_for(cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Path) -> SandboxManager | None:
     mode = settings.agent_sandbox or cfg.sandbox.mode
+    gw = cfg.model_gateway
+    if gw.provider != "direct" and mode != "off":
+        # agents reach the model only through the gateway (ADR-0036): it replaces direct
+        # model egress, through a route because the egress proxy can't resolve compose names
+        ip = resolve_address(gw.url)
+        if ip is None:
+            log.warning("model gateway %s does not resolve yet; sandboxes will not reach it", gw.url)
+        egress, routes = gateway_egress(cfg.sandbox.egress, cfg.sandbox.routes, gw.url, ip)
+        cfg.sandbox = cfg.sandbox.model_copy(update={"egress": egress, "routes": routes, "model_endpoint": egress[0]})
     if mode == "off":
         log.warning(
             "agent sandbox is OFF: agents and generated code run inside the factory container, "
@@ -104,13 +114,16 @@ def build_factory(
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
     sandbox = sandbox_for(cfg, settings, home, data_dir) if live else None
     factory.sandbox = sandbox
+    gateway = build_gateway(cfg.model_gateway, secrets) if live else DirectGateway()
     if agents is None:
         if live:
-            agents = ClaudeAgentRunner(home, tools_server=actions.agent_tools_server(factory), sandbox=sandbox)
+            agents = ClaudeAgentRunner(
+                home, tools_server=actions.agent_tools_server(factory), sandbox=sandbox, gateway=gateway
+            )
         else:
             agents = FakeAgentRunner()
     factory.manager = ChangeManager(
-        cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets, sandbox=sandbox
+        cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets, sandbox=sandbox, gateway=gateway
     )
     return factory
 

@@ -24,17 +24,20 @@ CACHE_VOLUME = "factory-sandbox-cache"  # uv/pip downloads shared by sandboxes; 
 # Environment the agent CLI may see. Everything else in the engine's
 # environment (GITHUB_TOKEN, SKILLS_GITHUB_TOKEN, AWS_*, DOCKER_*, KUBECONFIG, …)
 # never reaches a sandbox. The model credential is the one exception the agent
-# needs; a later step can move it behind a local auth proxy.
+# needs; behind a model gateway (ADR-0036) it is a per-call virtual key instead,
+# and the engine's own credential is withheld (SandboxSpec.withhold_env).
 _FORWARD_EXACT = {
     "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_CUSTOM_HEADERS",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CODE_USE_BEDROCK",
     "TRACEPARENT",
     "TRACESTATE",
 }
 _FORWARD_PREFIXES = ("CLAUDE_CODE_", "CLAUDE_AGENT_SDK_", "MAX_THINKING_TOKENS")
-_NEVER = re.compile(r"(GITHUB|GH_|AWS_|VAULT|DOCKER|KUBE|SKILLS_|SECRET|PASSWORD)", re.I)
+_NEVER = re.compile(r"(GITHUB|GH_|AWS_|VAULT|DOCKER|KUBE|SKILLS_|SECRET|PASSWORD|LITELLM)", re.I)
 
 # Quiet, offline-friendly CLI defaults inside every sandbox.
 SANDBOX_DEFAULT_ENV = {
@@ -49,10 +52,12 @@ SANDBOX_DEFAULT_ENV = {
 }
 
 
-def forwarded_env_names(env: dict[str, str]) -> list[str]:
-    """Names of the engine's variables a sandboxed agent may inherit."""
+def forwarded_env_names(env: dict[str, str], withhold: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """Names of the engine's variables a sandboxed agent may inherit (minus `withhold`)."""
     names = []
     for k in env:
+        if k in withhold:
+            continue
         if _NEVER.search(k) and k not in _FORWARD_EXACT:
             continue
         if k in _FORWARD_EXACT or k.startswith(_FORWARD_PREFIXES):
@@ -87,6 +92,8 @@ class SandboxSpec:
     pids: int = 512
     tmp_size: str = "1g"
     cache_volume: str | None = CACHE_VOLUME
+    # engine variables this session must not inherit, e.g. the model credential behind a gateway
+    withhold_env: list[str] = field(default_factory=list)
 
     def argv(self, command: list[str], interactive: bool = False) -> list[str]:
         a = ["docker", "run", "--rm", "--init", "--name", self.name]

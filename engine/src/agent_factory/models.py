@@ -452,6 +452,8 @@ class AgentCallView(BaseModel):
     # and actually opened (invoked); granted minus the other two were never used
     skills: dict[str, list[str]] = Field(default_factory=dict)
     denied: int = 0
+    # model gateway for this call (ADR-0036): provider, key_alias, spend_usd, revoked; null = direct
+    gateway: dict[str, Any] | None = None
     transcript: str | None = None
     transcript_truncated: bool = False
     at: datetime

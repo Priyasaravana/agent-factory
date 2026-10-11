@@ -142,6 +142,7 @@ class AgentCall:
                 "invoked": self.invoked,
             },
             "denied": len(self.denied),
+            "gateway": res.gateway,  # provider, key alias, spend, revoked (ADR-0036); None = direct
             "transcript": self.name if self.path.exists() else None,
             "transcript_truncated": self.truncated,
         }

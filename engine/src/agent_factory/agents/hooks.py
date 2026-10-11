@@ -20,7 +20,10 @@ DENY_PATTERNS: list[tuple[str, str]] = [
     (r"\bkubectl\b[^\n]*\bdelete\b[^\n]*\b(ns|namespace|node|crd|clusterrole)", "cluster-scoped delete"),
     (r"\bkubectl\b[^\n]*(-n|--namespace)[= ]?kube-system", "touching kube-system"),
     (r"(^|\s)(env|printenv)(\s|$)", "dumping environment secrets"),
-    (r"CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY|GITHUB_TOKEN", "reading credentials"),
+    (
+        r"CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_CUSTOM_HEADERS|GITHUB_TOKEN",
+        "reading credentials",
+    ),
     (r"/certs/", "reading Docker TLS client keys"),
 ]
 

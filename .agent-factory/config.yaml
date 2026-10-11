@@ -128,6 +128,21 @@ environments:
   local-ingress: {registry: kind-registry, scan: local, deploy: kind-ingress, publish: local}
 
 # ---------------------------------------------------------------------------
+# Model gateway (docs/adr/0036-model-gateway.md). direct = agents call the model
+# provider themselves (default). litellm = agents call the gateway with a virtual key
+# minted per agent call: capped, short-lived, revoked when the call ends, metered.
+# Turn on with COMPOSE_PROFILES=gateway and LITELLM_MASTER_KEY in .env.
+# ---------------------------------------------------------------------------
+model_gateway:
+  provider: direct                # direct | litellm
+  # url: http://model-gateway:4000
+  # credential: api_key           # api_key: provider key only in the gateway (anything others run)
+  #                               # subscription: your Claude login forwarded per request (own use)
+  # call_budget_usd: 5            # hard cap per agent call, enforced by the gateway
+  # change_budget_usd: 30         # no new agent calls in a change past this
+  # key_minutes: 180              # a virtual key's lifetime if it is never revoked
+
+# ---------------------------------------------------------------------------
 # Agent sandbox (docs/adr/0014-agent-sandbox.md). Every agent session and every
 # run of agent-written code (verify) gets a throw-away container inside dind:
 # only the run worktree is writable, no factory secrets, no Docker, no cluster,

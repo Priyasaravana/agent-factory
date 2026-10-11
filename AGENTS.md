@@ -124,4 +124,10 @@
   only normalised findings, without matched text. Service tokens are references passed
   through the environment. Agent findings are judged by `checks.judge_agent` (real files,
   capped at high).
+- Model access goes through the gateway seam (ADR-0036, `gateway.py`): `ClaudeAgentRunner`
+  opens a gateway session per agent call (a virtual key behind a gateway) and closes it in
+  a `finally`. A sandbox never gets a credential the session withholds
+  (`SandboxSpec.withhold_env`); a refused key holds the call, never falls back to direct
+  access. A new gateway is one class in `gateway.PROVIDERS`, tested with a fake HTTP
+  function in `tests/test_gateway.py`.
 - Record significant decisions as ADRs in `docs/adr/`.
