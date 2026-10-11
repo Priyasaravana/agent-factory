@@ -8,7 +8,7 @@ from test_api import _client
 
 from agent_factory.config import Blueprint, SandboxConfig
 from agent_factory.engine.pipeline import FactoryError
-from agent_factory.engine.preflight import PreflightFailed
+from agent_factory.engine.preflight import PreflightFailed, parse_df
 from agent_factory.executor import CommandResult, FakeExecutor
 from agent_factory.identity import Identity, _current
 from agent_factory.models import ChangeStatus, CreateProductInput, EventKind
@@ -197,3 +197,46 @@ async def test_preflight_api(make_factory):
         assert integ[0]["readiness"]["state"] == "ready"
     await ctx.__aexit__(None, None, None)
     assert ChangeStatus.queued  # keep import used
+
+
+DF = (
+    "Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
+    "overlay           61255492  {used}  {avail}      {pct}% /\n"
+)
+
+
+def test_parse_df_reads_percent_and_free_bytes():
+    assert parse_df(DF.format(used=52000000, avail=9255492, pct=85)) == (85, 9255492 * 1024)
+    assert parse_df("[dry-run] ok: docker exec factory-control-plane df -P /") is None
+    assert parse_df("") is None
+
+
+async def test_docker_disk_warns_when_nearly_full_and_never_blocks(make_factory, monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda t: f"/usr/bin/{t}")
+    ex = FakeExecutor(scan_outputs={"df -P": DF.format(used=55000000, avail=6255492, pct=90)})
+    f = make_factory(ex)
+    f.settings.factory_mode = "live"
+    f.settings.claude_code_oauth_token = "x"
+    pf = f.manager.preflight
+    disk = next(c for c in (await pf.blueprint("fastapi-service", max_age=0)).checks if c.id == "disk")
+    assert disk.state == "degraded" and disk.blocks == []
+    assert "90% full" in disk.reasons[0] and "make clean-docker" in disk.reasons[0]
+    assert any("docker exec factory-control-plane df -P /" in c for c in ex.calls)
+
+    ex.scan_outputs = {"df -P": DF.format(used=20000000, avail=41255492, pct=33)}
+    disk = next(c for c in (await pf.blueprint("fastapi-service", max_age=0)).checks if c.id == "disk")
+    assert disk.state == "ready" and "33% full" in disk.reasons[0]
+
+    f.cfg.preflight.docker_disk_warn_percent = 30
+    disk = next(c for c in (await pf.blueprint("fastapi-service", max_age=0)).checks if c.id == "disk")
+    assert disk.state == "degraded", "the threshold is configurable"
+
+
+async def test_docker_disk_not_measured_is_ready_and_dry_run_skips_it(make_factory):
+    f = make_factory()
+    pf = f.manager.preflight
+    dry = next(c for c in (await pf.blueprint("fastapi-service", max_age=0)).checks if c.id == "disk")
+    assert dry.state == "ready" and "dry-run" in dry.reasons[0]
+    f.settings.factory_mode = "live"
+    live = next(c for c in (await pf.blueprint("fastapi-service", max_age=0)).checks if c.id == "disk")
+    assert live.state == "ready" and live.reasons == ["not measured: the cluster node is not running"]

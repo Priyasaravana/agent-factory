@@ -172,6 +172,8 @@ class PreflightConfig(BaseModel):
 
     interval_minutes: int = 15
     max_age_seconds: int = 60
+    # warn (never block) when the Docker disk is this full; `make clean-docker` frees it
+    docker_disk_warn_percent: int = Field(default=85, ge=1, le=100)
 
 
 class SandboxConfig(BaseModel):

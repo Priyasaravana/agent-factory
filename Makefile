@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -47,6 +47,14 @@ ps:
 reset-cluster: ## delete and recreate the kind cluster inside dind
 	docker compose exec -u factory factory kind delete cluster --name factory || true
 	docker compose restart factory
+
+clean-docker: ## free Docker disk: build cache, dangling images, stopped containers (never volumes or the cluster)
+	@docker compose exec -T -u factory factory docker system df
+	docker compose exec -T -u factory factory docker builder prune --all --force
+	docker compose exec -T -u factory factory docker image prune --force
+	docker compose exec -T -u factory factory docker container prune --force
+	@docker compose exec -T -u factory factory docker system df
+	@echo "kept: volumes, the kind cluster, tagged images. This cleans the factory's Docker (dind); Docker Desktop's own disk is separate."
 
 local-ingress: ## local trial of the cluster target: registry + ingress-nginx in kind (ADR-0026)
 	@docker compose exec -T -u factory factory cat /opt/factory/cluster/local-ingress.sh 2>/dev/null | cmp -s - cluster/local-ingress.sh \
