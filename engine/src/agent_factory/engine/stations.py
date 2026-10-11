@@ -166,7 +166,13 @@ class StationContext:
             subagent_model=self.cfg.models.fast,
         )
         call = AgentCall(
-            self.ws.data_dir / "artifacts" / self.change.id, self.station_id, spec.id, req.model, self._emit
+            self.ws.data_dir / "artifacts" / self.change.id,
+            self.station_id,
+            spec.id,
+            req.model,
+            self._emit,
+            skills=spec.skills,
+            preloaded=spec.preload_skills,
         )
         res = await self.agents.run(req, call.wrap(sink))
         self.change.cost_usd += res.cost_usd

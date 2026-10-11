@@ -33,6 +33,8 @@ class FakeAgentRunner:
     repo_no_tests: bool = False
     # what the checker agent reports when a scan station asks it (ADR-0035)
     scan_findings: list[dict[str, Any]] = field(default_factory=list)
+    # skills a role opens through the Skill tool (simulates an agent using what it was given)
+    use_skills: dict[str, list[str]] = field(default_factory=dict)
     calls: list[AgentRequest] = field(default_factory=list)
     _risky_state: str = "pending"  # pending -> written -> removed
 
@@ -44,6 +46,11 @@ class FakeAgentRunner:
         read = {"type": "tool_use", "id": "t1", "tool": "Read", "input": '{"file_path": "AGENTS.md"}'}
         await sink("transcript", read)
         await sink("transcript", {"type": "tool_result", "id": "t1", "is_error": False, "content": "# AGENTS.md"})
+        for name in self.use_skills.get(req.role, []):
+            await sink("tool", {"tool": "Skill", "input": name})
+            await sink(
+                "transcript", {"type": "tool_use", "id": "s1", "tool": "Skill", "input": f'{{"skill": "{name}"}}'}
+            )
         if req.role in self.deny_once:
             self.deny_once.remove(req.role)
             reason = "blocked: pushing is done by the engine after checks"

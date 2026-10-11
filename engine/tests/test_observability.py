@@ -137,3 +137,31 @@ async def test_the_retro_call_is_recorded_too(make_factory):
     sessions = f.manager.ws.data_dir / "artifacts" / change.id / "sessions"
     assert retro["transcript"] and (sessions / retro["transcript"]).is_file()
     assert json.loads((sessions / retro["transcript"]).read_text().splitlines()[0])["type"] == "text"
+
+
+async def test_each_call_records_which_skills_were_granted_preloaded_and_invoked(make_factory):
+    agents = FakeAgentRunner(use_skills={"architect": ["security-pillar"]})
+    f = make_factory(agents=agents)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    app, ctx, c = await _client(f)
+    async with c:
+        calls = {x["role"]: x for x in (await c.get(f"/api/changes/{change.id}/calls")).json()["calls"]}
+    await ctx.__aexit__(None, None, None)
+    arch = calls["architect"]["skills"]
+    assert arch["invoked"] == ["security-pillar"]
+    assert "security-pillar" in arch["granted"] and "reliability-pillar" in arch["granted"]
+    assert "reliability-pillar" not in arch["invoked"], "granted is not the same as used"
+    assert calls["developer"]["skills"]["invoked"] == []
+
+
+def test_reading_a_skill_file_counts_as_using_the_skill(tmp_path):
+    async def emit(*_a):  # noqa: ANN002
+        return None
+
+    call = AgentCall(tmp_path, "design", "architect", "m", emit, skills=["cost-pillar", "security-pillar"])
+    call._note_skill("Read", '{"file_path": "/work/.claude/skills/cost-pillar/SKILL.md"}')
+    call._note_skill("Read", '{"file_path": "/work/app/main.py"}')
+    call._note_skill("Skill", '{"skill": "plugin:security-pillar"}')
+    call._note_skill("Skill", "not json")
+    assert call.invoked == ["cost-pillar", "security-pillar"]

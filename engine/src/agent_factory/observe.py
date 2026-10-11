@@ -4,7 +4,8 @@ Each agent call is wrapped by `AgentCall`:
 - **Guardrail denials** become decision events (`denied` data): who tried what,
   and why it was refused. A refusal is evidence, not just something the agent saw.
 - **One summary per call** (`agent_call` data): station, role, model, turns,
-  duration, cost, tool calls by tool, denials, outcome, transcript file.
+  duration, cost, tool calls by tool, skills (granted / preloaded / invoked),
+  denials, outcome, transcript file.
 - **A transcript per call** under `artifacts/<run>/sessions/`: the agent's text,
   every tool call with its full input, every tool result, denials and the final
   result, one JSON object per line. Secrets are redacted (REDACTOR) and each
@@ -31,6 +32,8 @@ from agent_factory.secret_refs import REDACTOR
 MAX_TRANSCRIPT_BYTES = 2_000_000
 TRANSCRIPT_NAME = re.compile(r"^[0-9]{2,4}-[a-z0-9_-]{1,60}-[a-z0-9_-]{1,60}\.jsonl$")
 
+SKILL_FILE = re.compile(r"/skills/([a-z0-9][a-z0-9_.-]*)/SKILL\.md")
+
 Emit = Callable[[EventKind, str, dict[str, Any]], Awaitable[None]]
 
 
@@ -39,8 +42,19 @@ def sessions_dir(artifacts: Path) -> Path:
 
 
 class AgentCall:
-    def __init__(self, artifacts: Path, station: str, role: str, model: str, emit: Emit) -> None:
+    def __init__(
+        self,
+        artifacts: Path,
+        station: str,
+        role: str,
+        model: str,
+        emit: Emit,
+        skills: list[str] | None = None,
+        preloaded: list[str] | None = None,
+    ) -> None:
         self.station, self.role, self.model, self.emit = station, role, model, emit
+        self.granted, self.preloaded = list(skills or []), list(preloaded or [])
+        self.invoked: list[str] = []  # skills the agent actually opened, in order, once each
         d = sessions_dir(artifacts)
         d.mkdir(parents=True, exist_ok=True)
         seq = len(list(d.glob("*.jsonl"))) + 1
@@ -70,6 +84,8 @@ class AgentCall:
         async def sink(kind: str, data: dict[str, Any]) -> None:
             if kind == "transcript":
                 self._write(data)
+                if data.get("type") == "tool_use":
+                    self._note_skill(str(data.get("tool", "")), data.get("input"))
                 return
             if kind == "denied":
                 d = {
@@ -92,6 +108,20 @@ class AgentCall:
 
         return sink
 
+    def _note_skill(self, tool: str, raw_input: Any) -> None:
+        """A skill counts as invoked when the agent calls the Skill tool for it or reads its SKILL.md."""
+        try:
+            args = json.loads(raw_input) if isinstance(raw_input, str) else dict(raw_input or {})
+        except (ValueError, TypeError):
+            return
+        name = None
+        if tool == "Skill":
+            name = str(args.get("skill") or args.get("name") or "").split(":")[-1]
+        elif tool == "Read" and (m := SKILL_FILE.search(str(args.get("file_path", "")))):
+            name = m.group(1)
+        if name and name not in self.invoked:
+            self.invoked.append(name)
+
     async def finish(self, res: AgentResult) -> dict[str, Any]:
         summary = {
             "station": self.station,
@@ -106,6 +136,11 @@ class AgentCall:
             "cost_usd": round(res.cost_usd, 4),
             "tool_calls": sum(self.tools.values()),
             "tools": dict(self.tools.most_common()),
+            "skills": {
+                "granted": self.granted,
+                "preloaded": self.preloaded,
+                "invoked": self.invoked,
+            },
             "denied": len(self.denied),
             "transcript": self.name if self.path.exists() else None,
             "transcript_truncated": self.truncated,
