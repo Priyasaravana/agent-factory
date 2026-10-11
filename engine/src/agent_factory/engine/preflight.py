@@ -4,6 +4,7 @@ Before a change can spend model tokens, everything it will need is checked:
 
     agents    model credential, agent sandbox
     build     Docker-in-Docker          (the registry integration's check)
+              Docker disk space         (warns only; `make clean-docker` frees it)
     deploy    cluster API, free app port (the deploy integration's check)
     scan      scanner configured
     publish   credential reference resolvable (per integration; never blocks)
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -34,6 +36,19 @@ log = logging.getLogger("agent_factory.preflight")
 
 BLOCK_ALL = ["product", "change"]
 _RANK = {"ready": 0, "degraded": 1, "failed": 2}
+
+
+def parse_df(output: str) -> tuple[int, int] | None:
+    """(percent used, free bytes) from `df -P` output, or None when it is not df output."""
+    for line in reversed(output.strip().splitlines()):
+        m = re.match(r"^\S+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)%\s+/\s*$", line.strip())
+        if m:
+            return int(m.group(3)), int(m.group(2)) * 1024
+    return None
+
+
+def _gib(n: int) -> str:
+    return f"{n / 1024**3:.1f} GiB"
 
 
 class PreflightFailed(Exception):
@@ -139,6 +154,7 @@ class Preflight:
         if line.target == "repo":  # an existing repo is read, never built or deployed (ADR-0031)
             checks.append(self._workflow(pl))
             return self._view(pl, env.environment, checks, start)
+        checks.append(await self._docker_disk(live))  # only products that are built need it
         # one check per distinct integration, reported under the capabilities it serves
         by_integration: dict[str, list[str]] = {}
         for cap in ("registry", "deploy", "scan", "publish"):
@@ -195,6 +211,30 @@ class Preflight:
         return _check(
             "sandbox", "Agent sandbox", "agents", "degraded", ["preparing (first start builds the image); changes wait"]
         )
+
+    async def _docker_disk(self, live: bool) -> CheckView:
+        """Warn before Docker's disk fills (a full disk fails builds halfway). Never blocks.
+        Measured on the kind node, whose filesystem is the Docker-in-Docker disk."""
+        title = "Docker disk space"
+        if not live:
+            return _check("disk", title, "build", "ready", ["dry-run: no Docker disk in use"], blocks=[])
+        node = f"{self.m.settings.cluster_name}-control-plane"
+        res = await self.m.ex.run(f"docker exec {node} df -P /", timeout=15)
+        measured = parse_df(res.output) if res.ok else None
+        if measured is None:
+            return _check("disk", title, "build", "ready", ["not measured: the cluster node is not running"], blocks=[])
+        used, free = measured
+        limit = self.m.cfg.preflight.docker_disk_warn_percent
+        if used >= limit:
+            return _check(
+                "disk",
+                title,
+                "build",
+                "degraded",
+                [f"Docker disk {used}% full ({_gib(free)} free): run `make clean-docker` before builds start failing"],
+                blocks=[],
+            )
+        return _check("disk", title, "build", "ready", [f"Docker disk {used}% full ({_gib(free)} free)"], blocks=[])
 
     async def _integration(self, name: str, caps: list[str], live: bool) -> CheckView:
         p = self.m.providers.integrations[name]

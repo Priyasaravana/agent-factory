@@ -54,6 +54,14 @@ apps could not be removed without shell access.
      out only if the cluster really maps them.
    - The readiness check says when `make reset-cluster` would add the rest.
 
+6. **Docker disk space (warns, never blocks):** a full Docker disk fails a build
+   halfway and costs a run. A `disk` check (area `build`) reads `df` on the kind
+   node, whose filesystem is the Docker-in-Docker disk, and is `degraded` from
+   `preflight.docker_disk_warn_percent` (default 85) with the hint
+   `make clean-docker`. That target prunes build cache, dangling images and
+   stopped containers in dind; it never touches volumes, tagged images or the
+   cluster. Docker Desktop's own disk is separate.
+
 ## Consequences
 - A broken dependency costs seconds, not a run: "no free port", "cluster
   down" or "no model credential" show before intake starts.

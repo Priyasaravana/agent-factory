@@ -153,6 +153,7 @@ sandbox:
 preflight:
   interval_minutes: 15
   max_age_seconds: 60
+  docker_disk_warn_percent: 85    # warn (never block) above this; `make clean-docker` frees space
 
 # Trust and change risk (docs/adr/0027-change-risk-policy.md). The shipped
 # acceptable-use rules always apply; rules here only add to them.
