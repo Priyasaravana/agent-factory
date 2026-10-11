@@ -5,9 +5,11 @@
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
 - Workflows (stations + agent specs + reference docs) are data: one per
-  blueprint, seeded from `workflow-templates/<name>/`, stored as immutable versions in
-  the DB. Changes are pinned to (workflow, version). Prefer template, spec and skill
-  changes over engine changes (see docs/workflows.md).
+  blueprint, seeded from the factory standard `workflow-templates/standard/` (one lane, a
+  window per change kind in `presets.yaml`, ADR-0037), stored as immutable versions in
+  the DB. Changes are pinned to (workflow, version) and record their window. Prefer
+  template, spec and skill changes over engine changes (see docs/workflows.md). Data from
+  before the standard lane is not migrated: `agent-factory reset --confirm` (`reset.py`).
 - `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
   imported at a pinned commit via `default_skills` in the config; never copy
   them into the repo. Layer guidance through `skill_prompts` instead of editing them.
@@ -109,7 +111,7 @@
 - Existing repos (ADR-0031): onboarded by URL (`assess.parse_repo_url`, https on allowed
   hosts) and cloned read-only by `Workspace.sync_repo` (no hooks, submodules or push).
   Assessment stations never change the repository; the assessor is observe-only and
-  judged by the pure `assess.judge`. Changes (ADR-0033) run on `<blueprint>-change`, are
+  judged by the pure `assess.judge`. Changes (ADR-0033) run the `repo-change` window, are
   made on a branch of the clone and leave only as a pull request (`pull-request` station,
   token from `existing_repos.write_token_ref` via the environment); the factory never
   merges. Pure helpers live in `repo_change.py`. New signals and rules go in
@@ -139,4 +141,6 @@
   against `schemas/artifacts/<type>.v<n>.json` (`engine/handoff.py`): an invalid output fails its
   station. A breaking change to an artifact is a new schema version, never an edit; a new
   built-in handler gets a type and a collector, with a test in `tests/test_station_contract.py`.
+  A station is chosen per target through its type (`handler_for`); where it applies is data
+  (`applies_when`), and every skipped station is recorded with its reason (`WorkflowDoc.plan`).
 - Record significant decisions as ADRs in `docs/adr/`.

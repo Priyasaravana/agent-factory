@@ -124,6 +124,7 @@ class Change(BaseModel):
     iteration: int
     status: ChangeStatus
     current_station: str | None = None
+    window: str | None = None  # the window over the workflow this change runs (ADR-0037 §4)
     workflow_id: str | None = None  # the blueprint's workflow (None on runs from before workflows)
     workflow_version: int = Field(  # the workflow version this change is pinned to
         default=1, validation_alias=AliasChoices("workflow_version", "line_version")
@@ -635,7 +636,8 @@ class StationView(BaseModel):
     on_fail: str | None = None
     next: str | None = None
     repair: bool
-    state: str  # pending | running | passed | failed | held
+    state: str  # pending | running | passed | failed | held | skipped
+    skip_reason: str | None = None  # why this change's window doesn't run it (ADR-0037 §4)
     attempts: int
     tool: str | None = None  # scan stations: a specific catalogue tool (ADR-0034)
     fail_on: str | None = None

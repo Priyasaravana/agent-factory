@@ -6,13 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import PRODUCT, default_skill_names, wait_run
+from conftest import default_skill_names
 from test_api import _client
 
-from agent_factory import actions
 from agent_factory.engine.workflows import WorkflowError
-from agent_factory.models import ChangeStatus
-from agent_factory.outcomes import compute
 from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
@@ -22,15 +19,13 @@ from agent_factory.workflow import (
     STAGE_ORDER,
     WorkflowDoc,
     WorkflowStation,
-    export_workflow_dir,
     load_workflow_dir,
     validate_workflow,
-    workflow_warnings,
 )
 
 WF = "fastapi-service"
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT = REPO / "workflow-templates" / "default"
+DEFAULT = REPO / "workflow-templates" / "standard"
 SKILLS = REPO / "plugin" / "skills"
 
 # the default lane as it was stored before ADR-0028
@@ -73,14 +68,13 @@ def test_the_default_lane_reads_as_the_devops_loop() -> None:
     doc = load_workflow_dir(DEFAULT)
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     phases = doc.phases()
-    assert [phases[s.id] for s in doc.forward_stations()] == [
+    assert [phases[s] for s in doc.plan("factory-new", "factory").stations] == [
         "plan", "plan", "code", "test", "test", "test", "test", "test", "test", "test", "release", "deploy",
         "validate", "handover",
     ]  # fmt: skip
     assert {s.id: s.label() for s in doc.stations}["code-scan"] == "Code scan"
     assert phases["deploy-repair"] == "deploy"
     assert {s.id: s.label() for s in doc.stations}["quality-gate"] == "Quality gate"
-    assert not [w for w in workflow_warnings(doc) if "out of order" in w]
 
 
 def test_build_meant_the_coding_agent_and_now_means_the_image() -> None:
@@ -109,8 +103,6 @@ def test_a_custom_step_sits_in_the_phase_before_it_unless_it_says_otherwise() ->
 
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     doc.station("security-review").phase = "validate"
-    warnings = [w for w in workflow_warnings(doc) if "out of order" in w]
-    assert len(warnings) == 1 and warnings[0].startswith("station 'test' (test) comes after a later phase")
     # validate is in the deliver column: the verify stations after it no longer fit (ADR-0037)
     assert any(
         "'test' sits in verify but comes after a deliver station" in e
@@ -125,7 +117,8 @@ def test_an_unknown_phase_is_rejected() -> None:
 
 async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
     d = make_factory().workflows[WF].draft
-    d.add_station(WorkflowStation(id="docs-check", kind="agent", agent="reviewer"), position=3)
+    at = [s.id for s in d.get()[1].stations].index("implement") + 1
+    d.add_station(WorkflowStation(id="docs-check", kind="agent", agent="reviewer"), position=at)
     assert d.get()[1].phases()["docs-check"] == "code"
     d.update_station("docs-check", {"phase": "test"})
     assert d.get()[1].phases()["docs-check"] == "test"
@@ -135,30 +128,6 @@ async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
         d.update_station("docs-check", {"phase": "monitor"})
     d.update_station("test", {"handler": "verify"})  # an old handler name is understood
     assert d.get()[1].station("test").resolved_handler() == "test"
-
-
-# ------------------------------------------------- versions with old names --
-async def test_a_version_stored_with_the_old_names_still_runs(make_factory, tmp_path) -> None:
-    """Changes and evidence are pinned to station ids, so old versions keep theirs;
-    people still read the new names and phases."""
-    f = make_factory()
-    legacy = _legacy(load_workflow_dir(DEFAULT))
-    assert validate_workflow(legacy, SKILLS, default_skill_names()) == []
-    export_workflow_dir(legacy, tmp_path / "old")
-    f.workflows[WF].import_dir(tmp_path / "old", "as stored before ADR-0028")
-    change = f.manager.start_change(f.manager.create_product(PRODUCT))
-    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
-
-    views = {s.id: s for s in actions.get_change(f, change.id).stations}
-    assert (views["build"].handler, views["build"].label, views["build"].phase) == ("implement", "Implement", "code")
-    assert (views["package"].handler, views["package"].label, views["package"].phase) == ("build", "Build", "release")
-    assert views["deliver"].label == "Handover" and views["deliver"].state == "passed"
-
-    # effort per station counts old and new names together
-    from agent_factory.outcomes import gather
-
-    names = {e.station for e in compute(gather(f.store, 30)).effort_by_station}
-    assert "implement" in names and "build" not in names
 
 
 async def test_the_catalog_tells_the_editor_names_and_phases(make_factory) -> None:
@@ -174,7 +143,7 @@ async def test_the_catalog_tells_the_editor_names_and_phases(make_factory) -> No
         }
         draft = (await c.get(f"/api/workflows/{WF}/draft")).json()
         first = draft["stations"][0]
-        assert (first["id"], first["label"], first["phase"]) == ("requirements", "Requirements", "plan")
+        assert (first["id"], first["label"], first["phase"]) == ("onboard", "Onboard", "plan")
         r = await c.patch(f"/api/workflows/{WF}/draft/stations/design", json={"phase": "monitor"})
         assert r.status_code >= 400, "a phase must be one of the loop's"
     await ctx.__aexit__(None, None, None)

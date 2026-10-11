@@ -42,6 +42,7 @@ from agent_factory.providers import Providers
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
+from agent_factory.workflow import target_of
 
 if TYPE_CHECKING:
     from agent_factory.sandbox import SandboxManager
@@ -354,14 +355,26 @@ class ChangeManager:
                 f"a {'later' if changes else 'first'} change to this product can be: {', '.join(allowed)}"
             )
         now = _now()
+        wid = self.cfg.workflow_for(product.blueprint, kind)
+        version = version or self.workflows[wid].active_version()
+        flow = self.workflows[wid].get(version)
+        target = target_of(self.cfg.blueprints[product.blueprint].target)
+        try:  # the window this kind of change runs over the lane (ADR-0037 §4)
+            window = flow.window_for(target, kind)
+        except KeyError as exc:
+            raise InvalidRequestError(f"this workflow has no window for {kind} changes on a {target} target") from exc
+        plan = flow.plan(window.id if window else None, target)
+        if not plan.stations:
+            raise InvalidRequestError(f"window '{plan.window}' runs no station for a {target} target")
         change = Change(
             id=uuid.uuid4().hex[:12],
             product_id=product.id,
             iteration=len(changes) + 1,
             status=ChangeStatus.queued,
-            workflow_id=(wid := self.cfg.workflow_for(product.blueprint, kind)),
-            workflow_version=(version := version or self.workflows[wid].active_version()),
-            current_station=self.workflows[wid].get(version).forward_stations()[0].id,
+            workflow_id=wid,
+            workflow_version=version,
+            window=plan.window,
+            current_station=plan.stations[0],
             change_request=change_request,
             kind=kind,
             source=source,
@@ -439,9 +452,10 @@ class ChangeManager:
         change = self._awaiting_spec(change_id)
         product = self.store.get_product(change.product_id)
         flow = self.workflows[change.workflow_id or (product.blueprint if product else "")].get(change.workflow_version)
-        first = flow.forward_stations()[0].id
+        plan = flow.plan(change.window, self._target(product.blueprint if product else ""))
+        first = plan.stations[0]
         change.review_notes.append(f"{comment} (by {by})")
-        for sid in [s.id for s in flow.forward_stations()]:
+        for sid in plan.stations:
             change.attempts.pop(sid, None)
             if flow.station(sid).resolved_handler() == "design":
                 break
@@ -712,7 +726,7 @@ class ChangeManager:
                         product.slug, url, product.repo_ref, self.cfg.existing_repos.clone_timeout_seconds
                     )
                 except RuntimeError as exc:
-                    first = flow.forward_stations()[0].id
+                    first = change.current_station or flow.forward_stations()[0].id
                     return self._hold(change, first, "the repository could not be read", str(exc))
                 if product.repo_ref != branch:
                     product.repo_ref = branch
@@ -730,7 +744,8 @@ class ChangeManager:
             worktree = await self.ws.create_worktree(product.slug, change.id)
         deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
 
-        if change.current_station:  # entry artifacts, once per change (ADR-0037 §2)
+        plan = flow.plan(change.window, self._target(product.blueprint))
+        if change.current_station:  # the plan and entry artifacts, once per change (ADR-0037 §2, §4)
             entry_ctx = StationContext(
                 self.cfg,
                 self.settings,
@@ -745,6 +760,15 @@ class ChangeManager:
                 flow,
             )
             entry_ctx.providers = self.providers.for_blueprint(product.blueprint)
+            if not handoff.ledger_for(entry_ctx).has_entry():
+                handoff.write_plan(entry_ctx, plan)
+                skipped = ", ".join(f"{sid} ({why})" for sid, why in plan.skipped) or "none"
+                self.store.add_event(
+                    change.id,
+                    EventKind.decision,
+                    f"window {plan.window or '(whole lane)'}: {len(plan.stations)} stations; skipped: {skipped}",
+                    data={"plan": plan.model_dump()},
+                )
             if rejected := await handoff.record_entry(entry_ctx):
                 return self._hold(change, change.current_station, "entry artifact rejected", "\n".join(rejected))
 
@@ -775,7 +799,8 @@ class ChangeManager:
                 change.attempts[sid] -= 1
                 return self._hold(change, sid, f"missing input artifact(s): {', '.join(missing)}")
             try:
-                result = await STATIONS[station.resolved_handler()](ctx)
+                handler = station.handler_for(plan.target) or station.resolved_handler()
+                result = await STATIONS[handler](ctx)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -798,7 +823,7 @@ class ChangeManager:
             if result.outcome == StationOutcome.passed:
                 if sid in flow.repair_targets() or station.only_on_fail:
                     change.last_failure = None  # the station that consumed the evidence succeeded
-                nxt = station.next or flow.next_forward(sid)
+                nxt = flow.next_in(plan, sid)
                 change.current_station = nxt
                 if nxt is None:
                     change.status = ChangeStatus.awaiting_feedback
@@ -827,6 +852,13 @@ class ChangeManager:
                 target = station.on_fail
                 if not target:
                     return self._hold(change, sid, f"{result.summary} (no repair route)", result.failure_evidence)
+                if not plan.runs(target):
+                    return self._hold(
+                        change,
+                        sid,
+                        f"{result.summary} (its repair route '{target}' is outside this window)",
+                        result.failure_evidence,
+                    )
                 if change.loops > self.cfg.budgets.max_loops_per_change:
                     return self._hold(change, sid, "fix-loop budget exhausted", result.failure_evidence)
                 change.last_failure = result.failure_evidence or result.summary
@@ -884,6 +916,9 @@ class ChangeManager:
 
             return self._hold(change, sid, result.summary, result.failure_evidence)
         return None
+
+    def _target(self, blueprint: str) -> str:
+        return target_of(self.cfg.blueprints[blueprint].target) if blueprint in self.cfg.blueprints else "factory"
 
     def _hold(self, change: Change, sid: str, why: str, evidence: str | None = None) -> None:
         change.status = ChangeStatus.held

@@ -57,7 +57,7 @@ def test_each_skill_is_well_formed(name):
     assert len((PLUGIN / name / "SKILL.md").read_text()) < 8_000  # loaded on demand, but kept short
 
 
-@pytest.mark.parametrize("template", ["default", "api-security-review", "assess"])
+@pytest.mark.parametrize("template", ["standard"])
 def test_agents_get_the_skills_of_their_stage(template):
     doc = load_workflow_dir(REPO / "workflow-templates" / template)
     for aid, spec in doc.agents.items():

@@ -134,12 +134,12 @@ async def test_an_incomplete_review_is_retried_once_then_held(make_factory):
 
 # ------------------------------------------------------------- workflow --
 def test_the_review_station_must_be_observe_only_and_after_build():
-    doc = load_workflow_dir(REPO / "workflow-templates" / "default")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
     skills, defaults = REPO / "plugin" / "skills", default_skill_names()
     assert validate_workflow(doc, skills, defaults) == []
     doc.agents["reviewer"].tools = "builder"
     assert any("must use an observe-only agent" in p for p in validate_workflow(doc, skills, defaults))
-    doc = load_workflow_dir(REPO / "workflow-templates" / "default")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
     ids = [s.id for s in doc.stations]
     doc.stations.insert(ids.index("implement"), doc.stations.pop(ids.index("code-review")))
     problems = validate_workflow(doc, skills, defaults)

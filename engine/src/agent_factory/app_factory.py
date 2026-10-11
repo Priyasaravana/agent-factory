@@ -111,6 +111,9 @@ def build_factory(
     )
     for problem in skill_problems:
         log.warning("%s", problem)
+    from agent_factory import reset
+
+    reset.check(store)  # data from before the one-lane workflows needs `agent-factory reset` (ADR-0037 §7)
     try:
         workflows.ensure_seeded()  # first start: template -> workflow v1 per blueprint (never overwrites)
     except WorkflowError as exc:

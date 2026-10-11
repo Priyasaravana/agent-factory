@@ -2,7 +2,9 @@
 
 A **workflow** is the ordered set of stations a product goes through, and the
 agents that do the work at each agent station. **Each blueprint has its own
-workflow.** A product runs the active workflow of its blueprint.
+workflow,** seeded from the **factory standard**: one lane holding every station, with a
+**window** per change kind ([ADR-0037](adr/0037-station-contract.md)). A product runs the
+active workflow of its blueprint; a change runs the window for its target and kind.
 
 | Where | What |
 |---|---|
@@ -17,12 +19,34 @@ in `.agent-factory/config.yaml` (`blueprints.<id>.workflow_template`) as
 template never overwrites your workflow; the UI shows "template updated"
 instead.
 
-Built-in templates:
+Built-in template: `standard` (`workflow.yaml`, `presets.yaml`, `agents/`, `docs/`, `evals.yaml`).
 
-| Template | Stations |
-|---|---|
-| `default` | intake → design → build → verify → readiness → **review** → package → deploy (→ deploy_fix) → acceptance → deliver |
-| `api-security-review` | as `default`, plus an observe-only **security-review** after build, with a secure-coding standard |
+## One lane, windows (ADR-0037)
+
+Stations sit in the container's columns: discover · design · plan · develop · verify · deliver ·
+operate. Each station names a **type** (`type: implement`) that fixes its column, the artifacts
+it needs and gives, and its handler **per target**: a factory product (`implement`, `code-review`,
+`handover`) or a team's repo (`repo-implement`, `repo-review`, `pull-request`). A type without an
+implementation for a target is skipped there (nothing is built or deployed for a team's repo).
+`target_agents` picks a different agent per target; `fail_on_by` a scan's policy per window or target;
+`applies_when` (`target`, `windows`, `not_windows`) narrows where the rest apply.
+
+`presets.yaml` lists the **windows**: where a run enters and leaves (a column or a station id), the
+artifacts it starts from, and the change kinds that run on it.
+
+| Window | Target | Kinds | Runs |
+|---|---|---|---|
+| `factory-new`, `factory-change` | factory | new · feature, bug, upkeep | requirements → … → handover |
+| `repo-assess` | repo | assess | onboard, repo-scan, assess, the scans, report |
+| `repo-change` | repo | feature, bug, upkeep | onboard, implement, test, scans, code-review, change-risk, handover (PR) |
+| `design-only`, `verify-only`, `delivery` | presets | — | started from a phase (composable SDLC step 3) |
+
+Every change records its plan: the stations it runs and every station it skips, with the reason
+(`outside window`, `not applicable: no repo implementation`, …), in an event and in `plan.json`
+in its evidence. Publishing checks container fit **per window**: data (each station's needs given
+to its left or by the window's entry) and the mandatory controls (test, a secret scan and
+change-risk after the last branch change, before any image, url or pr, and before a window that
+changes code ends).
 
 ## Agent spec (`agents/<id>.md`)
 

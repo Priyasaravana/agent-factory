@@ -31,7 +31,7 @@ async def test_order_lifecycle_over_http(make_factory):
                 break
             await asyncio.sleep(0.05)
         assert change["change"]["status"] == "awaiting_feedback"
-        assert all(s["state"] in ("passed", "pending") for s in change["stations"])
+        assert all(s["state"] in ("passed", "pending", "skipped") for s in change["stations"])
         events = (await c.get(f"/api/changes/{change_id}/events")).json()
         assert any(e["kind"] == "decision" for e in events)
 
@@ -69,14 +69,17 @@ async def test_workflow_endpoints(make_factory):
     app, ctx, c = await _client(make_factory())
     async with c:
         line = (await c.get("/api/workflows/fastapi-service")).json()
-        assert line["version"] == 1 and line["active"] and line["template"] == "default"
+        assert line["version"] == 1 and line["active"] and line["template"] == "standard"
         agents = {a["spec"]["id"] for a in line["agents"]}
-        assert agents == {"intake", "architect", "developer", "reviewer", "devops", "verifier", "checker"}
+        assert agents == {
+            "intake", "architect", "developer", "reviewer", "devops", "verifier", "checker",
+            "assessor", "repo-developer", "repo-reviewer",
+        }  # fmt: skip
         verifier = next(a for a in line["agents"] if a["spec"]["id"] == "verifier")
         assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
         assert (await c.get("/api/workflows/fastapi-service/versions")).json()[0]["version"] == 1
         assert (await c.get("/api/workflows/fastapi-service/versions/9")).status_code == 404
         cfg = (await c.get("/api/config")).json()
-        assert cfg["workflows"] == {"fastapi-service": 1, "existing-repo": 1, "existing-repo-change": 1}
+        assert cfg["workflows"] == {"fastapi-service": 1, "existing-repo": 1}
         assert cfg["repo_blueprints"] and "existing-repo" not in cfg["blueprints"]
     await ctx.__aexit__(None, None, None)

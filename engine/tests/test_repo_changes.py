@@ -100,7 +100,7 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     with pytest.raises(InvalidRequestError):
         f.manager.feedback(product.id, "x", ChangeKind.new)
     change = f.manager.feedback(product.id, "Add unit tests and a CI workflow", ChangeKind.upkeep)
-    assert (change.kind, change.workflow_id) == (ChangeKind.upkeep, "existing-repo-change")
+    assert (change.kind, change.workflow_id, change.window) == (ChangeKind.upkeep, "existing-repo", "repo-change")
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     change = f.store.get_change(change.id)
     assert "pull request simulated (dry-run): factory/" in change.summary and "→ trunk" in change.summary
@@ -113,10 +113,17 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     assert body.startswith("# chore: Add unit tests and a CI workflow") and "`test/app.test.js`" in body
     stations = [e.station for e in f.store.list_events(change.id) if e.message.endswith("started (attempt 1)")]
     assert stations == [
-        "onboard", "implement", "test", "secret-scan", "code-scan", "dependency-scan", "config-scan", "review",
+        "onboard",
+        "implement",
+        "test",
+        "secret-scan",
+        "code-scan",
+        "dependency-scan",
+        "config-scan",
+        "code-review",
         "change-risk",
-        "pull-request",
-    ]  # fmt: skip
+        "handover",
+    ]  # fmt: skip  (one lane: the repo implementations of code-review and handover, ADR-0037)
 
     # the team's repository is untouched: the change only leaves as a pull request
     assert _git(origin, "rev-parse", "HEAD").strip() == before
@@ -192,14 +199,17 @@ async def test_live_without_a_token_holds_before_pushing(make_factory, tmp_path,
     assert not any(c.startswith(("git push", "gh pr")) for c in ex.calls)
 
 
-def test_the_change_workflow_is_registered_per_repo_blueprint(cfg):
-    assert cfg.workflow_templates()["existing-repo-change"] == "workflow-templates/repo-change"
-    assert cfg.blueprint_of("existing-repo-change") == "existing-repo"
-    assert cfg.workflow_for("existing-repo", "bug") == "existing-repo-change"
-    assert cfg.workflow_for("existing-repo", "assess") == "existing-repo"
-    assert cfg.workflow_for("fastapi-service", "bug") == "fastapi-service"
+def test_a_repo_change_is_a_window_over_the_standard_lane(cfg):
+    from agent_factory.workflow import load_workflow_dir
+
+    assert cfg.workflow_templates()["existing-repo"] == "workflow-templates/standard"
+    assert cfg.workflow_for("existing-repo", "bug") == cfg.workflow_for("existing-repo", "assess") == "existing-repo"
     with pytest.raises(KeyError):
-        cfg.blueprint_of("fastapi-service-change")
+        cfg.blueprint_of("existing-repo-change")  # no separate change workflow since ADR-0037
+    doc = load_workflow_dir(Path(__file__).resolve().parents[2] / "workflow-templates" / "standard")
+    assert doc.window_for("repo", "bug").id == "repo-change"
+    assert doc.window_for("repo", "assess").id == "repo-assess"
+    assert doc.window_for("factory", "bug").id == "factory-change"
 
 
 def test_git_is_available():  # the end-to-end tests clone a local repository

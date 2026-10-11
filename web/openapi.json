@@ -3965,6 +3965,17 @@
             ],
             "title": "Current Station"
           },
+          "window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window"
+          },
           "workflow_id": {
             "anyOf": [
               {
@@ -7440,6 +7451,17 @@
           "state": {
             "type": "string",
             "title": "State"
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
           },
           "attempts": {
             "type": "integer",

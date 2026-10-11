@@ -73,6 +73,10 @@ def main() -> None:
     sc = ssub.add_parser("cache", help="fetch the config's default_skills at their pinned commits (image build)")
     sc.add_argument("--out", required=True)
 
+    rs = sub.add_parser(
+        "reset", help="fresh start (ADR-0037): drop products, changes and workflows; keep members, skills, config"
+    )
+    rs.add_argument("--confirm", action="store_true", help="really delete (without it: show what would go)")
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
@@ -93,6 +97,8 @@ def main() -> None:
         print(f"wrote {args.out}")
     elif args.cmd == "workflow":
         _workflow(args)
+    elif args.cmd == "reset":
+        _reset(args.confirm)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
@@ -105,6 +111,24 @@ def main() -> None:
         print(f"sandbox build context in {args.out}")
     elif args.cmd == "sandbox":
         _sandbox_check()
+
+
+def _reset(confirm: bool) -> None:
+    from agent_factory import reset
+    from agent_factory.config import load_config
+    from agent_factory.settings import Settings
+    from agent_factory.state import SqliteStateStore
+
+    s = Settings()
+    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    store = SqliteStateStore(data_dir / "factory.db")
+    what = reset.plan(store, data_dir) if not confirm else reset.reset(store, data_dir)
+    for name, n in what.items():
+        print(f"  {n:>6}  {name}")
+    if confirm:
+        print("reset: the next start seeds the standard workflow")
+    else:
+        print("nothing deleted: run again with --confirm to delete the above")
 
 
 def _sandbox_check() -> None:
