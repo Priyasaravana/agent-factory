@@ -274,8 +274,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
-        "description": "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
+        "summary": "The change's scan reports (ADR-0034/0035): each scan station's provider, normalised findings and verdict, in run order",
+        "description": "The change's scan reports (ADR-0034/0035): each scan station's provider, normalised findings and verdict, in run order",
         "operationId": "get_change_tools",
         "parameters": [
           {
@@ -3253,6 +3253,40 @@
               }
             ],
             "title": "Phase"
+          },
+          "check": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "secrets",
+                  "code",
+                  "dependencies",
+                  "config"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "github",
+                  "snyk",
+                  "agent"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           },
           "tool": {
             "anyOf": [
@@ -6718,6 +6752,29 @@
         ],
         "title": "RiskHold"
       },
+      "ScanFallbackView": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool",
+            "default": ""
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "reason"
+        ],
+        "title": "ScanFallbackView"
+      },
       "ScenarioView": {
         "properties": {
           "id": {
@@ -7375,6 +7432,28 @@
               }
             ],
             "title": "Fail On"
+          },
+          "check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           }
         },
         "type": "object",
@@ -7521,6 +7600,45 @@
             "type": "string",
             "title": "Title"
           },
+          "check": {
+            "type": "string",
+            "title": "Check",
+            "default": ""
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "default": "local"
+          },
+          "via": {
+            "type": "string",
+            "title": "Via",
+            "default": ""
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence",
+            "default": "tool"
+          },
+          "fallback_from": {
+            "items": {
+              "$ref": "#/components/schemas/ScanFallbackView"
+            },
+            "type": "array",
+            "title": "Fallback From"
+          },
+          "advisory": {
+            "type": "string",
+            "title": "Advisory",
+            "default": ""
+          },
+          "dropped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dropped"
+          },
           "fail_on": {
             "type": "string",
             "title": "Fail On"
@@ -7578,7 +7696,7 @@
           "passed"
         ],
         "title": "ToolReportView",
-        "description": "One tool station's report on a change (ADR-0034): normalised findings and the verdict."
+        "description": "One scan station's report on a change (ADR-0034/0035): who answered, the normalised\nfindings and the verdict."
       },
       "TraceRow": {
         "properties": {
@@ -7706,6 +7824,40 @@
               }
             ],
             "title": "Phase"
+          },
+          "check": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "secrets",
+                  "code",
+                  "dependencies",
+                  "config"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "github",
+                  "snyk",
+                  "agent"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           },
           "tool": {
             "anyOf": [

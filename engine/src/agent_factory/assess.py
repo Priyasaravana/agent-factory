@@ -906,10 +906,13 @@ def render_markdown(report: dict[str, Any]) -> str:
     if not r["findings"]:
         lines.append("None.")
     if r.get("tools"):
-        lines += ["", "## Tools", ""]
+        from agent_factory.repo_change import via_note
+
+        lines += ["", "## Security checks", ""]
         for t in r["tools"]:
             counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
-            lines.append(f"- **{t.get('title')}:** {counts}" + (" (simulated)" if t.get("simulated") else ""))
+            simulated = " (simulated)" if t.get("simulated") else ""
+            lines.append(f"- **{t.get('title')}**{via_note(t)}: {counts}{simulated}")
             for f in (t.get("findings") or [])[:10]:
                 at = f["file"] + (f":{f['line']}" if f.get("line") else "")
                 lines.append(f"  - {f['severity']} · {f['title']} (`{at}`)")

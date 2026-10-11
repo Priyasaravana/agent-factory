@@ -71,7 +71,7 @@ async def test_workflow_endpoints(make_factory):
         line = (await c.get("/api/workflows/fastapi-service")).json()
         assert line["version"] == 1 and line["active"] and line["template"] == "default"
         agents = {a["spec"]["id"] for a in line["agents"]}
-        assert agents == {"intake", "architect", "developer", "reviewer", "devops", "verifier"}
+        assert agents == {"intake", "architect", "developer", "reviewer", "devops", "verifier", "checker"}
         verifier = next(a for a in line["agents"] if a["spec"]["id"] == "verifier")
         assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
         assert (await c.get("/api/workflows/fastapi-service/versions")).json()[0]["version"] == 1

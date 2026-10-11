@@ -113,7 +113,8 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     assert body.startswith("# chore: Add unit tests and a CI workflow") and "`test/app.test.js`" in body
     stations = [e.station for e in f.store.list_events(change.id) if e.message.endswith("started (attempt 1)")]
     assert stations == [
-        "onboard", "implement", "test", "secrets", "sast", "dependencies", "iac", "review", "change-risk",
+        "onboard", "implement", "test", "secret-scan", "code-scan", "dependency-scan", "config-scan", "review",
+        "change-risk",
         "pull-request",
     ]  # fmt: skip
 
@@ -216,8 +217,8 @@ async def test_tools_on_a_pr_answer_only_for_the_changed_files(make_factory, tmp
     change = f.manager.feedback(product.id, "Add unit tests", ChangeKind.upkeep)  # touches package.json + test/
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback  # fail_on high, but not its files
     out = f.manager.ws.data_dir / "artifacts" / change.id
-    iac = json.loads((out / "tools" / "iac.json").read_text())
+    iac = json.loads((out / "tools" / "config-scan.json").read_text())
     assert (iac["scope"], iac["passed"], iac["outside"], iac["findings"]) == ("changed", True, 3, [])
     body = (out / "pull-request.md").read_text()
-    assert "- **Trivy (Dockerfile, Kubernetes):** no findings in the changed files (passed)" in body
-    assert "- **gitleaks (secrets):** no findings in the changed files (passed)" in body
+    assert "- **Config scan** via Trivy (Dockerfile, Kubernetes): no findings in the changed files (passed)" in body
+    assert "- **Secret scan** via gitleaks (secrets): no findings in the changed files (passed)" in body

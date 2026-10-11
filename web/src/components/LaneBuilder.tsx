@@ -52,8 +52,35 @@ export type NewStation = {
   on_fail?: string | null;
   only_on_fail?: boolean;
   next?: string | null;
+  check?: Check;
+  fail_on?: FailOn;
   position: number;
 };
+
+// Scan stations (ADR-0035) are named after what they check; who answers is the factory's
+// choice under `checks:` in the config unless a station overrides it.
+type Check = "secrets" | "code" | "dependencies" | "config";
+type FailOn = "critical" | "high" | "medium" | "low" | "none";
+const CHECKS: { id: Check; label: string }[] = [
+  { id: "secrets", label: "Secrets" },
+  { id: "code", label: "Code" },
+  { id: "dependencies", label: "Dependencies" },
+  { id: "config", label: "Config (Dockerfile, Kubernetes, IaC)" },
+];
+const PROVIDERS = [
+  { id: "", label: "factory default" },
+  { id: "local", label: "open-source tool" },
+  { id: "github", label: "GitHub" },
+  { id: "snyk", label: "Snyk" },
+  { id: "agent", label: "factory agent" },
+];
+const FAIL_ON: { id: FailOn; label: string }[] = [
+  { id: "critical", label: "critical" },
+  { id: "high", label: "high and above" },
+  { id: "medium", label: "medium and above" },
+  { id: "low", label: "low and above" },
+  { id: "none", label: "never (report only)" },
+];
 
 export type LaneOps = {
   add: (s: NewStation) => void;
@@ -127,6 +154,14 @@ export default function LaneBuilder({
       on_fail: ["test", "quality-gate", "build"].includes(item.handler) ? implementId : null,
       only_on_fail: item.handler === "deploy-repair",
       next: null,
+      ...(item.handler === "scan"
+        ? {
+            check: "code" as Check,
+            fail_on: "high" as FailOn,
+            on_fail: implementId,
+            agent: agentIds.includes("checker") ? "checker" : undefined,
+          }
+        : {}),
       position,
     });
   };
@@ -321,6 +356,53 @@ function LaneCard({
           </select>
         </label>
       )}
+      {s.handler === "scan" && (
+        <>
+          <label className="small">
+            checks
+            <select
+              aria-label={`${s.id} check`}
+              value={s.check ?? ""}
+              onChange={(e) => ops.update(s.id, { check: e.target.value })}
+            >
+              {!s.check && <option value="">— choose —</option>}
+              {CHECKS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="small">
+            answered by
+            <select
+              aria-label={`${s.id} provider`}
+              value={s.provider ?? ""}
+              onChange={(e) => ops.update(s.id, { provider: e.target.value || null })}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="small">
+            fails on
+            <select
+              aria-label={`${s.id} fails on`}
+              value={s.fail_on ?? "high"}
+              onChange={(e) => ops.update(s.id, { fail_on: e.target.value })}
+            >
+              {FAIL_ON.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
       {s.kind === "agent" && (
         <label className="small">
           agent
@@ -432,6 +514,22 @@ function NewStationForm({
             onChange={(e) => onChange({ ...value, id: e.target.value.trim() })}
           />
         </label>
+        {value.handler === "scan" && (
+          <label>
+            checks
+            <select
+              aria-label="new station check"
+              value={value.check ?? "code"}
+              onChange={(e) => onChange({ ...value, check: e.target.value as Check })}
+            >
+              {CHECKS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {value.kind === "agent" && (
           <label>
             agent

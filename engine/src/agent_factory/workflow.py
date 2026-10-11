@@ -24,6 +24,8 @@ from typing import Literal
 import yaml
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
+from agent_factory import checks
+
 # --------------------------------------------------------------- tools ----
 # A preset is the ceiling of what an agent may do. Guardrail hooks still apply
 # on top; no spec can grant git push, credentials or holdout access.
@@ -64,7 +66,7 @@ CHECK_HANDLERS = {
     "report",
     "repo-test",
     "pull-request",
-    "tool",
+    "scan",
 }
 # Handlers for existing repositories: assessment reads the repo (ADR-0031); a change is made
 # on a branch of the clone and leaves only as a pull request (ADR-0033).
@@ -84,7 +86,13 @@ REPO_HANDLERS = {
 # handlers. Per kind, because `build` was the coding agent and is now the image check.
 LEGACY_HANDLERS: dict[str, dict[str, str]] = {
     "agent": {"intake": "requirements", "build": "implement", "review": "code-review", "deploy_fix": "deploy-repair"},
-    "check": {"verify": "test", "readiness": "quality-gate", "package": "build", "deliver": "handover"},
+    "check": {
+        "verify": "test",
+        "readiness": "quality-gate",
+        "package": "build",
+        "deliver": "handover",
+        "tool": "scan",  # ADR-0034's tool stations, named after their check since ADR-0035
+    },
 }
 
 
@@ -177,11 +185,12 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     "pull-request": HandlerInfo(
         kind="check", label="Pull request", phase="handover", hint="pushes the branch and opens a PR; a person merges"
     ),
-    "tool": HandlerInfo(
+    "scan": HandlerInfo(
         kind="check",
-        label="Tool",
+        label="Scan",
         phase="test",
-        hint="runs a scanner (Semgrep, OSV-Scanner, gitleaks, Trivy …) with a pass/fail policy (ADR-0034)",
+        hint="a security check (secrets, code, dependencies, config) answered by the configured "
+        "provider: open-source tool, GitHub, Snyk or an agent, with a pass/fail policy (ADR-0035)",
     ),
     "agent": HandlerInfo(
         kind="agent",
@@ -298,8 +307,12 @@ class WorkflowStation(BaseModel):
     # DevOps phase the station is shown under (ADR-0028). Built-in handlers have
     # one; a custom step without it takes the phase of the station before it.
     phase: Phase | None = None
-    # tool stations (ADR-0034): which tool from the catalogue, and the lowest severity
-    # that fails the station (lower ones are warnings; `none` never fails)
+    # scan stations (ADR-0034/0035): what is checked; who answers it (the config's choice
+    # unless set here); a specific catalogue tool (stations saved before ADR-0035); and the
+    # lowest severity that fails the station (lower ones are warnings; `none` never fails).
+    # `agent` names the observe-only agent used when the provider is (or falls back to) agent.
+    check: Literal["secrets", "code", "dependencies", "config"] | None = None
+    provider: Literal["local", "github", "snyk", "agent"] | None = None
     tool: str | None = None
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
 
@@ -314,12 +327,18 @@ class WorkflowStation(BaseModel):
             return legacy
         return "agent" if self.kind == "agent" else self.id
 
+    def check_name(self) -> str:
+        """What a scan station checks; stations saved before ADR-0035 name only a tool."""
+        if self.check:
+            return self.check
+        from agent_factory.tools import TOOLS
+
+        return checks.check_of(TOOLS.get(self.tool or ""), self.tool or "")
+
     def label(self) -> str:
         """What people read: the built-in handler's name, or the custom station's id."""
-        if self.resolved_handler() == "tool":
-            from agent_factory.tools import TOOLS
-
-            return TOOLS[self.tool].title if self.tool in TOOLS else (self.tool or self.id)
+        if self.resolved_handler() == "scan":
+            return checks.title_of(self.check_name(), self.tool or self.id)
         info = HANDLER_INFO.get(self.resolved_handler())
         return info.label if info and self.resolved_handler() != "agent" else self.id
 
@@ -458,10 +477,13 @@ def validate_workflow(
         else:
             if handler not in CHECK_HANDLERS:
                 errors.append(f"check station '{s.id}': unknown handler '{handler}'")
-            if handler == "tool" and not s.tool:
-                errors.append(
-                    f"tool station '{s.id}' must name a tool (e.g. semgrep, osv-scanner, gitleaks, trivy-config)"
-                )
+            if handler == "scan" and not (s.check or s.tool):
+                errors.append(f"scan station '{s.id}' must say what it checks: secrets, code, dependencies or config")
+            if handler == "scan" and s.agent:
+                if s.agent not in doc.agents:
+                    errors.append(f"station '{s.id}' uses unknown agent '{s.agent}'")
+                elif not doc.agents[s.agent].observe_only:
+                    errors.append(f"scan station '{s.id}': its agent '{s.agent}' must be observe-only")
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_factory.checks import CHECKS, PROVIDERS
 from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
@@ -388,7 +389,18 @@ class Draft:
         are fixed; remove and add instead."""
         _, doc, _ = self.get()
         st = self._station(doc, station_id)
-        allowed = {"on_fail", "next", "only_on_fail", "handler", "agent", "phase", "tool", "fail_on"}
+        allowed = {
+            "on_fail",
+            "next",
+            "only_on_fail",
+            "handler",
+            "agent",
+            "phase",
+            "tool",
+            "fail_on",
+            "check",
+            "provider",
+        }
         unknown = set(patch) - allowed
         if unknown:
             raise WorkflowError(f"cannot change {sorted(unknown)} (allowed: {sorted(allowed)})")
@@ -405,6 +417,14 @@ class Draft:
             st.only_on_fail = bool(patch["only_on_fail"])
         if "tool" in patch:
             st.tool = str(patch["tool"]) if patch["tool"] else None
+        if "check" in patch:
+            if patch["check"] not in (None, *CHECKS):
+                raise WorkflowError(f"check must be one of {sorted(CHECKS)}")
+            st.check = patch["check"]  # type: ignore[assignment]
+        if "provider" in patch:
+            if patch["provider"] not in (None, *PROVIDERS):
+                raise WorkflowError(f"provider must be one of {list(PROVIDERS)}")
+            st.provider = patch["provider"]  # type: ignore[assignment]
         if "fail_on" in patch:
             if patch["fail_on"] not in (None, "critical", "high", "medium", "low", "none"):
                 raise WorkflowError("fail_on must be critical, high, medium, low or none")
@@ -420,7 +440,7 @@ class Draft:
                 raise WorkflowError(f"phase must be one of {PHASE_IDS}, not '{patch['phase']}'")
             st.phase = patch["phase"] or None  # type: ignore[assignment]
         if "agent" in patch:
-            if st.kind != "agent":
+            if st.kind != "agent" and st.resolved_handler() != "scan":  # a scan may fall back to one
                 raise WorkflowError(f"station '{station_id}' is a deterministic check and has no agent")
             if patch["agent"] not in doc.agents:
                 raise WorkflowError(f"agent '{patch['agent']}' not found")

@@ -31,6 +31,8 @@ class FakeAgentRunner:
     risky_once: dict[str, str] = field(default_factory=dict)
     # a repo developer that never adds tests (simulates a repo with no test command, ADR-0033)
     repo_no_tests: bool = False
+    # what the checker agent reports when a scan station asks it (ADR-0035)
+    scan_findings: list[dict[str, Any]] = field(default_factory=list)
     calls: list[AgentRequest] = field(default_factory=list)
     _risky_state: str = "pending"  # pending -> written -> removed
 
@@ -148,6 +150,8 @@ class FakeAgentRunner:
                     }
                 ]
             }
+        if req.role == "checker":  # a scan station's agent provider or fallback (ADR-0035)
+            return {"summary": "[dry-run] checked", "findings": list(self.scan_findings)}
         if "test_command" in props:  # a change to an existing repo (ADR-0033)
             return {"summary": "[dry-run] made the requested change, with a test", "test_command": "", "notes": []}
         if "test_gaps" in props:  # repository assessment (ADR-0031): cite real files, plus one that isn't

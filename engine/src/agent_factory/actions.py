@@ -187,6 +187,8 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
                 attempts=attempts,
                 tool=s.tool,
                 fail_on=s.fail_on,
+                check=s.check_name() or None if s.resolved_handler() == "scan" else None,
+                provider=s.provider,
             )
         )
     return views
@@ -334,7 +336,8 @@ def get_change_assessment(f: Factory, change_id: str) -> AssessmentView:
 
 @action(
     "get_change_tools",
-    "The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order",
+    "The change's scan reports (ADR-0034/0035): each scan station's provider, normalised findings and verdict, "
+    "in run order",
     "GET",
     "/api/changes/{change_id}/tools",
 )
@@ -1024,6 +1027,8 @@ def _station_views_for(doc: WorkflowDoc) -> list[StationView]:
             attempts=0,
             tool=s.tool,
             fail_on=s.fail_on,
+            check=s.check_name() or None if s.resolved_handler() == "scan" else None,
+            provider=s.provider,
         )
         for s in doc.stations
     ]

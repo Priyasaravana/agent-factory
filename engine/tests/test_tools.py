@@ -254,15 +254,20 @@ async def test_warnings_pass_and_are_kept_as_evidence(make_factory):
     f = _live(make_factory, ex)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback  # default policy: fail on critical
-    report = json.loads((f.manager.ws.data_dir / "artifacts" / change.id / "tools" / "iac.json").read_text())
+    report = json.loads((f.manager.ws.data_dir / "artifacts" / change.id / "tools" / "config-scan.json").read_text())
     assert report["passed"] and report["counts"]["high"] == 1 and report["fail_on"] == "critical"
     msgs = [e.message for e in f.store.list_events(change.id)]
-    assert any(m.startswith("Trivy (Dockerfile, Kubernetes): 1 high, 1 medium, 1 low (passed)") for m in msgs)
+    assert "Config scan: 1 high, 1 medium, 1 low (passed) via Trivy (Dockerfile, Kubernetes)" in msgs
     assert any("raw output not kept" in m for m in msgs)
     app, ctx, c = await _client(f)
     async with c:
         views = (await c.get(f"/api/changes/{change.id}/tools")).json()
-        assert [v["station"] for v in views] == ["sast", "dependencies", "iac"]
+        assert [v["station"] for v in views] == ["code-scan", "dependency-scan", "config-scan"]
+        assert (views[2]["title"], views[2]["via"], views[2]["provider"]) == (
+            "Config scan",
+            "Trivy (Dockerfile, Kubernetes)",
+            "local",
+        )
         assert views[2]["findings"][0]["rule"] == "DS002"
     await ctx.__aexit__(None, None, None)
 
@@ -273,21 +278,37 @@ async def test_a_blocking_finding_goes_back_to_the_developer(make_factory):
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     events = f.store.list_events(change.id)
-    routed = [e for e in events if e.message == "routing failure from sast to implement"]
+    routed = [e for e in events if e.message == "routing failure from code-scan to implement"]
     assert routed and "critical: app/main.py:7: eval() on user input" in routed[0].data["routed"]["evidence"]
     dev = [c for c in f.manager.agents.calls if c.role == "developer"]
     assert len(dev) == 2 and "eval() on user input" in dev[1].prompt
 
 
-async def test_a_tool_that_does_not_run_holds_the_change(make_factory):
+async def test_a_tool_that_does_not_run_falls_back_to_the_agent(make_factory):
     ex = ScanExecutor(queue={"osv-scanner": ["docker: Error response from daemon: pull access denied"]})
     f = _live(make_factory, ex)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    report = json.loads(
+        (f.manager.ws.data_dir / "artifacts" / change.id / "tools" / "dependency-scan.json").read_text()
+    )
+    assert (report["provider"], report["confidence"], report["via"]) == ("agent", "agent", "factory agent")
+    assert report["fallback_from"][0]["provider"] == "local"
+    assert "OSV-Scanner (dependencies) did not run" in report["fallback_from"][0]["reason"]
+    checker = [c for c in f.manager.agents.calls if c.role == "checker"]
+    assert len(checker) == 1 and checker[0].observe_only and "Dependency scan" in checker[0].prompt
+
+
+async def test_without_a_fallback_a_tool_that_does_not_run_holds_the_change(make_factory):
+    ex = ScanExecutor(queue={"osv-scanner": ["docker: Error response from daemon: pull access denied"]})
+    f = _live(make_factory, ex)
+    f.manager.cfg.checks.fallback = "none"
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.held
-    assert "OSV-Scanner (dependencies) did not run" in f.store.get_change(change.id).summary
+    assert "Dependency scan: no provider could answer" in f.store.get_change(change.id).summary
 
 
 def test_scanners_answer_clean_in_the_fake_executor():
     for needle in CLEAN_SCANS:
-        tool = next(t for t in tools.TOOLS.values() if needle in t.command.format(image=t.image, path="/w"))
+        tool = next(t for t in tools.TOOLS.values() if needle in t.command.format(image=t.image, path="/w", repo="o/r"))
         assert tools.parse(tool, CLEAN_SCANS[needle]) == []
