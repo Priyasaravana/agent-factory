@@ -282,7 +282,13 @@ class SandboxManager:
         hand_to_sandbox(work)
         spec = self.base_spec(container_name("probe", uuid.uuid4().hex[:6]), work, {"af.run": "probe"})
         spec.pass_env = forwarded_env_names(dict(os.environ))
-        script = Path(__file__).with_name("probe.py").read_text().replace("__PROXY__", f"{self.cfg.proxy}:{PROXY_PORT}")
+        script = (
+            Path(__file__)
+            .with_name("probe.py")
+            .read_text()
+            .replace("__PROXY__", f"{self.cfg.proxy}:{PROXY_PORT}")
+            .replace("__MODEL__", self.cfg.model_endpoint)
+        )
         res = await self.ex.run(shlex.join(spec.argv(["python3", "-c", script])), timeout=120)
         try:
             return json.loads(res.output.strip().splitlines()[-1])

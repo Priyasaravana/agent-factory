@@ -23,7 +23,7 @@ SPEC_ENV = "AF_SANDBOX_SPEC"
 
 def build_argv(spec_json: str, cli_args: list[str], env: dict[str, str]) -> list[str]:
     spec = SandboxSpec.from_json(spec_json)
-    spec.pass_env = forwarded_env_names(env)
+    spec.pass_env = forwarded_env_names(env, spec.withhold_env)
     return spec.argv(["claude", *cli_args], interactive=True)
 
 

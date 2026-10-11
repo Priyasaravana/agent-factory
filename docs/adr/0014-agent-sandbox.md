@@ -75,6 +75,7 @@ environment.
 - `.factory-data` is mounted into dind at `/data` as well, so sandboxes can mount
   a worktree by the same path.
 - The model credential is still visible inside the sandbox; the agent needs it.
-  Next step: a local auth proxy so the token never enters the sandbox.
+  Next step: a local auth proxy so the token never enters the sandbox
+  (done with the model gateway, [ADR-0036](0036-model-gateway.md), in api_key mode).
 - Anything an agent needs from the internet must be added to `sandbox.egress`
   deliberately. That is the point.

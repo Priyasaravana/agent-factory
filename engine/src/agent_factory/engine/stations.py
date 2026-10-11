@@ -135,7 +135,7 @@ class StationContext:
                 await self.emit(EventKind.agent, data.get("text", ""), {})
             elif kind == "tool":
                 await self.emit(EventKind.log, f"{data['tool']}: {data['input']}", data)
-            elif kind in ("agent_init", "sandbox"):
+            elif kind in ("agent_init", "sandbox", "gateway"):
                 await self.emit(EventKind.log, data["text"], data)
             else:
                 await self.emit(EventKind.log, kind, data)

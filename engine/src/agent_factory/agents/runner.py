@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from agent_factory.agents.hooks import build_hooks
+from agent_factory.gateway import CallScope, DirectGateway, GatewayRefused, GatewaySession, ModelGateway
 
 if TYPE_CHECKING:
     from agent_factory.sandbox import SandboxManager
@@ -65,6 +66,7 @@ class AgentResult:
     rate_limited: bool = False
     limit_utilization: float | None = None
     limit_resets_at: int | None = None
+    gateway: dict[str, Any] | None = None  # model gateway info for this call (ADR-0036); None = direct
 
 
 def plugins_for(factory_home: Path, req: AgentRequest) -> list[dict[str, str]]:
@@ -114,11 +116,16 @@ class AgentRunner(Protocol):
 
 class ClaudeAgentRunner:
     def __init__(
-        self, factory_home: Path, tools_server: Any | None = None, sandbox: SandboxManager | None = None
+        self,
+        factory_home: Path,
+        tools_server: Any | None = None,
+        sandbox: SandboxManager | None = None,
+        gateway: ModelGateway | None = None,
     ) -> None:
         self.factory_home = factory_home
         self.tools_server = tools_server  # in-process MCP server with factory actions
         self.sandbox = sandbox  # None = the CLI runs in the factory container (development only)
+        self.gateway: ModelGateway = gateway or DirectGateway()  # where the model is reached (ADR-0036)
 
     def _system_prompt(self, req: AgentRequest) -> str:
         contract = (self.factory_home / "prompts" / "_contract.md").read_text()
@@ -129,8 +136,30 @@ class ClaudeAgentRunner:
         return "\n\n".join(parts)
 
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
+        """One agent call: a gateway session (virtual key) around one sandboxed CLI session."""
+        try:
+            session = await self.gateway.open(CallScope(req.change_id, req.station, req.role, req.model))
+        except GatewayRefused as exc:
+            return AgentResult(ok=False, error=f"model gateway: {exc}")
+        if session.provider != "direct":
+            await sink(
+                "gateway",
+                {"text": f"model via {session.provider} gateway, virtual key {session.key_alias}", **session.info()},
+            )
+        result = AgentResult(ok=False, error="agent call did not finish")
+        try:
+            result = await self._sandboxed(req, sink, session)
+        finally:
+            info = await self.gateway.close(session, result.cost_usd)  # revoke the key, even when cancelled
+        if session.provider != "direct":
+            result.gateway = info
+        return result
+
+    async def _sandboxed(self, req: AgentRequest, sink: EventSink, session: GatewaySession) -> AgentResult:
         if self.sandbox is None:
-            return await self._run(req, sink, {})
+            # development only: the CLI inherits the engine's environment, so blank the withheld credentials
+            env = {**session.env, **dict.fromkeys(session.withhold, "")}
+            return await self._run(req, sink, {"env": env} if env else {})
         ready = await self.sandbox.ready()
         if ready.state != "ready":
             return AgentResult(ok=False, error="agent sandbox not ready: " + "; ".join(ready.reasons))
@@ -138,6 +167,7 @@ class ClaudeAgentRunner:
         if cli is None:
             return AgentResult(ok=False, error=f"{SANDBOX_CLI} not installed; refusing to run unsandboxed")
         spec = self.sandbox.agent_spec(req)
+        spec.withhold_env = list(session.withhold)  # e.g. the engine's model credential behind a gateway
         path = self.sandbox.write_spec(spec)
         await sink(
             "sandbox",
@@ -151,7 +181,10 @@ class ClaudeAgentRunner:
         try:
             # the factory plugin is baked into the sandbox image at the same path as in the factory image
             return await self._run(
-                req, sink, {"cli_path": cli, "env": {"AF_SANDBOX_SPEC": str(path)}}, plugin_home=SANDBOX_HOME_DIR
+                req,
+                sink,
+                {"cli_path": cli, "env": {"AF_SANDBOX_SPEC": str(path), **session.env}},
+                plugin_home=SANDBOX_HOME_DIR,
             )
         finally:
             await self.sandbox.remove(spec.name)  # also stops it if the SDK was cancelled mid-session

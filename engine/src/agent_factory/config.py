@@ -194,6 +194,8 @@ class SandboxConfig(BaseModel):
     egress: list[str] = Field(default_factory=lambda: list(DEFAULT_EGRESS))
     # send an allowed destination elsewhere, keeping its host name (sandbox/egress.py)
     routes: list[str] = Field(default_factory=list)
+    # where agents reach the model; set to the gateway when one is configured (ADR-0036)
+    model_endpoint: str = "api.anthropic.com:443"
 
 
 class AcceptableUseRule(BaseModel):
@@ -274,6 +276,40 @@ class ChecksConfig(BaseModel):
         return {"snyk": self.snyk_token_ref, "github": self.github_token_ref}.get(provider)
 
 
+class ModelGatewayConfig(BaseModel):
+    """Where agents reach the model (ADR-0036).
+
+    direct:  agents call the model provider with the engine's credential (today's behaviour).
+    litellm: agents call a LiteLLM gateway with a virtual key minted per agent call;
+             `credential: api_key` keeps the provider key in the gateway only (anything
+             others run), `subscription` forwards the agent's own Claude login per request."""
+
+    provider: Literal["direct", "litellm"] = "direct"
+    # as the engine and the sandboxes reach it (compose service name; sandboxes get an egress route)
+    url: str = "http://model-gateway:4000"
+    credential: Literal["api_key", "subscription"] = "api_key"
+    # the gateway's admin (master) key: a reference, never a value
+    admin_key_ref: str | None = "env://LITELLM_MASTER_KEY"  # noqa: S105 - a reference, not a value
+    call_budget_usd: float = Field(default=5.0, gt=0)  # hard cap per agent call, enforced by the gateway
+    change_budget_usd: float | None = Field(default=None, gt=0)  # the engine refuses new calls past this
+    key_minutes: int = Field(default=180, ge=5, le=24 * 60)  # a virtual key's lifetime, even if never revoked
+    allowed_models: list[str] = Field(default_factory=list)  # empty: whatever the gateway serves
+
+    @field_validator("admin_key_ref")
+    @classmethod
+    def _is_reference(cls, v: str | None) -> str | None:
+        if v is not None and "://" not in v:
+            raise ValueError("admin_key_ref must be a reference like env://NAME, never a value")
+        return v
+
+    @field_validator("url")
+    @classmethod
+    def _http_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("model_gateway.url must be http(s)://host:port")
+        return v
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -300,6 +336,8 @@ class FactoryConfig(BaseModel):
     tools: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # which provider answers each check (ADR-0035): local tool, GitHub, Snyk or an agent
     checks: ChecksConfig = ChecksConfig()
+    # where agents reach the model (ADR-0036): direct, or a gateway with a virtual key per call
+    model_gateway: ModelGatewayConfig = ModelGatewayConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

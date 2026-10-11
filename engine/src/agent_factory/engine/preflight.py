@@ -150,6 +150,8 @@ class Preflight:
         line = self.m.cfg.blueprints[pl]
         env = self.m.providers.for_blueprint(pl)
         live = self.m.settings.factory_mode == "live"
+        if live:
+            await self.m.gateway.check()  # network call; _model then reads the cached state
         checks: list[CheckView] = [self._model(live), self._sandbox(live)]
         if line.target == "repo":  # an existing repo is read, never built or deployed (ADR-0031)
             checks.append(self._workflow(pl))
@@ -181,6 +183,16 @@ class Preflight:
     def _model(self, live: bool) -> CheckView:
         if not live:
             return _check("model", "Model access", "agents", "ready", ["dry-run: no model usage"])
+        gw = self.m.gateway
+        if gw.name != "direct":
+            # behind a gateway (ADR-0036): its readiness is model access; the provider key lives there
+            st = gw.state.state
+            state = st if st in ("ready", "failed") else "degraded"
+            reasons = list(gw.state.reasons)
+            cred = self.m.cfg.model_gateway.credential
+            if cred == "subscription" and not self.m.settings.claude_code_oauth_token:
+                state, reasons = "failed", [*reasons, "subscription mode: set CLAUDE_CODE_OAUTH_TOKEN in .env"]
+            return _check("model", "Model access", "agents", state, reasons)
         if self.m.settings.model_auth_configured():
             return _check("model", "Model access", "agents", "ready", ["model credential configured"])
         return _check(

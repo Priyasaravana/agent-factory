@@ -18,6 +18,7 @@ from agent_factory.engine.stations import STATIONS, StationContext, StationResul
 from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
+from agent_factory.gateway import DirectGateway, ModelGateway
 from agent_factory.models import (
     AVAILABLE_KINDS,
     AVAILABLE_TARGETS,
@@ -84,8 +85,10 @@ class ChangeManager:
         providers: Providers | None = None,
         secrets: SecretResolver | None = None,
         sandbox: SandboxManager | None = None,
+        gateway: ModelGateway | None = None,
     ) -> None:
         self.cfg, self.settings, self.store = cfg, settings, store
+        self.gateway: ModelGateway = gateway or DirectGateway()  # where agents reach the model (ADR-0036)
         self.workflows = workflows
         self.providers = providers or Providers(cfg)
         self.secrets = secrets or SecretResolver(settings)

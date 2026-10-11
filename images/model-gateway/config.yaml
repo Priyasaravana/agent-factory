@@ -1,0 +1,25 @@
+# LiteLLM model gateway (ADR-0036). Mounted read-only into the model-gateway service.
+# Agents call it with a virtual key minted per agent call by the engine; the
+# provider credential lives only here (credential: api_key) or is the agent's
+# own subscription login, forwarded per request and never stored (subscription).
+model_list:
+  # whichever Claude model an agent asks for (Claude Code resolves opus/sonnet/haiku)
+  - model_name: "anthropic/*"
+    litellm_params:
+      model: "anthropic/*"
+      # api_key mode: the only copy of the provider key. Unset in subscription mode,
+      # where each request carries the agent's own login instead.
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY     # the engine's admin key (mints/revokes virtual keys)
+  database_url: os.environ/DATABASE_URL         # virtual keys, budgets and spend need it
+
+router_settings:
+  # an expired subscription login answers 401; without this the whole deployment
+  # would cool down and every other call would get 429 (LiteLLM docs)
+  disable_cooldowns: true
+
+litellm_settings:
+  # never keep prompts or responses in the gateway's logs; spend and metadata only
+  turn_off_message_logging: true

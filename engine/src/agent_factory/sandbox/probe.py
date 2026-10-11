@@ -43,7 +43,9 @@ check("docker daemon unreachable (docker:2376)", not conn("docker", 2376))
 check("factory engine unreachable (factory:8000)", not conn("factory", 8000))
 try:
     check("egress denies github.com:443", " 403 " in via_proxy("github.com:443"))
-    check("egress allows api.anthropic.com:443", " 200 " in via_proxy("api.anthropic.com:443"))
+    check("egress allows the model (__MODEL__)", " 200 " in via_proxy("__MODEL__"))
+    if "__MODEL__" != "api.anthropic.com:443":  # behind a model gateway (ADR-0036)
+        check("egress denies direct model access", " 403 " in via_proxy("api.anthropic.com:443"))
 except OSError as e:
     check("egress proxy reachable", False, e)
 try:

@@ -96,7 +96,10 @@ export default function AgentCallsPanel({
               >
                 <td className="font-mono text-xs">{c.station}</td>
                 <td>{c.role}</td>
-                <td className="text-xs">{c.model}</td>
+                <td className="text-xs">
+                  {c.model}
+                  <GatewayPill gateway={c.gateway} />
+                </td>
                 <td className="tabular-nums">{c.turns}</td>
                 <td className="tabular-nums">{duration(c.duration_s)}</td>
                 <td className="tabular-nums">
@@ -133,6 +136,25 @@ export default function AgentCallsPanel({
         {open && <Transcript changeId={changeId} name={open} />}
       </div>
     </details>
+  );
+}
+
+/** The model gateway this call went through (ADR-0036): its own virtual key, the
+ * gateway's spend for it, and whether the key was revoked when the call ended. */
+function GatewayPill({ gateway }: { gateway?: Record<string, unknown> | null }) {
+  if (!gateway) return null;
+  const revoked = gateway.revoked !== false;
+  const spend = typeof gateway.spend_usd === "number" ? `$${gateway.spend_usd.toFixed(2)}` : "not reported yet";
+  const title = [
+    `via ${String(gateway.provider)} gateway`,
+    `virtual key: ${String(gateway.key_alias ?? "—")}`,
+    `gateway spend: ${spend}`,
+    revoked ? "key revoked after the call" : "key NOT revoked (it expires on its own)",
+  ].join("\n");
+  return (
+    <span className={cn("pill ml-1", revoked ? "muted" : "bad")} title={title} data-testid="via-gateway">
+      gateway
+    </span>
   );
 }
 
