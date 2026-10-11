@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:branch:v1",
+  "title": "branch@1",
+  "description": "A repo and ref with commits: the factory's worktree or a branch of the team's clone.",
+  "type": "object",
+  "required": [
+    "target",
+    "repo",
+    "ref",
+    "commit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "target": {
+      "type": "string",
+      "enum": [
+        "factory",
+        "repo"
+      ]
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,64}$"
+    },
+    "base": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

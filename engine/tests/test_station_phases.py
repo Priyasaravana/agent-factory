@@ -107,17 +107,20 @@ def test_a_custom_step_sits_in_the_phase_before_it_unless_it_says_otherwise() ->
     assert (phases["triage"], phases["security-review"]) == ("plan", "code")
     assert next(s for s in doc.stations if s.id == "security-review").label() == "security-review"
 
+    assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     doc.station("security-review").phase = "validate"
     warnings = [w for w in workflow_warnings(doc) if "out of order" in w]
-    assert len(warnings) == 1 and warnings[0].startswith("station 'test' (test) comes after a later phase"), (
-        "a step marked validate before the tests makes the lane read out of order (a warning, not an error)"
+    assert len(warnings) == 1 and warnings[0].startswith("station 'test' (test) comes after a later phase")
+    # validate is in the deliver column: the verify stations after it no longer fit (ADR-0037)
+    assert any(
+        "'test' sits in verify but comes after a deliver station" in e
+        for e in validate_workflow(doc, SKILLS, default_skill_names())
     )
-    assert validate_workflow(doc, SKILLS, default_skill_names()) == []
 
 
 def test_an_unknown_phase_is_rejected() -> None:
     with pytest.raises(ValueError, match="phase"):
-        WorkflowStation(id="x", kind="agent", agent="a", phase="operate")  # type: ignore[arg-type]
+        WorkflowStation(id="x", kind="agent", agent="a", phase="staging")  # type: ignore[arg-type]
 
 
 async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:

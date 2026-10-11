@@ -56,9 +56,14 @@ async def test_add_station_guardrails(make_factory):
         d.add_station(WorkflowStation(id="lint", kind="check"))
     with pytest.raises(WorkflowError, match="agent 'ghost' not found"):
         d.add_station(WorkflowStation(id="extra", kind="agent", agent="ghost"))
-    # a second test check under another id is fine
-    d.add_station(WorkflowStation(id="test-again", kind="check", handler="test", on_fail="implement"))
+    # a second test check under another id is fine, in its column (verify)
+    at = [s.id for s in d.get()[1].stations].index("test") + 1
+    d.add_station(WorkflowStation(id="test-again", kind="check", handler="test", on_fail="implement"), position=at)
     assert d.problems() == []
+    # not after the deliver column (ADR-0037 container rule)
+    d.remove_station("test-again")
+    d.add_station(WorkflowStation(id="test-again", kind="check", handler="test", on_fail="implement"))
+    assert any("'test-again' sits in verify but comes after a deliver station" in p for p in d.problems())
 
 
 async def test_agent_station_without_agent_blocks_publish(make_factory):
@@ -91,11 +96,15 @@ async def test_reorder_and_update_routes(make_factory):
     ids = [s.id for s in d.get()[1].stations]
     with pytest.raises(WorkflowError, match="exactly once"):
         d.reorder_stations(ids[:-1])
-    swapped = [s for s in ids if s != "test"]
-    swapped.insert(swapped.index("build") + 1, "test")  # a check may run anywhere, e.g. after the image build
+    late = [s for s in ids if s != "test"]
+    late.insert(late.index("build") + 1, "test")  # verify after deliver: out of its column (ADR-0037)
+    d.reorder_stations(late)
+    assert any("'test' sits in verify but comes after a deliver station" in p for p in d.problems())
+    swapped = [s for s in ids if s != "quality-gate"]
+    swapped.insert(swapped.index("change-risk") + 1, "quality-gate")  # free order within the verify column
     d.reorder_stations(swapped)
     assert [s.id for s in d.get()[1].stations] == swapped
-    assert d.problems() == [], "test may run anywhere"
+    assert d.problems() == [], "a check may run anywhere in verify"
     bad = swapped.copy()
     i, j = bad.index("build"), bad.index("deploy")
     bad[i], bad[j] = bad[j], bad[i]

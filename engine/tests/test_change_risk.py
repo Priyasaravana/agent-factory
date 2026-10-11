@@ -16,7 +16,7 @@ from agent_factory.agents import FakeAgentRunner
 from agent_factory.config import AcceptableUseRule
 from agent_factory.engine.pipeline import FactoryError, RefusedError
 from agent_factory.models import ChangeStatus, CreateProductInput
-from agent_factory.workflow import load_workflow_dir, workflow_warnings
+from agent_factory.workflow import load_workflow_dir, validate_workflow
 
 # an operator's own rule, so the tests exercise refusal without harmful examples
 TEST_RULE = AcceptableUseRule(id="test-forbidden", title="test rule", pattern=r"\bforbidden widget\b")
@@ -167,9 +167,10 @@ def test_the_templates_have_the_station_and_a_lane_without_it_is_flagged() -> No
     from test_station_phases import DEFAULT
 
     doc = load_workflow_dir(DEFAULT)
-    assert not [w for w in workflow_warnings(doc) if "no change-risk station" in w]
+    assert validate_workflow(doc) == []
     doc.stations = [s for s in doc.stations if s.id != "change-risk"]
-    assert [w for w in workflow_warnings(doc) if w.startswith("no change-risk station")]
+    # a mandatory control since ADR-0037 §5: publishing refuses a code-changing lane without it
+    assert any("but change-risk does not run after 'implement'" in e for e in validate_workflow(doc))
 
 
 # ------------------------------------------------------------ in the engine --

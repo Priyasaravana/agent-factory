@@ -3,9 +3,11 @@ template, edited through a draft, published as immutable versions."""
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 from agent_factory.checks import CHECKS, PROVIDERS
+from agent_factory.contract import BUILTIN_ROLES, COLUMN_IDS
 from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
@@ -44,12 +46,14 @@ class WorkflowService:
         template_dir: Path,
         skills_dir: Path,
         library: SkillLibrary | None = None,
+        roles: Collection[str] = tuple(BUILTIN_ROLES),
     ) -> None:
         self.store = store
         self.workflow_id = workflow_id
         self.template_dir = template_dir
         self.skills_dir = skills_dir
         self.library = library
+        self.roles = tuple(roles)  # role ids a station may name as owner (ADR-0037)
         self._cache: dict[int, WorkflowDoc] = {}
         self.draft = Draft(self)
 
@@ -94,7 +98,7 @@ class WorkflowService:
         return self.library.imported_names() if self.library else set()
 
     def validate(self, doc: WorkflowDoc) -> list[str]:
-        return validate_workflow(doc, self.skills_dir, self.imported_skills())
+        return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles)
 
     def create_version(self, doc: WorkflowDoc, note: str, activate: bool = True) -> int:
         problems = self.validate(doc)
@@ -124,13 +128,14 @@ class WorkflowRegistry:
         templates_dir: Path,
         skills_dir: Path,
         library: SkillLibrary | None = None,
+        roles: Collection[str] = tuple(BUILTIN_ROLES),
     ) -> None:
         self.store = store
         self.templates_dir = templates_dir
         self.skills_dir = skills_dir
         self.library = library
         self._services = {
-            pl: WorkflowService(store, pl, template, skills_dir, library) for pl, template in blueprints.items()
+            pl: WorkflowService(store, pl, template, skills_dir, library, roles) for pl, template in blueprints.items()
         }
 
     def skill_users(self, name: str) -> list[str]:
@@ -436,8 +441,8 @@ class Draft:
                 raise WorkflowError(f"unknown {st.kind} handler '{h}' (choose from {sorted(known)})")
             st.handler = h
         if "phase" in patch:
-            if patch["phase"] and patch["phase"] not in PHASE_IDS:
-                raise WorkflowError(f"phase must be one of {PHASE_IDS}, not '{patch['phase']}'")
+            if patch["phase"] and patch["phase"] not in PHASE_IDS + COLUMN_IDS:
+                raise WorkflowError(f"phase must be one of {COLUMN_IDS + PHASE_IDS}, not '{patch['phase']}'")
             st.phase = patch["phase"] or None  # type: ignore[assignment]
         if "agent" in patch:
             if st.kind != "agent" and st.resolved_handler() != "scan":  # a scan may fall back to one

@@ -48,7 +48,7 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
         "handover",
     ]
     assert doc.next_forward("deploy") == "acceptance"
-    assert doc.station("deploy-repair").next == "deploy"
+    assert doc.station("deploy-repair").next == "test"  # a branch change re-enters verify (ADR-0037 §5)
     assert doc.agents["verifier"].observe_only
     assert "Task" in doc.agents["developer"].effective_tools()
     assert doc.repair_targets() == {"implement", "deploy-repair"}

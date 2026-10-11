@@ -32,6 +32,6 @@ stations:
   - {id: change-risk,   kind: check, on_fail: implement}  # rules over the diff; risky changes wait for a second admin (ADR-0027)
   - {id: build,         kind: check, on_fail: implement}
   - {id: deploy,        kind: check, on_fail: deploy-repair}
-  - {id: deploy-repair, kind: agent, agent: devops, next: deploy, only_on_fail: true}
+  - {id: deploy-repair, kind: agent, agent: devops, next: test, only_on_fail: true}  # a branch change: re-enters verify (ADR-0037 §5)
   - {id: acceptance,    kind: agent, agent: verifier, on_fail: implement}
   - {id: handover,      kind: check}

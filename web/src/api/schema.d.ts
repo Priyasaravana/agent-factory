@@ -1249,7 +1249,7 @@ export interface components {
              */
             only_on_fail: boolean;
             /** Phase */
-            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */
@@ -2217,7 +2217,7 @@ export interface components {
             /** Label */
             label: string;
             /** Phase */
-            phase: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            phase: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Hint */
             hint: string;
         };
@@ -3183,7 +3183,7 @@ export interface components {
             /** Agent */
             agent?: string | null;
             /** Phase */
-            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */

@@ -19,12 +19,12 @@ import json
 import re
 from collections.abc import Collection
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
-from agent_factory import checks
+from agent_factory import checks, contract
 
 # --------------------------------------------------------------- tools ----
 # A preset is the ceiling of what an agent may do. Guardrail hooks still apply
@@ -113,7 +113,35 @@ PHASES: list[tuple[str, str]] = [
     ("handover", "Handover"),
 ]
 PHASE_IDS = [p for p, _ in PHASES]
-Phase = Literal["plan", "code", "test", "release", "deploy", "validate", "handover"]
+# A custom station's `phase:` names its container column (ADR-0037); the DevOps phases above
+# are still read, as the column they belong to (`contract.PHASE_TO_COLUMN`).
+Phase = Literal[
+    "plan",
+    "code",
+    "test",
+    "release",
+    "deploy",
+    "validate",
+    "handover",
+    "discover",
+    "design",
+    "develop",
+    "verify",
+    "deliver",
+    "operate",
+]
+
+
+# a custom station naming a container column is shown under this DevOps phase until the
+# editor moves to columns (ADR-0037 step 1c)
+_COLUMN_TO_PHASE = {
+    "discover": "plan",
+    "design": "plan",
+    "develop": "code",
+    "verify": "test",
+    "deliver": "release",
+    "operate": "handover",
+}
 
 
 class HandlerInfo(BaseModel):
@@ -315,6 +343,11 @@ class WorkflowStation(BaseModel):
     provider: Literal["local", "github", "snyk", "agent"] | None = None
     tool: str | None = None
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
+    # station contract (ADR-0037): the role that owns the station; and, for custom stations only,
+    # the artifacts it needs and gives (built-in types fix theirs in `contract.STATION_TYPES`)
+    owner: str | None = None
+    needs: list[str] | None = None
+    gives: list[str] | None = None
 
     def resolved_handler(self) -> str:
         if self.handler:
@@ -334,6 +367,43 @@ class WorkflowStation(BaseModel):
         from agent_factory.tools import TOOLS
 
         return checks.check_of(TOOLS.get(self.tool or ""), self.tool or "")
+
+    # ------------------------------------------------ station contract --
+    def type_id(self) -> str:
+        """The station type whose contract this station follows (`agent` = custom)."""
+        return contract.TYPE_OF_HANDLER.get(self.resolved_handler(), contract.CUSTOM)
+
+    def station_type(self) -> contract.StationType | None:
+        return contract.STATION_TYPES.get(self.type_id())
+
+    def column(self, before: str = contract.COLUMN_IDS[0]) -> str:
+        """Its container column: fixed by a built-in type; a custom station names one or
+        takes the column of the station before it."""
+        t = self.station_type()
+        if t:
+            return t.column
+        return contract.column_of_phase(self.phase) if self.phase else before
+
+    def needs_refs(self) -> tuple[contract.Need, ...]:
+        t = self.station_type()
+        if t:
+            return t.needs
+        return tuple(contract.parse_need(n) for n in self.needs or [])
+
+    def gives_refs(self) -> tuple[contract.ArtifactRef, ...]:
+        t = self.station_type()
+        if t:
+            return t.gives
+        if self.gives is not None:
+            return tuple(contract.parse_ref(g) for g in self.gives)
+        return (contract.ArtifactRef("report", self.id.replace("_", "-"), 1),)  # observe-only default
+
+    def floor_controls(self) -> frozenset[str]:
+        t = self.station_type()
+        controls = set(t.floor) if t else set()
+        if self.resolved_handler() == "scan" and self.check_name() == "secrets":
+            controls.add("secrets")
+        return frozenset(controls)
 
     def label(self) -> str:
         """What people read: the built-in handler's name, or the custom station's id."""
@@ -358,6 +428,9 @@ class EvalCase(BaseModel):
     answers: list[str] = Field(default_factory=list)
 
 
+DEFAULT_ENTRY = ("request@1", "branch@1")
+
+
 class WorkflowDoc(BaseModel):
     name: str = "default"
     description: str = ""
@@ -379,6 +452,10 @@ class WorkflowDoc(BaseModel):
     # block: a published version stays a candidate until its evaluation shows no regression
     evals: list[EvalCase] = Field(default_factory=list)
     eval_gate: Literal["off", "warn", "block"] = "off"
+    # entry artifacts (ADR-0037 §4): what a change brings before the first station. The engine
+    # provides `branch` itself (scaffolded worktree, or the team repo's clone) and `request` from
+    # the product or change text. Windows per change kind replace this in step 1b.
+    entry: list[str] = Field(default_factory=lambda: list(DEFAULT_ENTRY))
 
     @field_validator("spec_review", mode="before")
     @classmethod
@@ -420,9 +497,17 @@ class WorkflowDoc(BaseModel):
         current = PHASE_IDS[0]
         for s in self.stations:
             info = HANDLER_INFO.get(s.resolved_handler())
-            current = s.phase or (info.phase if info and info.phase else None) or current
+            own = _COLUMN_TO_PHASE.get(s.phase, s.phase) if s.phase else None
+            current = own or (info.phase if info and info.phase else None) or current
             out[s.id] = current
         return out
+
+    def columns(self) -> dict[str, str]:
+        """Each station's container column (ADR-0037)."""
+        return contract.columns(self.stations)
+
+    def entry_refs(self) -> list[contract.ArtifactRef]:
+        return [contract.parse_ref(e) for e in self.entry]
 
     def agent_for(self, station_id: str) -> AgentSpec:
         st = self.station(station_id)
@@ -448,7 +533,10 @@ class WorkflowVersionInfo(BaseModel):
 
 # ------------------------------------------------------------ validate ----
 def validate_workflow(
-    doc: WorkflowDoc, skills_dir: Path | None = None, imported_skills: Collection[str] = ()
+    doc: WorkflowDoc,
+    skills_dir: Path | None = None,
+    imported_skills: Collection[str] = (),
+    roles: Collection[str] = tuple(contract.BUILTIN_ROLES),
 ) -> list[str]:
     """Return blocking problems; an empty list means the workflow is runnable.
     Non-blocking advice comes from `workflow_warnings`."""
@@ -488,6 +576,7 @@ def validate_workflow(
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)
     errors += _order_errors(doc)
+    errors += contract_errors(doc, roles)
     for did, d in doc.docs.items():
         if did != d.id:
             errors.append(f"doc key '{did}' does not match its id '{d.id}'")
@@ -516,6 +605,40 @@ def validate_workflow(
         errors.append(f"at most {MAX_EVAL_CASES} evaluation cases (each one is a full build)")
     if doc.eval_gate != "off" and not doc.evals:
         errors.append(f"eval_gate '{doc.eval_gate}' needs at least one evaluation case")
+    return errors
+
+
+def contract_errors(doc: WorkflowDoc, roles: Collection[str] = tuple(contract.BUILTIN_ROLES)) -> list[str]:
+    """Publish checks of the station contract (ADR-0037): artifact references, container fit
+    (column + data + floor) and role ids. Run after the structural checks; skipped when a
+    reference does not parse, since fit would only repeat it."""
+    errors: list[str] = []
+    for e in doc.entry:
+        try:
+            contract.parse_ref(e)
+        except ValueError as exc:
+            errors.append(f"entry artifact: {exc}")
+    for s in doc.stations:
+        custom = s.station_type() is None
+        for label, refs in (("needs", s.needs), ("gives", s.gives)):
+            if refs is None:
+                continue
+            if not custom:
+                errors.append(f"station '{s.id}': {label} are fixed by its type '{s.type_id()}'; remove them")
+                continue
+            for r in refs:
+                try:
+                    contract.parse_need(r) if label == "needs" else contract.parse_ref(r)
+                except ValueError as exc:
+                    errors.append(f"station '{s.id}' {label}: {exc}")
+        if not custom and s.phase and contract.column_of_phase(s.phase) != s.column():
+            errors.append(
+                f"station '{s.id}': its type '{s.type_id()}' sits in {s.column()}, not {s.phase}; remove `phase`"
+            )
+    if errors:
+        return errors
+    errors += contract.fit_errors(doc.stations, doc.entry_refs())
+    errors += contract.role_errors(doc.stations, roles)
     return errors
 
 
@@ -561,11 +684,6 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
         if aid not in used:
             warnings.append(f"agent '{aid}' is not used by any station")
     handlers = {s.resolved_handler() for s in doc.stations}
-    if "implement" in handlers and "change-risk" not in handlers:
-        warnings.append(
-            "no change-risk station: risky changes (security, tests, data, outside hosts) are not held "
-            "for a second admin (add the `change-risk` check after code-review, ADR-0027)"
-        )
     if "implement" in handlers and "quality-gate" not in handlers:
         warnings.append(
             "no quality-gate station: delivered apps are not held to agent-readiness Level 3 "
@@ -685,7 +803,7 @@ def load_workflow_dir(path: Path) -> WorkflowDoc:
 
 def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
     (path / "agents").mkdir(parents=True, exist_ok=True)
-    data = {
+    data: dict[str, Any] = {
         "name": doc.name,
         "description": doc.description,
         "template": doc.template,
@@ -693,6 +811,8 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
             s.model_dump(exclude_none=True, exclude_defaults=True) | {"id": s.id, "kind": s.kind} for s in doc.stations
         ],
     }
+    if list(doc.entry) != list(DEFAULT_ENTRY):
+        data["entry"] = list(doc.entry)
     if doc.eval_gate != "off":
         data["eval_gate"] = doc.eval_gate
     if doc.skill_pins:

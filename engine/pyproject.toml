@@ -11,6 +11,7 @@ dependencies = [
   "pydantic>=2.8",
   "pydantic-settings>=2.4",
   "pyyaml>=6.0",
+  "jsonschema>=4.20",  # artifact schemas (ADR-0037); already pulled in by claude-agent-sdk
 ]
 
 [project.optional-dependencies]
