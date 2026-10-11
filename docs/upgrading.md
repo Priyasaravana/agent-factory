@@ -41,6 +41,7 @@ make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your
 - **Changes are safe across upgrades.** Each change is pinned to a workflow version and its pinned skills. Interrupted changes are marked on restart and resumed by a person.
 
 ## Version notes
+- **Scan stations named after their check (ADR-0035).** Re-draft **fastapi-service**, **existing-repo** and **existing-repo-change** from their templates again to get the *Secret / Code / Dependency / Config scan* stations and the `checker` agent. Versions already published keep their tool-named stations, which still run. To use Snyk or GitHub, see the runbook (*Use Snyk or GitHub for a check*).
 - **Tool stations (ADR-0034).** Re-draft **fastapi-service**, **existing-repo** and **existing-repo-change** from their templates (Workflows → edit → *Start from a template* → *Use template* → *Publish*) to get the Semgrep, OSV-Scanner, gitleaks and Trivy stations. The first run pulls the tool images into dind.
 - **Pull requests to existing repos (ADR-0033).** `config.yaml` gains `change_workflow_template` on `existing-repo`, `existing_repos.write_token_ref` and `registry.npmjs.org` in `sandbox.egress`; add `REPO_GITHUB_TOKEN` to `.env`. The sandbox image now includes Node.js and is rebuilt on first start.
 - **Existing repos (ADR-0031).** `.agent-factory/config.yaml` gains the `existing-repo` blueprint and an `existing_repos:` section; merge them into a customised config. Its workflow is seeded on first start.

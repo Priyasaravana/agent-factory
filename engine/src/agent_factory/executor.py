@@ -69,6 +69,12 @@ CLEAN_SCANS = {
     "osv-scanner": '{"results": []}',
     "--report-format json --report-path /dev/stdout": "[]",  # gitleaks
     " config --format json": '{"Results": []}',  # trivy config
+    "snyk code test": '{"version": "2.1.0", "runs": []}',
+    "snyk test --all-projects": '{"version": "2.1.0", "runs": []}',
+    "snyk iac test": '{"version": "2.1.0", "runs": []}',
+    "/code-scanning/alerts": "[]",
+    "/dependabot/alerts": "[]",
+    "/secret-scanning/alerts": "[]",
 }
 
 

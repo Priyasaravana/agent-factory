@@ -45,9 +45,16 @@ class Tool:
     title: str  # what people read
     area: str  # security | supply chain | configuration
     image: str
-    command: str  # {image} and {path} are filled in; runs in dind, the worktree mounted at /src
+    command: str  # {image}, {path} and {repo} are filled in; most run in dind, the worktree at /src
     parser: str  # key in PARSERS
     pillar: str = "security"  # quality pillar of its findings (ADR-0024)
+    check: str = ""  # the check it answers (ADR-0035): secrets | code | dependencies | config
+    provider: str = "local"  # local | github | snyk (ADR-0035)
+    # a service account the command needs: the provider's token reference is resolved for
+    # the step and reaches the command as this environment variable, never its arguments
+    credential_env: str = ""
+    strict_exit: bool = False  # a non-zero exit means it didn't run (API calls); scanners: the output decides
+    needs_repo: bool = False  # asks a service about the product's repository ({repo} is owner/name)
 
 
 # Images follow the repo's convention for scanners: a moving tag until a digest is reviewed
@@ -64,6 +71,7 @@ TOOLS: dict[str, Tool] = {
             "docker run --rm -v {path}:/src:ro {image} semgrep scan --config p/default --metrics=off "
             "--sarif --quiet --disable-version-check /src",
             "sarif",
+            check="code",
         ),
         Tool(
             "osv-scanner",
@@ -72,6 +80,7 @@ TOOLS: dict[str, Tool] = {
             "ghcr.io/google/osv-scanner:latest",
             "docker run --rm -v {path}:/src:ro {image} scan source --format json -r /src",
             "osv",
+            check="dependencies",
         ),
         Tool(
             "gitleaks",
@@ -81,6 +90,7 @@ TOOLS: dict[str, Tool] = {
             "docker run --rm -v {path}:/src:ro {image} detect --no-git --source /src --redact --no-banner "
             "--report-format json --report-path /dev/stdout --exit-code 0",
             "gitleaks",
+            check="secrets",
         ),
         Tool(
             "trivy-config",
@@ -90,6 +100,93 @@ TOOLS: dict[str, Tool] = {
             "docker run --rm -v {path}:/src:ro -v trivy-cache:/root/.cache {image} config --format json --quiet /src",
             "trivy-config",
             pillar="reliability",
+            check="config",
+        ),
+        # --- a SaaS the team already has (ADR-0035). Snyk runs its CLI in dind with the
+        # token passed by name (`-e SNYK_TOKEN`); its findings come back as SARIF.
+        Tool(
+            "snyk-code",
+            "Snyk Code",
+            "security",
+            "snyk/snyk:linux",
+            "docker run --rm -e SNYK_TOKEN -v {path}:/src:ro -w /src {image} snyk code test --sarif /src",
+            "sarif",
+            check="code",
+            provider="snyk",
+            credential_env="SNYK_TOKEN",
+        ),
+        Tool(
+            "snyk-open-source",
+            "Snyk Open Source",
+            "supply chain",
+            "snyk/snyk:linux",
+            "docker run --rm -e SNYK_TOKEN -v {path}:/src:ro -w /src {image} snyk test --all-projects --sarif /src",
+            "sarif",
+            check="dependencies",
+            provider="snyk",
+            credential_env="SNYK_TOKEN",
+        ),
+        Tool(
+            "snyk-iac",
+            "Snyk IaC",
+            "configuration",
+            "snyk/snyk:linux",
+            "docker run --rm -e SNYK_TOKEN -v {path}:/src:ro -w /src {image} snyk iac test --sarif /src",
+            "sarif",
+            pillar="reliability",
+            check="config",
+            provider="snyk",
+            credential_env="SNYK_TOKEN",
+        ),
+        # GitHub's own scanners: open alerts on the repository's default branch, read with
+        # `gh api`. `--jq` keeps only the fields we use, so a secret-scanning alert's secret
+        # value never leaves gh.
+        Tool(
+            "github-code-scanning",
+            "GitHub code scanning",
+            "security",
+            "",
+            "gh api -X GET repos/{repo}/code-scanning/alerts -f state=open -f per_page=100 --jq "
+            "'[.[] | {{rule: .rule.id, severity: (.rule.security_severity_level // .rule.severity), "
+            "title: .rule.description, tool: .tool.name, file: .most_recent_instance.location.path, "
+            "line: .most_recent_instance.location.start_line}}]'",
+            "github-alerts",
+            check="code",
+            provider="github",
+            credential_env="GH_TOKEN",
+            strict_exit=True,
+            needs_repo=True,
+        ),
+        Tool(
+            "github-dependabot",
+            "GitHub Dependabot",
+            "supply chain",
+            "",
+            "gh api -X GET repos/{repo}/dependabot/alerts -f state=open -f per_page=100 --jq "
+            "'[.[] | {{rule: .security_advisory.ghsa_id, severity: .security_advisory.severity, "
+            'title: (.dependency.package.name + ": " + .security_advisory.summary), '
+            "file: .dependency.manifest_path}}]'",
+            "github-alerts",
+            check="dependencies",
+            provider="github",
+            credential_env="GH_TOKEN",
+            strict_exit=True,
+            needs_repo=True,
+        ),
+        Tool(
+            "github-secret-scanning",
+            "GitHub secret scanning",
+            "security",
+            "",
+            "gh api -X GET repos/{repo}/secret-scanning/alerts -f state=open -f per_page=100 --jq "
+            '\'[.[] | {{rule: .secret_type, severity: "high", title: ("possible secret: " + '
+            ".secret_type_display_name)}}]'",
+            "github-alerts",
+            check="secrets",
+            provider="github",
+            credential_env="GH_TOKEN",
+            strict_exit=True,
+            needs_repo=True,
         ),
     )
 }
@@ -233,7 +330,38 @@ def parse_trivy_config(tool: str, text: str) -> list[Finding]:
     return out
 
 
+GITHUB_SEVERITY = {"error": "high", "warning": "medium", "note": "low", "none": "info", "moderate": "medium"}
+
+
+def parse_github_alerts(tool: str, text: str) -> list[Finding]:
+    """GitHub alerts, already reduced by `--jq` to rule, severity, title, file and line."""
+    doc = _json(text)
+    if not isinstance(doc, list):
+        raise ToolOutputError("not a list of GitHub alerts")
+    out = []
+    for a in doc:
+        if not isinstance(a, dict):
+            continue
+        sev = str(a.get("severity") or "medium").lower()
+        sev = GITHUB_SEVERITY.get(sev, sev)
+        title = str(a.get("title") or a.get("rule") or "")
+        if a.get("tool"):
+            title = f"{title} ({a['tool']})"
+        out.append(
+            Finding(
+                tool,
+                str(a.get("rule") or "?"),
+                sev if sev in RANK else "medium",
+                title[:300],
+                _rel(str(a.get("file") or "")),
+                a.get("line") if isinstance(a.get("line"), int) else None,
+            )
+        )
+    return out
+
+
 PARSERS: dict[str, Callable[[str, str], list[Finding]]] = {
+    "github-alerts": parse_github_alerts,
     "sarif": parse_sarif,
     "osv": parse_osv,
     "gitleaks": parse_gitleaks,
@@ -258,6 +386,9 @@ class Report:
     scope: str  # all | changed
     findings: list[Finding] = field(default_factory=list)  # in scope
     outside: int = 0  # findings in files this change didn't touch (scope: changed)
+    # why these findings can't block (e.g. GitHub's alerts describe the default branch,
+    # not this change): reported, never routed back
+    advisory: str = ""
 
     @property
     def counts(self) -> dict[str, int]:
@@ -265,7 +396,7 @@ class Report:
 
     @property
     def blocking(self) -> list[Finding]:
-        if self.fail_on == "none":
+        if self.fail_on == "none" or self.advisory:
             return []
         return [f for f in self.findings if RANK.get(f.severity, 9) <= RANK[self.fail_on]]
 
@@ -292,20 +423,29 @@ class Report:
             "outside": self.outside,
             "findings": [f.as_data() for f in self.findings[:MAX_FINDINGS]],
             "truncated": len(self.findings) > MAX_FINDINGS,
+            "advisory": self.advisory,
         }
 
 
-def judge(tool: Tool, findings: list[Finding], fail_on: str, changed: list[str] | None = None) -> Report:
+def judge(
+    tool: Tool, findings: list[Finding], fail_on: str, changed: list[str] | None = None, title: str = ""
+) -> Report:
     """Apply the station's policy. With `changed` (a change to an existing repo), only
     findings in the files the change touched count: problems it didn't make are counted
     separately and never block it."""
     if fail_on not in FAIL_ON:
         raise ValueError(f"fail_on must be one of {FAIL_ON}")
+    title = title or tool.title
     if changed is None:
-        return Report(tool.id, tool.title, fail_on, "all", list(findings))
+        return Report(tool.id, title, fail_on, "all", list(findings))
     touched = set(changed)
     inside = [f for f in findings if f.file in touched]
-    return Report(tool.id, tool.title, fail_on, "changed", inside, outside=len(findings) - len(inside))
+    report = Report(tool.id, title, fail_on, "changed", inside, outside=len(findings) - len(inside))
+    if tool.needs_repo:
+        report.advisory = (
+            f"{tool.title} describes the default branch, not this change; it scans the pull request once it's open"
+        )
+    return report
 
 
 def catalogue(overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Tool]:

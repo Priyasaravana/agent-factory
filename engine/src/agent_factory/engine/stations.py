@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import assess, repo_change, risk, stack, tools, traceability
+from agent_factory import assess, checks, repo_change, risk, stack, tools, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
@@ -1389,61 +1389,141 @@ async def pull_request(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, f"pull request opened: {url or branch} (a person merges)")
 
 
-# ------------------------------------------------------------ tool stations --
-# Security and quality tools as stations (ADR-0034): the tool runs in dind against the
-# worktree, read-only; its output is normalised and judged by the station's policy.
-async def tool_station(ctx: StationContext) -> StationResult:
+# ------------------------------------------------------------ scan stations --
+# A scan station is named after its check (ADR-0035); the provider that answers it is the
+# team's choice: an open-source tool in dind (ADR-0034), GitHub, Snyk, or an observe-only
+# agent. Findings are normalised and judged by the station's policy whoever answered.
+async def scan_station(ctx: StationContext) -> StationResult:
     station = ctx.workflow_doc.station(ctx.station_id)
-    catalogue = tools.catalogue(ctx.cfg.tools)
-    tool = catalogue.get(station.tool or "")
-    if tool is None:
-        return StationResult(
-            StationOutcome.held,
-            f"unknown tool '{station.tool}'",
-            f"known tools: {', '.join(sorted(catalogue))} (add one under `tools:` in the config)",
-        )
+    check, title = station.check_name(), station.label()
     fail_on = station.fail_on or "high"
     # a change to a team's repo answers only for the files it touched
     pr_change = ctx.product.target == ProductTarget.repo and str(ctx.change.kind) in ctx.cfg.CHANGE_KINDS
     changed = await _changed_files(ctx) if pr_change else None
     out = artifacts_dir(ctx) / "tools"
     out.mkdir(parents=True, exist_ok=True)
-    if ctx.settings.factory_mode == "dry-run":
-        report = tools.judge(tool, [], fail_on, changed)
-        data = {"station": ctx.station_id, **report.as_data(), "simulated": True}
-        (out / f"{ctx.station_id}.json").write_text(json.dumps(data, indent=2))
-        await ctx.emit(EventKind.decision, f"{tool.title}: simulated (dry-run)", {"tool": data})
-        return StationResult(StationOutcome.passed, f"{tool.title}: simulated (dry-run)")
-    cmd = tool.command.format(image=tool.image, path=ctx.worktree)
-    # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
-    res = await ctx.ex.run(cmd, cwd=ctx.worktree, timeout=900)
-    await ctx.emit(
-        EventKind.command,
-        f"{tool.title}: exit {res.returncode}, {len(res.output)} bytes of output (raw output not kept)",
-        {"returncode": res.returncode, "image": tool.image},
-    )
-    try:
-        findings = tools.parse(tool, res.output)
-    except tools.ToolOutputError as exc:
-        return StationResult(StationOutcome.held, f"{tool.title} did not run: {exc}", res.output[-600:])
-    report = tools.judge(tool, findings, fail_on, changed)
-    data = {"station": ctx.station_id, **report.as_data(), "image": tool.image}
+    attempts = checks.plan(check, station.provider, station.tool, ctx.cfg.checks.model_dump())
+    tried: list[dict[str, str]] = []
+    for i, attempt in enumerate(attempts):
+        if attempt.provider == "agent":
+            got = await _scan_with_agent(ctx, check, changed, tried[-1]["reason"] if tried else "")
+        else:
+            got = await _scan_with_tool(ctx, attempt, title)
+        if isinstance(got, StationResult):  # usage limit: the change waits
+            return got
+        if isinstance(got, str):
+            tried.append({"provider": attempt.provider, "tool": attempt.tool_id, "reason": got})
+            then = f"; trying the {checks.PROVIDER_TITLES['agent']}" if i + 1 < len(attempts) else ""
+            await ctx.emit(
+                EventKind.log,
+                f"{title}: {checks.PROVIDER_TITLES.get(attempt.provider, attempt.provider)} can't answer: {got}{then}",
+                {"scan_fallback": tried[-1]},
+            )
+            continue
+        findings, via, extra = got
+        break
+    else:
+        reasons = "\n".join(
+            f"- {checks.PROVIDER_TITLES.get(t['provider'], t['provider'])}: {t['reason']}" for t in tried
+        )
+        return StationResult(StationOutcome.held, f"{title}: no provider could answer", reasons)
+    report = tools.judge(via, findings, fail_on, changed, title=title)
+    data = {
+        "station": ctx.station_id,
+        **report.as_data(),
+        "check": check,
+        "provider": attempt.provider,
+        "via": via.title,
+        "confidence": "agent" if attempt.provider == "agent" else "tool",
+        "fallback_from": tried,
+        **extra,
+    }
     (out / f"{ctx.station_id}.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023)
-    await ctx.emit(
-        EventKind.decision,
-        report.headline(),
-        {"tool": {k: data[k] for k in ("station", "tool", "counts", "passed", "blocking", "outside", "fail_on")}},
-    )
+    headline = f"{title}: simulated (dry-run)" if extra.get("simulated") else f"{report.headline()} via {via.title}"
+    keys = ("station", "tool", "check", "provider", "counts", "passed", "blocking", "outside", "fail_on")
+    await ctx.emit(EventKind.decision, headline, {"tool": {k: data[k] for k in keys}})
     if report.passed:
-        return StationResult(StationOutcome.passed, report.headline())
+        return StationResult(StationOutcome.passed, headline)
     lines = [
         f"- {f.severity}: {f.file}{':' + str(f.line) if f.line else ''}: {f.title} ({f.rule})"
         for f in report.blocking[:25]
     ]
     return StationResult(
         StationOutcome.failed,
-        report.headline(),
-        f"{tool.title} found {len(report.blocking)} problem(s) at or above {fail_on} to fix:\n" + "\n".join(lines),
+        headline,
+        f"{title} ({via.title}) found {len(report.blocking)} problem(s) at or above {fail_on} to fix:\n"
+        + "\n".join(lines),
+    )
+
+
+ScanAnswer = tuple[list["tools.Finding"], "tools.Tool", dict[str, Any]]
+
+
+async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: str) -> ScanAnswer | str:
+    """Run a catalogue tool; a string says why it can't answer (the station falls back)."""
+    catalogue = tools.catalogue(ctx.cfg.tools)
+    tool = catalogue.get(attempt.tool_id)
+    if tool is None:
+        if not attempt.tool_id:
+            return f"{checks.PROVIDER_TITLES.get(attempt.provider, attempt.provider)} doesn't offer this check"
+        return f"unknown tool '{attempt.tool_id}' (known: {', '.join(sorted(catalogue))}; add one under `tools:`)"
+    repo = ""
+    if tool.needs_repo:
+        if ctx.product.target != ProductTarget.repo or not ctx.product.repo_url:
+            return "the product has no repository on GitHub yet"
+        try:
+            ref = assess.parse_repo_url(ctx.product.repo_url, ctx.cfg.existing_repos.allowed_hosts)
+        except ValueError as exc:
+            return str(exc)
+        if ref.host != "github.com":
+            return f"{ref.host} is not GitHub"
+        repo = ref.slug
+    env: dict[str, str] = {}
+    if tool.credential_env:
+        token_ref = ctx.cfg.checks.token_ref(tool.provider)
+        token = ctx.secret(token_ref, f"{title} ({tool.title})") if token_ref else None
+        if not token:
+            return f"no token: set {token_ref or f'checks.{tool.provider}_token_ref'}"
+        env[tool.credential_env] = token
+    if ctx.settings.factory_mode == "dry-run":
+        return [], tool, {"simulated": True}
+    import shlex
+
+    cmd = tool.command.format(image=tool.image, path=ctx.worktree, repo=shlex.quote(repo) if repo else "")
+    # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
+    res = await ctx.ex.run(cmd, cwd=ctx.worktree, timeout=900, env=env or None)
+    await ctx.emit(
+        EventKind.command,
+        f"{tool.title}: exit {res.returncode}, {len(res.output)} bytes of output (raw output not kept)",
+        {"returncode": res.returncode, "image": tool.image},
+    )
+    if tool.strict_exit and not res.ok:
+        return f"{tool.title} failed (exit {res.returncode}): check the token's access and that the feature is on"
+    try:
+        findings = tools.parse(tool, res.output)
+    except tools.ToolOutputError as exc:
+        return f"{tool.title} did not run: {exc}"
+    return findings, tool, {"image": tool.image} if tool.image else {}
+
+
+async def _scan_with_agent(
+    ctx: StationContext, check: str, changed: list[str] | None, reason: str
+) -> ScanAnswer | StationResult | str:
+    """An observe-only agent is the check; the engine keeps only what the repo supports."""
+    station = ctx.workflow_doc.station(ctx.station_id)
+    if not station.agent or station.agent not in ctx.workflow_doc.agents:
+        return "this station has no agent to answer it (add `agent: checker` to the station)"
+    paths = assess.files(ctx.worktree)
+    res = await ctx.agent(checks.agent_prompt(check, paths, changed, reason), checks.AGENT_SCHEMA)
+    if lim := _limit_result(res):
+        return lim
+    if not res.ok or not isinstance(res.structured, dict):
+        return f"the agent produced no report ({res.error or 'no structured output'})"
+    findings, dropped = checks.judge_agent("agent", res.structured, paths)
+    return (
+        findings,
+        checks.AGENT_TOOL,
+        {"agent_summary": str(res.structured.get("summary") or "")[:500], "dropped": dropped},
     )
 
 
@@ -1481,7 +1561,7 @@ STATIONS: dict[str, Station] = {
     "repo-test": repo_test,
     "repo-review": repo_review,
     "pull-request": pull_request,
-    "tool": tool_station,
+    "scan": scan_station,
 }
 
 

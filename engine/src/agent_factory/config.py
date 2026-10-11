@@ -244,6 +244,34 @@ class ExistingReposConfig(BaseModel):
         return v
 
 
+CheckName = Literal["secrets", "code", "dependencies", "config"]
+
+
+class ChecksConfig(BaseModel):
+    """Who answers each scan station's check (ADR-0035). The station is named after the
+    check; the provider is the team's choice, made once here."""
+
+    # local (open-source tool, the default) | github | snyk | agent
+    providers: dict[CheckName, Literal["local", "github", "snyk", "agent"]] = Field(default_factory=dict)
+    # a different catalogue tool for `local`, e.g. {code: my-scanner} (defined under `tools:`)
+    local_tools: dict[CheckName, str] = Field(default_factory=dict)
+    # when the provider can't answer (no token, not a repository, the tool didn't run)
+    fallback: Literal["agent", "none"] = "agent"
+    # references, never values: resolved for the step, passed through the environment
+    snyk_token_ref: str | None = "env://SNYK_TOKEN"  # noqa: S105 - a reference, not a value
+    github_token_ref: str | None = "env://REPO_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
+
+    @field_validator("snyk_token_ref", "github_token_ref")
+    @classmethod
+    def _is_reference(cls, v: str | None) -> str | None:
+        if v is not None and "://" not in v:
+            raise ValueError("token references look like env://NAME, never a value")
+        return v
+
+    def token_ref(self, provider: str) -> str | None:
+        return {"snyk": self.snyk_token_ref, "github": self.github_token_ref}.get(provider)
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -268,6 +296,8 @@ class FactoryConfig(BaseModel):
     # tool stations (ADR-0034): add tools or override the built-in ones (image, command …),
     # e.g. pin a reviewed digest: {semgrep: {image: "semgrep/semgrep@sha256:…"}}
     tools: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # which provider answers each check (ADR-0035): local tool, GitHub, Snyk or an agent
+    checks: ChecksConfig = ChecksConfig()
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

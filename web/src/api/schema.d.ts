@@ -136,8 +136,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order
-         * @description The change's tool reports (ADR-0034): each tool station's normalised findings and verdict, in run order
+         * The change's scan reports (ADR-0034/0035): each scan station's provider, normalised findings and verdict, in run order
+         * @description The change's scan reports (ADR-0034/0035): each scan station's provider, normalised findings and verdict, in run order
          */
         get: operations["get_change_tools"];
         put?: never;
@@ -1250,6 +1250,10 @@ export interface components {
             only_on_fail: boolean;
             /** Phase */
             phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            /** Check */
+            check?: ("secrets" | "code" | "dependencies" | "config") | null;
+            /** Provider */
+            provider?: ("local" | "github" | "snyk" | "agent") | null;
             /** Tool */
             tool?: string | null;
             /** Fail On */
@@ -2732,6 +2736,18 @@ export interface components {
             /** Requested By */
             requested_by?: string | null;
         };
+        /** ScanFallbackView */
+        ScanFallbackView: {
+            /** Provider */
+            provider: string;
+            /**
+             * Tool
+             * @default
+             */
+            tool: string;
+            /** Reason */
+            reason: string;
+        };
         /** ScenarioView */
         ScenarioView: {
             /** Id */
@@ -2979,6 +2995,10 @@ export interface components {
             tool?: string | null;
             /** Fail On */
             fail_on?: string | null;
+            /** Check */
+            check?: string | null;
+            /** Provider */
+            provider?: string | null;
         };
         /** TemplateInfo */
         TemplateInfo: {
@@ -3044,7 +3064,8 @@ export interface components {
         };
         /**
          * ToolReportView
-         * @description One tool station's report on a change (ADR-0034): normalised findings and the verdict.
+         * @description One scan station's report on a change (ADR-0034/0035): who answered, the normalised
+         *     findings and the verdict.
          */
         ToolReportView: {
             /** Station */
@@ -3053,6 +3074,35 @@ export interface components {
             tool: string;
             /** Title */
             title: string;
+            /**
+             * Check
+             * @default
+             */
+            check: string;
+            /**
+             * Provider
+             * @default local
+             */
+            provider: string;
+            /**
+             * Via
+             * @default
+             */
+            via: string;
+            /**
+             * Confidence
+             * @default tool
+             */
+            confidence: string;
+            /** Fallback From */
+            fallback_from?: components["schemas"]["ScanFallbackView"][];
+            /**
+             * Advisory
+             * @default
+             */
+            advisory: string;
+            /** Dropped */
+            dropped?: string[];
             /** Fail On */
             fail_on: string;
             /** Scope */
@@ -3126,6 +3176,10 @@ export interface components {
             agent?: string | null;
             /** Phase */
             phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover") | null;
+            /** Check */
+            check?: ("secrets" | "code" | "dependencies" | "config") | null;
+            /** Provider */
+            provider?: ("local" | "github" | "snyk" | "agent") | null;
             /** Tool */
             tool?: string | null;
             /** Fail On */

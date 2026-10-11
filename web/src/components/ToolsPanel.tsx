@@ -6,8 +6,15 @@ import { cn } from "../lib/utils";
 const ORDER = ["critical", "high", "medium", "low", "info"] as const;
 const TONE: Record<string, string> = { critical: "bad", high: "bad", medium: "warn", low: "muted", info: "muted" };
 
-/** What each tool station found on this change (ADR-0034): normalised findings, the
- * policy that judged them, and whether they blocked. */
+const PROVIDER: Record<string, string> = {
+  local: "open-source tool",
+  github: "GitHub",
+  snyk: "Snyk",
+  agent: "factory agent",
+};
+
+/** What each scan station found on this change (ADR-0034/0035): who answered the check,
+ * the normalised findings, the policy that judged them, and whether they blocked. */
 export default function ToolsPanel({ changeId, runStatus }: { changeId: string; runStatus: string }) {
   const q = useQuery({
     queryKey: ["tools", changeId, runStatus],
@@ -26,9 +33,9 @@ export default function ToolsPanel({ changeId, runStatus }: { changeId: string; 
     <details className="rounded-xl border bg-card p-4" data-testid="tools">
       <summary className="flex cursor-pointer flex-wrap items-center gap-2">
         <ShieldCheck className="size-4 text-primary" />
-        <span className="font-medium">Tool findings</span>
+        <span className="font-medium">Security checks</span>
         <span className="pill muted">
-          {reports.length} tools · {total} findings
+          {reports.length} checks · {total} findings
         </span>
         {failing > 0 && <span className="pill bad">{failing} blocking</span>}
       </summary>
@@ -40,11 +47,21 @@ export default function ToolsPanel({ changeId, runStatus }: { changeId: string; 
             <div key={r.station} className="grid gap-1.5 rounded-lg border p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">{r.title}</span>
+                {r.via && (
+                  <span
+                    className={cn("pill", r.confidence === "agent" ? "warn" : "muted")}
+                    title={r.confidence === "agent" ? "an agent's review: lower confidence than a tool" : undefined}
+                    data-testid={`via-${r.station}`}
+                  >
+                    via {r.via}
+                    {r.confidence === "agent" ? " · lower confidence" : ""}
+                  </span>
+                )}
                 {r.simulated ? (
                   <span className="pill muted">simulated</span>
                 ) : (
                   <span className={cn("pill", r.passed ? "ok" : "bad")}>
-                    {r.passed ? "passed" : `${r.blocking} blocking`}
+                    {r.advisory ? "for information" : r.passed ? "passed" : `${r.blocking} blocking`}
                   </span>
                 )}
                 {counts.map((s) => (
@@ -54,10 +71,25 @@ export default function ToolsPanel({ changeId, runStatus }: { changeId: string; 
                 ))}
                 {!counts.length && !r.simulated && <span className="text-xs text-muted-foreground">no findings</span>}
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {r.fail_on === "none" ? "reports only" : `fails on ${r.fail_on} and above`}
+                  {r.fail_on === "none"
+                    ? "reports only"
+                    : r.fail_on === "critical"
+                      ? "fails on critical"
+                      : `fails on ${r.fail_on} and above`}
                   {r.scope === "changed" ? " · changed files only" : ""}
                 </span>
               </div>
+              {(r.fallback_from ?? []).map((f, i) => (
+                <p key={i} className="m-0 text-xs text-muted-foreground" data-testid={`fallback-${r.station}`}>
+                  {PROVIDER[f.provider] ?? f.provider} couldn't answer: {f.reason}
+                </p>
+              ))}
+              {r.advisory && <p className="m-0 text-xs text-muted-foreground">{r.advisory}.</p>}
+              {(r.dropped ?? []).length > 0 && (
+                <p className="m-0 text-xs text-muted-foreground">
+                  {r.dropped?.length} agent finding(s) left out: they cite files that aren't in the repository.
+                </p>
+              )}
               {(r.outside ?? 0) > 0 && (
                 <p className="m-0 text-xs text-muted-foreground">
                   {r.outside} more in files this change didn't touch (not counted).

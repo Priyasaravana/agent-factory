@@ -77,7 +77,7 @@ def test_the_default_lane_reads_as_the_devops_loop() -> None:
         "plan", "plan", "code", "test", "test", "test", "test", "test", "test", "test", "release", "deploy",
         "validate", "handover",
     ]  # fmt: skip
-    assert {s.id: s.label() for s in doc.stations}["sast"] == "Semgrep (code)"
+    assert {s.id: s.label() for s in doc.stations}["code-scan"] == "Code scan"
     assert phases["deploy-repair"] == "deploy"
     assert {s.id: s.label() for s in doc.stations}["quality-gate"] == "Quality gate"
     assert not [w for w in workflow_warnings(doc) if "out of order" in w]

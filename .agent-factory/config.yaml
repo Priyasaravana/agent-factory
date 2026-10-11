@@ -79,6 +79,21 @@ existing_repos:
   # on the repos, in .env. A reference, never the value.
   write_token_ref: env://REPO_GITHUB_TOKEN
 
+# Scan stations (ADR-0035) are named after what they check: secrets, code, dependencies,
+# config. Who answers each check is chosen here, once for the factory:
+#   local  - open-source tool in dind (gitleaks, Semgrep, OSV-Scanner, Trivy): free, the default
+#   github - the repo's GitHub code scanning / Dependabot / secret scanning alerts (repos only;
+#            they describe the default branch, so they inform a pull request but never block it)
+#   snyk   - Snyk Code / Open Source / IaC with your Snyk account (no secrets check)
+#   agent  - the observe-only checker agent (lower confidence: capped at high, files verified)
+# When the provider can't answer (no token, not a repo, the tool didn't run) the station
+# falls back to the agent and says so; `fallback: none` holds the change instead.
+checks:
+  providers: {secrets: local, code: local, dependencies: local, config: local}
+  fallback: agent
+  snyk_token_ref: env://SNYK_TOKEN           # a Snyk API token, in .env
+  github_token_ref: env://REPO_GITHUB_TOKEN  # + Code scanning, Dependabot and Secret scanning alerts: read
+
 # ---------------------------------------------------------------------------
 # Delivery integrations (docs/design/integrations.md). Stations call the
 # provider bound to the blueprint's environment for each capability.

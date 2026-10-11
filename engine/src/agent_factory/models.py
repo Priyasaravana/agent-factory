@@ -632,8 +632,10 @@ class StationView(BaseModel):
     repair: bool
     state: str  # pending | running | passed | failed | held
     attempts: int
-    tool: str | None = None  # tool stations (ADR-0034)
+    tool: str | None = None  # scan stations: a specific catalogue tool (ADR-0034)
     fail_on: str | None = None
+    check: str | None = None  # scan stations: what is checked (ADR-0035)
+    provider: str | None = None  # who answers it, when the station overrides the config
 
 
 class ToolFindingView(BaseModel):
@@ -646,12 +648,26 @@ class ToolFindingView(BaseModel):
     detail: str = ""
 
 
+class ScanFallbackView(BaseModel):
+    provider: str
+    tool: str = ""
+    reason: str
+
+
 class ToolReportView(BaseModel):
-    """One tool station's report on a change (ADR-0034): normalised findings and the verdict."""
+    """One scan station's report on a change (ADR-0034/0035): who answered, the normalised
+    findings and the verdict."""
 
     station: str
     tool: str
-    title: str
+    title: str  # the check, e.g. "Code scan"
+    check: str = ""
+    provider: str = "local"  # local | github | snyk | agent
+    via: str = ""  # the tool or service that answered, e.g. "Semgrep (code)"
+    confidence: str = "tool"  # tool | agent
+    fallback_from: list[ScanFallbackView] = Field(default_factory=list)
+    advisory: str = ""  # why its findings can't block this change
+    dropped: list[str] = Field(default_factory=list)  # agent findings the repo didn't support
     fail_on: str
     scope: str  # all | changed (a change to an existing repo answers only for its files)
     passed: bool
@@ -890,7 +906,9 @@ class AddStationInput(BaseModel):
     next: str | None = None
     only_on_fail: bool = False
     phase: Phase | None = None  # custom steps only; built-in handlers have their own
-    tool: str | None = None  # tool stations (ADR-0034)
+    check: Literal["secrets", "code", "dependencies", "config"] | None = None  # scan stations (ADR-0035)
+    provider: Literal["local", "github", "snyk", "agent"] | None = None
+    tool: str | None = None  # a specific catalogue tool (ADR-0034)
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
     position: int | None = None  # index in the lane; end when omitted
 
@@ -904,7 +922,9 @@ class UpdateStationInput(BaseModel):
     handler: str | None = None
     agent: str | None = None
     phase: Phase | None = None
-    tool: str | None = None  # tool stations (ADR-0034)
+    check: Literal["secrets", "code", "dependencies", "config"] | None = None  # scan stations (ADR-0035)
+    provider: Literal["local", "github", "snyk", "agent"] | None = None
+    tool: str | None = None  # a specific catalogue tool (ADR-0034)
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
 
 

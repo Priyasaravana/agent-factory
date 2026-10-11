@@ -117,6 +117,18 @@ def pr_title(kind: str, request: str) -> str:
     return title if len(title) <= 72 else title[:71] + "…"
 
 
+def via_note(report: dict[str, Any]) -> str:
+    """Who answered a scan (ADR-0035): ` via Semgrep (code)`, and the fallback if any."""
+    via = report.get("via") or ""
+    note = f" via {via}" if via else ""
+    if report.get("confidence") == "agent":
+        note += " (agent review, lower confidence)"
+    if report.get("fallback_from"):
+        first = report["fallback_from"][0]
+        note += f", because {first.get('provider')} couldn't answer: {first.get('reason')}"
+    return note
+
+
 def pr_body(
     *,
     kind: str,
@@ -162,7 +174,9 @@ def pr_body(
         counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
         scope = " in the changed files" if t.get("scope") == "changed" else ""
         verdict = "simulated" if t.get("simulated") else ("passed" if t.get("passed") else "not passed")
-        lines.append(f"- **{t.get('title')}:** {counts}{scope} ({verdict})")
+        if t.get("advisory"):
+            verdict = "for information"
+        lines.append(f"- **{t.get('title')}**{via_note(t)}: {counts}{scope} ({verdict})")
     if review.get("notes") or notes:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in [*review.get("notes", []), *notes]]
     lines += [
