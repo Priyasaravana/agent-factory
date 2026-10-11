@@ -3386,6 +3386,16 @@
             "type": "object",
             "title": "Tools"
           },
+          "skills": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Skills"
+          },
           "denied": {
             "type": "integer",
             "title": "Denied",

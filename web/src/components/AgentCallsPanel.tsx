@@ -84,6 +84,7 @@ export default function AgentCallsPanel({
               <td>time</td>
               <td>cost</td>
               <td>tools</td>
+              <td title="skills the agent opened / skills it was given">skills</td>
               <td />
             </tr>
           </thead>
@@ -110,6 +111,9 @@ export default function AgentCallsPanel({
                     <span className="pill bad ml-1">{c.denied} denied</span>
                   )}
                 </td>
+                <td className="text-xs tabular-nums" data-testid="skills-used">
+                  <SkillsCell skills={c.skills} />
+                </td>
                 <td>
                   {c.transcript && (
                     <button
@@ -129,6 +133,29 @@ export default function AgentCallsPanel({
         {open && <Transcript changeId={changeId} name={open} />}
       </div>
     </details>
+  );
+}
+
+/** Skills a call opened out of the ones it was given; the tooltip names both lists.
+ * Preloaded skills sit in the prompt from the start, so they count as in use. */
+function SkillsCell({ skills }: { skills?: Record<string, string[]> }) {
+  const granted = skills?.granted ?? [];
+  if (!granted.length) return <>—</>;
+  const preloaded = skills?.preloaded ?? [];
+  const invoked = skills?.invoked ?? [];
+  const used = granted.filter((k) => preloaded.includes(k) || invoked.includes(k));
+  const unused = granted.filter((k) => !used.includes(k));
+  const title = [
+    `used: ${used.join(", ") || "none"}`,
+    preloaded.length ? `preloaded: ${preloaded.join(", ")}` : "",
+    `never opened: ${unused.join(", ") || "none"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <span title={title} className={cn(!used.length && "text-muted-foreground")}>
+      {used.length}/{granted.length}
+    </span>
   );
 }
 

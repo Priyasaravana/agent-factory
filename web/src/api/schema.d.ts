@@ -1303,6 +1303,10 @@ export interface components {
             tools?: {
                 [key: string]: number;
             };
+            /** Skills */
+            skills?: {
+                [key: string]: string[];
+            };
             /**
              * Denied
              * @default 0

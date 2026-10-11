@@ -448,6 +448,9 @@ class AgentCallView(BaseModel):
     cost_usd: float = 0.0
     tool_calls: int = 0
     tools: dict[str, int] = Field(default_factory=dict)
+    # skills this agent was given (granted), had in its prompt from the start (preloaded)
+    # and actually opened (invoked); granted minus the other two were never used
+    skills: dict[str, list[str]] = Field(default_factory=dict)
     denied: int = 0
     transcript: str | None = None
     transcript_truncated: bool = False
