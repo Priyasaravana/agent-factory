@@ -7,8 +7,8 @@ engine **seals** its evidence folder `artifacts/<run>/`:
 2. `spec/`: the spec the change worked to (`docs/spec.md`, `docs/requirements.yaml`),
    so the bundle shows what was promised next to what was proven.
 3. `pillars.json`: the evidence grouped by quality pillar (ADR-0024).
-4. `manifest.json`: run, order, workflow version, commit, image, outcome, and every
-   file with its SHA-256 and size.
+4. `manifest.json`: run, order, workflow version, commit, image, outcome, the artifact
+   ledger's summary (`ledger.json`, ADR-0037), and every file with its SHA-256 and size.
 5. `SHA256SUMS`: the same hashes in coreutils format, so anyone can check a
    downloaded bundle with `sha256sum -c SHA256SUMS`, without our tools.
 
@@ -165,6 +165,7 @@ def latest_seal(store: Any, change_id: str) -> dict[str, Any] | None:
 async def seal(mgr: Any, change: Any, product: Any) -> str:
     """Write events.jsonl, the spec snapshot, manifest.json and SHA256SUMS for this
     run as it stands now, and record the manifest's digest in the event log."""
+    from agent_factory.artifacts import Ledger
     from agent_factory.models import EventKind
 
     folder = mgr.ws.data_dir / "artifacts" / change.id
@@ -212,6 +213,8 @@ async def seal(mgr: Any, change: Any, product: Any) -> str:
         "source": {"branch": f"run/{change.id}", "commit": commit},
         "image": images[-1][2] if images else None,
         "events": len(events),
+        # the artifact ledger (ADR-0037): ledger.json is hashed with the other files
+        "artifacts": Ledger(folder).summary(),
     }
     (folder / PILLAR_INDEX).write_text(json.dumps(build_pillar_index(folder), indent=2) + "\n")
     manifest = build_manifest(folder, facts, datetime.now(UTC))

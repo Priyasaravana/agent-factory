@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:pr:v1",
+  "title": "pr@1",
+  "description": "How the change leaves: a pull request on the team's repo, or the factory's handover (merge, tag).",
+  "type": "object",
+  "required": [
+    "via",
+    "branch"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "via": {
+      "type": "string",
+      "enum": [
+        "pull-request",
+        "handover"
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "base": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tag": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

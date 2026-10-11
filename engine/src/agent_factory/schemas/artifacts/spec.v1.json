@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:spec:v1",
+  "title": "spec@1",
+  "description": "Testable spec: numbered requirements and acceptance scenarios. The holdout part is sealed: only its count and digest, never its text.",
+  "type": "object",
+  "required": [
+    "path",
+    "requirements",
+    "acceptance_scenarios",
+    "holdout"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R[0-9]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "acceptance_scenarios": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "holdout": {
+      "type": "object",
+      "required": [
+        "scenarios",
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scenarios": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

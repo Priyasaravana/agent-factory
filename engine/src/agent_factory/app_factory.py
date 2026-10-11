@@ -101,6 +101,7 @@ def build_factory(
         home / "workflow-templates",
         home / "plugin" / "skills",
         library,
+        cfg.role_ids(),
     )
     # default skills first: the default workflow template uses them
     skill_problems = library.ensure_defaults(

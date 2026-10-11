@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import FactoryConfig
+from agent_factory.engine import handoff
 from agent_factory.engine.stations import STATIONS, StationContext, StationResult
 from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
@@ -729,6 +730,24 @@ class ChangeManager:
             worktree = await self.ws.create_worktree(product.slug, change.id)
         deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
 
+        if change.current_station:  # entry artifacts, once per change (ADR-0037 §2)
+            entry_ctx = StationContext(
+                self.cfg,
+                self.settings,
+                self.store,
+                self.ws,
+                self.ex,
+                self.agents,
+                product,
+                change,
+                worktree,
+                change.current_station,
+                flow,
+            )
+            entry_ctx.providers = self.providers.for_blueprint(product.blueprint)
+            if rejected := await handoff.record_entry(entry_ctx):
+                return self._hold(change, change.current_station, "entry artifact rejected", "\n".join(rejected))
+
         while change.current_station:
             sid = change.current_station
             station = flow.station(sid)
@@ -752,12 +771,22 @@ class ChangeManager:
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
                 ctx.imported_plugin = self.workflows.library.materialise(ctx.skill_pins)
+            if missing := handoff.missing_needs(ctx):  # the station contract's inputs (ADR-0037)
+                change.attempts[sid] -= 1
+                return self._hold(change, sid, f"missing input artifact(s): {', '.join(missing)}")
             try:
                 result = await STATIONS[station.resolved_handler()](ctx)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 result = StationResult(StationOutcome.failed, f"station crashed: {exc}", traceback.format_exc()[-3000:])
+            if result.outcome == StationOutcome.passed and (bad := await handoff.record_gives(ctx, result.summary)):
+                # an output that fails its schema fails its station (ADR-0037 §2)
+                result = StationResult(
+                    StationOutcome.failed,
+                    f"{sid} gave an invalid artifact",
+                    "Artifact check failed:\n" + "\n".join(bad),
+                )
             self.store.add_event(
                 change.id,
                 EventKind.station_finished,

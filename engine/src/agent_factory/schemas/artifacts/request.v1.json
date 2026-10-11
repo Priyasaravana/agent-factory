@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:request:v1",
+  "title": "request@1",
+  "description": "The ask: request text with its work-item kind and source (ADR-0030).",
+  "type": "object",
+  "required": [
+    "text",
+    "kind",
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50000
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "new",
+        "feature",
+        "bug",
+        "upkeep",
+        "assess",
+        "remove"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

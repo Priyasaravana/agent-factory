@@ -126,7 +126,8 @@ def test_the_agents_findings_must_cite_real_files_and_cannot_be_critical():
 
 def test_scan_stations_must_say_what_they_check_and_their_agent_only_reads(make_factory):
     d = make_factory().workflows[WF].draft
-    d.add_station(WorkflowStation(id="extra-scan", kind="check", handler="scan"))
+    at = [s.id for s in d.get()[1].stations].index("code-review")  # in the verify column (ADR-0037)
+    d.add_station(WorkflowStation(id="extra-scan", kind="check", handler="scan"), position=at)
     assert any("must say what it checks" in p for p in d.problems())
     d.update_station("extra-scan", {"check": "secrets", "provider": "github"})
     assert d.problems() == []

@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:report:v1",
+  "title": "report@1",
+  "description": "Evidence of one kind (report.<kind>): the station, its summary, the evidence files by digest and the facts the engine reads from them. Known kinds add requirements; a custom station's report.<id> needs only the envelope.",
+  "type": "object",
+  "required": [
+    "kind",
+    "station",
+    "summary",
+    "evidence",
+    "data"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,40}$"
+    },
+    "station": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "repo"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "readiness"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          },
+          "data": {
+            "required": [
+              "level"
+            ],
+            "properties": {
+              "level": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "assessment"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "test"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "required": [
+              "ok"
+            ],
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "command": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "scan"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          },
+          "data": {
+            "required": [
+              "check",
+              "passed"
+            ],
+            "properties": {
+              "check": {
+                "enum": [
+                  "secrets",
+                  "code",
+                  "dependencies",
+                  "config"
+                ]
+              },
+              "passed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "review"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          },
+          "data": {
+            "required": [
+              "passed"
+            ],
+            "properties": {
+              "passed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "risk"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          },
+          "data": {
+            "required": [
+              "digest",
+              "holds"
+            ],
+            "properties": {
+              "digest": {
+                "type": "string",
+                "minLength": 1
+              },
+              "holds": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "change"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "required": [
+              "commit"
+            ],
+            "properties": {
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

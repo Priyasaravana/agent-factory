@@ -75,7 +75,8 @@ async def test_deploy_failure_goes_through_repair_station(make_factory):
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     seq = [s for s, _ in _finished(f, change.id)]
     i = seq.index("deploy")
-    assert seq[i : i + 3] == ["deploy", "deploy-repair", "deploy"]
+    assert seq[i : i + 3] == ["deploy", "deploy-repair", "test"], "repaired code re-enters verify (ADR-0037 §5)"
+    assert seq[i + 2 :].index("change-risk") < seq[i + 2 :].index("build") < seq[i + 2 :].index("deploy")
 
 
 async def test_attempt_budget_holds_then_resume_continues(make_factory):

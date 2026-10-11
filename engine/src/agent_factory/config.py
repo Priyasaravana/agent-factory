@@ -338,6 +338,24 @@ class FactoryConfig(BaseModel):
     checks: ChecksConfig = ChecksConfig()
     # where agents reach the model (ADR-0036): direct, or a gateway with a virtual key per call
     model_gateway: ModelGatewayConfig = ModelGatewayConfig()
+    # org roles a station may name as its owner, besides the built-in ones (ADR-0037):
+    # product-owner, tech-lead, security, qa. Id -> title, e.g. {release-manager: Release manager}
+    roles: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("roles")
+    @classmethod
+    def _role_ids(cls, v: dict[str, str]) -> dict[str, str]:
+        from agent_factory.contract import ROLE_ID
+
+        bad = [r for r in v if not ROLE_ID.match(r)]
+        if bad:
+            raise ValueError(f"role ids {bad} must be lowercase letters, digits and dashes")
+        return v
+
+    def role_ids(self) -> list[str]:
+        from agent_factory.contract import BUILTIN_ROLES
+
+        return [*BUILTIN_ROLES, *(r for r in self.roles if r not in BUILTIN_ROLES)]
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:

@@ -130,4 +130,13 @@
   (`SandboxSpec.withhold_env`); a refused key holds the call, never falls back to direct
   access. A new gateway is one class in `gateway.PROVIDERS`, tested with a fake HTTP
   function in `tests/test_gateway.py`.
+- Station contract (ADR-0037): every station follows a type in `contract.STATION_TYPES` that fixes
+  its column, `needs` and `gives` (versioned artifact types such as `spec@1`). Publishing checks
+  container fit (column, data, floor) and owner role ids (`contract.fit_errors`, pure). When code
+  changes, test, a secret scan and change-risk must run after the last branch change and before
+  any `image`/`url`/`pr`; a repair that changes the branch re-enters verify. The engine records
+  entry artifacts and each station's outputs in `artifacts/<change>/ledger.json` and checks them
+  against `schemas/artifacts/<type>.v<n>.json` (`engine/handoff.py`): an invalid output fails its
+  station. A breaking change to an artifact is a new schema version, never an edit; a new
+  built-in handler gets a type and a collector, with a test in `tests/test_station_contract.py`.
 - Record significant decisions as ADRs in `docs/adr/`.

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-factory:artifact:url:v1",
+  "title": "url@1",
+  "description": "A running deployment.",
+  "type": "object",
+  "required": [
+    "url"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "type": "string",
+      "pattern": "^https?://"
+    },
+    "internal": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

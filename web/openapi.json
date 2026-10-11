@@ -3245,7 +3245,13 @@
                   "release",
                   "deploy",
                   "validate",
-                  "handover"
+                  "handover",
+                  "discover",
+                  "design",
+                  "develop",
+                  "verify",
+                  "deliver",
+                  "operate"
                 ]
               },
               {
@@ -5572,7 +5578,13 @@
                   "release",
                   "deploy",
                   "validate",
-                  "handover"
+                  "handover",
+                  "discover",
+                  "design",
+                  "develop",
+                  "verify",
+                  "deliver",
+                  "operate"
                 ]
               },
               {
@@ -7838,7 +7850,13 @@
                   "release",
                   "deploy",
                   "validate",
-                  "handover"
+                  "handover",
+                  "discover",
+                  "design",
+                  "develop",
+                  "verify",
+                  "deliver",
+                  "operate"
                 ]
               },
               {
