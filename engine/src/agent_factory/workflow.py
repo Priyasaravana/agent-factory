@@ -324,8 +324,38 @@ class AgentSpec(BaseModel):
         return base + [t for t in self.extra_tools if t not in base]
 
 
+Target = Literal["factory", "repo"]
+FailOn = Literal["critical", "high", "medium", "low", "none"]
+
+
+def target_of(blueprint_target: str) -> Target:
+    """A blueprint's `target` (new | repo) as the station contract's target (factory | repo)."""
+    return "repo" if blueprint_target == "repo" else "factory"
+
+
+class AppliesWhen(BaseModel):
+    """When a station applies (ADR-0037 §4), as data. Empty = always. A station that doesn't
+    apply is skipped and the skip is recorded with its reason."""
+
+    target: list[Target] | None = None
+    windows: list[str] | None = None
+    not_windows: list[str] | None = None
+
+    def why_not(self, window: str | None, target: str) -> str | None:
+        if self.target is not None and target not in self.target:
+            return f"not applicable: {target} target"
+        if window is not None and self.windows is not None and window not in self.windows:
+            return f"not applicable: window {window}"
+        if window is not None and self.not_windows and window in self.not_windows:
+            return f"not applicable: window {window}"
+        return None
+
+
 class WorkflowStation(BaseModel):
     id: str
+    # station type (ADR-0037): a built-in type picks its handler by the change's target; `agent`
+    # is a custom agent step. `kind` and `handler` are the pre-ADR-0037 way to say the same.
+    type: str | None = None
     kind: Literal["agent", "check"]
     agent: str | None = None  # AgentSpec id (agent stations)
     handler: str | None = None  # defaults to the station id if the engine knows it, else "agent"
@@ -348,8 +378,43 @@ class WorkflowStation(BaseModel):
     owner: str | None = None
     needs: list[str] | None = None
     gives: list[str] | None = None
+    # one standard lane (ADR-0037 §4): when the station applies; the agent per target when it
+    # differs from `agent`; a scan's `fail_on` per window id or target
+    applies_when: AppliesWhen = Field(default_factory=AppliesWhen)
+    target_agents: dict[Target, str] = Field(default_factory=dict)
+    fail_on_by: dict[str, FailOn] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _kind_from_type(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("type") and not data.get("kind"):
+            t = contract.STATION_TYPES.get(str(data["type"]))
+            handlers = [h for h in t.implementations.values() if h] if t else []
+            agent = data["type"] == contract.CUSTOM or any(h in AGENT_HANDLERS for h in handlers)
+            data = {**data, "kind": "agent" if agent else "check"}
+        return data
+
+    def handler_for(self, target: str) -> str | None:
+        """The engine handler that runs this station for a target; None when its type has no
+        implementation there (the station is then skipped)."""
+        t = contract.STATION_TYPES.get(self.type) if self.type else None
+        if t is not None:
+            return t.implementations.get(target)
+        return self.resolved_handler()
+
+    def agent_for_target(self, target: str) -> str | None:
+        return self.target_agents.get(target, self.agent)  # type: ignore[call-overload]
+
+    def fail_on_for(self, window: str | None, target: str) -> str | None:
+        return self.fail_on_by.get(window or "") or self.fail_on_by.get(target) or self.fail_on
 
     def resolved_handler(self) -> str:
+        """The handler people see (a typed station's first implementation)."""
+        if self.type:
+            t = contract.STATION_TYPES.get(self.type)
+            if t is None:
+                return "agent" if self.type == contract.CUSTOM else self.type
+            return next(h for h in t.implementations.values() if h)
         if self.handler:
             return canonical_handler(self.kind, self.handler)
         known = AGENT_HANDLERS if self.kind == "agent" else CHECK_HANDLERS
@@ -371,6 +436,8 @@ class WorkflowStation(BaseModel):
     # ------------------------------------------------ station contract --
     def type_id(self) -> str:
         """The station type whose contract this station follows (`agent` = custom)."""
+        if self.type:
+            return self.type
         return contract.TYPE_OF_HANDLER.get(self.resolved_handler(), contract.CUSTOM)
 
     def station_type(self) -> contract.StationType | None:
@@ -429,6 +496,40 @@ class EvalCase(BaseModel):
 
 
 DEFAULT_ENTRY = ("request@1", "branch@1")
+WINDOW_ID = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
+
+
+class Window(BaseModel):
+    """A window over the standard lane (ADR-0037 §4): where a run enters and leaves, and what it
+    starts from. `kinds` are the change kinds that run on it; a window without kinds is a preset."""
+
+    id: str
+    title: str = ""
+    target: Target
+    kinds: list[str] = Field(default_factory=list)
+    enter: str  # a column, or a station id
+    leave: str  # a column (its last station), or a station id
+    entry: list[str]
+
+    @field_validator("id")
+    @classmethod
+    def _slug(cls, v: str) -> str:
+        if not WINDOW_ID.match(v):
+            raise ValueError(f"window id '{v}' must be lowercase letters, digits and dashes")
+        return v
+
+
+class Plan(BaseModel):
+    """The stations a run of one window goes through, and every station it skips, with why."""
+
+    window: str | None
+    target: Target
+    stations: list[str]  # forward, in order
+    repairs: list[str] = Field(default_factory=list)  # repair stations reachable in this window
+    skipped: list[tuple[str, str]] = Field(default_factory=list)
+
+    def runs(self, station_id: str) -> bool:
+        return station_id in self.stations or station_id in self.repairs
 
 
 class WorkflowDoc(BaseModel):
@@ -456,6 +557,9 @@ class WorkflowDoc(BaseModel):
     # provides `branch` itself (scaffolded worktree, or the team repo's clone) and `request` from
     # the product or change text. Windows per change kind replace this in step 1b.
     entry: list[str] = Field(default_factory=lambda: list(DEFAULT_ENTRY))
+    # windows and presets over this lane (ADR-0037 §4), from `presets.yaml`. A workflow without
+    # windows runs every forward station from `entry` (custom lanes until step 1b-2).
+    windows: list[Window] = Field(default_factory=list)
 
     @field_validator("spec_review", mode="before")
     @classmethod
@@ -509,11 +613,95 @@ class WorkflowDoc(BaseModel):
     def entry_refs(self) -> list[contract.ArtifactRef]:
         return [contract.parse_ref(e) for e in self.entry]
 
-    def agent_for(self, station_id: str) -> AgentSpec:
+    def window(self, window_id: str) -> Window:
+        for w in self.windows:
+            if w.id == window_id:
+                return w
+        raise KeyError(window_id)
+
+    def window_for(self, target: str, kind: str) -> Window | None:
+        """The window a change of this kind runs on; None when the lane has no windows."""
+        if not self.windows:
+            return None
+        for w in self.windows:
+            if w.target == target and kind in w.kinds:
+                return w
+        raise KeyError(f"no window for a {kind} change on a {target} target")
+
+    def entry_for(self, window_id: str | None) -> list[contract.ArtifactRef]:
+        refs = self.window(window_id).entry if window_id else self.entry
+        return [contract.parse_ref(e) for e in refs]
+
+    def bounds(self, w: Window) -> tuple[int, int]:
+        """Index range (inclusive) of a window over the forward stations; raises ValueError."""
+        forward = self.forward_stations()
+        col = self.columns()
+        order = [contract.COLUMN_IDS.index(col[s.id]) for s in forward]
+        idx = {s.id: i for i, s in enumerate(forward)}
+
+        def at(ref: str, first: bool) -> int:
+            if ref in contract.COLUMN_IDS:
+                c = contract.COLUMN_IDS.index(ref)
+                if first:  # the first station in the column, or after it when it is empty
+                    hits = [i for i, o in enumerate(order) if o >= c]
+                    return hits[0] if hits else -1
+                hits = [i for i, o in enumerate(order) if o <= c]
+                return hits[-1] if hits else -1
+            if ref not in idx:
+                raise ValueError(f"window '{w.id}': '{ref}' is neither a column nor a forward station")
+            return idx[ref]
+
+        lo, hi = at(w.enter, True), at(w.leave, False)
+        if lo < 0 or hi < 0 or lo > hi:
+            raise ValueError(f"window '{w.id}' enters at '{w.enter}' after it leaves at '{w.leave}'")
+        return lo, hi
+
+    def plan(self, window_id: str | None, target: str) -> Plan:
+        """Which stations run for a window and target, and why each other one is skipped."""
+        forward = self.forward_stations()
+        lo, hi = self.bounds(self.window(window_id)) if window_id else (0, len(forward) - 1)
+        runs: list[str] = []
+        skipped: list[tuple[str, str]] = []
+        for i, s in enumerate(forward):
+            why = "outside window" if not lo <= i <= hi else self._why_not(s, window_id, target)
+            if why:
+                skipped.append((s.id, why))
+            else:
+                runs.append(s.id)
+        repairs = []
+        for s in self.stations:
+            if not s.only_on_fail:
+                continue
+            routed = any(self.station(r).on_fail == s.id for r in runs)
+            why = self._why_not(s, window_id, target) or (None if routed else "no station in this window routes to it")
+            if why:
+                skipped.append((s.id, why))
+            else:
+                repairs.append(s.id)
+        return Plan(window=window_id, target=target, stations=runs, repairs=repairs, skipped=skipped)  # type: ignore[arg-type]
+
+    def _why_not(self, s: WorkflowStation, window_id: str | None, target: str) -> str | None:
+        if s.handler_for(target) is None:
+            return f"not applicable: no {target} implementation"
+        return s.applies_when.why_not(window_id, target)
+
+    def next_in(self, plan: Plan, station_id: str) -> str | None:
+        """Where a run goes after a station passes: its `next` (repairs), else the next station
+        of the plan."""
         st = self.station(station_id)
-        if not st.agent:
+        if st.next:
+            return st.next if plan.runs(st.next) else None
+        if station_id not in plan.stations:
+            return None
+        i = plan.stations.index(station_id)
+        return plan.stations[i + 1] if i + 1 < len(plan.stations) else None
+
+    def agent_for(self, station_id: str, target: str | None = None) -> AgentSpec:
+        st = self.station(station_id)
+        name = st.agent_for_target(target) if target else st.agent
+        if not name:
             raise KeyError(f"station '{station_id}' has no agent")
-        return self.agents[st.agent]
+        return self.agents[name]
 
     def repair_targets(self) -> set[str]:
         """Stations that receive failure evidence (their pass clears it)."""
@@ -561,7 +749,7 @@ def validate_workflow(
             if handler not in AGENT_HANDLERS:
                 errors.append(f"station '{s.id}': unknown agent handler '{handler}'")
             if s.agent in doc.agents:
-                errors += _role_errors(s.id, handler, doc.agents[s.agent])
+                errors += _role_errors(s.id, s.handler_for("factory") or handler, doc.agents[s.agent])
         else:
             if handler not in CHECK_HANDLERS:
                 errors.append(f"check station '{s.id}': unknown handler '{handler}'")
@@ -635,10 +823,84 @@ def contract_errors(doc: WorkflowDoc, roles: Collection[str] = tuple(contract.BU
             errors.append(
                 f"station '{s.id}': its type '{s.type_id()}' sits in {s.column()}, not {s.phase}; remove `phase`"
             )
+    errors += _type_errors(doc)
+    errors += _window_errors(doc)
     if errors:
         return errors
-    errors += contract.fit_errors(doc.stations, doc.entry_refs())
+    col = doc.columns()
+    if doc.windows:  # one lane: columns over the lane, data and floor per window
+        errors += contract.column_errors(doc.forward_stations(), col)
+        for w in doc.windows:
+            plan = doc.plan(w.id, w.target)
+            runs = [s for s in doc.stations if plan.runs(s.id)]
+            if not plan.stations:
+                errors.append(f"window '{w.id}' runs no station")
+                continue
+            errors += [
+                f"window '{w.id}': {e}"
+                for e in contract.fit_errors(runs, doc.entry_for(w.id), col, window_end_is_exit=True)
+            ]
+    else:
+        errors += contract.fit_errors(doc.stations, doc.entry_refs())
     errors += contract.role_errors(doc.stations, roles)
+    return errors
+
+
+def _type_errors(doc: WorkflowDoc) -> list[str]:
+    errors = []
+    for s in doc.stations:
+        if s.type is None:
+            continue
+        if s.type not in contract.STATION_TYPES and s.type != contract.CUSTOM:
+            errors.append(f"station '{s.id}': unknown type '{s.type}' (one of {', '.join(contract.STATION_TYPES)})")
+        if s.handler:
+            errors.append(f"station '{s.id}' names a type; drop `handler` (the type picks it per target)")
+        for target, agent in s.target_agents.items():
+            if agent not in doc.agents:
+                errors.append(f"station '{s.id}' uses unknown agent '{agent}' for {target}")
+            else:
+                handler = s.handler_for(target)
+                if handler is None:
+                    errors.append(f"station '{s.id}': its type has no {target} implementation for agent '{agent}'")
+                else:
+                    errors += _role_errors(s.id, handler, doc.agents[agent])
+    return errors
+
+
+def _window_errors(doc: WorkflowDoc) -> list[str]:
+    from agent_factory.models import ChangeKind
+
+    errors: list[str] = []
+    ids = [w.id for w in doc.windows]
+    if len(ids) != len(set(ids)):
+        errors.append("window ids must be unique")
+    seen: dict[tuple[str, str], str] = {}
+    for w in doc.windows:
+        for k in w.kinds:
+            if k not in {c.value for c in ChangeKind}:
+                errors.append(f"window '{w.id}': unknown change kind '{k}'")
+            elif (w.target, k) in seen:
+                errors.append(f"window '{w.id}': {k} changes on {w.target} already run on '{seen[(w.target, k)]}'")
+            else:
+                seen[(w.target, k)] = w.id
+        for e in w.entry:
+            try:
+                contract.parse_ref(e)
+            except ValueError as exc:
+                errors.append(f"window '{w.id}' entry: {exc}")
+        try:
+            doc.bounds(w)
+        except ValueError as exc:
+            errors.append(str(exc))
+    known = set(ids)
+    for s in doc.stations:
+        aw = s.applies_when
+        for name in [*(aw.windows or []), *(aw.not_windows or [])]:
+            if name not in known:
+                errors.append(f"station '{s.id}': applies_when names unknown window '{name}'")
+        for key in s.fail_on_by:
+            if key not in known and key not in ("factory", "repo"):
+                errors.append(f"station '{s.id}': fail_on_by key '{key}' is neither a window nor a target")
     return errors
 
 
@@ -689,12 +951,7 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
             "no quality-gate station: delivered apps are not held to agent-readiness Level 3 "
             "(add the `quality-gate` check after test)"
         )
-    phase_of, last = doc.phases(), -1
-    for s in doc.forward_stations():
-        i = PHASE_IDS.index(phase_of[s.id])
-        if i < last:
-            warnings.append(f"station '{s.id}' ({phase_of[s.id]}) comes after a later phase: the lane is out of order")
-        last = i  # one warning where the lane steps back, not one per later station
+    # lane order is the container's column rule now (ADR-0037), an error, not advice
     return sorted(set(warnings))
 
 
@@ -785,14 +1042,21 @@ def load_workflow_dir(path: Path) -> WorkflowDoc:
         docs[d.id] = d
     evals_file = path / "evals.yaml"
     evals = (yaml.safe_load(evals_file.read_text()) or []) if evals_file.is_file() else raw.get("evals", [])
+    presets_file = path / "presets.yaml"  # windows and presets over the lane (ADR-0037 §4)
+    windows = (
+        (yaml.safe_load(presets_file.read_text()) or {}).get("windows", [])
+        if presets_file.is_file()
+        else raw.get("windows", [])
+    )
     digest = hashlib.sha256()
-    extra = [evals_file] if evals_file.is_file() else []
+    extra = [f for f in (evals_file, presets_file) if f.is_file()]
     for f in [wf_file, *sorted((path / "agents").glob("*.md")), *sorted((path / "docs").glob("*.md")), *extra]:
         digest.update(f.read_bytes())
     return WorkflowDoc.model_validate(
         {
             **raw,
             "evals": evals,
+            "windows": windows,
             "agents": agents,
             "docs": docs,
             "template": raw.get("template") or raw.get("blueprint") or path.name,
@@ -818,6 +1082,10 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
     if doc.skill_pins:
         data["skill_pins"] = dict(doc.skill_pins)  # imported skills this version was published with
     (path / "workflow.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    if doc.windows:
+        (path / "presets.yaml").write_text(
+            yaml.safe_dump({"windows": [w.model_dump(exclude_defaults=True) for w in doc.windows]}, sort_keys=False)
+        )
     if doc.evals:
         (path / "evals.yaml").write_text(
             yaml.safe_dump([c.model_dump(exclude_defaults=True) for c in doc.evals], sort_keys=False)

@@ -1578,6 +1578,8 @@ export interface components {
             status: components["schemas"]["ChangeStatus"];
             /** Current Station */
             current_station?: string | null;
+            /** Window */
+            window?: string | null;
             /** Workflow Id */
             workflow_id?: string | null;
             /**
@@ -2997,6 +2999,8 @@ export interface components {
             repair: boolean;
             /** State */
             state: string;
+            /** Skip Reason */
+            skip_reason?: string | null;
             /** Attempts */
             attempts: number;
             /** Tool */

@@ -64,7 +64,23 @@ CREATE TABLE IF NOT EXISTS workflow_drafts (
 CREATE TABLE IF NOT EXISTS skill_versions (
   name TEXT NOT NULL, sha TEXT NOT NULL, doc TEXT NOT NULL, installed_at TEXT NOT NULL, PRIMARY KEY (name, sha));
 CREATE TABLE IF NOT EXISTS skill_current (name TEXT PRIMARY KEY, sha TEXT NOT NULL);
+-- facts about the stored data itself, e.g. its generation (reset.py, ADR-0037 §7)
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
+
+# what a fresh start (ADR-0037 §7) drops: the work, not the people, skills or host history
+WORK_TABLES = (
+    "products",
+    "changes",
+    "events",
+    "change_transitions",
+    "learning_proposals",
+    "eval_runs",
+    "feedback",
+    "workflow_versions",
+    "workflow_active",
+    "workflow_drafts",
+)
 
 
 def _now() -> datetime:
@@ -464,6 +480,27 @@ class SqliteStateStore:
 
     def delete_workflow_draft(self, workflow_id: str) -> None:
         self._exec("DELETE FROM workflow_drafts WHERE workflow_id=?", (workflow_id,))
+
+    def get_meta(self, key: str) -> str | None:
+        row = self._exec("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return str(row[0]) if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._exec(
+            "INSERT INTO meta(key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+    def count_work(self) -> dict[str, int]:
+        return {t: int(self._exec(f"SELECT COUNT(*) FROM {t}").fetchone()[0]) for t in WORK_TABLES}  # type: ignore[index]  # noqa: S608
+
+    def reset_work(self) -> dict[str, int]:
+        """Delete every product, change, event and workflow version (ADR-0037 §7)."""
+        counts = self.count_work()
+        with self._lock:
+            for t in WORK_TABLES:
+                self._db.execute(f"DELETE FROM {t}")  # noqa: S608
+        return counts
 
     def rename_workflow(self, old_id: str, new_id: str) -> None:
         with self._lock:

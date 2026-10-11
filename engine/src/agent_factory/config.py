@@ -40,10 +40,9 @@ class Blueprint(BaseModel):
     # `repo` works on a team's existing repository (no template, nothing deployed)
     target: Literal["new", "repo"] = "new"
     template: str | None = None
-    # repo blueprints (ADR-0033): the workflow for feature, bug and upkeep changes, which end
-    # in a pull request; its workflow id is `<blueprint>-change`. Assessments use workflow_template.
-    change_workflow_template: str | None = None
-    workflow_template: str = "workflow-templates/default"  # seeds this blueprint's workflow
+    # seeds this blueprint's workflow: the factory standard, one lane with a window per change
+    # kind (ADR-0037); repo blueprints run its repo-assess and repo-change windows
+    workflow_template: str = "workflow-templates/standard"
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
     chart_path: str = "deploy/chart"
@@ -374,28 +373,20 @@ class FactoryConfig(BaseModel):
     CHANGE_KINDS: ClassVar[tuple[str, ...]] = ("feature", "bug", "upkeep")
 
     def workflow_templates(self) -> dict[str, str]:
-        """Every workflow id and the template it is seeded from: one per blueprint, plus
-        `<blueprint>-change` for repo blueprints with a change workflow (ADR-0033)."""
-        out: dict[str, str] = {}
-        for name, bp in self.blueprints.items():
-            out[name] = bp.workflow_template
-            if bp.change_workflow_template:
-                out[f"{name}-change"] = bp.change_workflow_template
-        return out
+        """Every workflow id and the template it is seeded from: one per blueprint."""
+        return {name: bp.workflow_template for name, bp in self.blueprints.items()}
 
     def blueprint_of(self, workflow_id: str) -> str:
         """The blueprint a workflow belongs to."""
         if workflow_id in self.blueprints:
             return workflow_id
-        base = workflow_id.removesuffix("-change")
-        if base in self.blueprints and self.blueprints[base].change_workflow_template:
-            return base
         raise KeyError(workflow_id)
 
     def workflow_for(self, blueprint: str, kind: str) -> str:
-        """The workflow a change of this kind runs on."""
-        bp = self.blueprints[blueprint]
-        return f"{blueprint}-change" if bp.change_workflow_template and kind in self.CHANGE_KINDS else blueprint
+        """The workflow a change runs on: its blueprint's; the kind picks the window (ADR-0037)."""
+        if blueprint not in self.blueprints:
+            raise KeyError(blueprint)
+        return blueprint
 
     def skill_overlay(self, skills: list[str]) -> str:
         parts = [

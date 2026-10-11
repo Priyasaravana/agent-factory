@@ -26,6 +26,7 @@ from agent_factory import artifacts, contract
 from agent_factory.artifacts import ENTRY, Ledger, file_ref
 from agent_factory.contract import ArtifactRef
 from agent_factory.engine.stations import StationContext, artifacts_dir
+from agent_factory.workflow import Plan
 
 
 class MissingArtifact(Exception):
@@ -34,6 +35,13 @@ class MissingArtifact(Exception):
 
 def ledger_for(ctx: StationContext) -> Ledger:
     return Ledger(artifacts_dir(ctx))
+
+
+def write_plan(ctx: StationContext, plan: Plan) -> None:
+    """The run's plan, with every skipped station and why, as sealed evidence (ADR-0037 §4)."""
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "plan.json").write_text(json.dumps(plan.model_dump(), indent=2) + "\n")
 
 
 def missing_needs(ctx: StationContext) -> list[str]:
@@ -50,7 +58,7 @@ async def record_entry(ctx: StationContext) -> list[str]:
         return []
     made: list[tuple[ArtifactRef, dict[str, Any], str]] = []
     errors: list[str] = []
-    for ref in ctx.workflow_doc.entry_refs():
+    for ref in ctx.workflow_doc.entry_for(ctx.change.window):
         try:
             manifest, location = await collect(ref, ctx, summary="")
         except MissingArtifact as exc:
@@ -170,7 +178,7 @@ def _json(folder: Path, name: str) -> dict[str, Any]:
 
 async def _report(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[dict[str, Any], str]:
     out = artifacts_dir(ctx)
-    handler = ctx.workflow_doc.station(ctx.station_id).resolved_handler()
+    handler = _handler(ctx)
     kind = ref.kind or ""
     files: list[str] = []
     data: dict[str, Any] = {}
@@ -221,6 +229,11 @@ async def _report(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[
     return manifest, f"artifacts/{ctx.change.id}/" + (evidence[0]["path"] if evidence else "")
 
 
+def _handler(ctx: StationContext) -> str:
+    station = ctx.workflow_doc.station(ctx.station_id)
+    return station.handler_for(ctx.target) or station.resolved_handler()
+
+
 def _latest_event(ctx: StationContext, key: str) -> Any:
     found = ctx.store.events_with_key([ctx.change.id], key)
     return found[-1][2] if found else None
@@ -247,7 +260,7 @@ async def _url(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[dic
 
 async def _pr(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[dict[str, Any], str]:
     branch = f"run/{ctx.change.id}"
-    if ctx.workflow_doc.station(ctx.station_id).resolved_handler() == "pull-request":
+    if _handler(ctx) == "pull-request":
         info = _latest_event(ctx, "pull_request") or {}
         manifest = {
             "via": "pull-request",

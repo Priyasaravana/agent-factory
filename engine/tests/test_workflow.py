@@ -23,7 +23,7 @@ from agent_factory.workflow import (
 
 WF = "fastapi-service"
 REPO = Path(__file__).resolve().parents[2]
-BLUEPRINT = REPO / "workflow-templates" / "default"
+BLUEPRINT = REPO / "workflow-templates" / "standard"
 SKILLS = REPO / "plugin" / "skills"
 DEFAULTS = default_skill_names()  # imported on first start (config: default_skills)
 
@@ -32,11 +32,15 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
     doc = load_workflow_dir(BLUEPRINT)
     assert validate_workflow(doc, SKILLS, DEFAULTS) == []
     assert [s.id for s in doc.forward_stations()] == [
+        "onboard",
+        "repo-scan",
+        "assess",
         "requirements",
         "design",
         "implement",
         "test",
         "quality-gate",
+        "secret-scan",
         "code-scan",
         "dependency-scan",
         "config-scan",
@@ -46,8 +50,14 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
         "deploy",
         "acceptance",
         "handover",
+        "report",
     ]
-    assert doc.next_forward("deploy") == "acceptance"
+    plan = doc.plan("factory-new", "factory")  # a new product runs the factory's part of the lane
+    assert plan.stations == [
+        "requirements", "design", "implement", "test", "quality-gate", "code-scan", "dependency-scan",
+        "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "handover",
+    ]  # fmt: skip
+    assert plan.repairs == ["deploy-repair"] and doc.next_in(plan, "deploy") == "acceptance"
     assert doc.station("deploy-repair").next == "test"  # a branch change re-enters verify (ADR-0037 §5)
     assert doc.agents["verifier"].observe_only
     assert "Task" in doc.agents["developer"].effective_tools()
@@ -63,7 +73,7 @@ def test_agent_md_roundtrip() -> None:
     "mutate, problem",
     [
         (lambda d: d.stations[3].__setattr__("on_fail", "nowhere"), "unknown station"),
-        (lambda d: d.stations[0].__setattr__("agent", "ghost"), "unknown agent"),
+        (lambda d: d.station("requirements").__setattr__("agent", "ghost"), "unknown agent"),
         (lambda d: d.agents["verifier"].__setattr__("tools", "builder"), "observe-only"),
         (lambda d: d.agents["intake"].skills.append("no-such-skill"), "unknown skill"),
         (lambda d: next(s for s in d.stations if s.id == "deploy-repair").__setattr__("next", None), "needs `next`"),
@@ -95,7 +105,10 @@ def _custom_line(tmp_path: Path) -> Path:
         prompt="Review the code for OWASP issues.\n",
     )
     stations = doc.model_dump()["stations"]
-    stations.insert(3, {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "implement"})
+    stations.insert(
+        [s["id"] for s in stations].index("implement") + 1,
+        {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "implement"},
+    )
     out = tmp_path / "custom"
     export_workflow_dir(WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations}), out)
     return out
@@ -105,7 +118,7 @@ async def test_seeded_on_first_start_and_never_overwritten(make_factory) -> None
     f = make_factory()
     assert [v.version for v in f.workflows[WF].versions()] == [1]
     assert f.workflows[WF].ensure_seeded() is None  # second start: no new version
-    assert f.workflows[WF].get().template == "default"
+    assert f.workflows[WF].get().template == "standard"
     assert not f.workflows[WF].template_update_available()
 
 

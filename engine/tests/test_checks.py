@@ -144,7 +144,7 @@ def test_the_checker_agent_is_observe_only_in_every_template():
 
     from agent_factory.workflow import load_workflow_dir
 
-    for path in (DEFAULT, DEFAULT.parent / "assess", DEFAULT.parent / "repo-change"):
+    for path in (DEFAULT,):  # the standard lane (ADR-0037)
         doc = load_workflow_dir(path)
         scans = [s for s in doc.stations if s.resolved_handler() == "scan"]
         assert scans and all(s.agent == "checker" and s.check for s in scans)

@@ -20,6 +20,8 @@ from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
     AgentSpec,
+    AppliesWhen,
+    Window,
     WorkflowDoc,
     WorkflowStation,
     export_workflow_dir,
@@ -35,7 +37,7 @@ WF = "fastapi-service"
 
 
 def _default() -> WorkflowDoc:
-    return load_workflow_dir(TEMPLATES / "default")
+    return load_workflow_dir(TEMPLATES / "standard")
 
 
 def _errors(doc: WorkflowDoc, roles: tuple[str, ...] = tuple(contract.BUILTIN_ROLES)) -> list[str]:
@@ -159,9 +161,12 @@ def test_the_ledger_appends_and_the_latest_wins(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------- publish checks --
-@pytest.mark.parametrize("name", ["default", "api-security-review", "assess", "repo-change"])
-def test_shipped_templates_fit_the_container(name: str) -> None:
-    assert _errors(load_workflow_dir(TEMPLATES / name)) == []
+def test_the_standard_lane_fits_the_container() -> None:
+    doc = _default()
+    assert _errors(doc) == []
+    assert [w.id for w in doc.windows] == [
+        "factory-new", "factory-change", "repo-assess", "repo-change", "design-only", "verify-only", "delivery",
+    ]  # fmt: skip
 
 
 def test_data_rule_deploy_before_build_does_not_fit() -> None:
@@ -172,12 +177,12 @@ def test_data_rule_deploy_before_build_does_not_fit() -> None:
     assert any("station 'deploy' needs image@1, which no station to its left gives" in e for e in _errors(doc))
 
 
-def test_data_rule_reads_entry_artifacts() -> None:
+def test_data_rule_reads_the_windows_entry_artifacts() -> None:
     doc = _default()
-    doc.entry = ["branch@1"]  # no request: requirements has nothing to work from
-    assert any("station 'requirements' needs request@1" in e for e in _errors(doc))
-    doc.entry = ["sketch@1"]
-    assert any("entry artifact: 'sketch@1'" in e for e in _errors(doc))
+    doc.window("factory-new").entry = ["branch@1"]  # no request: requirements has nothing to work from
+    assert any("window 'factory-new': station 'requirements' needs request@1" in e for e in _errors(doc))
+    doc.window("factory-new").entry = ["sketch@1"]
+    assert any("window 'factory-new' entry: 'sketch@1'" in e for e in _errors(doc))
 
 
 @pytest.mark.parametrize(
@@ -185,7 +190,10 @@ def test_data_rule_reads_entry_artifacts() -> None:
 )
 def test_floor_each_control_is_mandatory_when_code_changes(control: str, text: str) -> None:
     errors = _errors(_without(_default(), control))
-    assert any(f"station 'build' gives image but {text}" in e and "ADR-0037 §5" in e for e in errors), errors
+    assert any(
+        "window 'factory-new': station 'build' gives image but" in e and text in e and "ADR-0037 §5" in e
+        for e in errors
+    ), errors
 
 
 def test_floor_a_branch_change_after_the_controls_needs_them_again() -> None:
@@ -207,27 +215,27 @@ def test_floor_controls_route_back_never_forward() -> None:
     assert _errors(doc) == []
 
 
+def test_a_window_that_changes_code_cannot_leave_before_the_controls() -> None:
+    doc = _default()
+    doc.windows.append(
+        Window(id="build-only", target="factory", enter="design", leave="develop", entry=["request@1", "branch@1"])
+    )
+    assert any(
+        "window 'build-only': the window leaves before test, a secret scan, change-risk run after 'implement'" in e
+        for e in _errors(doc)
+    )
+
+
 def test_no_floor_when_nothing_changes_code() -> None:
-    doc = load_workflow_dir(TEMPLATES / "assess")
-    assert not any(s.gives_refs() and s.gives_refs()[0].type == "branch" for s in doc.stations)
-    assert contract.floor_errors(doc.stations) == []
+    doc = _default()
+    runs = [doc.station(s) for s in doc.plan("repo-assess", "repo").stations]
+    assert not any(g.type == "branch" for s in runs for g in s.gives_refs())
+    assert contract.floor_errors(runs) == []
 
 
 def test_a_secret_scan_station_counts_for_the_floor() -> None:
     doc = _without(_default(), "quality-gate")
-    at = [s.id for s in doc.stations].index("code-scan")
-    doc.stations.insert(
-        at,
-        WorkflowStation(
-            id="secret-scan",
-            kind="check",
-            handler="scan",
-            check="secrets",
-            fail_on="high",
-            on_fail="implement",
-            agent="checker",
-        ),
-    )
+    doc.station("secret-scan").applies_when = AppliesWhen(not_windows=["repo-assess"])  # factory too now
     assert _errors(doc) == []
 
 
@@ -235,9 +243,11 @@ def test_custom_stations_declare_their_contract_builtins_cannot() -> None:
     doc = _default()
     doc.agents["docs-writer"] = AgentSpec(id="docs-writer", tools="observer", prompt="Write the release notes.\n")
     at = [s.id for s in doc.stations].index("handover")
-    custom = WorkflowStation(id="release-notes", kind="agent", agent="docs-writer")
+    custom = WorkflowStation(
+        id="release-notes", type="agent", agent="docs-writer", applies_when=AppliesWhen(target=["factory"])
+    )
     doc.stations.insert(at, custom)
-    assert custom.gives_refs() == (parse_ref("report.release-notes@1"),), "observe-only default"
+    assert custom.kind == "agent" and custom.gives_refs() == (parse_ref("report.release-notes@1"),)
     assert custom.column("deliver") == "deliver"
     assert _errors(doc) == []
     custom.needs = ["stories@1"]
@@ -272,11 +282,71 @@ def test_config_adds_org_roles() -> None:
         FactoryConfig.model_validate({**cfg.model_dump(), "roles": {"Release Manager": "x"}})
 
 
-def test_entry_survives_export(tmp_path: Path) -> None:
-    doc = load_workflow_dir(TEMPLATES / "assess")
-    assert doc.entry == ["branch@1"]
+def test_windows_survive_export(tmp_path: Path) -> None:
+    doc = _default()
     export_workflow_dir(doc, tmp_path / "x")
-    assert load_workflow_dir(tmp_path / "x").entry == ["branch@1"]
+    again = load_workflow_dir(tmp_path / "x")
+    assert again.windows == doc.windows and again.stations == doc.stations
+
+
+# ------------------------------------------------------ one lane, windows --
+def test_a_type_picks_its_handler_per_target() -> None:
+    doc = _default()
+    impl, review, ship = doc.station("implement"), doc.station("code-review"), doc.station("handover")
+    assert (impl.kind, impl.handler_for("factory"), impl.handler_for("repo")) == (
+        "agent",
+        "implement",
+        "repo-implement",
+    )
+    assert (review.handler_for("repo"), ship.handler_for("repo")) == ("repo-review", "pull-request")
+    assert doc.station("build").handler_for("repo") is None, "nothing is built for a team's repo"
+    assert doc.agent_for("implement", "repo").id == "repo-developer"
+    assert doc.agent_for("implement", "factory").id == "developer"
+    assert doc.station("code-scan").fail_on_for("repo-assess", "repo") == "none"
+    assert doc.station("code-scan").fail_on_for("repo-change", "repo") == "high"
+    assert doc.station("code-scan").fail_on_for("factory-new", "factory") == "critical"
+
+
+@pytest.mark.parametrize(
+    "window, target, stations",
+    [
+        ("repo-assess", "repo", ["onboard", "repo-scan", "assess", "code-scan", "dependency-scan", "config-scan",
+                                 "report"]),
+        ("repo-change", "repo", ["onboard", "implement", "test", "secret-scan", "code-scan", "dependency-scan",
+                                 "config-scan", "code-review", "change-risk", "handover"]),
+        ("design-only", "factory", ["requirements", "design"]),
+        ("delivery", "factory", ["build", "deploy", "handover"]),
+    ],
+)  # fmt: skip
+def test_each_window_runs_its_part_of_the_lane(window: str, target: str, stations: list[str]) -> None:
+    assert _default().plan(window, target).stations == stations
+
+
+def test_every_skipped_station_has_a_reason() -> None:
+    doc = _default()
+    plan = doc.plan("repo-change", "repo")
+    why = dict(plan.skipped)
+    assert set(why) | set(plan.stations) | set(plan.repairs) == {s.id for s in doc.stations}
+    assert why["build"] == "not applicable: no repo implementation"
+    assert why["requirements"] == "not applicable: repo target"
+    assert why["repo-scan"] == "not applicable: window repo-change"
+    assert why["report"] == "outside window"
+    assert why["deploy-repair"] == "not applicable: no repo implementation"
+
+
+def test_window_errors() -> None:
+    doc = _default()
+    doc.station("assess").applies_when = AppliesWhen(windows=["audit"])
+    doc.windows.append(doc.window("repo-change").model_copy(update={"id": "repo-change-2"}))
+    doc.station("code-scan").fail_on_by = {"staging": "low"}
+    errors = _errors(doc)
+    assert any("applies_when names unknown window 'audit'" in e for e in errors)
+    assert any("feature changes on repo already run on 'repo-change'" in e for e in errors)
+    assert any("fail_on_by key 'staging'" in e for e in errors)
+    doc = _default()
+    doc.window("delivery").enter = "handover"
+    doc.window("delivery").leave = "build"
+    assert any("window 'delivery' enters at 'handover' after it leaves at 'build'" in e for e in _errors(doc))
 
 
 # ------------------------------------------------------- handoffs at runtime --
@@ -302,7 +372,13 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
     holdout = (f.manager.ws.holdout_dir(product.slug) / "scenarios.yaml").read_text()
     assert holdout.strip() and holdout.strip()[:40] not in (folder / "ledger.json").read_text(), "holdout text"
     manifest = json.loads((folder / "manifest.json").read_text())
-    assert "ledger.json" in {x["path"] for x in manifest["files"]}
+    assert {"ledger.json", "plan.json"} <= {x["path"] for x in manifest["files"]}
+    plan = json.loads((folder / "plan.json").read_text())  # the window's plan, every skip with its reason
+    assert plan["window"] == "factory-new" and ["onboard", "outside window"] in plan["skipped"]
+    assert any(
+        e.message.startswith("window factory-new: 14 stations; skipped: onboard")
+        for e in f.store.list_events(change.id)
+    )
     assert manifest["artifacts"]["entries"] == len(ledger.entries())
 
 

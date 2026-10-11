@@ -159,7 +159,24 @@ export default function ChangePanel({
           </p>
         )}
         <Problems error={resume.error} />
-        <StationStrip stations={stations} />
+        <StationStrip stations={stations.filter((s) => s.state !== "skipped")} />
+        {stations.some((s) => s.state === "skipped") && (
+          <details className="text-xs text-muted-foreground" data-testid="skipped-stations">
+            <summary>
+              {stations.filter((s) => s.state === "skipped").length} stations not in this change
+              {r.window ? ` (window ${r.window})` : ""}
+            </summary>
+            <ul className="mt-1 list-none p-0">
+              {stations
+                .filter((s) => s.state === "skipped")
+                .map((s) => (
+                  <li key={s.id}>
+                    {s.label || s.id}: {s.skip_reason}
+                  </li>
+                ))}
+            </ul>
+          </details>
+        )}
         {r.kind === "assess" ? (
           <AssessmentPanel
             changeId={changeId}

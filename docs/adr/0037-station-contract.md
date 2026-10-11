@@ -206,3 +206,23 @@ changes) and reseeded from `workflow-templates/standard/` plus `presets.yaml`. N
   `[request@1, branch@1]`): the engine provides `branch` itself (scaffolded worktree for a factory
   product, the clone for a repo). The assess template starts from `[branch@1]`.
 - Stations keep `handler:` in 1a; the YAML `type:` key and the merged handlers come with 1b.
+
+## Implementation notes (1b-1)
+- `workflow-templates/standard/` replaces the four templates; `presets.yaml` holds the windows
+  (`factory-new`, `factory-change`, `repo-assess`, `repo-change`) and presets (`design-only`,
+  `verify-only`, `delivery`; Observe waits for operate stations). A change records its `window`.
+- Stations name a `type`; `handler_for(target)` picks the implementation (a type without one for
+  the target is skipped), `target_agents` the agent, `fail_on_by` a scan's policy per window or
+  target, `applies_when` (`target`, `windows`, `not_windows`) the rest. `WorkflowDoc.plan(window,
+  target)` gives the stations, reachable repairs and every skip with its reason; the engine
+  records it as an event and `plan.json` and routes by it (a repair route outside the window holds).
+- Publish checks fit per window (data, floor, the window's end counts as an exit); the column rule
+  over the whole lane.
+- Applicability needed beyond types: `requirements`/`design` factory only (repo changes skip them,
+  as today); `code-review` not in `verify-only` (no request to review against); `deploy-repair` and
+  `acceptance` not in `delivery` (no repair route, no spec there).
+- Fresh start: `agent-factory reset [--confirm]` drops the work (products, changes, events,
+  evaluations, workflows and their files); the engine refuses older data at start (`reset.check`,
+  a `generation` stamp in the database).
+- Left for 1b-2: one org workflow instead of one per blueprint, removing `LEGACY_HANDLERS`,
+  `STAGE_ORDER`, `line.yaml`, the `blueprint` alias and `kind`/`handler` on stations.

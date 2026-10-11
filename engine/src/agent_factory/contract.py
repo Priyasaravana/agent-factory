@@ -241,12 +241,18 @@ def columns(stations: Sequence[StationLike]) -> dict[str, str]:
     return out
 
 
-def fit_errors(stations: Sequence[StationLike], entry: Sequence[ArtifactRef]) -> list[str]:
-    """Column, data and floor rules (ADR-0037 §1, §5) over a workflow's stations."""
+def fit_errors(
+    stations: Sequence[StationLike],
+    entry: Sequence[ArtifactRef],
+    col: dict[str, str] | None = None,
+    window_end_is_exit: bool = False,
+) -> list[str]:
+    """Column, data and floor rules (ADR-0037 §1, §5) over a workflow's stations, or over the
+    stations one window runs (`col`: the lane's columns; the window's end counts as an exit)."""
     errors: list[str] = []
     forward = [s for s in stations if not s.only_on_fail]
     by_id = {s.id: s for s in stations}
-    col = columns(stations)
+    col = col or columns(stations)
 
     # 1. column rule: free order within a column, never back to an earlier column
     last = -1
@@ -282,12 +288,19 @@ def fit_errors(stations: Sequence[StationLike], entry: Sequence[ArtifactRef]) ->
                 )
 
     # 3. floor rule
-    errors += floor_errors(stations, by_id)
+    errors += floor_errors(stations, by_id, col, window_end_is_exit)
     return errors
 
 
-def floor_errors(stations: Sequence[StationLike], by_id: dict[str, StationLike] | None = None) -> list[str]:
-    """Mandatory controls (ADR-0037 §5). A workflow that never gives `branch` has no scope floor."""
+def floor_errors(
+    stations: Sequence[StationLike],
+    by_id: dict[str, StationLike] | None = None,
+    col: dict[str, str] | None = None,
+    window_end_is_exit: bool = False,
+) -> list[str]:
+    """Mandatory controls (ADR-0037 §5). A workflow that never gives `branch` has no scope floor.
+    For a window, leaving it counts as an exit: a window that changes code must not leave
+    before the controls ran."""
     by_id = by_id or {s.id: s for s in stations}
     forward = [s for s in stations if not s.only_on_fail]
     pos = {s.id: i for i, s in enumerate(forward)}
@@ -312,6 +325,12 @@ def floor_errors(stations: Sequence[StationLike], by_id: dict[str, StationLike] 
             if any(g.type == "branch" for g in s.gives_refs()):
                 seen = set()  # a later branch change needs the controls again
             seen |= s.floor_controls()
+        missing = [FLOOR[c] for c in FLOOR if c not in seen]
+        if window_end_is_exit and missing:
+            errors.append(
+                f"the window leaves before {', '.join(missing)} {'runs' if len(missing) == 1 else 'run'} "
+                f"after {after} changes the branch (mandatory controls, ADR-0037 §5)"
+            )
 
     for s in changes_code:
         if s.only_on_fail:
@@ -323,7 +342,7 @@ def floor_errors(stations: Sequence[StationLike], by_id: dict[str, StationLike] 
             walk(pos[s.id] + 1, f"'{s.id}'")
 
     # a failing control routes back to develop (or earlier) or holds; never forward
-    col = columns(stations)
+    col = col or columns(stations)
     for s in stations:
         if s.floor_controls() and s.on_fail and s.on_fail in by_id:
             target = col[s.on_fail]
@@ -333,6 +352,20 @@ def floor_errors(stations: Sequence[StationLike], by_id: dict[str, StationLike] 
                     f"or hold, not to '{s.on_fail}' ({target})"
                 )
     return sorted(set(errors))
+
+
+def column_errors(forward: Sequence[StationLike], col: dict[str, str]) -> list[str]:
+    """The column rule alone, over a whole lane."""
+    errors, last = [], -1
+    for s in forward:
+        i = COLUMN_IDS.index(col[s.id])
+        if i < last:
+            errors.append(
+                f"station '{s.id}' sits in {col[s.id]} but comes after a {COLUMN_IDS[last]} station: "
+                f"columns run {' → '.join(COLUMN_IDS)}"
+            )
+        last = max(last, i)
+    return errors
 
 
 def role_errors(stations: Iterable[StationLike], roles: Collection[str]) -> list[str]:

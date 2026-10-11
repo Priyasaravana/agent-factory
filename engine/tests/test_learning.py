@@ -48,7 +48,7 @@ def test_signals_come_from_recorded_evidence_only():
 
 # ------------------------------------------------------------------- vet --
 def _doc():
-    doc = load_workflow_dir(REPO / "workflow-templates" / "default")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
     doc.agents["developer"].learnings = "- Always validate query parameters with Pydantic and return 422."
     return doc
 

@@ -118,6 +118,7 @@ from agent_factory.workflow import (
     WorkflowDoc,
     WorkflowStation,
     WorkflowVersionInfo,
+    target_of,
     workflow_warnings,
 )
 
@@ -154,10 +155,17 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
     views = []
     flow = f.workflows[change.workflow_id or workflow_id].get(change.workflow_version)
     phase_of = flow.phases()
+    product = f.store.get_product(change.product_id)
+    bp = f.cfg.blueprints.get(product.blueprint) if product else None
+    target = target_of(bp.target) if bp else "factory"
+    try:
+        skipped = dict(flow.plan(change.window, target).skipped)
+    except (KeyError, ValueError):
+        skipped = {}
     for s in flow.stations:
         attempts = change.attempts.get(s.id, 0) if change else 0
-        state = "pending"
-        if change:
+        state = "skipped" if s.id in skipped and not attempts else "pending"
+        if change and state != "skipped":
             if change.current_station == s.id:
                 state = {
                     "running": "running",
@@ -178,12 +186,13 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
             StationView(
                 id=s.id,
                 kind=s.kind,
-                role=s.agent,
-                handler=s.resolved_handler(),
+                role=s.agent_for_target(target),
+                handler=s.handler_for(target) or s.resolved_handler(),
                 label=s.label(),
                 phase=phase_of[s.id],
                 repair=s.only_on_fail,
                 state=state,
+                skip_reason=skipped.get(s.id) if state == "skipped" else None,
                 attempts=attempts,
                 tool=s.tool,
                 fail_on=s.fail_on,
@@ -1261,7 +1270,9 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
 
     w = f.workflows[workflow_id]
     _, doc, _ = w.draft.get()
-    gate = doc.eval_gate if doc.evals and workflow_id in f.cfg.blueprints else "off"
+    bp = f.cfg.blueprints.get(workflow_id)
+    # evaluations build new products: a repo blueprint's workflow has nothing to evaluate them on
+    gate = doc.eval_gate if doc.evals and bp is not None and bp.target == "new" else "off"
     before = w.active_version()
     who = current_identity().user
     info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")

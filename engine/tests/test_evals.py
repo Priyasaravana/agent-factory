@@ -89,7 +89,7 @@ def test_judge_regressions_block_and_warnings_do_not():
 
 
 def test_the_suite_is_validated():
-    doc = load_workflow_dir(REPO / "workflow-templates" / "default")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
     assert [c.id for c in doc.evals] == ["bookmarks", "todo", "shortener"] and doc.eval_gate == "block"
     assert validate_workflow(doc) == []
     bad = doc.model_copy(update={"evals": [*doc.evals, doc.evals[0]]})

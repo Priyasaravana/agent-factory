@@ -3,9 +3,7 @@ from the pre-rename 'line' tables."""
 
 from __future__ import annotations
 
-import json
 import shutil
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -41,19 +39,19 @@ WF = "fastapi-service"
     ],
 )
 def test_station_role_requirements(agent, preset, message) -> None:
-    doc = load_workflow_dir(TEMPLATES / "default")
+    doc = load_workflow_dir(TEMPLATES / "standard")
     doc.agents[agent].tools = preset
     assert any(message in p for p in validate_workflow(doc, SKILLS, DEFAULTS))
 
 
 def test_narrowing_a_preset_can_break_a_role() -> None:
-    doc = load_workflow_dir(TEMPLATES / "default")
+    doc = load_workflow_dir(TEMPLATES / "standard")
     doc.agents["developer"].disallowed_tools = ["Bash"]
     assert any("needs shell access" in p for p in validate_workflow(doc, SKILLS, DEFAULTS))
 
 
 def test_warnings_are_advice_not_errors() -> None:
-    doc = load_workflow_dir(TEMPLATES / "default")
+    doc = load_workflow_dir(TEMPLATES / "standard")
     doc.agents["verifier"].skills = ["factory-station-contract"]
     doc.agents["intake"].model = "fast"
     doc.agents["spare"] = doc.agents["intake"].model_copy(update={"id": "spare"})
@@ -64,18 +62,42 @@ def test_warnings_are_advice_not_errors() -> None:
     assert any("'spare' is not used" in w for w in warnings)
 
 
+def _secure(tmp_path: Path) -> Path:
+    """The standard lane plus an OWASP review after implement, as a template folder."""
+    from agent_factory.workflow import AgentSpec, WorkflowStation, export_workflow_dir
+
+    doc = load_workflow_dir(TEMPLATES / "standard")
+    doc.agents["security-reviewer"] = AgentSpec(
+        id="security-reviewer",
+        tools="reviewer",
+        skills=["factory-station-contract"],
+        prompt="Review the code for OWASP issues.\n",
+    )
+    at = [x.id for x in doc.stations].index("implement") + 1
+    doc.stations.insert(
+        at,
+        WorkflowStation(
+            id="security-review", type="agent", agent="security-reviewer", on_fail="implement",
+            applies_when={"target": ["factory"]},
+        ),
+    )  # fmt: skip
+    out = tmp_path / "secure"
+    export_workflow_dir(doc.model_copy(update={"name": "secure"}), out)
+    return out
+
+
 # -------------------------------------------------------------- templates --
 def test_builtin_templates_are_valid() -> None:
     for t in [p for p in TEMPLATES.iterdir() if p.is_dir()]:
         assert validate_workflow(load_workflow_dir(t), SKILLS, DEFAULTS) == [], t.name
 
 
-async def test_start_from_template_then_publish_and_run(make_factory):
+async def test_start_from_template_then_publish_and_run(make_factory, tmp_path):
     f = make_factory()
     names = [n for n, _ in f.workflows.templates()]
-    assert {"default", "api-security-review"} <= set(names)
+    assert names == ["standard"], "one standard lane (ADR-0037)"
     w = f.workflows[WF]
-    w.draft.replace_with(f.workflows.template("api-security-review"))
+    w.draft.replace_with(load_workflow_dir(_secure(tmp_path)))
     assert w.draft.dirty() and w.draft.problems() == []
     info = w.draft.publish("switch to security review template")
     assert info.version == 2
@@ -87,7 +109,7 @@ async def test_start_from_template_then_publish_and_run(make_factory):
 
 async def test_import_template_from_github(make_factory, monkeypatch, tmp_path):
     src = tmp_path / "repo" / "workflows" / "secure"
-    shutil.copytree(TEMPLATES / "api-security-review", src)
+    shutil.copytree(_secure(tmp_path), src)
     tmp = tmp_path / "keep"
     tmp.mkdir()
 
@@ -120,7 +142,7 @@ def two_products(tmp_path):
     cfg = load_config(REPO / ".agent-factory" / "config.yaml")
     base = cfg.blueprints[WF]
     cfg.blueprints["secure-api"] = base.model_copy(
-        update={"workflow_template": "workflow-templates/api-security-review", "node_ports": [30083, 30084]}
+        update={"workflow_template": str(_secure(tmp_path)), "node_ports": [30083, 30084]}
     )
     settings = Settings(
         factory_mode="dry-run",
@@ -136,7 +158,7 @@ def two_products(tmp_path):
 
 async def test_each_blueprint_runs_its_own_workflow(two_products):
     f = two_products
-    assert f.workflows.ids() == [WF, "existing-repo", "existing-repo-change", "secure-api"]
+    assert f.workflows.ids() == [WF, "existing-repo", "secure-api"]
     a = f.manager.start_change(f.manager.create_product(PRODUCT))
     b = f.manager.start_change(
         f.manager.create_product(
@@ -163,29 +185,16 @@ async def test_publishing_one_workflow_leaves_the_other_alone(two_products):
     assert f.workflows["secure-api"].active_version() == 1
 
 
-# ------------------------------------------------------------- migration --
-def test_legacy_line_tables_and_runs_migrate(tmp_path):
+# ------------------------------------------------------------- fresh start --
+def test_data_from_before_the_standard_lane_needs_a_reset(tmp_path):
+    """ADR-0037 §7: no migration; the engine refuses old data and names the command."""
+    from agent_factory import reset
+
     db = tmp_path / "factory.db"
-    doc = load_workflow_dir(TEMPLATES / "default").model_dump(mode="json")
-    doc["blueprint"] = doc.pop("template")
-    doc["blueprint_hash"] = doc.pop("template_hash")
-    con = sqlite3.connect(db)
-    con.executescript(
-        """
-        CREATE TABLE line_versions (line_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL,
-          note TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (line_id, version));
-        CREATE TABLE line_active (line_id TEXT PRIMARY KEY, version INTEGER NOT NULL);
-        CREATE TABLE line_drafts (line_id TEXT PRIMARY KEY, base_version INTEGER NOT NULL, doc TEXT NOT NULL,
-          updated_at TEXT NOT NULL);
-        """
-    )
-    for v in (1, 2):
-        con.execute(
-            "INSERT INTO line_versions VALUES (?,?,?,?,?)", ("default", v, json.dumps(doc), f"v{v}", "2026-09-26")
-        )
-    con.execute("INSERT INTO line_active VALUES ('default', 2)")
-    con.commit()
-    con.close()
+    old = SqliteStateStore(db)
+    old.create_workflow_version("fastapi-service", load_workflow_dir(TEMPLATES / "standard"), "v1 from before")
+    (tmp_path / "artifacts" / "c1").mkdir(parents=True)
+    (tmp_path / "artifacts" / "c1" / "events.jsonl").write_text("{}\n")
 
     cfg = load_config(REPO / ".agent-factory" / "config.yaml")
     settings = Settings(
@@ -195,11 +204,17 @@ def test_legacy_line_tables_and_runs_migrate(tmp_path):
         skill_seeds_dir=str(make_seeds(tmp_path / "seeds")),
         _env_file=None,
     )
+    with pytest.raises(reset.ResetRequired, match="agent-factory reset --confirm"):
+        build_factory(settings, cfg, SqliteStateStore(db), FakeExecutor(), FakeAgentRunner())
+    assert reset.plan(old, tmp_path) == {**old.count_work(), "artifacts/": 1}, "nothing deleted without --confirm"
+    done = reset.reset(old, tmp_path)
+    assert done["workflow_versions"] == 1 and not (tmp_path / "artifacts").exists()
     f = build_factory(settings, cfg, SqliteStateStore(db), FakeExecutor(), FakeAgentRunner())
-    w = f.workflows[WF]
-    assert w.active_version() == 2 and [v.version for v in w.versions()] == [2, 1]
-    assert w.get(1).template == "default", "old 'blueprint' field is read as 'template'"
+    _CREATED.append(f)
+    assert f.workflows[WF].active_version() == 1 and f.workflows[WF].get().windows, "reseeded from the standard"
 
+
+def test_old_change_records_keep_their_aliases():
     from agent_factory.models import Change
 
     old = Change.model_validate(
@@ -213,4 +228,4 @@ def test_legacy_line_tables_and_runs_migrate(tmp_path):
             "updated_at": "2026-09-26T00:00:00Z",
         }
     )
-    assert old.workflow_version == 2 and old.workflow_id is None
+    assert old.workflow_version == 2 and old.workflow_id is None and old.window is None
