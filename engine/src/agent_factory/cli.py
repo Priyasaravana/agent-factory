@@ -111,14 +111,17 @@ def _sandbox_check() -> None:
     import asyncio
     import sys
 
+    from agent_factory.app_factory import effective_sandbox
     from agent_factory.config import load_config
     from agent_factory.sandbox import SandboxManager
     from agent_factory.settings import Settings
 
     s = Settings()
     cfg = load_config(s.factory_config)
-    mgr = SandboxManager(cfg.sandbox, Path(s.factory_home), Path(s.data_dir or cfg.factory.data_dir))
-    print(f"sandbox image {mgr.image}; network {cfg.sandbox.network}; egress {cfg.sandbox.egress}")
+    # the same egress as the engine's (gateway included), or ensure() would rebuild the proxy without it
+    sb = effective_sandbox(cfg)
+    mgr = SandboxManager(sb, Path(s.factory_home), Path(s.data_dir or cfg.factory.data_dir))
+    print(f"sandbox image {mgr.image}; network {sb.network}; egress {sb.egress}; model via {sb.model_endpoint}")
     results = asyncio.run(mgr.probe())
     for r in results:
         print(f"  {'PASS' if r['ok'] else 'FAIL'}  {r['check']}" + (f"  ({r['detail']})" if r.get("detail") else ""))
