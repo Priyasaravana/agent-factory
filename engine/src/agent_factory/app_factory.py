@@ -18,7 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
-from agent_factory.config import FactoryConfig, load_config
+from agent_factory.config import FactoryConfig, SandboxConfig, load_config
 from agent_factory.engine.pipeline import ChangeManager, FactoryError, InvalidRequestError, RefusedError
 from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
@@ -48,23 +48,32 @@ class Factory:
     sandbox: SandboxManager | None = None
 
 
+def effective_sandbox(cfg: FactoryConfig) -> SandboxConfig:
+    """The sandbox config every SandboxManager must use: the configured one, with the
+    model gateway's egress applied (ADR-0036). Anything that builds a manager (the engine,
+    `make sandbox-check`) goes through here; a manager built from the raw config would
+    recreate the egress proxy without the gateway and cut agents off from the model."""
+    gw = cfg.model_gateway
+    if gw.provider == "direct":
+        return cfg.sandbox
+    # agents reach the model only through the gateway: it replaces direct model egress,
+    # through a route because the egress proxy can't resolve compose names
+    ip = resolve_address(gw.url)
+    if ip is None:
+        log.warning("model gateway %s does not resolve yet; sandboxes will not reach it", gw.url)
+    egress, routes = gateway_egress(cfg.sandbox.egress, cfg.sandbox.routes, gw.url, ip)
+    return cfg.sandbox.model_copy(update={"egress": egress, "routes": routes, "model_endpoint": egress[0]})
+
+
 def sandbox_for(cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Path) -> SandboxManager | None:
     mode = settings.agent_sandbox or cfg.sandbox.mode
-    gw = cfg.model_gateway
-    if gw.provider != "direct" and mode != "off":
-        # agents reach the model only through the gateway (ADR-0036): it replaces direct
-        # model egress, through a route because the egress proxy can't resolve compose names
-        ip = resolve_address(gw.url)
-        if ip is None:
-            log.warning("model gateway %s does not resolve yet; sandboxes will not reach it", gw.url)
-        egress, routes = gateway_egress(cfg.sandbox.egress, cfg.sandbox.routes, gw.url, ip)
-        cfg.sandbox = cfg.sandbox.model_copy(update={"egress": egress, "routes": routes, "model_endpoint": egress[0]})
     if mode == "off":
         log.warning(
             "agent sandbox is OFF: agents and generated code run inside the factory container, "
             "next to its credentials and the Docker daemon. Use only for development."
         )
         return None
+    cfg.sandbox = effective_sandbox(cfg)
     return SandboxManager(cfg.sandbox, home, data_dir)
 
 

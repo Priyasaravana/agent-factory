@@ -316,3 +316,34 @@ def test_direct_mode_leaves_the_sandbox_egress_alone(tmp_path):
     sb = app_factory.sandbox_for(cfg, SimpleNamespace(agent_sandbox=None), root, tmp_path)
     assert sb is not None and DIRECT_MODEL_EGRESS in sb.cfg.egress
     assert sb.cfg.model_endpoint == DIRECT_MODEL_EGRESS
+
+
+def test_sandbox_check_keeps_the_gateway_egress(monkeypatch, tmp_path):
+    """Regression: `make sandbox-check` built its manager from the raw config, so its
+    ensure() recreated the egress proxy without the gateway and agents got 403."""
+    import agent_factory.config as config_mod
+    import agent_factory.sandbox as sandbox_mod
+    from agent_factory import app_factory, cli
+
+    root = Path(__file__).resolve().parents[2]
+    cfg = config_mod.load_config(root / ".agent-factory" / "config.yaml")
+    cfg.model_gateway = ModelGatewayConfig(provider="litellm")
+    monkeypatch.setattr(config_mod, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(app_factory, "resolve_address", lambda url: "10.0.0.5")
+    built: list[Any] = []
+
+    class Manager:
+        image = "img:1"
+
+        def __init__(self, sb: Any, *_: Any) -> None:
+            built.append(sb)
+
+        async def probe(self) -> list[dict[str, object]]:
+            return []
+
+    monkeypatch.setattr(sandbox_mod, "SandboxManager", Manager)
+    with pytest.raises(SystemExit):
+        cli._sandbox_check()
+    assert built[0].egress[0] == "model-gateway:4000" and DIRECT_MODEL_EGRESS not in built[0].egress
+    assert built[0].model_endpoint == "model-gateway:4000"
+    assert "model-gateway:4000=10.0.0.5:4000" in built[0].routes
