@@ -297,8 +297,15 @@ async def test_repos_over_http(make_factory, tmp_path):
         view = (await c.get(f"/api/changes/{cid}/assessment")).json()
         assert view["level"] == 0 and view["repo"]["ref"] == "trunk" and view["stack"]["languages"] == ["javascript"]
         eol = next(x for x in view["findings"] if x["rule"] == "runtime-eol")
+        eol_title = eol["title"]
         assert eol["at"] == ["Dockerfile:1"]
         assert view["recommendations"][0]["kind"] == "upkeep" and view["markdown"].startswith("# Assessment")
+        # the report folds every station: the rules' findings and the scans, deduplicated (rollup.py)
+        assert any(i["title"] == eol_title for i in view["issues"]) and view["issue_counts"]
+        cov = view["coverage"]
+        assert [c["station"] for c in cov["checks"]] == ["code-scan", "dependency-scan", "config-scan"]
+        assert not cov["complete"] and all("simulated" in g for g in cov["gaps"]), "dry-run scans are not clean scans"
+        assert "scan coverage incomplete" in view["markdown"] and view["assessor_recommendations"]
         views = (await c.get(f"/api/changes/{cid}")).json()["stations"]
         stations = [s["id"] for s in views]
         assert stations == ["onboard", "repo-scan", "assess", "code-scan", "dependency-scan", "config-scan", "report"]

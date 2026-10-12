@@ -764,7 +764,16 @@ class AssessmentView(BaseModel):
     summary: str = ""
     risks: list[dict[str, Any]] = Field(default_factory=list)
     test_gaps: list[dict[str, Any]] = Field(default_factory=list)
+    # consolidated after the scans (rollup.py): ranked by severity then impact, each with its
+    # source, basis and the issue ids behind it; the assessor's own list is kept beside it
     recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    assessor_recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    # every station's findings, deduplicated, with every place and source as evidence
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    issue_counts: dict[str, int] = Field(default_factory=dict)
+    # which scans ran and how; `complete` is false when one didn't run, was simulated, was
+    # answered by the agent or was cut short (`gaps` says what that leaves out)
+    coverage: dict[str, Any] = Field(default_factory=dict)
     dropped: list[str] = Field(default_factory=list)
     agents_md: str = ""
     markdown: str = ""

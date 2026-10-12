@@ -118,7 +118,11 @@
   token from `existing_repos.write_token_ref` via the environment); the factory never
   merges. Pure helpers live in `repo_change.py`. New signals and rules go in
   `assess.py` with a test in `tests/test_existing_repos.py` that also shows a well-kept
-  repo doesn't trip them.
+  repo doesn't trip them. The report station folds every station's output (`rollup.py`, pure): issues
+  deduplicated across the rules and the scans with every source kept, recommendations ranked
+  by severity then impact (assessor's plus one per scan check it didn't ask for), and scan
+  coverage stated: a scan that didn't run, was simulated or was answered by the agent is a
+  gap, never a clean result. Tests in `tests/test_rollup.py`.
 - Scan stations (ADR-0034/0035): a `scan` check is named after what it checks (`check:`
   secrets | code | dependencies | config); the provider (local tool, github, snyk, agent) is
   chosen under `checks:` in the config or per station, with an agent fallback

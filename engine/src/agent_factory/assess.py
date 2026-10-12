@@ -878,6 +878,32 @@ def group_findings(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(groups.values())
 
 
+def _coverage_lines(cov: dict[str, Any]) -> list[str]:
+    lines = ["", "## Scan coverage", ""]
+    lines.append("All planned checks ran." if cov.get("complete") else "**Incomplete:** " + " ".join(cov["gaps"]))
+    lines += ["", "| Check | How | Findings | Notes |", "|---|---|---|---|"]
+    for c in cov.get("checks", []):
+        found = ", ".join(f"{n} {s}" for s, n in (c.get("counts") or {}).items() if n) or "none"
+        how = c["status"] + (f" ({c['via']})" if c.get("via") else "")
+        lines.append(f"| {c['title']} | {how} | {found if c['status'] != 'not run' else '—'} | {c.get('note', '')} |")
+    return lines
+
+
+def _issue_lines(items: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "## Issues (every station, deduplicated)", ""]
+    for x in items:
+        at = ", ".join(f"`{a}`" for a in x["at"][:6]) + (f" and {x['places'] - 6} more" if x["places"] > 6 else "")
+        src = "; ".join(
+            f"{s['station']} via {s['via']}" + (f" ({s['rule']})" if s["rule"] else "") for s in x["sources"]
+        )
+        detail = f": {x['detail']}" if x.get("detail") else ""
+        lines.append(f"- **{x['id']} · {x['severity']}** · {x['title']}{detail}" + (f" ({at})" if at else ""))
+        lines.append(f"  - found by {src}")
+    if not items:
+        lines.append("None.")
+    return lines
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     """The assessment as people read it (artifacts/<change>/assessment.md)."""
     r = report
@@ -895,27 +921,37 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     if r.get("summary"):
         lines += [r["summary"], ""]
+    if "issues" in r:
+        c = r["issue_counts"]
+        by_sev = ", ".join(f"{n} {k}" for k, n in c.items() if n) or "none"
+        cov = "all planned scans ran" if r["coverage"]["complete"] else "scan coverage incomplete (see below)"
+        lines += [f"**Issues across all stations:** {len(r['issues'])} ({by_sev}) · {cov}", ""]
     lines += ["## Readiness signals", "", "| | Signal | Level | Pillar | To fix |", "|---|---|---|---|---|"]
     for s in card["signals"]:
         fix = "" if s["ok"] else s["hint"]
         lines.append(f"| {'✅' if s['ok'] else '❌'} | {s['title']} | {s['level']} | {s['pillar']} | {fix} |")
-    lines += ["", "## Findings (deterministic rules)", ""]
-    for g in group_findings(r["findings"]) or []:
-        at = ", ".join(f"`{x}`" for x in g["at"][:6]) + (f" and {len(g['at']) - 6} more" if len(g["at"]) > 6 else "")
-        lines.append(f"- **{g['severity']}** · {g['title']}: {g['detail']} ({at})")
-    if not r["findings"]:
-        lines.append("None.")
-    if r.get("tools"):
-        from agent_factory.repo_change import via_note
+    if "issues" in r:  # every station's findings, deduplicated (rollup.py)
+        lines += _coverage_lines(r["coverage"]) + _issue_lines(r["issues"])
+    else:
+        lines += ["", "## Findings (deterministic rules)", ""]
+        for g in group_findings(r["findings"]) or []:
+            at = ", ".join(f"`{x}`" for x in g["at"][:6]) + (
+                f" and {len(g['at']) - 6} more" if len(g["at"]) > 6 else ""
+            )
+            lines.append(f"- **{g['severity']}** · {g['title']}: {g['detail']} ({at})")
+        if not r["findings"]:
+            lines.append("None.")
+        if r.get("tools"):
+            from agent_factory.repo_change import via_note
 
-        lines += ["", "## Security checks", ""]
-        for t in r["tools"]:
-            counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
-            simulated = " (simulated)" if t.get("simulated") else ""
-            lines.append(f"- **{t.get('title')}**{via_note(t)}: {counts}{simulated}")
-            for f in (t.get("findings") or [])[:10]:
-                at = f["file"] + (f":{f['line']}" if f.get("line") else "")
-                lines.append(f"  - {f['severity']} · {f['title']} (`{at}`)")
+            lines += ["", "## Security checks", ""]
+            for t in r["tools"]:
+                counts = ", ".join(f"{n} {s}" for s, n in (t.get("counts") or {}).items() if n) or "no findings"
+                simulated = " (simulated)" if t.get("simulated") else ""
+                lines.append(f"- **{t.get('title')}**{via_note(t)}: {counts}{simulated}")
+                for f in (t.get("findings") or [])[:10]:
+                    at = f["file"] + (f":{f['line']}" if f.get("line") else "")
+                    lines.append(f"  - {f['severity']} · {f['title']} (`{at}`)")
     lines += ["", "## Risks (assessor, checked against the repo)", ""]
     lines += [
         f"- **{x['severity']}**{' · ' + x['pillar'] if x.get('pillar') else ''} · {x['title']}: {x['detail']} "
@@ -925,8 +961,14 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines += ["", "## Test gaps", ""]
     lines += [f"- **{x['area']}**: {x['why']} ({', '.join(x['files'])})" for x in r["test_gaps"]] or ["None reported."]
     lines += ["", "## Recommended changes", ""]
+    if r["recommendations"] and "impact" in r["recommendations"][0]:
+        lines += ["Ranked by severity, then impact. Issue ids refer to the list above.", ""]
     lines += [
-        f"{i}. **{x['title']}** ({x['kind']}, effort {x['effort']}): {x['why']}"
+        f"{i}. **{x['title']}** ({x['kind']}, effort {x['effort']}"
+        + (f", {x['severity']} severity, {x['impact']} impact" if "impact" in x else "")
+        + f"): {x['why']}"
+        + (f" _Basis: {x['basis']}._" if x.get("basis") else "")
+        + (f" Issues: {', '.join(x['issues'])}." if x.get("issues") else "")
         for i, x in enumerate(r["recommendations"], 1)
     ] or ["None."]
     if r.get("dropped"):
