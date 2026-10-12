@@ -1,0 +1,26 @@
+# Factory default lane (ADR-0039): a feature, bug fix or upkeep on a team's existing repository,
+# made on a branch of the clone and delivered only as a pull request; a person merges (ADR-0033).
+# Read-only as shipped: edits become new versions of this lane, and "Back to factory default"
+# restores this file.
+name: Repo change
+description: Changes an existing repo on a branch, tests and checks it, and opens a pull request
+works_on: repo
+kinds: [feature, bug, upkeep]
+entry: [request@1, branch@1]
+spec_review: "off"
+eval_gate: "off"
+stations:
+  # discover
+  - {id: onboard,   type: onboard}
+  # develop
+  - {id: implement, type: implement, agent: repo-developer}
+  # verify: only findings in the files this change touched count
+  - {id: test,            type: test, on_fail: implement}   # the repo's own checks, in the sandbox
+  - {id: secret-scan,     type: scan, check: secrets,      fail_on: high, on_fail: implement, agent: checker}
+  - {id: code-scan,       type: scan, check: code,         fail_on: high, on_fail: implement, agent: checker}
+  - {id: dependency-scan, type: scan, check: dependencies, fail_on: high, on_fail: implement, agent: checker}
+  - {id: config-scan,     type: scan, check: config,       fail_on: high, on_fail: implement, agent: checker}
+  - {id: code-review,     type: code-review, agent: repo-reviewer, on_fail: implement}
+  - {id: change-risk,     type: change-risk, on_fail: implement}
+  # deliver
+  - {id: handover,  type: handover}   # push the branch, open the pull request

@@ -300,11 +300,9 @@ async def test_repos_over_http(make_factory, tmp_path):
         assert eol["at"] == ["Dockerfile:1"]
         assert view["recommendations"][0]["kind"] == "upkeep" and view["markdown"].startswith("# Assessment")
         views = (await c.get(f"/api/changes/{cid}")).json()["stations"]
-        stations = [s["id"] for s in views if s["state"] != "skipped"]
+        stations = [s["id"] for s in views]
         assert stations == ["onboard", "repo-scan", "assess", "code-scan", "dependency-scan", "config-scan", "report"]
-        skipped = {s["id"]: s["skip_reason"] for s in views if s["state"] == "skipped"}
-        assert skipped["build"] == "not applicable: no repo implementation"  # recorded, with why
-        assert skipped["implement"] == "not applicable: window repo-assess"
+        assert not any(s["state"] == "skipped" for s in views), "a run shows only its lane (ADR-0039)"
         checks = {v["blueprint"]: [x["id"] for x in v["checks"]] for v in (await c.get("/api/preflight")).json()}
         assert checks["existing-repo"] == ["model", "sandbox", "workflow"]  # nothing to build or deploy
     await ctx.__aexit__(None, None, None)

@@ -301,7 +301,7 @@ class ChangeManager:
                 latest,
                 self.ws.change_dir(latest.id),
                 "archive",
-                self.workflows[latest.workflow_id or self.cfg.default_workflow].get(latest.workflow_version),
+                self.workflows[latest.workflow_id or ""].get(latest.workflow_version),
             )
             ctx.providers = self.providers.for_blueprint(product.blueprint)
             res = await ctx.providers.deploy.undeploy(ctx)
@@ -330,6 +330,7 @@ class ChangeManager:
         change_request: str | None = None,
         version: int | None = None,
         *,
+        workflow_id: str | None = None,
         kind: ChangeKind | None = None,
         source: ChangeSource = ChangeSource.ui,
         requested_by: str | None = None,
@@ -355,17 +356,15 @@ class ChangeManager:
                 f"a {'later' if changes else 'first'} change to this product can be: {', '.join(allowed)}"
             )
         now = _now()
-        wid = self.cfg.workflow_for(product.blueprint, kind)
+        wid = workflow_id or self.lane_for(product, kind)
         version = version or self.workflows[wid].active_version()
         flow = self.workflows[wid].get(version)
-        target = target_of(self.cfg.blueprints[product.blueprint].target)
-        try:  # the window this kind of change runs over the lane (ADR-0037 §4)
-            window = flow.window_for(target, kind)
-        except KeyError as exc:
-            raise InvalidRequestError(f"this workflow has no window for {kind} changes on a {target} target") from exc
-        plan = flow.plan(window.id if window else None, target)
+        works_on = self._target(product.blueprint)
+        if not flow.serves(works_on, kind):
+            raise InvalidRequestError(f"workflow '{wid}' does not run {kind} changes on {works_on} products")
+        plan = flow.plan()
         if not plan.stations:
-            raise InvalidRequestError(f"window '{plan.window}' runs no station for a {target} target")
+            raise InvalidRequestError(f"workflow '{wid}' runs no station")
         change = Change(
             id=uuid.uuid4().hex[:12],
             product_id=product.id,
@@ -373,7 +372,6 @@ class ChangeManager:
             status=ChangeStatus.queued,
             workflow_id=wid,
             workflow_version=version,
-            window=plan.window,
             current_station=plan.stations[0],
             change_request=change_request,
             kind=kind,
@@ -450,9 +448,8 @@ class ChangeManager:
     def request_spec_changes(self, change_id: str, by: str, comment: str) -> Change:
         """Back to intake with the reviewer's notes; design follows, then the gate again."""
         change = self._awaiting_spec(change_id)
-        product = self.store.get_product(change.product_id)
-        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
-        plan = flow.plan(change.window, self._target(product.blueprint if product else ""))
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+        plan = flow.plan()
         first = plan.stations[0]
         change.review_notes.append(f"{comment} (by {by})")
         for sid in plan.stations:
@@ -533,7 +530,7 @@ class ChangeManager:
         """The risky changes are not accepted: back to the station's repair route with
         the findings and the reason, or cancelled when there is none."""
         change, hold = self._awaiting_risk(change_id)
-        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
         target = flow.station(hold.station).on_fail
         self.store.add_event(
             change.id,
@@ -714,7 +711,7 @@ class ChangeManager:
         self._sync_product(change, product)
         blueprint = self.cfg.blueprints[product.blueprint]
         # pinned: later workflow edits never affect this change
-        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
         if blueprint.target == "repo":
             if not self.ws.change_dir(change.id).exists():
                 from agent_factory.assess import parse_repo_url
@@ -743,7 +740,7 @@ class ChangeManager:
             worktree = await self.ws.create_worktree(product.slug, change.id)
         deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
 
-        plan = flow.plan(change.window, self._target(product.blueprint))
+        plan = flow.plan()
         if change.current_station:  # the plan and entry artifacts, once per change (ADR-0037 §2, §4)
             entry_ctx = StationContext(
                 self.cfg,
@@ -761,11 +758,12 @@ class ChangeManager:
             entry_ctx.providers = self.providers.for_blueprint(product.blueprint)
             if not handoff.ledger_for(entry_ctx).has_entry():
                 handoff.write_plan(entry_ctx, plan)
-                skipped = ", ".join(f"{sid} ({why})" for sid, why in plan.skipped) or "none"
+                skipped = ", ".join(f"{sid} ({why})" for sid, why in plan.skipped)
                 self.store.add_event(
                     change.id,
                     EventKind.decision,
-                    f"window {plan.window or '(whole lane)'}: {len(plan.stations)} stations; skipped: {skipped}",
+                    f"lane {change.workflow_id}: {len(plan.stations)} stations"
+                    + (f"; skipped: {skipped}" if skipped else ""),
                     data={"plan": plan.model_dump()},
                 )
             if rejected := await handoff.record_entry(entry_ctx):
@@ -855,7 +853,7 @@ class ChangeManager:
                     return self._hold(
                         change,
                         sid,
-                        f"{result.summary} (its repair route '{target}' is outside this window)",
+                        f"{result.summary} (its repair route '{target}' is not in this lane)",
                         result.failure_evidence,
                     )
                 if change.loops > self.cfg.budgets.max_loops_per_change:
@@ -915,6 +913,19 @@ class ChangeManager:
 
             return self._hold(change, sid, result.summary, result.failure_evidence)
         return None
+
+    def lane_for(self, product: Product, kind: str) -> str:
+        """The workflow a change runs (ADR-0039): the org workflow assigned to the product for this
+        kind, unless the org uses factory defaults; else the factory default lane for the kind of
+        work. Requesters never choose."""
+        works_on = self._target(product.blueprint)
+        assigned = product.workflows.get(str(kind))
+        if assigned and not self.cfg.use_factory_defaults and assigned in self.workflows.ids():
+            return assigned
+        lane = self.workflows.default_lane(works_on, str(kind))
+        if lane is None:
+            raise InvalidRequestError(f"no factory lane runs {kind} changes on {works_on} products")
+        return lane
 
     def _target(self, blueprint: str) -> str:
         return target_of(self.cfg.blueprints[blueprint].target) if blueprint in self.cfg.blueprints else "factory"

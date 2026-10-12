@@ -337,11 +337,17 @@ class FactoryConfig(BaseModel):
     # org roles a station may name as its owner, besides the built-in ones (ADR-0037):
     # product-owner, tech-lead, security, qa. Id -> title, e.g. {release-manager: Release manager}
     roles: dict[str, str] = Field(default_factory=dict)
-    # the org's workflows (ADR-0037 §6): id -> the template it is seeded from on first start.
-    # Every product runs `default_workflow`, whatever its blueprint; the blueprint picks the stack
-    # and environment, the change kind picks the window.
-    workflows: dict[str, str] = Field(default_factory=lambda: {"standard": "workflow-templates/standard"})
-    default_workflow: str = "standard"
+    # the factory default lanes (ADR-0039): id -> the lane template each is seeded from. A change
+    # runs the lane its product is assigned for its kind (an org workflow), else the default lane
+    # for (works_on, kind). Defaults are always there: edits become new versions, and "back to
+    # factory default" restores the template. `use_factory_defaults` ignores every assignment.
+    workflows: dict[str, str] = Field(
+        default_factory=lambda: {
+            lane: f"workflow-templates/standard/lanes/{lane}.yaml"
+            for lane in ("new-product", "product-change", "repo-assessment", "repo-change")
+        }
+    )
+    use_factory_defaults: bool = False
 
     @field_validator("roles")
     @classmethod
@@ -357,14 +363,6 @@ class FactoryConfig(BaseModel):
         from agent_factory.contract import BUILTIN_ROLES
 
         return [*BUILTIN_ROLES, *(r for r in self.roles if r not in BUILTIN_ROLES)]
-
-    @model_validator(mode="after")
-    def _default_workflow_exists(self) -> FactoryConfig:
-        if self.default_workflow not in self.workflows:
-            raise ValueError(
-                f"default_workflow '{self.default_workflow}' is not one of workflows {list(self.workflows)}"
-            )
-        return self
 
     @model_validator(mode="after")
     def _local_defaults(self) -> FactoryConfig:
@@ -383,23 +381,17 @@ class FactoryConfig(BaseModel):
     CHANGE_KINDS: ClassVar[tuple[str, ...]] = ("feature", "bug", "upkeep")
 
     def workflow_templates(self) -> dict[str, str]:
-        """Every workflow id and the template it is seeded from."""
+        """The factory default lanes and the template each is seeded from."""
         return dict(self.workflows)
 
-    def workflow_for(self, blueprint: str, kind: str) -> str:
-        """The workflow a change runs on: the org's default; the kind picks the window (ADR-0037)."""
-        if blueprint not in self.blueprints:
-            raise KeyError(blueprint)
-        return self.default_workflow
+    def blueprints_for(self, works_on: str) -> list[str]:
+        """Blueprints whose products a lane working on `works_on` (factory | repo) serves."""
+        return [b for b, bp in self.blueprints.items() if ("repo" if bp.target == "repo" else "factory") == works_on]
 
-    def blueprints_using(self, workflow_id: str) -> list[str]:
-        """Blueprints whose products run this workflow."""
-        return list(self.blueprints) if workflow_id == self.default_workflow else []
-
-    def eval_blueprint(self, workflow_id: str) -> str | None:
+    def eval_blueprint(self, works_on: str) -> str | None:
         """The blueprint an evaluation builds its products with (ADR-0025): the first one that
-        builds new products, among those using the workflow."""
-        return next((b for b in self.blueprints_using(workflow_id) if self.blueprints[b].target == "new"), None)
+        builds new products; only lanes working on new builds are evaluated."""
+        return next((b for b in self.blueprints_for(works_on) if self.blueprints[b].target == "new"), None)
 
     def skill_overlay(self, skills: list[str]) -> str:
         parts = [

@@ -1979,6 +1979,208 @@
         }
       }
     },
+    "/api/workflows/{workflow_id}/copy": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Copy a workflow into a new org workflow, with its own versions (ADR-0039)",
+        "description": "Copy a workflow into a new org workflow, with its own versions (ADR-0039)",
+        "operationId": "copy_workflow",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyWorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/restore-factory": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Back to factory default: the shipped lane becomes the active version (ADR-0039)",
+        "description": "Back to factory default: the shipped lane becomes the active version (ADR-0039)",
+        "operationId": "restore_factory_workflow",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/assign": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Assign an org workflow to a product for the kinds it serves (ADR-0039)",
+        "description": "Assign an org workflow to a product for the kinds it serves (ADR-0039)",
+        "operationId": "assign_workflow",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignWorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/unassign": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Remove a product's assignment: it falls back to the factory default lanes (ADR-0039)",
+        "description": "Remove a product's assignment: it falls back to the factory default lanes (ADR-0039)",
+        "operationId": "unassign_workflow",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnassignWorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workflow-templates": {
       "get": {
         "tags": [
@@ -3239,15 +3441,9 @@
               {
                 "type": "string",
                 "enum": [
-                  "plan",
-                  "code",
-                  "test",
-                  "release",
-                  "deploy",
-                  "validate",
-                  "handover",
                   "discover",
                   "design",
+                  "plan",
                   "develop",
                   "verify",
                   "deliver",
@@ -3835,6 +4031,34 @@
         "title": "AssessmentView",
         "description": "An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported\nand the engine kept."
       },
+      "AssignWorkflowInput": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kinds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id"
+        ],
+        "title": "AssignWorkflowInput",
+        "description": "Assign an org workflow to a product (ADR-0039) for some or all of the kinds it serves."
+      },
       "BlueprintUse": {
         "properties": {
           "id": {
@@ -4000,17 +4224,6 @@
               }
             ],
             "title": "Current Station"
-          },
-          "window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Window"
           },
           "workflow_id": {
             "anyOf": [
@@ -4470,6 +4683,27 @@
           "gates"
         ],
         "title": "ConfigView"
+      },
+      "CopyWorkflowInput": {
+        "properties": {
+          "new_id": {
+            "type": "string",
+            "maxLength": 41,
+            "minLength": 2,
+            "title": "New Id"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_id"
+        ],
+        "title": "CopyWorkflowInput"
       },
       "CreateProductInput": {
         "properties": {
@@ -5619,15 +5853,9 @@
               {
                 "type": "string",
                 "enum": [
-                  "plan",
-                  "code",
-                  "test",
-                  "release",
-                  "deploy",
-                  "validate",
-                  "handover",
                   "discover",
                   "design",
+                  "plan",
                   "develop",
                   "verify",
                   "deliver",
@@ -6446,6 +6674,13 @@
               }
             ],
             "title": "Eval Run Id"
+          },
+          "workflows": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Workflows"
           }
         },
         "type": "object",
@@ -7840,6 +8075,19 @@
         "title": "TraceRow",
         "description": "One requirement, traced: scenarios -> tagged tests -> live acceptance."
       },
+      "UnassignWorkflowInput": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id"
+        ],
+        "title": "UnassignWorkflowInput"
+      },
       "UpdateStationInput": {
         "properties": {
           "on_fail": {
@@ -7902,15 +8150,9 @@
               {
                 "type": "string",
                 "enum": [
-                  "plan",
-                  "code",
-                  "test",
-                  "release",
-                  "deploy",
-                  "validate",
-                  "handover",
                   "discover",
                   "design",
+                  "plan",
                   "develop",
                   "verify",
                   "deliver",
@@ -8225,12 +8467,41 @@
             "type": "string",
             "title": "Workflow Id"
           },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "works_on": {
+            "type": "string",
+            "title": "Works On",
+            "default": "factory"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kinds"
+          },
+          "factory_default": {
+            "type": "boolean",
+            "title": "Factory Default",
+            "default": false
+          },
           "blueprints": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Blueprints"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products"
           },
           "active_version": {
             "type": "integer",
@@ -8335,6 +8606,30 @@
           "workflow_id": {
             "type": "string",
             "title": "Workflow Id"
+          },
+          "works_on": {
+            "type": "string",
+            "title": "Works On",
+            "default": "factory"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kinds"
+          },
+          "factory_default": {
+            "type": "boolean",
+            "title": "Factory Default",
+            "default": false
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products"
           },
           "version": {
             "type": "integer",

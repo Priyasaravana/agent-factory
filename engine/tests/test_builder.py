@@ -11,7 +11,7 @@ from agent_factory.engine.workflows import WorkflowError
 from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec, WorkflowStation
 
-WF = "standard"
+WF = "new-product"
 
 
 def _reviewer() -> AgentSpec:

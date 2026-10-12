@@ -113,7 +113,7 @@ async def test_a_delivered_run_is_sealed_and_downloadable(make_factory):
 
 async def test_a_cancelled_run_is_sealed_too(make_factory):
     f = make_factory()
-    w = f.workflows["standard"]
+    w = f.workflows["new-product"]
     w.draft.set_spec_review("first")
     w.draft.publish("gate on")
     product = f.manager.create_product(PRODUCT)

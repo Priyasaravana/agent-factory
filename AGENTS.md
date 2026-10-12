@@ -5,12 +5,14 @@
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
 - Workflows (stations + agent specs + reference docs) are data and belong to the org, not a
-  blueprint: `workflows:` in the config, every product runs `default_workflow` (`standard`,
-  seeded from `workflow-templates/standard/`: one lane, a window per change kind in
-  `presets.yaml`, ADR-0037), stored as immutable versions in the DB. Changes are pinned
-  to (workflow, version) and record their window. Prefer template, spec and skill changes
-  over engine changes (see docs/workflows.md). Data from
-  before the standard lane is not migrated: `agent-factory reset --confirm` (`reset.py`).
+  blueprint (ADR-0039): a workflow is a **lane** for one kind of work (`works_on`: factory |
+  repo, `kinds`). The factory default lanes are listed under `workflows:` in the config and seeded
+  from `workflow-templates/standard/lanes/`; org workflows are copies, found in the DB and
+  assigned to products per kind (`Product.workflows`). A change runs its product's assignment,
+  else the factory default lane (`ChangeManager.lane_for`); requesters never choose. Versions are
+  immutable; "back to factory default" re-imports the shipped lane as a new version. Prefer
+  template, spec and skill changes over engine changes (see docs/workflows.md). Data from before
+  the lanes is not migrated: `agent-factory reset --confirm` (`reset.py`).
 - `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
   imported at a pinned commit via `default_skills` in the config; never copy
   them into the repo. Layer guidance through `skill_prompts` instead of editing them.
@@ -111,7 +113,7 @@
 - Existing repos (ADR-0031): onboarded by URL (`assess.parse_repo_url`, https on allowed
   hosts) and cloned read-only by `Workspace.sync_repo` (no hooks, submodules or push).
   Assessment stations never change the repository; the assessor is observe-only and
-  judged by the pure `assess.judge`. Changes (ADR-0033) run the `repo-change` window, are
+  judged by the pure `assess.judge`. Changes (ADR-0033) run the `repo-change` lane, are
   made on a branch of the clone and leave only as a pull request (`pull-request` station,
   token from `existing_repos.write_token_ref` via the environment); the factory never
   merges. Pure helpers live in `repo_change.py`. New signals and rules go in
@@ -141,6 +143,6 @@
   against `schemas/artifacts/<type>.v<n>.json` (`engine/handoff.py`): an invalid output fails its
   station. A breaking change to an artifact is a new schema version, never an edit; a new
   built-in handler gets a type and a collector, with a test in `tests/test_station_contract.py`.
-  A station is chosen per target through its type (`handler_for`); where it applies is data
-  (`applies_when`), and every skipped station is recorded with its reason (`WorkflowDoc.plan`).
+  A station's handler follows its lane's `works_on` (`handler_for`); publish refuses a station
+  without one, so a run shows only its lane's stations (`WorkflowDoc.plan`).
 - Record significant decisions as ADRs in `docs/adr/`.

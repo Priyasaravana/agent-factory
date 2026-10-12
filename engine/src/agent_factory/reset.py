@@ -18,7 +18,7 @@ from pathlib import Path
 
 from agent_factory.state.base import StateStore
 
-GENERATION = "3"  # 2: one standard lane with windows; 3: one workflow for the org (ADR-0037)
+GENERATION = "4"  # 2: one lane + windows; 3: one org workflow (ADR-0037); 4: lanes (ADR-0039)
 _KEY = "generation"
 DATA_FOLDERS = ("products", "runs", "holdout", "artifacts")
 

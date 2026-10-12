@@ -116,6 +116,9 @@ class Product(BaseModel):
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
     eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from products and Outcomes
+    # org workflows assigned to this product, per change kind (ADR-0039); unassigned kinds run the
+    # factory default lane for (works_on, kind)
+    workflows: dict[str, str] = Field(default_factory=dict)
 
 
 class Change(BaseModel):
@@ -124,7 +127,6 @@ class Change(BaseModel):
     iteration: int
     status: ChangeStatus
     current_station: str | None = None
-    window: str | None = None  # the window over the workflow this change runs (ADR-0037 §4)
     workflow_id: str | None = None  # the blueprint's workflow (None on runs from before workflows)
     workflow_version: int = Field(  # the workflow version this change is pinned to
         default=1, validation_alias=AliasChoices("workflow_version", "line_version")
@@ -579,6 +581,22 @@ class StartEvalInput(BaseModel):
     version: int | None = None  # default: the newest version
 
 
+class CopyWorkflowInput(BaseModel):
+    new_id: str = Field(min_length=2, max_length=41)
+    note: str = Field(default="", max_length=500)
+
+
+class AssignWorkflowInput(BaseModel):
+    """Assign an org workflow to a product (ADR-0039) for some or all of the kinds it serves."""
+
+    product_id: str
+    kinds: list[str] | None = None  # default: every kind the workflow serves
+
+
+class UnassignWorkflowInput(BaseModel):
+    product_id: str
+
+
 class ActivateInput(BaseModel):
     # activating a newer version whose gate is `block` without a passing evaluation
     override_reason: str | None = Field(default=None, min_length=10, max_length=500)
@@ -637,7 +655,7 @@ class StationView(BaseModel):
     next: str | None = None
     repair: bool
     state: str  # pending | running | passed | failed | held | skipped
-    skip_reason: str | None = None  # why this change's window doesn't run it (ADR-0037 §4)
+    skip_reason: str | None = None  # a sentence: why this run skips it and what would make it run
     attempts: int
     tool: str | None = None  # scan stations: a specific catalogue tool (ADR-0034)
     fail_on: str | None = None
@@ -799,6 +817,10 @@ class AgentView(BaseModel):
 
 class WorkflowView(BaseModel):
     workflow_id: str
+    works_on: str = "factory"
+    kinds: list[str] = Field(default_factory=list)
+    factory_default: bool = False
+    products: list[str] = Field(default_factory=list)
     version: int
     active: bool
     note: str
@@ -1009,7 +1031,14 @@ class BlueprintUse(BaseModel):
 
 class WorkflowSummary(BaseModel):
     workflow_id: str
-    blueprints: list[str] = Field(default_factory=list)  # blueprints whose products run it
+    name: str = ""
+    # the lane (ADR-0039): what it works on and the change kinds it serves; a factory default
+    # serves every product of that kind of work that has no org workflow assigned
+    works_on: str = "factory"
+    kinds: list[str] = Field(default_factory=list)
+    factory_default: bool = False
+    blueprints: list[str] = Field(default_factory=list)  # blueprints whose products it can serve
+    products: list[str] = Field(default_factory=list)  # product slugs assigned to it (org workflows)
     active_version: int
     description: str
     template: str | None

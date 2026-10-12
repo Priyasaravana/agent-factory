@@ -1,0 +1,23 @@
+# Factory default lane (ADR-0039): a read-only assessment of a team's existing repository
+# (ADR-0031). Nothing is built, deployed or pushed; it changes no code, so no mandatory controls.
+# The report and a proposed AGENTS.md are sealed evidence. Read-only as shipped: edits become new
+# versions of this lane, and "Back to factory default" restores this file.
+name: Repo assessment
+description: Onboards an existing repo read-only and reports its readiness, findings and test gaps
+works_on: repo
+kinds: [assess]
+entry: [branch@1]
+spec_review: "off"
+eval_gate: "off"
+learn_from_runs: false
+stations:
+  # discover
+  - {id: onboard,   type: onboard}                    # commit, size, detected stack
+  - {id: repo-scan, type: repo-scan}                  # readiness for any stack, rules, secret scan
+  - {id: assess,    type: assess, agent: assessor}    # test gaps, risks, recommendations; the engine judges
+  # verify: an assessment reports findings and never fails on them
+  - {id: code-scan,       type: scan, check: code,         fail_on: none, agent: checker}
+  - {id: dependency-scan, type: scan, check: dependencies, fail_on: none, agent: checker}
+  - {id: config-scan,     type: scan, check: config,       fail_on: none, agent: checker}
+  # deliver: how the assessment leaves
+  - {id: report,    type: report}                     # assessment.md + .json and a proposed AGENTS.md

@@ -1,0 +1,38 @@
+# Factory default lane (ADR-0039): a feature, bug fix or upkeep on a product the factory built.
+# Read-only as shipped: edits become new versions of this lane, and "Back to factory default"
+# restores this file. Stations sit in their phase columns; each phase's mandatory controls
+# (test, a secret scan, change-risk before anything leaves) are checked when a version is published.
+# on_fail routes failure evidence; a repair station (only_on_fail) is reached only through on_fail
+# and continues at `next`.
+name: Product change
+description: Changes a product the factory built (updates the spec, implements, tests, checks, deploys and hands it over)
+works_on: factory
+kinds: [feature, bug, upkeep]
+entry: [request@1, branch@1]
+# Spec review gate (ADR-0017): pause after design until a person approves the spec.
+#   off (default) · first: the first change to a product · always: every iteration
+spec_review: "off"
+# Evaluation gate (ADR-0025): a published version is measured on ../evals.yaml first.
+#   block: it stays a candidate until it shows no regression · warn: activate now, evaluate and report · off
+eval_gate: block
+stations:
+  # design: what to build and how
+  - {id: requirements, type: requirements, agent: intake}
+  - {id: design,       type: design,       agent: architect}
+  # develop
+  - {id: implement,    type: implement,    agent: developer}
+  # verify: does it work, is it safe. Scans are named after their check; who answers each one
+  # (open-source tool, GitHub, Snyk, or the checker agent) is set under `checks:` in the config.
+  - {id: test,            type: test,         on_fail: implement}
+  - {id: quality-gate,    type: quality-gate, on_fail: implement}   # agent-readiness Level 3 + secret scan
+  - {id: code-scan,       type: scan, check: code,         fail_on: critical, on_fail: implement, agent: checker}
+  - {id: dependency-scan, type: scan, check: dependencies, fail_on: critical, on_fail: implement, agent: checker}
+  - {id: config-scan,     type: scan, check: config,       fail_on: critical, on_fail: implement, agent: checker}
+  - {id: code-review,     type: code-review, agent: reviewer, on_fail: implement}  # spec review (ADR-0020); the engine judges
+  - {id: change-risk,     type: change-risk, on_fail: implement}  # ADR-0027
+  # deliver: let it out
+  - {id: build,         type: build,  on_fail: implement}
+  - {id: deploy,        type: deploy, on_fail: deploy-repair}
+  - {id: deploy-repair, type: deploy-repair, agent: devops, next: test, only_on_fail: true}  # a code change: re-enters verify
+  - {id: acceptance,    type: acceptance, agent: verifier, on_fail: implement}
+  - {id: handover,      type: handover}   # merge + tag, live URL

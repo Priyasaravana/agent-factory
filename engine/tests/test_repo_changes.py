@@ -100,7 +100,7 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     with pytest.raises(InvalidRequestError):
         f.manager.feedback(product.id, "x", ChangeKind.new)
     change = f.manager.feedback(product.id, "Add unit tests and a CI workflow", ChangeKind.upkeep)
-    assert (change.kind, change.workflow_id, change.window) == (ChangeKind.upkeep, "standard", "repo-change")
+    assert (change.kind, change.workflow_id) == (ChangeKind.upkeep, "repo-change")
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     change = f.store.get_change(change.id)
     assert "pull request simulated (dry-run): factory/" in change.summary and "→ trunk" in change.summary
@@ -199,14 +199,12 @@ async def test_live_without_a_token_holds_before_pushing(make_factory, tmp_path,
     assert not any(c.startswith(("git push", "gh pr")) for c in ex.calls)
 
 
-def test_a_repo_change_is_a_window_over_the_standard_lane(cfg):
-    from agent_factory.workflow import load_workflow_dir
-
-    assert cfg.workflow_for("existing-repo", "bug") == cfg.workflow_for("existing-repo", "assess") == "standard"
-    doc = load_workflow_dir(Path(__file__).resolve().parents[2] / "workflow-templates" / "standard")
-    assert doc.window_for("repo", "bug").id == "repo-change"
-    assert doc.window_for("repo", "assess").id == "repo-assess"
-    assert doc.window_for("factory", "bug").id == "factory-change"
+async def test_each_kind_of_change_runs_its_factory_default_lane(make_factory):
+    reg = make_factory().workflows
+    assert reg.default_lane("repo", "bug") == reg.default_lane("repo", "upkeep") == "repo-change"
+    assert reg.default_lane("repo", "assess") == "repo-assessment"
+    assert reg.default_lane("factory", "new") == "new-product"
+    assert reg.default_lane("factory", "feature") == "product-change"
 
 
 def test_git_is_available():  # the end-to-end tests clone a local repository

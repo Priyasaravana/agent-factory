@@ -33,7 +33,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(executable_path=os.environ.get("CHROMIUM") or None)
     page = b.new_page(viewport={"width": 1400, "height": 4200})
     page.on("dialog", lambda d: d.accept())
-    page.goto(f"{BASE}/workflows/fastapi-service/edit")
+    page.goto(f"{BASE}/workflows/new-product/edit")
     page.wait_for_selector("ol.lane")
     before = lane(page)
     print("before", before)
@@ -101,7 +101,7 @@ with sync_playwright() as p:
         "lane: security review, no deploy-repair"
     )
     page.get_by_role("button", name="Publish").click()
-    page.wait_for_url("**/workflows/fastapi-service")
+    page.wait_for_url("**/workflows/new-product")
     # the default workflow's evaluation gate blocks: v2 is a candidate until it is measured
     expect(page.locator("body")).to_contain_text("candidate")
     print("published OK:", page.locator("h2").first.inner_text())

@@ -1,5 +1,5 @@
-"""Stations named after the DevOps loop (ADR-0028): names and phases. Names from before
-ADR-0028 are no longer read (ADR-0037 §7: fresh start)."""
+"""Station names (ADR-0028) and phases, which are the contract's columns (ADR-0039: discover,
+design, plan, develop, verify, deliver, operate). Names from before ADR-0028 are no longer read."""
 
 from __future__ import annotations
 
@@ -20,10 +20,11 @@ from agent_factory.workflow import (
     validate_workflow,
 )
 
-WF = "standard"
+WF = "new-product"
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT = REPO / "workflow-templates" / "standard"
+DEFAULT = REPO / "workflow-templates" / "standard" / "lanes" / "new-product.yaml"
 SKILLS = REPO / "plugin" / "skills"
+
 
 # ---------------------------------------------------------------- names --
 def test_every_handler_has_a_label_a_phase_and_a_hint() -> None:
@@ -34,16 +35,17 @@ def test_every_handler_has_a_label_a_phase_and_a_hint() -> None:
         assert info.phase in PHASE_IDS or (name == "agent" and info.phase is None), name
 
 
-def test_the_default_lane_reads_as_the_devops_loop() -> None:
+def test_the_default_lane_reads_in_phase_order() -> None:
     doc = load_workflow_dir(DEFAULT)
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     phases = doc.phases()
-    assert [phases[s] for s in doc.plan("factory-new", "factory").stations] == [
-        "plan", "plan", "code", "test", "test", "test", "test", "test", "test", "test", "release", "deploy",
-        "validate", "handover",
+    assert [phases[s] for s in doc.plan().stations] == [
+        "design", "design", "develop", "verify", "verify", "verify", "verify", "verify", "verify", "verify",
+        "deliver", "deliver", "deliver", "deliver",
     ]  # fmt: skip
+    assert PHASE_IDS == ["discover", "design", "plan", "develop", "verify", "deliver", "operate"]
     assert {s.id: s.label() for s in doc.stations}["code-scan"] == "Code scan"
-    assert phases["deploy-repair"] == "deploy"
+    assert phases["deploy-repair"] == "deliver"
     assert {s.id: s.label() for s in doc.stations}["quality-gate"] == "Quality gate"
 
 
@@ -62,12 +64,12 @@ def test_a_custom_step_sits_in_the_phase_before_it_unless_it_says_otherwise() ->
     )
     doc.stations.insert(0, WorkflowStation(id="triage", kind="agent", agent="intake"))
     phases = doc.phases()
-    assert (phases["triage"], phases["security-review"]) == ("plan", "code")
+    assert (phases["triage"], phases["security-review"]) == ("discover", "develop")
     assert next(s for s in doc.stations if s.id == "security-review").label() == "security-review"
 
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
-    doc.station("security-review").phase = "validate"
-    # validate is in the deliver column: the verify stations after it no longer fit (ADR-0037)
+    doc.station("security-review").phase = "deliver"
+    # a step in deliver: the verify stations after it no longer fit (ADR-0037)
     assert any(
         "'test' sits in verify but comes after a deliver station" in e
         for e in validate_workflow(doc, SKILLS, default_skill_names())
@@ -83,11 +85,11 @@ async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
     d = make_factory().workflows[WF].draft
     at = [s.id for s in d.get()[1].stations].index("implement") + 1
     d.add_station(WorkflowStation(id="docs-check", kind="agent", agent="reviewer"), position=at)
-    assert d.get()[1].phases()["docs-check"] == "code"
-    d.update_station("docs-check", {"phase": "test"})
-    assert d.get()[1].phases()["docs-check"] == "test"
+    assert d.get()[1].phases()["docs-check"] == "develop"
+    d.update_station("docs-check", {"phase": "verify"})
+    assert d.get()[1].phases()["docs-check"] == "verify"
     d.update_station("docs-check", {"phase": None})
-    assert d.get()[1].phases()["docs-check"] == "code"
+    assert d.get()[1].phases()["docs-check"] == "develop"
     with pytest.raises(WorkflowError, match="phase must be one of"):
         d.update_station("docs-check", {"phase": "monitor"})
     with pytest.raises(WorkflowError, match="unknown check handler"):
@@ -102,12 +104,12 @@ async def test_the_catalog_tells_the_editor_names_and_phases(make_factory) -> No
         assert cat["handler_info"]["quality-gate"] == {
             "kind": "check",
             "label": "Quality gate",
-            "phase": "test",
+            "phase": "verify",
             "hint": HANDLER_INFO["quality-gate"].hint,
         }
         draft = (await c.get(f"/api/workflows/{WF}/draft")).json()
         first = draft["stations"][0]
-        assert (first["id"], first["label"], first["phase"]) == ("onboard", "Onboard", "plan")
+        assert (first["id"], first["label"], first["phase"]) == ("requirements", "Requirements", "design")
         r = await c.patch(f"/api/workflows/{WF}/draft/stations/design", json={"phase": "monitor"})
         assert r.status_code >= 400, "a phase must be one of the loop's"
     await ctx.__aexit__(None, None, None)

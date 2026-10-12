@@ -21,9 +21,9 @@ from agent_factory.workflow import (
     validate_workflow,
 )
 
-WF = "standard"
+WF = "new-product"
 REPO = Path(__file__).resolve().parents[2]
-BLUEPRINT = REPO / "workflow-templates" / "standard"
+BLUEPRINT = REPO / "workflow-templates" / "standard" / "lanes" / "new-product.yaml"
 SKILLS = REPO / "plugin" / "skills"
 DEFAULTS = default_skill_names()  # imported on first start (config: default_skills)
 
@@ -31,28 +31,8 @@ DEFAULTS = default_skill_names()  # imported on first start (config: default_ski
 def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
     doc = load_workflow_dir(BLUEPRINT)
     assert validate_workflow(doc, SKILLS, DEFAULTS) == []
-    assert [s.id for s in doc.forward_stations()] == [
-        "onboard",
-        "repo-scan",
-        "assess",
-        "requirements",
-        "design",
-        "implement",
-        "test",
-        "quality-gate",
-        "secret-scan",
-        "code-scan",
-        "dependency-scan",
-        "config-scan",
-        "code-review",
-        "change-risk",
-        "build",
-        "deploy",
-        "acceptance",
-        "handover",
-        "report",
-    ]
-    plan = doc.plan("factory-new", "factory")  # a new product runs the factory's part of the lane
+    assert (doc.works_on, doc.kinds) == ("factory", ["new"])
+    plan = doc.plan()  # the New product lane runs every station it shows
     assert plan.stations == [
         "requirements", "design", "implement", "test", "quality-gate", "code-scan", "dependency-scan",
         "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "handover",
@@ -118,7 +98,7 @@ async def test_seeded_on_first_start_and_never_overwritten(make_factory) -> None
     f = make_factory()
     assert [v.version for v in f.workflows[WF].versions()] == [1]
     assert f.workflows[WF].ensure_seeded() is None  # second start: no new version
-    assert f.workflows[WF].get().template == "standard"
+    assert f.workflows[WF].get().template == "standard/new-product"
     assert not f.workflows[WF].template_update_available()
 
 
@@ -144,8 +124,9 @@ async def test_runs_are_pinned_to_their_line_version(make_factory, tmp_path) -> 
     stations1 = {e.station for e in f.store.list_events(change1.id) if e.kind == EventKind.station_finished}
     assert "security-review" not in stations1, "v1 run must not pick up the v2 station"
 
-    change2 = f.manager.feedback(order.id, "tighten input validation")
-    assert change2.workflow_version == 2
+    assert f.manager.feedback(order.id, "tighten input validation").workflow_id == "product-change"
+    change2 = f.manager.start_change(f.manager.create_product(PRODUCT.model_copy(update={"title": "Second"})))
+    assert (change2.workflow_id, change2.workflow_version) == (WF, 2)
     assert await wait_run(f, change2.id) == ChangeStatus.awaiting_feedback
     stations2 = [e.station for e in f.store.list_events(change2.id) if e.kind == EventKind.station_finished]
     assert stations2.index("security-review") == stations2.index("implement") + 1

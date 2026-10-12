@@ -20,8 +20,6 @@ from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
     AgentSpec,
-    AppliesWhen,
-    Window,
     WorkflowDoc,
     WorkflowStation,
     export_workflow_dir,
@@ -33,11 +31,18 @@ REPO = Path(__file__).resolve().parents[2]
 TEMPLATES = REPO / "workflow-templates"
 SKILLS = REPO / "plugin" / "skills"
 SCHEMAS = REPO / "engine" / "src" / "agent_factory" / "schemas" / "artifacts"
-WF = "standard"
+WF = "new-product"
 
 
 def _default() -> WorkflowDoc:
-    return load_workflow_dir(TEMPLATES / "standard")
+    return load_workflow_dir(TEMPLATES / "standard" / "lanes" / "new-product.yaml")
+
+
+def _lane(name: str) -> WorkflowDoc:
+    return load_workflow_dir(TEMPLATES / "standard" / "lanes" / f"{name}.yaml")
+
+
+LANES = ["new-product", "product-change", "repo-assessment", "repo-change"]
 
 
 def _errors(doc: WorkflowDoc, roles: tuple[str, ...] = tuple(contract.BUILTIN_ROLES)) -> list[str]:
@@ -161,12 +166,9 @@ def test_the_ledger_appends_and_the_latest_wins(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------- publish checks --
-def test_the_standard_lane_fits_the_container() -> None:
-    doc = _default()
-    assert _errors(doc) == []
-    assert [w.id for w in doc.windows] == [
-        "factory-new", "factory-change", "repo-assess", "repo-change", "design-only", "verify-only", "delivery",
-    ]  # fmt: skip
+@pytest.mark.parametrize("lane", LANES)
+def test_every_standard_lane_fits_the_container(lane: str) -> None:
+    assert _errors(_lane(lane)) == []
 
 
 def test_data_rule_deploy_before_build_does_not_fit() -> None:
@@ -177,12 +179,12 @@ def test_data_rule_deploy_before_build_does_not_fit() -> None:
     assert any("station 'deploy' needs image@1, which no station to its left gives" in e for e in _errors(doc))
 
 
-def test_data_rule_reads_the_windows_entry_artifacts() -> None:
+def test_data_rule_reads_the_lanes_entry_artifacts() -> None:
     doc = _default()
-    doc.window("factory-new").entry = ["branch@1"]  # no request: requirements has nothing to work from
-    assert any("window 'factory-new': station 'requirements' needs request@1" in e for e in _errors(doc))
-    doc.window("factory-new").entry = ["sketch@1"]
-    assert any("window 'factory-new' entry: 'sketch@1'" in e for e in _errors(doc))
+    doc.entry = ["branch@1"]  # no request: requirements has nothing to work from
+    assert any("station 'requirements' needs request@1" in e for e in _errors(doc))
+    doc.entry = ["sketch@1"]
+    assert any("entry artifact: " in e and "sketch" in e for e in _errors(doc))
 
 
 @pytest.mark.parametrize(
@@ -190,10 +192,7 @@ def test_data_rule_reads_the_windows_entry_artifacts() -> None:
 )
 def test_floor_each_control_is_mandatory_when_code_changes(control: str, text: str) -> None:
     errors = _errors(_without(_default(), control))
-    assert any(
-        "window 'factory-new': station 'build' gives image but" in e and text in e and "ADR-0037 §5" in e
-        for e in errors
-    ), errors
+    assert any("station 'build' gives image but" in e and text in e and "ADR-0037 §5" in e for e in errors), errors
 
 
 def test_floor_a_branch_change_after_the_controls_needs_them_again() -> None:
@@ -215,27 +214,29 @@ def test_floor_controls_route_back_never_forward() -> None:
     assert _errors(doc) == []
 
 
-def test_a_window_that_changes_code_cannot_leave_before_the_controls() -> None:
+def test_a_lane_that_changes_code_cannot_end_before_the_controls() -> None:
     doc = _default()
-    doc.windows.append(
-        Window(id="build-only", target="factory", enter="design", leave="develop", entry=["request@1", "branch@1"])
-    )
+    doc.stations = doc.stations[: [s.id for s in doc.stations].index("implement") + 1]
     assert any(
-        "window 'build-only': the window leaves before test, a secret scan, change-risk run after 'implement'" in e
-        for e in _errors(doc)
-    )
+        "the lane ends before test, a secret scan, change-risk run after 'implement'" in e for e in _errors(doc)
+    ), _errors(doc)
 
 
 def test_no_floor_when_nothing_changes_code() -> None:
-    doc = _default()
-    runs = [doc.station(s) for s in doc.plan("repo-assess", "repo").stations]
+    doc = _lane("repo-assessment")
+    runs = [doc.station(s) for s in doc.plan().stations]
     assert not any(g.type == "branch" for s in runs for g in s.gives_refs())
     assert contract.floor_errors(runs) == []
 
 
 def test_a_secret_scan_station_counts_for_the_floor() -> None:
+    doc = _without(_lane("repo-change"), "secret-scan")
+    assert any("a secret scan" in e for e in _errors(doc))
     doc = _without(_default(), "quality-gate")
-    doc.station("secret-scan").applies_when = AppliesWhen(not_windows=["repo-assess"])  # factory too now
+    doc.stations.insert(
+        [s.id for s in doc.stations].index("code-scan"),
+        WorkflowStation(id="secret-scan", type="scan", check="secrets"),
+    )
     assert _errors(doc) == []
 
 
@@ -243,9 +244,7 @@ def test_custom_stations_declare_their_contract_builtins_cannot() -> None:
     doc = _default()
     doc.agents["docs-writer"] = AgentSpec(id="docs-writer", tools="observer", prompt="Write the release notes.\n")
     at = [s.id for s in doc.stations].index("handover")
-    custom = WorkflowStation(
-        id="release-notes", type="agent", agent="docs-writer", applies_when=AppliesWhen(target=["factory"])
-    )
+    custom = WorkflowStation(id="release-notes", type="agent", agent="docs-writer")
     doc.stations.insert(at, custom)
     assert custom.kind == "agent" and custom.gives_refs() == (parse_ref("report.release-notes@1"),)
     assert custom.column("deliver") == "deliver"
@@ -282,14 +281,15 @@ def test_config_adds_org_roles() -> None:
         FactoryConfig.model_validate({**cfg.model_dump(), "roles": {"Release Manager": "x"}})
 
 
-def test_windows_survive_export(tmp_path: Path) -> None:
-    doc = _default()
+def test_lanes_survive_export(tmp_path: Path) -> None:
+    doc = _lane("repo-change")
     export_workflow_dir(doc, tmp_path / "x")
     again = load_workflow_dir(tmp_path / "x")
-    assert again.windows == doc.windows and again.stations == doc.stations
+    assert (again.works_on, again.kinds, again.entry) == (doc.works_on, doc.kinds, doc.entry)
+    assert again.stations == doc.stations
 
 
-# ------------------------------------------------------ one lane, windows --
+# ------------------------------------------------------------------ lanes --
 def test_a_type_picks_its_handler_per_target() -> None:
     doc = _default()
     impl, review, ship = doc.station("implement"), doc.station("code-review"), doc.station("handover")
@@ -300,53 +300,56 @@ def test_a_type_picks_its_handler_per_target() -> None:
     )
     assert (review.handler_for("repo"), ship.handler_for("repo")) == ("repo-review", "pull-request")
     assert doc.station("build").handler_for("repo") is None, "nothing is built for a team's repo"
-    assert doc.agent_for("implement", "repo").id == "repo-developer"
-    assert doc.agent_for("implement", "factory").id == "developer"
-    assert doc.station("code-scan").fail_on_for("repo-assess", "repo") == "none"
-    assert doc.station("code-scan").fail_on_for("repo-change", "repo") == "high"
-    assert doc.station("code-scan").fail_on_for("factory-new", "factory") == "critical"
+    assert doc.agent_for("implement").id == "developer"
+    assert _lane("repo-change").agent_for("implement").id == "repo-developer"
+    assert doc.station("code-scan").fail_on == "critical"
+    assert _lane("repo-assessment").station("code-scan").fail_on == "none"
+    assert _lane("repo-change").station("code-scan").fail_on == "high"
 
 
 @pytest.mark.parametrize(
-    "window, target, stations",
+    "lane, works_on, kinds, stations",
     [
-        ("repo-assess", "repo", ["onboard", "repo-scan", "assess", "code-scan", "dependency-scan", "config-scan",
-                                 "report"]),
-        ("repo-change", "repo", ["onboard", "implement", "test", "secret-scan", "code-scan", "dependency-scan",
-                                 "config-scan", "code-review", "change-risk", "handover"]),
-        ("design-only", "factory", ["requirements", "design"]),
-        ("delivery", "factory", ["build", "deploy", "handover"]),
+        ("new-product", "factory", ["new"], ["requirements", "design", "implement", "test", "quality-gate",
+         "code-scan", "dependency-scan", "config-scan", "code-review", "change-risk", "build", "deploy",
+         "acceptance", "handover"]),
+        ("product-change", "factory", ["feature", "bug", "upkeep"], None),
+        ("repo-assessment", "repo", ["assess"], ["onboard", "repo-scan", "assess", "code-scan",
+         "dependency-scan", "config-scan", "report"]),
+        ("repo-change", "repo", ["feature", "bug", "upkeep"], ["onboard", "implement", "test", "secret-scan",
+         "code-scan", "dependency-scan", "config-scan", "code-review", "change-risk", "handover"]),
     ],
 )  # fmt: skip
-def test_each_window_runs_its_part_of_the_lane(window: str, target: str, stations: list[str]) -> None:
-    assert _default().plan(window, target).stations == stations
+def test_each_lane_runs_all_its_stations(lane: str, works_on: str, kinds: list[str], stations) -> None:
+    doc = _lane(lane)
+    plan = doc.plan()
+    assert (doc.works_on, doc.kinds, plan.target) == (works_on, kinds, works_on)
+    assert plan.skipped == [], "a lane shows only what runs"
+    assert plan.stations == (stations or _default().plan().stations)
+    assert all(doc.serves(works_on, k) for k in kinds) and not doc.serves(works_on, "other")
 
 
-def test_every_skipped_station_has_a_reason() -> None:
-    doc = _default()
-    plan = doc.plan("repo-change", "repo")
-    why = dict(plan.skipped)
-    assert set(why) | set(plan.stations) | set(plan.repairs) == {s.id for s in doc.stations}
-    assert why["build"] == "not applicable: no repo implementation"
-    assert why["requirements"] == "not applicable: repo target"
-    assert why["repo-scan"] == "not applicable: window repo-change"
-    assert why["report"] == "outside window"
-    assert why["deploy-repair"] == "not applicable: no repo implementation"
-
-
-def test_window_errors() -> None:
-    doc = _default()
-    doc.station("assess").applies_when = AppliesWhen(windows=["audit"])
-    doc.windows.append(doc.window("repo-change").model_copy(update={"id": "repo-change-2"}))
-    doc.station("code-scan").fail_on_by = {"staging": "low"}
+def test_lane_errors() -> None:
+    doc = _lane("repo-change")
+    doc.kinds = ["new", "feature", "feature", "nope"]
     errors = _errors(doc)
-    assert any("applies_when names unknown window 'audit'" in e for e in errors)
-    assert any("feature changes on repo already run on 'repo-change'" in e for e in errors)
-    assert any("fail_on_by key 'staging'" in e for e in errors)
+    assert any("an existing repo has no 'new' change" in e for e in errors)
+    assert any("change kinds must be unique" in e for e in errors)
+    assert any("unknown change kind 'nope'" in e for e in errors)
     doc = _default()
-    doc.window("delivery").enter = "handover"
-    doc.window("delivery").leave = "build"
-    assert any("window 'delivery' enters at 'handover' after it leaves at 'build'" in e for e in _errors(doc))
+    doc.kinds = ["assess"]
+    assert any("'assess' changes are for existing repos" in e for e in _errors(doc))
+    doc = _lane("repo-change")
+    doc.stations.insert(1, _default().station("build"))
+    assert any(
+        "station 'build'" in e and "does not work on an existing repo; it is for a new build" in e for e in _errors(doc)
+    ), _errors(doc)
+
+
+def test_a_stored_lane_with_a_foreign_station_skips_it_with_a_sentence() -> None:
+    doc = _lane("repo-change")
+    doc.stations.insert(1, _default().station("build"))  # stored before the publish check
+    assert doc.plan().skipped == [("build", "Skipped: it does not work on an existing repo.")]
 
 
 # ------------------------------------------------------- handoffs at runtime --
@@ -373,12 +376,9 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
     assert holdout.strip() and holdout.strip()[:40] not in (folder / "ledger.json").read_text(), "holdout text"
     manifest = json.loads((folder / "manifest.json").read_text())
     assert {"ledger.json", "plan.json"} <= {x["path"] for x in manifest["files"]}
-    plan = json.loads((folder / "plan.json").read_text())  # the window's plan, every skip with its reason
-    assert plan["window"] == "factory-new" and ["onboard", "outside window"] in plan["skipped"]
-    assert any(
-        e.message.startswith("window factory-new: 14 stations; skipped: onboard")
-        for e in f.store.list_events(change.id)
-    )
+    plan = json.loads((folder / "plan.json").read_text())  # the lane's plan
+    assert plan["target"] == "factory" and plan["skipped"] == []
+    assert any(e.message.startswith("lane new-product: 14 stations") for e in f.store.list_events(change.id))
     assert manifest["artifacts"]["entries"] == len(ledger.entries())
 
 

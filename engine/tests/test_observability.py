@@ -17,7 +17,7 @@ from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.observe import MAX_TRANSCRIPT_BYTES, AgentCall, read_transcript
 from agent_factory.secret_refs import REDACTOR
 
-WF = "standard"
+WF = "new-product"
 
 
 # --------------------------------------------------------------- AgentCall --

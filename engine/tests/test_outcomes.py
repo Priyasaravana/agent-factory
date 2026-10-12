@@ -194,7 +194,7 @@ def test_every_status_change_is_recorded_once(tmp_path):
 # ---------------------------------------------------------------- the API --
 async def test_outcomes_api_after_a_real_run(make_factory):
     f = make_factory()
-    w = f.workflows["standard"]
+    w = f.workflows["new-product"]
     w.draft.set_spec_review("first")
     w.draft.publish("gate on")
     product = f.manager.create_product(PRODUCT)

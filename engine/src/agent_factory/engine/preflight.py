@@ -323,7 +323,9 @@ class Preflight:
     def _workflow(self, pl: str) -> CheckView:
         from agent_factory.workflow import workflow_warnings
 
-        wf = self.m.workflows[self.m.cfg.workflow_for(pl, "new")]
+        repo = self.m.cfg.blueprints[pl].target == "repo"
+        lane = self.m.workflows.default_lane("repo" if repo else "factory", "assess" if repo else "new")
+        wf = self.m.workflows[lane or ""]
         doc = wf.get(wf.active_version())
         missing = ("no quality-gate station", "no change-risk station")
         notes = [w for w in workflow_warnings(doc) if w.startswith(missing)]

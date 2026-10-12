@@ -23,12 +23,16 @@ models:
   default: sonnet     # implementation
   fast: haiku         # mechanical sub-agent work (efficient-frontier pattern)
 
-# The org's workflows (ADR-0037): every product runs `default_workflow`, whatever its
-# blueprint; the change kind picks the window. Seeded from the template on first start, then
-# edited in the UI and stored as versions in the DB.
+# The factory default lanes (ADR-0039): one lane per kind of work, always available. A change runs
+# the org workflow assigned to its product for its kind, else the default lane for (works_on, kind).
+# Edits to a default become new versions; "Back to factory default" restores the shipped lane.
+# Set `use_factory_defaults: true` to ignore every assignment (e.g. while an org workflow misbehaves).
 workflows:
-  standard: workflow-templates/standard
-default_workflow: standard
+  new-product: workflow-templates/standard/lanes/new-product.yaml
+  product-change: workflow-templates/standard/lanes/product-change.yaml
+  repo-assessment: workflow-templates/standard/lanes/repo-assessment.yaml
+  repo-change: workflow-templates/standard/lanes/repo-change.yaml
+use_factory_defaults: false
 
 # ---------------------------------------------------------------------------
 # Product lines = golden paths. Adding an app type means adding a template
@@ -68,8 +72,8 @@ blueprints:
   existing-repo:
     description: An existing repository, assessed read-only (stack, readiness, findings, test gaps)
     target: repo
-    # assessments run the standard lane's repo-assess window; feature, bug and upkeep changes
-    # its repo-change window, tested, reviewed and opened as a pull request (ADR-0033)
+    # assessments run the repo-assessment lane; feature, bug and upkeep changes the repo-change
+    # lane, tested, reviewed and opened as a pull request (ADR-0033, ADR-0039)
     # the same secret scan as built apps, over the cloned repo
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3

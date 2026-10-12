@@ -11,7 +11,7 @@ from agent_factory.agents.runner import AgentRequest, ClaudeAgentRunner
 from agent_factory.workflow import load_workflow_dir
 
 REPO = Path(__file__).resolve().parents[2]
-LINE = load_workflow_dir(REPO / "workflow-templates" / "standard")
+LINE = load_workflow_dir(REPO / "workflow-templates" / "standard" / "lanes" / "new-product.yaml")
 
 
 def _req(tmp_path: Path, role: str = "developer", schema=None) -> AgentRequest:

@@ -3,6 +3,7 @@ from a template, edited through a draft, published as immutable versions."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 from pathlib import Path
 
@@ -23,10 +24,13 @@ from agent_factory.workflow import (
     WorkflowStation,
     WorkflowVersionInfo,
     load_workflow_dir,
+    template_name,
     validate_workflow,
     workflow_file,
     workflow_warnings,
 )
+
+_WORKFLOW_ID = re.compile(r"^[a-z][a-z0-9-]{1,40}$")
 
 
 class WorkflowError(Exception):
@@ -49,7 +53,7 @@ class WorkflowService:
     ) -> None:
         self.store = store
         self.workflow_id = workflow_id
-        self.template_dir = template_dir
+        self.template_dir = template_dir  # a lane file or a template folder (`workflow_file`)
         self.skills_dir = skills_dir
         self.library = library
         self.roles = tuple(roles)  # role ids a station may name as owner (ADR-0037)
@@ -88,7 +92,7 @@ class WorkflowService:
         """First start: copy the template into the DB as version 1. Never overwrites."""
         if self.store.active_workflow_version(self.workflow_id) is not None:
             return None
-        return self.import_dir(self.template_dir, f"seeded from template '{self.template_dir.name}'")
+        return self.import_dir(self.template_dir, f"seeded from template '{template_name(self.template_dir)}'")
 
     def import_dir(self, path: Path, note: str, activate: bool = True) -> int:
         return self.create_version(load_workflow_dir(path), note, activate)
@@ -117,8 +121,9 @@ class WorkflowService:
 
 
 class WorkflowRegistry:
-    """One WorkflowService per workflow: the blueprint's own (id = blueprint id), plus a
-    repo blueprint's change workflow (id `<blueprint>-change`, ADR-0033)."""
+    """The factory default lanes (ADR-0039: always there; edits are new versions and "back to
+    factory default" restores the template) plus the org's own workflows, copied from a lane and
+    assigned to products. Org workflows are found in the database at start."""
 
     def __init__(
         self,
@@ -133,10 +138,52 @@ class WorkflowRegistry:
         self.templates_dir = templates_dir
         self.skills_dir = skills_dir
         self.library = library
+        self.roles = tuple(roles)
+        self.factory_ids = list(workflows)
         self._services = {
             wid: WorkflowService(store, wid, template, skills_dir, library, roles)
             for wid, template in workflows.items()
         }
+        for wid in store.list_workflow_ids():
+            if wid not in self._services:
+                doc = store.get_workflow_version(wid, store.active_workflow_version(wid) or 1)
+                path = self.template_path(doc.template if doc else None)
+                self._services[wid] = WorkflowService(store, wid, path, skills_dir, library, roles)
+
+    def is_factory(self, workflow_id: str) -> bool:
+        return workflow_id in self.factory_ids
+
+    def default_lane(self, works_on: str, kind: str) -> str | None:
+        """The factory default lane for a kind of work."""
+        for wid in self.factory_ids:
+            if self._services[wid].get().serves(works_on, kind):
+                return wid
+        return None
+
+    def template_path(self, name: str | None) -> Path:
+        """Where a template named in a stored version lives (`standard/new-product` is a lane)."""
+        if name and "/" in name:
+            root, lane = name.split("/", 1)
+            return self.templates_dir / root / "lanes" / f"{lane}.yaml"
+        return self.templates_dir / (name or "")
+
+    def copy(self, source_id: str, new_id: str, note: str) -> WorkflowService:
+        """An org workflow from another's active version, with its own versions (ADR-0039)."""
+        if not _WORKFLOW_ID.match(new_id):
+            raise WorkflowError(f"workflow id '{new_id}' must be 2-41 chars: lowercase letters, digits and '-'")
+        if new_id in self._services:
+            raise WorkflowError(f"workflow '{new_id}' already exists")
+        src = self[source_id]
+        svc = WorkflowService(self.store, new_id, src.template_dir, self.skills_dir, self.library, self.roles)
+        svc.create_version(src.get(), note)
+        self._services[new_id] = svc
+        return svc
+
+    def restore_factory(self, workflow_id: str) -> int:
+        """Back to factory default: the shipped lane becomes the active version again."""
+        if not self.is_factory(workflow_id):
+            raise WorkflowError(f"'{workflow_id}' is an org workflow: activate an earlier version instead")
+        return self[workflow_id].import_dir(self[workflow_id].template_dir, "back to factory default")
 
     def skill_users(self, name: str) -> list[str]:
         """Workflows whose active version or draft uses a skill."""
@@ -169,11 +216,13 @@ class WorkflowRegistry:
         for d in sorted(p for p in self.templates_dir.iterdir() if p.is_dir()):
             if workflow_file(d).exists():
                 out.append((d.name, load_workflow_dir(d)))
+            for lane in sorted((d / "lanes").glob("*.yaml")):
+                out.append((f"{d.name}/{lane.stem}", load_workflow_dir(lane)))
         return out
 
     def template(self, name: str) -> WorkflowDoc:
-        path = self.templates_dir / name
-        if "/" in name or not workflow_file(path).exists():
+        path = self.template_path(name)
+        if ".." in name or name.count("/") > 1 or not workflow_file(path).exists():
             raise WorkflowError(f"template '{name}' not found")
         return load_workflow_dir(path)
 
