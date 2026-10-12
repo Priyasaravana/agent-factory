@@ -8,6 +8,8 @@ import StationStrip from "../components/StationStrip";
 import DeliveryCard from "../components/DeliveryCard";
 import LearningsCard from "../components/LearningsCard";
 import EvaluationCard from "../components/EvaluationCard";
+import AssignmentsCard from "../components/AssignmentsCard";
+import { WORKS_ON, kindsText } from "./WorkflowsPage";
 
 export default function WorkflowPage() {
   const { workflowId = "" } = useParams();
@@ -64,6 +66,16 @@ export default function WorkflowPage() {
     },
   });
   const needsReason = /override reason/.test(activate.error?.message ?? "");
+  const [confirmRestore, setConfirmRestore] = useState(false);
+  const restore = useMutation({
+    mutationFn: () =>
+      unwrap(api.POST("/api/workflows/{workflow_id}/restore-factory", { params: { path: p } })),
+    onSuccess: () => {
+      setConfirmRestore(false);
+      setSelected(null);
+      ["workflow", "wf-versions", "workflows", "config"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+  });
 
   if (wf.error) return <p className="error">{wf.error.message}</p>;
   if (!wf.data || !cfg.data) return <p className="muted">Loading…</p>;
@@ -74,7 +86,7 @@ export default function WorkflowPage() {
       <section className="card">
         <div className="row spread">
           <h2>
-            <Link to="/workflows">Workflows</Link> / {workflowId}{" "}
+            <Link to="/workflows">Workflows</Link> / {w.name || workflowId}{" "}
             <span className="pill info">v{w.version}</span>{" "}
             {w.active ? (
               <span className="pill ok">active</span>
@@ -91,6 +103,22 @@ export default function WorkflowPage() {
                 Make v{w.version} active
               </button>
             )}
+            {isAdmin && w.factory_default && !confirmRestore && (
+              <button className="secondary" onClick={() => setConfirmRestore(true)}>
+                Back to factory default
+              </button>
+            )}
+            {isAdmin && confirmRestore && (
+              <>
+                <span className="small">Make the shipped lane the active version?</span>
+                <button onClick={() => restore.mutate()} disabled={restore.isPending}>
+                  Yes, restore
+                </button>
+                <button className="secondary" onClick={() => setConfirmRestore(false)}>
+                  Cancel
+                </button>
+              </>
+            )}
             {isAdmin && (
               <Link to={`/workflows/${workflowId}/edit`}>
                 <button>Edit workflow</button>
@@ -98,6 +126,18 @@ export default function WorkflowPage() {
             )}
           </div>
         </div>
+        <p className="row small" data-testid="lane-facts">
+          <span className={`pill ${w.factory_default ? "info" : "muted"}`}>
+            {w.factory_default ? "factory default" : "org workflow"}
+          </span>
+          <span>
+            Works on <strong>{WORKS_ON[w.works_on ?? "factory"]}</strong>
+          </span>
+          <span>
+            For <strong>{kindsText(w.kinds)}</strong>
+          </span>
+        </p>
+        {restore.error && <p className="error">{restore.error.message}</p>}
         {activate.error && (
           <div className="grid gap-2">
             <p className="error m-0">{activate.error.message}</p>
@@ -145,10 +185,16 @@ export default function WorkflowPage() {
           </details>
         )}
         <p className="muted small">
-          Every product runs the active version of this workflow (its change
-          kind picks the window). Changes in flight keep the version they started with.
+          {w.factory_default
+            ? "Every product without an org workflow for these kinds runs the active version of this lane."
+            : "Products assigned to this workflow run its active version for these kinds."}{" "}
+          Changes in flight keep the version they started with.
         </p>
       </section>
+
+      {!w.factory_default && (
+        <AssignmentsCard workflowId={workflowId} worksOn={w.works_on ?? "factory"} assigned={w.products ?? []} isAdmin={isAdmin} />
+      )}
 
       <EvaluationCard
         workflowId={workflowId}

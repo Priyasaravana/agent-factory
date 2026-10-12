@@ -800,6 +800,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/{workflow_id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a workflow into a new org workflow, with its own versions (ADR-0039)
+         * @description Copy a workflow into a new org workflow, with its own versions (ADR-0039)
+         */
+        post: operations["copy_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/restore-factory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Back to factory default: the shipped lane becomes the active version (ADR-0039)
+         * @description Back to factory default: the shipped lane becomes the active version (ADR-0039)
+         */
+        post: operations["restore_factory_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign an org workflow to a product for the kinds it serves (ADR-0039)
+         * @description Assign an org workflow to a product for the kinds it serves (ADR-0039)
+         */
+        post: operations["assign_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a product's assignment: it falls back to the factory default lanes (ADR-0039)
+         * @description Remove a product's assignment: it falls back to the factory default lanes (ADR-0039)
+         */
+        post: operations["unassign_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflow-templates": {
         parameters: {
             query?: never;
@@ -1249,7 +1329,7 @@ export interface components {
              */
             only_on_fail: boolean;
             /** Phase */
-            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
+            phase?: ("discover" | "design" | "plan" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */
@@ -1529,6 +1609,16 @@ export interface components {
             assessed_at: string;
         };
         /**
+         * AssignWorkflowInput
+         * @description Assign an org workflow to a product (ADR-0039) for some or all of the kinds it serves.
+         */
+        AssignWorkflowInput: {
+            /** Product Id */
+            product_id: string;
+            /** Kinds */
+            kinds?: string[] | null;
+        };
+        /**
          * BlueprintUse
          * @description A blueprint whose products run a workflow (ADR-0037: workflows belong to the org).
          */
@@ -1597,8 +1687,6 @@ export interface components {
             status: components["schemas"]["ChangeStatus"];
             /** Current Station */
             current_station?: string | null;
-            /** Window */
-            window?: string | null;
             /** Workflow Id */
             workflow_id?: string | null;
             /**
@@ -1771,6 +1859,16 @@ export interface components {
             };
             /** Gates */
             gates: string[];
+        };
+        /** CopyWorkflowInput */
+        CopyWorkflowInput: {
+            /** New Id */
+            new_id: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /** CreateProductInput */
         CreateProductInput: {
@@ -2238,7 +2336,7 @@ export interface components {
             /** Label */
             label: string;
             /** Phase */
-            phase: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
+            phase: ("discover" | "design" | "plan" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Hint */
             hint: string;
         };
@@ -2597,6 +2695,10 @@ export interface components {
             archived_by?: string | null;
             /** Eval Run Id */
             eval_run_id?: string | null;
+            /** Workflows */
+            workflows?: {
+                [key: string]: string;
+            };
         };
         /** ProductDetail */
         ProductDetail: {
@@ -3190,6 +3292,11 @@ export interface components {
             /** No Live Check */
             no_live_check?: string | null;
         };
+        /** UnassignWorkflowInput */
+        UnassignWorkflowInput: {
+            /** Product Id */
+            product_id: string;
+        };
         /**
          * UpdateStationInput
          * @description Only the fields that are sent are changed; send null to clear a route.
@@ -3206,7 +3313,7 @@ export interface components {
             /** Agent */
             agent?: string | null;
             /** Phase */
-            phase?: ("plan" | "code" | "test" | "release" | "deploy" | "validate" | "handover" | "discover" | "design" | "develop" | "verify" | "deliver" | "operate") | null;
+            phase?: ("discover" | "design" | "plan" | "develop" | "verify" | "deliver" | "operate") | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */
@@ -3292,8 +3399,27 @@ export interface components {
         WorkflowSummary: {
             /** Workflow Id */
             workflow_id: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Works On
+             * @default factory
+             */
+            works_on: string;
+            /** Kinds */
+            kinds?: string[];
+            /**
+             * Factory Default
+             * @default false
+             */
+            factory_default: boolean;
             /** Blueprints */
             blueprints?: string[];
+            /** Products */
+            products?: string[];
             /** Active Version */
             active_version: number;
             /** Description */
@@ -3339,6 +3465,20 @@ export interface components {
         WorkflowView: {
             /** Workflow Id */
             workflow_id: string;
+            /**
+             * Works On
+             * @default factory
+             */
+            works_on: string;
+            /** Kinds */
+            kinds?: string[];
+            /**
+             * Factory Default
+             * @default false
+             */
+            factory_default: boolean;
+            /** Products */
+            products?: string[];
             /** Version */
             version: number;
             /** Active */
@@ -4714,6 +4854,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowVersionInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopyWorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_factory_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignWorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unassign_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnassignWorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
                 };
             };
             /** @description Validation Error */

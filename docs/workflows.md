@@ -1,52 +1,58 @@
 # Workflows, agents and templates
 
-A **workflow** is the ordered set of stations a product goes through, and the
-agents that do the work at each agent station. **Each blueprint has its own
-workflow,** seeded from the **factory standard**: one lane holding every station, with a
-**window** per change kind ([ADR-0037](adr/0037-station-contract.md)). A product runs the
-active workflow of its blueprint; a change runs the window for its target and kind.
+A **workflow** is a **lane** for one kind of work: the ordered stations a change goes through,
+and the agents that do the work at each agent station ([ADR-0039](adr/0039-lanes-phases.md)).
+A lane says what it works on (`works_on: factory` for a new build, `repo` for a team's existing
+repo) and which change kinds it serves (`kinds`).
 
 | Where | What |
 |---|---|
-| `workflow-templates/<name>/` (repo) | Built-in templates: `workflow.yaml`, `agents/<id>.md`, `docs/<id>.md` |
-| A GitHub repo folder | The same format, imported into a draft and pinned to a commit |
+| `workflow-templates/standard/lanes/<lane>.yaml` (repo) | The factory default lanes; `agents/`, `docs/` and `evals.yaml` next to them are shared |
+| A GitHub repo folder | A `workflow.yaml` with `agents/` and `docs/`, imported into a draft and pinned to a commit |
 | Factory DB | Per workflow: immutable, numbered **workflow versions**, one active, plus one editable **draft** |
 | Each change | Pinned to `(workflow, version)` for its whole life |
 
-Workflows belong to the org, not a blueprint (ADR-0037 §6): `.agent-factory/config.yaml` lists
-them under `workflows:` (id → template) and every product runs `default_workflow` (`standard`),
-whatever its blueprint; the blueprint picks the stack and environment, the change kind the window.
-On first start each workflow is seeded from its template as **v1**. After that the DB is the source of truth. A later change to the shipped
-template never overwrites your workflow; the UI shows "template updated"
-instead.
+## Factory default lanes and org workflows
 
-Built-in template: `standard` (`workflow.yaml`, `presets.yaml`, `agents/`, `docs/`, `evals.yaml`).
+The factory ships four default lanes, listed under `workflows:` in `.agent-factory/config.yaml`:
 
-## One lane, windows (ADR-0037)
-
-Stations sit in the container's columns: discover · design · plan · develop · verify · deliver ·
-operate. Each station names a **type** (`type: implement`) that fixes its column, the artifacts
-it needs and gives, and its handler **per target**: a factory product (`implement`, `code-review`,
-`handover`) or a team's repo (`repo-implement`, `repo-review`, `pull-request`). A type without an
-implementation for a target is skipped there (nothing is built or deployed for a team's repo).
-`target_agents` picks a different agent per target; `fail_on_by` a scan's policy per window or target;
-`applies_when` (`target`, `windows`, `not_windows`) narrows where the rest apply.
-
-`presets.yaml` lists the **windows**: where a run enters and leaves (a column or a station id), the
-artifacts it starts from, and the change kinds that run on it.
-
-| Window | Target | Kinds | Runs |
+| Lane | Works on | Kinds | Stations |
 |---|---|---|---|
-| `factory-new`, `factory-change` | factory | new · feature, bug, upkeep | requirements → … → handover |
-| `repo-assess` | repo | assess | onboard, repo-scan, assess, the scans, report |
-| `repo-change` | repo | feature, bug, upkeep | onboard, implement, test, scans, code-review, change-risk, handover (PR) |
-| `design-only`, `verify-only`, `delivery` | presets | — | started from a phase (composable SDLC step 3) |
+| `new-product` | new build | new | requirements → design → implement → test, scans, code-review, change-risk → build → deploy → acceptance → handover |
+| `product-change` | new build | feature, bug, upkeep | the same stations, for later changes |
+| `repo-assessment` | existing repo | assess | onboard, repo-scan, assess, the scans (report only), report |
+| `repo-change` | existing repo | feature, bug, upkeep | onboard, implement, test, secret and other scans, code-review, change-risk, handover (a pull request) |
 
-Every change records its plan: the stations it runs and every station it skips, with the reason
-(`outside window`, `not applicable: no repo implementation`, …), in an event and in `plan.json`
-in its evidence. Publishing checks container fit **per window**: data (each station's needs given
-to its left or by the window's entry) and the mandatory controls (test, a secret scan and
-change-risk after the last branch change, before any image, url or pr, and before a window that
+A change runs the workflow **assigned** to its product for its kind; without one, the factory
+default lane for (works on, kind). Requesters never choose. Admins:
+
+- **edit** any workflow: every publish is a new version; changes in flight keep theirs;
+- **copy** a lane into an org workflow (`POST /api/workflows/{id}/copy`) and **assign** it to
+  products for some or all of its kinds (`…/assign`, `…/unassign`). A product can only be given
+  a workflow that works on what it is (new build or repo) and serves the kinds named;
+- go **back to factory default** on a factory lane (`…/restore-factory`): the shipped lane becomes
+  the active version again, as a new version;
+- set `use_factory_defaults: true` in the config to run every product on the factory default lanes,
+  whatever is assigned (assignments are kept).
+
+On first start each factory lane is seeded from its template as **v1**. After that the DB is the
+source of truth: a later change to the shipped lane never overwrites it; the UI shows "template
+updated" instead. Org workflows are found in the DB at every start.
+
+## Stations, phases and the run view
+
+Stations sit in phase columns: discover · design · plan · develop · verify · deliver · operate.
+Each station names a **type** (`type: implement`) that fixes its column, the artifacts it needs and
+gives, and its handler per lane: on a new build (`implement`, `code-review`, `handover`) or on a
+team's repo (`repo-implement`, `repo-review`, `pull-request`). Publishing refuses a station that
+has no implementation for what the lane works on (nothing is built or deployed for a team's repo),
+so a run shows only its lane's stations. A scan's `fail_on` is set per lane (the repo assessment
+reports, the others block).
+
+Every change records its plan (the stations it runs and its repairs) in an event and in `plan.json`
+in its evidence. Publishing checks container fit: columns in order, data (each station's needs
+given to its left or by the lane's `entry`) and the mandatory controls (test, a secret scan and
+change-risk after the last branch change, before any image, url or pr, and before a lane that
 changes code ends).
 
 ## Agent spec (`agents/<id>.md`)

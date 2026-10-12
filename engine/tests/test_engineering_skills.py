@@ -57,9 +57,9 @@ def test_each_skill_is_well_formed(name):
     assert len((PLUGIN / name / "SKILL.md").read_text()) < 8_000  # loaded on demand, but kept short
 
 
-@pytest.mark.parametrize("template", ["standard"])
+@pytest.mark.parametrize("template", ["new-product", "product-change", "repo-assessment", "repo-change"])
 def test_agents_get_the_skills_of_their_stage(template):
-    doc = load_workflow_dir(REPO / "workflow-templates" / template)
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard" / "lanes" / f"{template}.yaml")
     for aid, spec in doc.agents.items():
         want = EXPECTED.get(aid, set())
         assert want <= set(spec.skills), f"{template}/{aid} is missing {sorted(want - set(spec.skills))}"

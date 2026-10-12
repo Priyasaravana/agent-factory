@@ -20,7 +20,7 @@ from agent_factory.models import ChangeStatus
 from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 
-WF = "standard"
+WF = "new-product"
 CFG = load_config(REPO / ".agent-factory" / "config.yaml")
 SRC = CFG.default_skills[0]
 

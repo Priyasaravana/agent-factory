@@ -163,8 +163,7 @@ export default function ChangePanel({
         {stations.some((s) => s.state === "skipped") && (
           <details className="text-xs text-muted-foreground" data-testid="skipped-stations">
             <summary>
-              {stations.filter((s) => s.state === "skipped").length} stations not in this change
-              {r.window ? ` (window ${r.window})` : ""}
+              {stations.filter((s) => s.state === "skipped").length} stations skipped in this change
             </summary>
             <ul className="mt-1 list-none p-0">
               {stations

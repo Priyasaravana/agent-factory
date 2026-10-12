@@ -141,11 +141,11 @@ def start(
 ) -> EvalRun:
     from agent_factory.engine.pipeline import FactoryError
 
-    blueprint = mgr.cfg.eval_blueprint(workflow_id)
-    if blueprint is None:
-        raise FactoryError(f"workflow '{workflow_id}' has no new-product blueprint to evaluate on")
     svc = mgr.workflows[workflow_id]
     doc = svc.get(version)
+    blueprint = mgr.cfg.eval_blueprint(doc.works_on)
+    if blueprint is None or "new" not in doc.kinds:
+        raise FactoryError(f"workflow '{workflow_id}' does not build new products: nothing to evaluate it on")
     if not doc.evals:
         raise FactoryError("this workflow version has no evaluation cases")
     if any(e.status == "running" for e in mgr.store.list_evals(workflow_id)):
@@ -195,7 +195,7 @@ def start(
                 )
                 product.eval_run_id, product.created_by = e.id, by
                 mgr.store.save_product(product)
-                change = mgr.start_change(product, version=side.version)
+                change = mgr.start_change(product, version=side.version, workflow_id=workflow_id)
                 created.append((product, change))
                 side.results.append(
                     EvalCaseResult(

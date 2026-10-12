@@ -1,6 +1,7 @@
 # ADR-0037: One workflow container, one standard lane, windows per use case
 
-**Status:** accepted · 2026-10-11 · replaces the per-blueprint workflows of
+**Status:** accepted · 2026-10-11 · §1 (one lane, windows), §4 and §6 amended by
+[ADR-0039](0039-lanes-phases.md) (lanes per kind of work) · replaces the per-blueprint workflows of
 [ADR-0028](0028-station-names-and-phases.md) and the separate repo lanes of
 [ADR-0031](0031-existing-repos-assess.md)/[ADR-0033](0033-repo-changes-as-pull-requests.md); first step of the composable-SDLC plan.
 Amended at acceptance (see *Amendments*): `report` sits in deliver; a repair that changes the

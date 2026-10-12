@@ -138,11 +138,14 @@ async def test_delivery_is_visible_over_the_api(make_factory):
         assert local["readiness"]["state"] in {"ready", "failed"} and local["used_by"] == ["local", "local-ingress"]
         env = next(e for e in d["environments"] if e["name"] == "local")
         assert env["bindings"]["deploy"] == "local" and env["blueprints"] == ["fastapi-service"]
-        wf = (await c.get("/api/workflows/standard")).json()
+        wf = (await c.get("/api/workflows/new-product")).json()
         built = next(b for b in wf["blueprints"] if b["id"] == "fastapi-service")
         assert built["environment"] == "local"
         assert {b["capability"]: b["integration"] for b in built["delivery"]}["registry"] == "local"
-        repo = next(b for b in wf["blueprints"] if b["id"] == "existing-repo")
-        assert repo["target"] == "repo" and repo["delivery"] == [], "a team's repo is never built or deployed"
-        assert (await c.get("/api/workflows")).json()[0]["blueprints"] == ["fastapi-service", "existing-repo"]
+        assert [b["id"] for b in wf["blueprints"]] == ["fastapi-service"], "the lane serves new builds"
+        repo = (await c.get("/api/workflows/repo-change")).json()["blueprints"]
+        assert [(b["id"], b["target"], b["delivery"]) for b in repo] == [("existing-repo", "repo", [])], (
+            "a team's repo is never built or deployed"
+        )
+        assert (await c.get("/api/workflows")).json()[0]["blueprints"] == ["fastapi-service"]
     await ctx.__aexit__(None, None, None)

@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from agent_factory import evidence
-from agent_factory.engine.pipeline import FactoryError
+from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
@@ -38,6 +38,7 @@ from agent_factory.models import (
     AgentView,
     AnswersInput,
     AssessmentView,
+    AssignWorkflowInput,
     BlueprintUse,
     CatalogView,
     Change,
@@ -46,6 +47,7 @@ from agent_factory.models import (
     ChangeRiskView,
     ChangeStatus,
     ConfigView,
+    CopyWorkflowInput,
     CreateProductInput,
     DecisionInput,
     DeliveryBinding,
@@ -96,6 +98,7 @@ from agent_factory.models import (
     TemplateInfo,
     ToolReportView,
     TraceRow,
+    UnassignWorkflowInput,
     UpdateStationInput,
     WorkflowSettingsInput,
     WorkflowSummary,
@@ -156,13 +159,8 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
     views = []
     flow = f.workflows[change.workflow_id or workflow_id].get(change.workflow_version)
     phase_of = flow.phases()
-    product = f.store.get_product(change.product_id)
-    bp = f.cfg.blueprints.get(product.blueprint) if product else None
-    target = target_of(bp.target) if bp else "factory"
-    try:
-        skipped = dict(flow.plan(change.window, target).skipped)
-    except (KeyError, ValueError):
-        skipped = {}
+    plan = flow.plan()
+    skipped = dict(plan.skipped)
     for s in flow.stations:
         attempts = change.attempts.get(s.id, 0) if change else 0
         state = "skipped" if s.id in skipped and not attempts else "pending"
@@ -187,8 +185,8 @@ def _station_views(f: Factory, change: Change, workflow_id: str) -> list[Station
             StationView(
                 id=s.id,
                 kind=s.kind,
-                role=s.agent_for_target(target),
-                handler=s.handler_for(target) or s.resolved_handler(),
+                role=s.agent,
+                handler=s.handler_for(flow.works_on) or s.resolved_handler(),
                 label=s.label(),
                 phase=phase_of[s.id],
                 repair=s.only_on_fail,
@@ -403,7 +401,7 @@ def get_change(f: Factory, change_id: str) -> ChangeDetail:
     return ChangeDetail(
         change=change,
         product=product,
-        stations=_station_views(f, change, f.cfg.default_workflow),
+        stations=_station_views(f, change, change.workflow_id or ""),
         risk=_risk_view(f, change),
     )
 
@@ -496,7 +494,7 @@ def get_change_spec(f: Factory, change_id: str) -> SpecView:
     product = f.store.get_product(change.product_id)
     wt = f.manager.ws.change_dir(change.id)
     read = lambda rel: (wt / rel).read_text(errors="replace") if (wt / rel).is_file() else ""  # noqa: E731
-    flow = f.workflows[change.workflow_id or f.cfg.default_workflow].get(change.workflow_version)
+    flow = f.workflows[change.workflow_id or ""].get(change.workflow_version)
     events = f.store.list_events(change.id)
     changes = next((e.data["spec_changes"] for e in reversed(events) if "spec_changes" in e.data), {})
     trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
@@ -897,7 +895,12 @@ def list_workflows(f: Factory) -> list[WorkflowSummary]:
         out.append(
             WorkflowSummary(
                 workflow_id=w.workflow_id,
-                blueprints=f.cfg.blueprints_using(w.workflow_id),
+                name=doc.name,
+                works_on=doc.works_on,
+                kinds=list(doc.kinds),
+                factory_default=f.workflows.is_factory(w.workflow_id),
+                blueprints=f.cfg.blueprints_for(doc.works_on),
+                products=_assigned(f, w.workflow_id),
                 active_version=w.active_version(),
                 description=doc.description,
                 template=doc.template,
@@ -961,6 +964,10 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
     info = next(i for i in w.versions() if i.version == version)
     return WorkflowView(
         workflow_id=workflow_id,
+        works_on=doc.works_on,
+        kinds=list(doc.kinds),
+        factory_default=f.workflows.is_factory(workflow_id),
+        products=_assigned(f, workflow_id),
         version=version,
         active=info.active,
         note=info.note,
@@ -984,9 +991,79 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
                 environment=f.cfg.blueprints[b].environment,
                 delivery=_bindings(f, b) if f.cfg.blueprints[b].target == "new" else [],
             )
-            for b in f.cfg.blueprints_using(workflow_id)
+            for b in f.cfg.blueprints_for(doc.works_on)
         ],
     )
+
+
+def _assigned(f: Factory, workflow_id: str) -> list[str]:
+    return sorted(p.slug for p in f.store.list_products() if workflow_id in p.workflows.values())
+
+
+@action(
+    "copy_workflow",
+    "Copy a workflow into a new org workflow, with its own versions (ADR-0039)",
+    "POST",
+    "/api/workflows/{workflow_id}/copy",
+)
+def copy_workflow(f: Factory, workflow_id: str, body: CopyWorkflowInput) -> WorkflowView:
+    who = current_identity().user
+    svc = f.workflows.copy(
+        workflow_id, body.new_id, f"copied from {workflow_id} by {who}" + (f": {body.note}" if body.note else "")
+    )
+    return _workflow_view(f, svc.workflow_id, svc.active_version())
+
+
+@action(
+    "restore_factory_workflow",
+    "Back to factory default: the shipped lane becomes the active version (ADR-0039)",
+    "POST",
+    "/api/workflows/{workflow_id}/restore-factory",
+)
+def restore_factory_workflow(f: Factory, workflow_id: str) -> WorkflowView:
+    version = f.workflows.restore_factory(workflow_id)
+    f.workflows[workflow_id].draft.discard_if_published_as(version)
+    return _workflow_view(f, workflow_id, version)
+
+
+@action(
+    "assign_workflow",
+    "Assign an org workflow to a product for the kinds it serves (ADR-0039)",
+    "POST",
+    "/api/workflows/{workflow_id}/assign",
+)
+def assign_workflow(f: Factory, workflow_id: str, body: AssignWorkflowInput) -> WorkflowView:
+    doc = f.workflows[workflow_id].get()
+    if f.workflows.is_factory(workflow_id):
+        raise FactoryError("factory default lanes serve every product already: assign an org workflow")
+    product = f.store.get_product(body.product_id)
+    if product is None:
+        raise FactoryError("product not found")
+    works_on = target_of(f.cfg.blueprints[product.blueprint].target) if product.blueprint in f.cfg.blueprints else ""
+    if works_on != doc.works_on:
+        raise InvalidRequestError(f"'{workflow_id}' works on {doc.works_on} products; {product.slug} is {works_on}")
+    kinds = body.kinds or list(doc.kinds)
+    wrong = [k for k in kinds if k not in doc.kinds]
+    if wrong:
+        raise InvalidRequestError(f"'{workflow_id}' does not serve {', '.join(wrong)} changes")
+    product.workflows = {**product.workflows, **{k: workflow_id for k in kinds}}
+    f.store.save_product(product)
+    return _workflow_view(f, workflow_id, f.workflows[workflow_id].active_version())
+
+
+@action(
+    "unassign_workflow",
+    "Remove a product's assignment: it falls back to the factory default lanes (ADR-0039)",
+    "POST",
+    "/api/workflows/{workflow_id}/unassign",
+)
+def unassign_workflow(f: Factory, workflow_id: str, body: UnassignWorkflowInput) -> WorkflowView:
+    product = f.store.get_product(body.product_id)
+    if product is None:
+        raise FactoryError("product not found")
+    product.workflows = {k: v for k, v in product.workflows.items() if v != workflow_id}
+    f.store.save_product(product)
+    return _workflow_view(f, workflow_id, f.workflows[workflow_id].active_version())
 
 
 def _auth_label(auth: Any) -> str | None:
@@ -1279,7 +1356,7 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
     w = f.workflows[workflow_id]
     _, doc, _ = w.draft.get()
     # evaluations build new products: without a new-product blueprint there is nothing to evaluate on
-    gate = doc.eval_gate if doc.evals and f.cfg.eval_blueprint(workflow_id) else "off"
+    gate = doc.eval_gate if doc.evals and f.cfg.eval_blueprint(doc.works_on) else "off"
     before = w.active_version()
     who = current_identity().user
     info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")

@@ -58,7 +58,7 @@ async def record_entry(ctx: StationContext) -> list[str]:
         return []
     made: list[tuple[ArtifactRef, dict[str, Any], str]] = []
     errors: list[str] = []
-    for ref in ctx.workflow_doc.entry_for(ctx.change.window):
+    for ref in ctx.workflow_doc.entry_refs():
         try:
             manifest, location = await collect(ref, ctx, summary="")
         except MissingArtifact as exc:

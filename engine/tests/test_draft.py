@@ -12,7 +12,7 @@ from agent_factory.engine.workflows import WorkflowError
 from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec, RefDoc
 
-WF = "standard"
+WF = "new-product"
 
 
 def _reviewer(**kw) -> AgentSpec:
@@ -115,22 +115,20 @@ async def test_draft_over_http(make_factory):
         assert any(s["name"] == "plow-ahead" and s["source"] == "github" for s in cat["skills"])
 
         spec = _reviewer().model_dump()
-        r = await c.put("/api/workflows/standard/draft/agents/strict-verifier", json=spec)
+        r = await c.put("/api/workflows/new-product/draft/agents/strict-verifier", json=spec)
         assert r.status_code == 200 and r.json()["dirty"]
-        assert (await c.put("/api/workflows/standard/draft/agents/other-id", json=spec)).status_code == 409
+        assert (await c.put("/api/workflows/new-product/draft/agents/other-id", json=spec)).status_code == 409
         bad = {**spec, "extra_tools": ["Bash"]}
-        assert (await c.put("/api/workflows/standard/draft/agents/strict-verifier", json=bad)).status_code == 422
-        r = await c.delete("/api/workflows/standard/draft/agents/developer")
+        assert (await c.put("/api/workflows/new-product/draft/agents/strict-verifier", json=bad)).status_code == 422
+        r = await c.delete("/api/workflows/new-product/draft/agents/developer")
         assert r.status_code == 409 and "used by stations" in r.json()["detail"]
 
-        r = await c.put(
-            "/api/workflows/standard/draft/stations/acceptance/agent", json={"agent": "strict-verifier"}
-        )
+        r = await c.put("/api/workflows/new-product/draft/stations/acceptance/agent", json={"agent": "strict-verifier"})
         assert next(s for s in r.json()["stations"] if s["id"] == "acceptance")["role"] == "strict-verifier"
         # no evaluation gate here: publishing activates at once (gated publishing: test_evals.py)
-        await c.patch("/api/workflows/standard/draft/settings", json={"eval_gate": "off"})
-        pub = await c.post("/api/workflows/standard/draft/publish", json={"note": "strict acceptance"})
+        await c.patch("/api/workflows/new-product/draft/settings", json={"eval_gate": "off"})
+        pub = await c.post("/api/workflows/new-product/draft/publish", json={"note": "strict acceptance"})
         assert pub.status_code == 201 and pub.json()["version"] == 2
-        after = (await c.get("/api/workflows/standard/draft")).json()
+        after = (await c.get("/api/workflows/new-product/draft")).json()
         assert after["base_version"] == 2 and not after["dirty"]
     await ctx.__aexit__(None, None, None)

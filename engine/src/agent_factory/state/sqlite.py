@@ -439,6 +439,10 @@ class SqliteStateStore:
             (workflow_id, version),
         )
 
+    def list_workflow_ids(self) -> list[str]:
+        rows = self._exec("SELECT DISTINCT workflow_id FROM workflow_versions ORDER BY workflow_id").fetchall()
+        return [r[0] for r in rows]
+
     def list_workflow_versions(self, workflow_id: str) -> list[WorkflowVersionInfo]:
         active = self.active_workflow_version(workflow_id)
         rows = self._exec(

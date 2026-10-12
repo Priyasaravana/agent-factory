@@ -33,7 +33,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Close").click()
 
     # the picker in the agent editor offers it, pinned
-    page.goto(f"{BASE}/workflows/fastapi-service/edit")
+    page.goto(f"{BASE}/workflows/new-product/edit")
     page.get_by_role("button", name="Edit").first.click()
     expect(page.get_by_text("plan-arbiter")).to_be_visible()
     expect(page.locator("label", has_text="plan-arbiter").locator(".pill")).to_contain_text("github @")

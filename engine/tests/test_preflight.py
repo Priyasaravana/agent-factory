@@ -179,7 +179,7 @@ async def test_workflow_without_readiness_is_flagged_not_blocked(make_factory):
     from agent_factory.workflow import workflow_warnings
 
     f = make_factory()
-    wf = f.workflows["standard"]
+    wf = f.workflows["new-product"]
     doc = wf.get(wf.active_version())
     assert not [w for w in workflow_warnings(doc) if "quality-gate" in w]
     doc.stations = [s for s in doc.stations if s.id != "quality-gate"]

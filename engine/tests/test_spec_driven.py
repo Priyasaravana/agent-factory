@@ -23,7 +23,7 @@ def _messages(f, change_id: str) -> list[str]:
 
 
 def _set_gate(f, mode: str) -> None:
-    w = f.workflows["standard"]
+    w = f.workflows["new-product"]
     w.draft.set_spec_review(mode)
     w.draft.publish(f"spec review {mode}")
 
@@ -149,7 +149,7 @@ def test_traceability_rules(tmp_path: Path):
 # ------------------------------------------------------------- review gate --
 async def test_gate_off_by_default_never_pauses(make_factory):
     f = make_factory()
-    assert f.workflows["standard"].get(f.workflows["standard"].active_version()).spec_review == "off"
+    assert f.workflows["new-product"].get(f.workflows["new-product"].active_version()).spec_review == "off"
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
@@ -231,9 +231,9 @@ async def test_workflow_setting_via_api(make_factory):
     f = make_factory()
     app, ctx, c = await _client(f)
     async with c:
-        r = await c.patch("/api/workflows/standard/draft/settings", json={"spec_review": "always"})
+        r = await c.patch("/api/workflows/new-product/draft/settings", json={"spec_review": "always"})
         assert r.status_code == 200 and r.json()["spec_review"] == "always"
-        bad = await c.patch("/api/workflows/standard/draft/settings", json={"spec_review": "sometimes"})
+        bad = await c.patch("/api/workflows/new-product/draft/settings", json={"spec_review": "sometimes"})
         assert bad.status_code == 422
     await ctx.__aexit__(None, None, None)
 

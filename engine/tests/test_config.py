@@ -8,9 +8,11 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def test_config_points_at_workflow_templates(cfg: FactoryConfig) -> None:
-    for template in cfg.workflow_templates().values():
-        assert (REPO / template / "workflow.yaml").exists()
-    assert cfg.default_workflow in cfg.workflow_templates()
+    lanes = cfg.workflow_templates()
+    assert set(lanes) == {"new-product", "product-change", "repo-assessment", "repo-change"}
+    for template in lanes.values():
+        assert (REPO / template).is_file()
+    assert not cfg.use_factory_defaults
     assert cfg.models.resolve("judgment") == "opus"
 
 

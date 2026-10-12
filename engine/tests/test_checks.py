@@ -17,7 +17,7 @@ from agent_factory.executor import CommandResult
 from agent_factory.models import ChangeKind, ChangeStatus
 from agent_factory.workflow import AgentSpec, WorkflowStation
 
-WF = "standard"
+WF = "new-product"
 SNYK = "snyk_never_in_logs_0987654321"  # noqa: S105 - a test value
 
 

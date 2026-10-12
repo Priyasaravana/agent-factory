@@ -245,10 +245,10 @@ def fit_errors(
     stations: Sequence[StationLike],
     entry: Sequence[ArtifactRef],
     col: dict[str, str] | None = None,
-    window_end_is_exit: bool = False,
+    end_is_exit: bool = False,
 ) -> list[str]:
-    """Column, data and floor rules (ADR-0037 §1, §5) over a workflow's stations, or over the
-    stations one window runs (`col`: the lane's columns; the window's end counts as an exit)."""
+    """Column, data and floor rules (ADR-0037 §1, §5) over a lane's stations (`end_is_exit`: the
+    lane's end counts as an exit, so a lane that changes code can't end before the controls ran)."""
     errors: list[str] = []
     forward = [s for s in stations if not s.only_on_fail]
     by_id = {s.id: s for s in stations}
@@ -288,7 +288,7 @@ def fit_errors(
                 )
 
     # 3. floor rule
-    errors += floor_errors(stations, by_id, col, window_end_is_exit)
+    errors += floor_errors(stations, by_id, col, end_is_exit)
     return errors
 
 
@@ -296,10 +296,10 @@ def floor_errors(
     stations: Sequence[StationLike],
     by_id: dict[str, StationLike] | None = None,
     col: dict[str, str] | None = None,
-    window_end_is_exit: bool = False,
+    end_is_exit: bool = False,
 ) -> list[str]:
     """Mandatory controls (ADR-0037 §5). A workflow that never gives `branch` has no scope floor.
-    For a window, leaving it counts as an exit: a window that changes code must not leave
+    With `end_is_exit`, the lane's end counts as an exit: a lane that changes code must not end
     before the controls ran."""
     by_id = by_id or {s.id: s for s in stations}
     forward = [s for s in stations if not s.only_on_fail]
@@ -326,9 +326,9 @@ def floor_errors(
                 seen = set()  # a later branch change needs the controls again
             seen |= s.floor_controls()
         missing = [FLOOR[c] for c in FLOOR if c not in seen]
-        if window_end_is_exit and missing:
+        if end_is_exit and missing:
             errors.append(
-                f"the window leaves before {', '.join(missing)} {'runs' if len(missing) == 1 else 'run'} "
+                f"the lane ends before {', '.join(missing)} {'runs' if len(missing) == 1 else 'run'} "
                 f"after {after} changes the branch (mandatory controls, ADR-0037 §5)"
             )
 

@@ -82,8 +82,8 @@ class StationContext:
 
     @property
     def spec(self) -> AgentSpec:
-        """The agent spec bound to this station for this target (agent stations only)."""
-        return self.workflow_doc.agent_for(self.station_id, self.target)
+        """The agent spec bound to this station (agent stations only)."""
+        return self.workflow_doc.agent_for(self.station_id)
 
     def secret(self, ref: str, purpose: str) -> str | None:
         """Resolve a secret reference for one step. The value is returned, never
@@ -1407,7 +1407,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
 async def scan_station(ctx: StationContext) -> StationResult:
     station = ctx.workflow_doc.station(ctx.station_id)
     check, title = station.check_name(), station.label()
-    fail_on = station.fail_on_for(ctx.change.window, ctx.target) or "high"
+    fail_on = station.fail_on or "high"
     # a change to a team's repo answers only for the files it touched
     pr_change = ctx.product.target == ProductTarget.repo and str(ctx.change.kind) in ctx.cfg.CHANGE_KINDS
     changed = await _changed_files(ctx) if pr_change else None

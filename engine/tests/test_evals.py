@@ -15,7 +15,7 @@ from agent_factory.agents import FakeAgentRunner
 from agent_factory.models import EvalCaseResult, EvalRun, EvalSide, EvalSummary, EvalVerdict
 from agent_factory.workflow import EvalCase, load_workflow_dir, validate_workflow
 
-WF = "standard"
+WF = "new-product"
 
 
 # ------------------------------------------------------------ pure parts --
@@ -89,7 +89,7 @@ def test_judge_regressions_block_and_warnings_do_not():
 
 
 def test_the_suite_is_validated():
-    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard" / "lanes" / "new-product.yaml")
     assert [c.id for c in doc.evals] == ["bookmarks", "todo", "shortener"] and doc.eval_gate == "block"
     assert validate_workflow(doc) == []
     bad = doc.model_copy(update={"evals": [*doc.evals, doc.evals[0]]})

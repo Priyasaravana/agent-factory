@@ -17,7 +17,7 @@ from agent_factory.retro import signals, vet
 from agent_factory.workflow import load_workflow_dir
 
 REPO = Path(__file__).resolve().parents[2]
-WF = "standard"
+WF = "new-product"
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 
 
@@ -48,7 +48,7 @@ def test_signals_come_from_recorded_evidence_only():
 
 # ------------------------------------------------------------------- vet --
 def _doc():
-    doc = load_workflow_dir(REPO / "workflow-templates" / "standard")
+    doc = load_workflow_dir(REPO / "workflow-templates" / "standard" / "lanes" / "new-product.yaml")
     doc.agents["developer"].learnings = "- Always validate query parameters with Pydantic and return 422."
     return doc
 
