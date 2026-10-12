@@ -4,11 +4,12 @@
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
-- Workflows (stations + agent specs + reference docs) are data: one per
-  blueprint, seeded from the factory standard `workflow-templates/standard/` (one lane, a
-  window per change kind in `presets.yaml`, ADR-0037), stored as immutable versions in
-  the DB. Changes are pinned to (workflow, version) and record their window. Prefer
-  template, spec and skill changes over engine changes (see docs/workflows.md). Data from
+- Workflows (stations + agent specs + reference docs) are data and belong to the org, not a
+  blueprint: `workflows:` in the config, every product runs `default_workflow` (`standard`,
+  seeded from `workflow-templates/standard/`: one lane, a window per change kind in
+  `presets.yaml`, ADR-0037), stored as immutable versions in the DB. Changes are pinned
+  to (workflow, version) and record their window. Prefer template, spec and skill changes
+  over engine changes (see docs/workflows.md). Data from
   before the standard lane is not migrated: `agent-factory reset --confirm` (`reset.py`).
 - `plugin/skills/` holds only our own skills. Upstream skills (BuilderIO) are
   imported at a pinned commit via `default_skills` in the config; never copy
@@ -87,9 +88,8 @@
   greps commands and events for leaked values.
 - Station handlers are named after the DevOps phase they serve (ADR-0028,
   `workflow.HANDLER_INFO`: label, phase, hint). A new built-in handler gets an
-  entry there; old names stay readable through `LEGACY_HANDLERS`, because stored
-  versions, changes and evidence keep their station ids. Never rename event data
-  keys (`readiness`, `review`) or evidence files to match.
+  entry there. Names from before ADR-0028 are no longer read (ADR-0037 fresh start).
+  Never rename event data keys (`readiness`, `review`) or evidence files to match.
 - Change risk (ADR-0027): new products and feedback go through `ChangeManager.screen`
   (acceptable-use rules, refusals audited, never stored as products); diffs through
   the pure `risk.check_diff`. A new rule gets a test in `tests/test_change_risk.py`

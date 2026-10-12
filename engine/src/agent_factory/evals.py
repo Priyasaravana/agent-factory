@@ -141,8 +141,9 @@ def start(
 ) -> EvalRun:
     from agent_factory.engine.pipeline import FactoryError
 
-    if workflow_id not in mgr.cfg.blueprints:
-        raise FactoryError(f"workflow '{workflow_id}' has no blueprint to evaluate on")
+    blueprint = mgr.cfg.eval_blueprint(workflow_id)
+    if blueprint is None:
+        raise FactoryError(f"workflow '{workflow_id}' has no new-product blueprint to evaluate on")
     svc = mgr.workflows[workflow_id]
     doc = svc.get(version)
     if not doc.evals:
@@ -169,12 +170,12 @@ def start(
             e.baseline = EvalSide(version=base_v)
             sides.append(e.baseline)
     need = len(doc.evals) * len(sides)
-    usable = mgr.usable_node_ports(workflow_id) if mgr.uses_node_ports(workflow_id) else list(range(need))
+    usable = mgr.usable_node_ports(blueprint) if mgr.uses_node_ports(blueprint) else list(range(need))
     if len(usable) < need:
         mapped = mgr.preflight.mapped_node_ports
         hint = (
             f"; the cluster maps only {len(mapped)} app ports: `make reset-cluster` maps all of them"
-            if mapped is not None and len(mapped) < len(mgr.cfg.blueprints[workflow_id].node_ports)
+            if mapped is not None and len(mapped) < len(mgr.cfg.blueprints[blueprint].node_ports)
             else ""
         )
         raise FactoryError(
@@ -189,7 +190,7 @@ def start(
                     CreateProductInput(
                         title=f"[eval {e.id[:6]} v{side.version}] {case.title}"[:120],
                         requirements=case.requirements,
-                        blueprint=workflow_id,
+                        blueprint=blueprint,
                     )
                 )
                 product.eval_run_id, product.created_by = e.id, by

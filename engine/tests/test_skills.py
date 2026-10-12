@@ -16,7 +16,7 @@ from agent_factory.github import Fetched
 from agent_factory.models import ChangeStatus, InstallSkillInput, SkillSourceInput
 from agent_factory.skills import SkillError
 
-WF = "fastapi-service"
+WF = "standard"
 SHA1, SHA2 = "1" * 40, "2" * 40
 SKILL_V1 = """---
 name: owasp-check

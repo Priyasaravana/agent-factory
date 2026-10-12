@@ -33,7 +33,7 @@ REPO = Path(__file__).resolve().parents[2]
 TEMPLATES = REPO / "workflow-templates"
 SKILLS = REPO / "plugin" / "skills"
 SCHEMAS = REPO / "engine" / "src" / "agent_factory" / "schemas" / "artifacts"
-WF = "fastapi-service"
+WF = "standard"
 
 
 def _default() -> WorkflowDoc:

@@ -100,7 +100,7 @@ async def test_an_upkeep_change_becomes_a_pull_request(make_factory, tmp_path):
     with pytest.raises(InvalidRequestError):
         f.manager.feedback(product.id, "x", ChangeKind.new)
     change = f.manager.feedback(product.id, "Add unit tests and a CI workflow", ChangeKind.upkeep)
-    assert (change.kind, change.workflow_id, change.window) == (ChangeKind.upkeep, "existing-repo", "repo-change")
+    assert (change.kind, change.workflow_id, change.window) == (ChangeKind.upkeep, "standard", "repo-change")
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     change = f.store.get_change(change.id)
     assert "pull request simulated (dry-run): factory/" in change.summary and "→ trunk" in change.summary
@@ -202,10 +202,7 @@ async def test_live_without_a_token_holds_before_pushing(make_factory, tmp_path,
 def test_a_repo_change_is_a_window_over_the_standard_lane(cfg):
     from agent_factory.workflow import load_workflow_dir
 
-    assert cfg.workflow_templates()["existing-repo"] == "workflow-templates/standard"
-    assert cfg.workflow_for("existing-repo", "bug") == cfg.workflow_for("existing-repo", "assess") == "existing-repo"
-    with pytest.raises(KeyError):
-        cfg.blueprint_of("existing-repo-change")  # no separate change workflow since ADR-0037
+    assert cfg.workflow_for("existing-repo", "bug") == cfg.workflow_for("existing-repo", "assess") == "standard"
     doc = load_workflow_dir(Path(__file__).resolve().parents[2] / "workflow-templates" / "standard")
     assert doc.window_for("repo", "bug").id == "repo-change"
     assert doc.window_for("repo", "assess").id == "repo-assess"

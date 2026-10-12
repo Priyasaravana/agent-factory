@@ -11,7 +11,7 @@ from agent_factory.agents import FakeAgentRunner
 from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec
 
-WF = "fastapi-service"
+WF = "standard"
 
 
 def test_preload_must_be_a_listed_skill():

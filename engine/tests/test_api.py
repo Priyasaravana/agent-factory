@@ -68,7 +68,7 @@ async def test_errors_and_contract(make_factory):
 async def test_workflow_endpoints(make_factory):
     app, ctx, c = await _client(make_factory())
     async with c:
-        line = (await c.get("/api/workflows/fastapi-service")).json()
+        line = (await c.get("/api/workflows/standard")).json()
         assert line["version"] == 1 and line["active"] and line["template"] == "standard"
         agents = {a["spec"]["id"] for a in line["agents"]}
         assert agents == {
@@ -77,9 +77,9 @@ async def test_workflow_endpoints(make_factory):
         }  # fmt: skip
         verifier = next(a for a in line["agents"] if a["spec"]["id"] == "verifier")
         assert verifier["observe_only"] and verifier["model_resolved"] == "opus"
-        assert (await c.get("/api/workflows/fastapi-service/versions")).json()[0]["version"] == 1
-        assert (await c.get("/api/workflows/fastapi-service/versions/9")).status_code == 404
+        assert (await c.get("/api/workflows/standard/versions")).json()[0]["version"] == 1
+        assert (await c.get("/api/workflows/standard/versions/9")).status_code == 404
         cfg = (await c.get("/api/config")).json()
-        assert cfg["workflows"] == {"fastapi-service": 1, "existing-repo": 1}
+        assert cfg["workflows"] == {"standard": 1}
         assert cfg["repo_blueprints"] and "existing-repo" not in cfg["blueprints"]
     await ctx.__aexit__(None, None, None)

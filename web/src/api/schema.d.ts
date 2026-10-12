@@ -708,8 +708,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * One workflow per blueprint
-         * @description One workflow per blueprint
+         * The org's workflows (ADR-0037)
+         * @description The org's workflows (ADR-0037)
          */
         get: operations["list_workflows"];
         put?: never;
@@ -1527,6 +1527,25 @@ export interface components {
              * @default
              */
             assessed_at: string;
+        };
+        /**
+         * BlueprintUse
+         * @description A blueprint whose products run a workflow (ADR-0037: workflows belong to the org).
+         */
+        BlueprintUse: {
+            /** Id */
+            id: string;
+            /** Description */
+            description: string;
+            /** Target */
+            target: string;
+            /**
+             * Environment
+             * @default local
+             */
+            environment: string;
+            /** Delivery */
+            delivery?: components["schemas"]["DeliveryBinding"][];
         };
         /** CatalogView */
         CatalogView: {
@@ -3273,13 +3292,8 @@ export interface components {
         WorkflowSummary: {
             /** Workflow Id */
             workflow_id: string;
-            /** Blueprint */
-            blueprint: string;
-            /**
-             * Environment
-             * @default local
-             */
-            environment: string;
+            /** Blueprints */
+            blueprints?: string[];
             /** Active Version */
             active_version: number;
             /** Description */
@@ -3364,13 +3378,8 @@ export interface components {
             eval_gate: string;
             /** Evals */
             evals?: components["schemas"]["EvalCase"][];
-            /**
-             * Environment
-             * @default local
-             */
-            environment: string;
-            /** Delivery */
-            delivery?: components["schemas"]["DeliveryBinding"][];
+            /** Blueprints */
+            blueprints?: components["schemas"]["BlueprintUse"][];
         };
     };
     responses: never;

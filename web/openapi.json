@@ -1747,8 +1747,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "One workflow per blueprint",
-        "description": "One workflow per blueprint",
+        "summary": "The org's workflows (ADR-0037)",
+        "description": "The org's workflows (ADR-0037)",
         "operationId": "list_workflows",
         "responses": {
           "200": {
@@ -3834,6 +3834,42 @@
         ],
         "title": "AssessmentView",
         "description": "An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported\nand the engine kept."
+      },
+      "BlueprintUse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment",
+            "default": "local"
+          },
+          "delivery": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryBinding"
+            },
+            "type": "array",
+            "title": "Delivery"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "target"
+        ],
+        "title": "BlueprintUse",
+        "description": "A blueprint whose products run a workflow (ADR-0037: workflows belong to the org)."
       },
       "CatalogView": {
         "properties": {
@@ -8189,14 +8225,12 @@
             "type": "string",
             "title": "Workflow Id"
           },
-          "blueprint": {
-            "type": "string",
-            "title": "Blueprint"
-          },
-          "environment": {
-            "type": "string",
-            "title": "Environment",
-            "default": "local"
+          "blueprints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blueprints"
           },
           "active_version": {
             "type": "integer",
@@ -8233,7 +8267,6 @@
         "type": "object",
         "required": [
           "workflow_id",
-          "blueprint",
           "active_version",
           "description",
           "template",
@@ -8388,17 +8421,12 @@
             "type": "array",
             "title": "Evals"
           },
-          "environment": {
-            "type": "string",
-            "title": "Environment",
-            "default": "local"
-          },
-          "delivery": {
+          "blueprints": {
             "items": {
-              "$ref": "#/components/schemas/DeliveryBinding"
+              "$ref": "#/components/schemas/BlueprintUse"
             },
             "type": "array",
-            "title": "Delivery"
+            "title": "Blueprints"
           }
         },
         "type": "object",

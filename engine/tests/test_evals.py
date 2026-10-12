@@ -15,7 +15,7 @@ from agent_factory.agents import FakeAgentRunner
 from agent_factory.models import EvalCaseResult, EvalRun, EvalSide, EvalSummary, EvalVerdict
 from agent_factory.workflow import EvalCase, load_workflow_dir, validate_workflow
 
-WF = "fastapi-service"
+WF = "standard"
 
 
 # ------------------------------------------------------------ pure parts --
@@ -263,7 +263,7 @@ async def test_an_evaluation_starts_all_or_nothing_and_counts_only_mapped_ports(
     from agent_factory.engine.pipeline import FactoryError
 
     f = make_factory()
-    line = f.cfg.blueprints[WF]
+    line = f.cfg.blueprints["fastapi-service"]
     f.manager.preflight.mapped_node_ports = set(line.node_ports[:2])
     with pytest.raises(FactoryError, match=r"needs 3 free app ports and 2 are usable.*make reset-cluster"):
         evals.start(f.manager, WF, 1, "saravana")
@@ -291,7 +291,7 @@ async def test_an_evaluation_starts_all_or_nothing_and_counts_only_mapped_ports(
 
 async def test_a_gated_publish_that_cannot_evaluate_says_why(make_factory):
     f = make_factory()
-    f.manager.preflight.mapped_node_ports = set(f.cfg.blueprints[WF].node_ports[:2])
+    f.manager.preflight.mapped_node_ports = set(f.cfg.blueprints["fastapi-service"].node_ports[:2])
     app, ctx, c = await _client(f)
     async with c:
         await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})

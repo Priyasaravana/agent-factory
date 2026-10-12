@@ -11,7 +11,7 @@ from agent_factory.engine.workflows import WorkflowError
 from agent_factory.models import ChangeStatus
 from agent_factory.workflow import AgentSpec, WorkflowStation
 
-WF = "fastapi-service"
+WF = "standard"
 
 
 def _reviewer() -> AgentSpec:
@@ -109,7 +109,7 @@ async def test_reorder_and_update_routes(make_factory):
     i, j = bad.index("build"), bad.index("deploy")
     bad[i], bad[j] = bad[j], bad[i]
     d.reorder_stations(bad)
-    assert any("'build' (build) must come before 'deploy'" in p for p in d.problems())
+    assert any("station 'deploy' needs image@1, which no station to its left gives" in p for p in d.problems())
     d.reorder_stations(swapped)
 
     with pytest.raises(WorkflowError, match="existing station"):

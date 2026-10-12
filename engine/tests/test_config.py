@@ -7,9 +7,10 @@ from agent_factory.config import FactoryConfig
 REPO = Path(__file__).resolve().parents[2]
 
 
-def test_config_points_at_a_blueprint(cfg: FactoryConfig) -> None:
-    for line in cfg.blueprints.values():
-        assert (REPO / line.workflow_template / "workflow.yaml").exists()
+def test_config_points_at_workflow_templates(cfg: FactoryConfig) -> None:
+    for template in cfg.workflow_templates().values():
+        assert (REPO / template / "workflow.yaml").exists()
+    assert cfg.default_workflow in cfg.workflow_templates()
     assert cfg.models.resolve("judgment") == "opus"
 
 

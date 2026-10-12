@@ -10,12 +10,13 @@ active workflow of its blueprint; a change runs the window for its target and ki
 |---|---|
 | `workflow-templates/<name>/` (repo) | Built-in templates: `workflow.yaml`, `agents/<id>.md`, `docs/<id>.md` |
 | A GitHub repo folder | The same format, imported into a draft and pinned to a commit |
-| Factory DB | Per blueprint: immutable, numbered **workflow versions**, one active, plus one editable **draft** |
+| Factory DB | Per workflow: immutable, numbered **workflow versions**, one active, plus one editable **draft** |
 | Each change | Pinned to `(workflow, version)` for its whole life |
 
-On first start, each blueprint's workflow is seeded from the template named
-in `.agent-factory/config.yaml` (`blueprints.<id>.workflow_template`) as
-**v1**. After that the DB is the source of truth. A later change to the shipped
+Workflows belong to the org, not a blueprint (ADR-0037 §6): `.agent-factory/config.yaml` lists
+them under `workflows:` (id → template) and every product runs `default_workflow` (`standard`),
+whatever its blueprint; the blueprint picks the stack and environment, the change kind the window.
+On first start each workflow is seeded from its template as **v1**. After that the DB is the source of truth. A later change to the shipped
 template never overwrites your workflow; the UI shows "template updated"
 instead.
 
@@ -153,12 +154,10 @@ To adopt the new ids, start a draft from the `default` template ("template updat
   sends the findings to `on_fail`.
 - Repair stations (`only_on_fail: true`) are reached only through `on_fail`,
   and go to `next` afterwards.
-- Built-in steps must keep the order requirements → design → implement → code-review →
-  build → deploy → acceptance → handover, because each one uses the previous one's output.
+- Stations fit the container (ADR-0037): their column, the artifacts they need given to their left
+  (`deploy` before `build` has no `image`), and the mandatory controls before any exit.
 - Other validation errors: invalid station ids, unknown routes, agents, handlers, skills or docs;
   unreachable stations; oversized docs.
-
-Older `line.yaml` files are still read.
 
 ## Spec-driven development
 

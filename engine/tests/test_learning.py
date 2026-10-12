@@ -17,7 +17,7 @@ from agent_factory.retro import signals, vet
 from agent_factory.workflow import load_workflow_dir
 
 REPO = Path(__file__).resolve().parents[2]
-WF = "fastapi-service"
+WF = "standard"
 NOW = datetime(2026, 10, 1, tzinfo=UTC)
 
 

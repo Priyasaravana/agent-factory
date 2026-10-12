@@ -301,7 +301,7 @@ class ChangeManager:
                 latest,
                 self.ws.change_dir(latest.id),
                 "archive",
-                self.workflows[latest.workflow_id or product.blueprint].get(latest.workflow_version),
+                self.workflows[latest.workflow_id or self.cfg.default_workflow].get(latest.workflow_version),
             )
             ctx.providers = self.providers.for_blueprint(product.blueprint)
             res = await ctx.providers.deploy.undeploy(ctx)
@@ -451,7 +451,7 @@ class ChangeManager:
         """Back to intake with the reviewer's notes; design follows, then the gate again."""
         change = self._awaiting_spec(change_id)
         product = self.store.get_product(change.product_id)
-        flow = self.workflows[change.workflow_id or (product.blueprint if product else "")].get(change.workflow_version)
+        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
         plan = flow.plan(change.window, self._target(product.blueprint if product else ""))
         first = plan.stations[0]
         change.review_notes.append(f"{comment} (by {by})")
@@ -533,8 +533,7 @@ class ChangeManager:
         """The risky changes are not accepted: back to the station's repair route with
         the findings and the reason, or cancelled when there is none."""
         change, hold = self._awaiting_risk(change_id)
-        product = self.store.get_product(change.product_id)
-        flow = self.workflows[change.workflow_id or (product.blueprint if product else "")].get(change.workflow_version)
+        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
         target = flow.station(hold.station).on_fail
         self.store.add_event(
             change.id,
@@ -715,7 +714,7 @@ class ChangeManager:
         self._sync_product(change, product)
         blueprint = self.cfg.blueprints[product.blueprint]
         # pinned: later workflow edits never affect this change
-        flow = self.workflows[change.workflow_id or product.blueprint].get(change.workflow_version)
+        flow = self.workflows[change.workflow_id or self.cfg.default_workflow].get(change.workflow_version)
         if blueprint.target == "repo":
             if not self.ws.change_dir(change.id).exists():
                 from agent_factory.assess import parse_repo_url
