@@ -143,4 +143,4 @@ def test_the_review_station_must_be_observe_only_and_after_build():
     ids = [s.id for s in doc.stations]
     doc.stations.insert(ids.index("implement"), doc.stations.pop(ids.index("code-review")))
     problems = validate_workflow(doc, skills, defaults)
-    assert any("'implement' (implement) must come before 'code-review'" in p for p in problems)
+    assert any("'implement' sits in develop but comes after a verify station" in p for p in problems)

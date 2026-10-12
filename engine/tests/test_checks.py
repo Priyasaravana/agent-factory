@@ -17,7 +17,7 @@ from agent_factory.executor import CommandResult
 from agent_factory.models import ChangeKind, ChangeStatus
 from agent_factory.workflow import AgentSpec, WorkflowStation
 
-WF = "fastapi-service"
+WF = "standard"
 SNYK = "snyk_never_in_logs_0987654321"  # noqa: S105 - a test value
 
 
@@ -45,9 +45,9 @@ def test_the_station_is_named_after_its_check_whoever_answers():
         for provider in (None, "local", "github", "snyk", "agent"):
             s = WorkflowStation(id="x", kind="check", handler="scan", check=check, provider=provider)
             assert s.label() == title
-    # a station saved before ADR-0035 names a tool: it reads as its check, and runs that tool
-    legacy = WorkflowStation(id="sast", kind="check", handler="tool", tool="semgrep", fail_on="critical")
-    assert (legacy.resolved_handler(), legacy.check_name(), legacy.label()) == ("scan", "code", "Code scan")
+    # a scan station may still pin a catalogue tool: it reads as the tool's check, and runs that tool
+    pinned = WorkflowStation(id="sast", kind="check", handler="scan", tool="semgrep", fail_on="critical")
+    assert (pinned.resolved_handler(), pinned.check_name(), pinned.label()) == ("scan", "code", "Code scan")
     assert checks.plan("code", None, "semgrep", {}) == [checks.Attempt("local", "semgrep"), checks.Attempt("agent")]
 
 

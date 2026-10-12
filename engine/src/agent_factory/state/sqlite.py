@@ -502,11 +502,6 @@ class SqliteStateStore:
                 self._db.execute(f"DELETE FROM {t}")  # noqa: S608
         return counts
 
-    def rename_workflow(self, old_id: str, new_id: str) -> None:
-        with self._lock:
-            for table in ("workflow_versions", "workflow_active", "workflow_drafts"):
-                self._db.execute(f"UPDATE {table} SET workflow_id=? WHERE workflow_id=?", (new_id, old_id))  # noqa: S608
-
     # ------------------------------------------------------ imported skills --
     def save_skill_version(self, rec: SkillRecord) -> None:
         self._exec(

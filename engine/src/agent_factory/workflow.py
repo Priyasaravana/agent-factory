@@ -7,7 +7,8 @@ from a GitHub repo):
     agents/<id>.md         one agent spec: YAML frontmatter + system prompt
     docs/<id>.md           reference documents (team standards)
 
-Each blueprint has one *workflow*: seeded from a template into the database
+Workflows belong to the org (ADR-0037): `standard` by default, used by every
+product whatever its blueprint. Each is seeded from a template into the database
 as immutable, numbered versions; every change is pinned to the version it started
 with. Versions export back to the same folder format.
 """
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agent_factory import checks, contract
 
@@ -80,25 +81,6 @@ REPO_HANDLERS = {
     "repo-review",
     "pull-request",
 }
-
-# Names used before ADR-0028. Versions stored with them keep working and keep their
-# station ids (runs and evidence are pinned to them); they resolve to the new
-# handlers. Per kind, because `build` was the coding agent and is now the image check.
-LEGACY_HANDLERS: dict[str, dict[str, str]] = {
-    "agent": {"intake": "requirements", "build": "implement", "review": "code-review", "deploy_fix": "deploy-repair"},
-    "check": {
-        "verify": "test",
-        "readiness": "quality-gate",
-        "package": "build",
-        "deliver": "handover",
-        "tool": "scan",  # ADR-0034's tool stations, named after their check since ADR-0035
-    },
-}
-
-
-def canonical_handler(kind: str, name: str) -> str:
-    """A handler name as the engine knows it today (legacy names translated)."""
-    return LEGACY_HANDLERS.get(kind, {}).get(name, name)
 
 
 # The DevOps loop the stations are grouped by, in run order. Operate and monitor
@@ -416,13 +398,10 @@ class WorkflowStation(BaseModel):
                 return "agent" if self.type == contract.CUSTOM else self.type
             return next(h for h in t.implementations.values() if h)
         if self.handler:
-            return canonical_handler(self.kind, self.handler)
+            return self.handler
         known = AGENT_HANDLERS if self.kind == "agent" else CHECK_HANDLERS
         if self.id in known:
             return self.id
-        legacy = LEGACY_HANDLERS[self.kind].get(self.id)
-        if legacy:
-            return legacy
         return "agent" if self.kind == "agent" else self.id
 
     def check_name(self) -> str:
@@ -535,9 +514,9 @@ class Plan(BaseModel):
 class WorkflowDoc(BaseModel):
     name: str = "default"
     description: str = ""
-    # which template this workflow came from (older versions stored it as "blueprint")
-    template: str | None = Field(default=None, validation_alias=AliasChoices("template", "blueprint"))
-    template_hash: str | None = Field(default=None, validation_alias=AliasChoices("template_hash", "blueprint_hash"))
+    # which template this workflow came from
+    template: str | None = None
+    template_hash: str | None = None
     stations: list[WorkflowStation]
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
     docs: dict[str, RefDoc] = Field(default_factory=dict)
@@ -763,7 +742,6 @@ def validate_workflow(
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)
-    errors += _order_errors(doc)
     errors += contract_errors(doc, roles)
     for did, d in doc.docs.items():
         if did != d.id:
@@ -955,28 +933,6 @@ def workflow_warnings(doc: WorkflowDoc) -> list[str]:
     return sorted(set(warnings))
 
 
-# Built-in handlers that depend on an earlier one's output (spec → design →
-# code → review → image → deployment → acceptance → handover). Their forward order
-# is fixed; test, generic agents and repair stations can go anywhere.
-STAGE_ORDER = ["requirements", "design", "implement", "code-review", "build", "deploy", "acceptance", "handover"]
-
-
-def _order_errors(doc: WorkflowDoc) -> list[str]:
-    seen: list[tuple[int, str]] = []
-    for s in doc.forward_stations():
-        h = s.resolved_handler()
-        if h in STAGE_ORDER:
-            seen.append((STAGE_ORDER.index(h), s.id))
-    errors = []
-    for (a, a_id), (b, b_id) in zip(seen, seen[1:], strict=False):
-        if b < a:
-            errors.append(
-                f"station '{b_id}' ({STAGE_ORDER[b]}) must come before '{a_id}' ({STAGE_ORDER[a]}): "
-                f"order is {' → '.join(STAGE_ORDER)}"
-            )
-    return errors
-
-
 def _reachability(doc: WorkflowDoc) -> list[str]:
     """Every station must be reachable from the start, or it would never run."""
     forward = doc.forward_stations()
@@ -1025,8 +981,7 @@ def render_doc_md(d: RefDoc) -> str:
 
 
 def workflow_file(path: Path) -> Path:
-    """`workflow.yaml` (current) or `line.yaml` (before the rename)."""
-    return path / "workflow.yaml" if (path / "workflow.yaml").exists() else path / "line.yaml"
+    return path / "workflow.yaml"
 
 
 def load_workflow_dir(path: Path) -> WorkflowDoc:
@@ -1059,7 +1014,7 @@ def load_workflow_dir(path: Path) -> WorkflowDoc:
             "windows": windows,
             "agents": agents,
             "docs": docs,
-            "template": raw.get("template") or raw.get("blueprint") or path.name,
+            "template": raw.get("template") or path.name,
             "template_hash": digest.hexdigest()[:16],
         }
     )

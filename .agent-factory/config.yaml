@@ -23,6 +23,13 @@ models:
   default: sonnet     # implementation
   fast: haiku         # mechanical sub-agent work (efficient-frontier pattern)
 
+# The org's workflows (ADR-0037): every product runs `default_workflow`, whatever its
+# blueprint; the change kind picks the window. Seeded from the template on first start, then
+# edited in the UI and stored as versions in the DB.
+workflows:
+  standard: workflow-templates/standard
+default_workflow: standard
+
 # ---------------------------------------------------------------------------
 # Product lines = golden paths. Adding an app type means adding a template
 # folder and an entry here, not writing engine code.
@@ -31,10 +38,6 @@ blueprints:
   fastapi-service:
     description: Python FastAPI REST service with Postgres, Helm chart, NodePort
     template: templates/fastapi-service
-    # The blueprint's workflow (stations + agents) is seeded from the factory standard
-    # (ADR-0037: one lane, a window per change kind) on first start, then edited in the UI
-    # and stored as versions in the DB.
-    workflow_template: workflow-templates/standard
     verify_command: make verify
     # What this blueprint builds with. A request that requires anything else (e.g. Node.js,
     # Go, MongoDB, a React UI) is asked about at intake instead of silently built in Python.
@@ -65,9 +68,8 @@ blueprints:
   existing-repo:
     description: An existing repository, assessed read-only (stack, readiness, findings, test gaps)
     target: repo
-    # the same standard lane: assessments run its repo-assess window; feature, bug and upkeep
-    # changes its repo-change window, tested, reviewed and opened as a pull request (ADR-0033)
-    workflow_template: workflow-templates/standard
+    # assessments run the standard lane's repo-assess window; feature, bug and upkeep changes
+    # its repo-change window, tested, reviewed and opened as a pull request (ADR-0033)
     # the same secret scan as built apps, over the cloned repo
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3

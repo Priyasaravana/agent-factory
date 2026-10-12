@@ -121,7 +121,7 @@ See [docs/runbook.md](docs/runbook.md) for the first live run and troubleshootin
 | Path | What it is |
 |---|---|
 | `.agent-factory/config.yaml` | Factory settings: models, blueprints, policies, budgets, gates, skill guidance. |
-| `workflow-templates/` | **Workflow templates**: `workflow.yaml` (stations, routes), `agents/*.md` (one spec per agent), `docs/*.md` (reference docs). Each blueprint's workflow is seeded from one and then edited in the UI; see [docs/workflows.md](docs/workflows.md). |
+| `workflow-templates/` | **Workflow templates**: `workflow.yaml` (stations, routes), `agents/*.md` (one spec per agent), `docs/*.md` (reference docs). The org's workflows (`standard` by default) are seeded from one and then edited in the UI; see [docs/workflows.md](docs/workflows.md). |
 | `engine/` | Python engine and API: state machine, stations, agent runner, guardrail hooks. |
 | `web/` | TypeScript UI. `openapi.json` is the contract; `src/api/schema.d.ts` is generated from it. |
 | `templates/` | Golden paths. `fastapi-service` is a FastAPI + Postgres app with a Helm chart. |

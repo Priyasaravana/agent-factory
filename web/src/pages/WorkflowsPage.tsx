@@ -12,13 +12,14 @@ export default function WorkflowsPage() {
       <section className="card">
         <h2>Workflows</h2>
         <p className="muted">
-          Each blueprint has its own workflow: the stations a change goes through and the agents that do the work.
+          The org's workflows (ADR-0037): one lane of stations every product runs, whatever its blueprint; a
+          change's kind picks the window it runs over.
           Edit a workflow to change it; every publish becomes a new version.
         </p>
         <table className="wide">
           <thead>
             <tr className="small muted">
-              <td>workflow (blueprint)</td>
+              <td>workflow (used by)</td>
               <td>active</td>
               <td>stations</td>
               <td>agents</td>
@@ -33,7 +34,7 @@ export default function WorkflowsPage() {
                   <Link to={`/workflows/${w.workflow_id}`}>
                     <strong>{w.workflow_id}</strong>
                   </Link>
-                  <div className="small muted">{w.blueprint}</div>
+                  <div className="small muted">{(w.blueprints ?? []).join(", ")}</div>
                 </td>
                 <td>
                   <span className="pill info">v{w.active_version}</span>{" "}

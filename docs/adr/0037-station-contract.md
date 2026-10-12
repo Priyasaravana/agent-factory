@@ -226,3 +226,16 @@ changes) and reseeded from `workflow-templates/standard/` plus `presets.yaml`. N
   a `generation` stamp in the database).
 - Left for 1b-2: one org workflow instead of one per blueprint, removing `LEGACY_HANDLERS`,
   `STAGE_ORDER`, `line.yaml`, the `blueprint` alias and `kind`/`handler` on stations.
+
+## Implementation notes (1b-2)
+- Workflows belong to the org: config `workflows:` (id → template, default `standard`) and
+  `default_workflow`; every product runs the default whatever its blueprint. The blueprint keeps
+  the stack, environment and delivery bindings (shown per blueprint on the workflow page);
+  evaluations build with the first new-product blueprint (`cfg.eval_blueprint`).
+- Removed: `LEGACY_HANDLERS` (and names from before ADR-0028), `STAGE_ORDER` (the column and data
+  rules replace it), `line.yaml`, the `blueprint` alias on stored workflows, the per-blueprint
+  `WorkflowRegistry` and the `default` → blueprint workflow rename.
+- Data generation 3: databases from 1b-1 (workflows named after blueprints) need
+  `agent-factory reset --confirm` once more.
+- `kind`/`handler` on stations stay until 1c rebuilds the editor around types and columns
+  (Saravana, 2026-10-12).

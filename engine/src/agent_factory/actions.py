@@ -38,6 +38,7 @@ from agent_factory.models import (
     AgentView,
     AnswersInput,
     AssessmentView,
+    BlueprintUse,
     CatalogView,
     Change,
     ChangeCallsView,
@@ -402,7 +403,7 @@ def get_change(f: Factory, change_id: str) -> ChangeDetail:
     return ChangeDetail(
         change=change,
         product=product,
-        stations=_station_views(f, change, product.blueprint),
+        stations=_station_views(f, change, f.cfg.default_workflow),
         risk=_risk_view(f, change),
     )
 
@@ -495,7 +496,7 @@ def get_change_spec(f: Factory, change_id: str) -> SpecView:
     product = f.store.get_product(change.product_id)
     wt = f.manager.ws.change_dir(change.id)
     read = lambda rel: (wt / rel).read_text(errors="replace") if (wt / rel).is_file() else ""  # noqa: E731
-    flow = f.workflows[change.workflow_id or (product.blueprint if product else "")].get(change.workflow_version)
+    flow = f.workflows[change.workflow_id or f.cfg.default_workflow].get(change.workflow_version)
     events = f.store.list_events(change.id)
     changes = next((e.data["spec_changes"] for e in reversed(events) if "spec_changes" in e.data), {})
     trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
@@ -888,7 +889,7 @@ def log_decision(f: Factory, body: DecisionInput) -> Event:
 
 
 # -------------------------------------------------------------- workflows --
-@action("list_workflows", "One workflow per blueprint", "GET", "/api/workflows")
+@action("list_workflows", "The org's workflows (ADR-0037)", "GET", "/api/workflows")
 def list_workflows(f: Factory) -> list[WorkflowSummary]:
     out = []
     for w in f.workflows:
@@ -896,8 +897,7 @@ def list_workflows(f: Factory) -> list[WorkflowSummary]:
         out.append(
             WorkflowSummary(
                 workflow_id=w.workflow_id,
-                blueprint=f.cfg.blueprints[f.cfg.blueprint_of(w.workflow_id)].description,
-                environment=f.cfg.blueprints[f.cfg.blueprint_of(w.workflow_id)].environment,
+                blueprints=f.cfg.blueprints_using(w.workflow_id),
                 active_version=w.active_version(),
                 description=doc.description,
                 template=doc.template,
@@ -976,8 +976,16 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
-        environment=f.cfg.blueprints[f.cfg.blueprint_of(workflow_id)].environment,
-        delivery=_bindings(f, f.cfg.blueprint_of(workflow_id)),
+        blueprints=[
+            BlueprintUse(
+                id=b,
+                description=f.cfg.blueprints[b].description,
+                target=f.cfg.blueprints[b].target,
+                environment=f.cfg.blueprints[b].environment,
+                delivery=_bindings(f, b) if f.cfg.blueprints[b].target == "new" else [],
+            )
+            for b in f.cfg.blueprints_using(workflow_id)
+        ],
     )
 
 
@@ -1270,9 +1278,8 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
 
     w = f.workflows[workflow_id]
     _, doc, _ = w.draft.get()
-    bp = f.cfg.blueprints.get(workflow_id)
-    # evaluations build new products: a repo blueprint's workflow has nothing to evaluate them on
-    gate = doc.eval_gate if doc.evals and bp is not None and bp.target == "new" else "off"
+    # evaluations build new products: without a new-product blueprint there is nothing to evaluate on
+    gate = doc.eval_gate if doc.evals and f.cfg.eval_blueprint(workflow_id) else "off"
     before = w.active_version()
     who = current_identity().user
     info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")

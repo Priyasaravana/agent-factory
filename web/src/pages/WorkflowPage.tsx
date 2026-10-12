@@ -145,8 +145,8 @@ export default function WorkflowPage() {
           </details>
         )}
         <p className="muted small">
-          Products on the <code>{workflowId}</code> blueprint follow the active
-          version. Changes in flight keep the version they started with.
+          Every product runs the active version of this workflow (its change
+          kind picks the window). Changes in flight keep the version they started with.
         </p>
       </section>
 

@@ -21,7 +21,7 @@ from agent_factory.workflow import (
     validate_workflow,
 )
 
-WF = "fastapi-service"
+WF = "standard"
 REPO = Path(__file__).resolve().parents[2]
 BLUEPRINT = REPO / "workflow-templates" / "standard"
 SKILLS = REPO / "plugin" / "skills"

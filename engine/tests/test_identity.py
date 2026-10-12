@@ -8,7 +8,7 @@ from test_api import _client
 
 ADMIN = {"X-Auth-User": "saravana", "X-Auth-Role": "admin"}
 MEMBER = {"X-Auth-User": "priya", "X-Auth-Role": "member"}
-WF = "/api/workflows/fastapi-service"
+WF = "/api/workflows/standard"
 
 
 async def test_gateway_mode_requires_identity_and_enforces_roles(make_factory):

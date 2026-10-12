@@ -814,8 +814,8 @@ class WorkflowView(BaseModel):
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
-    environment: str = "local"  # where this blueprint's delivery steps run
-    delivery: list[DeliveryBinding] = Field(default_factory=list)
+    # the blueprints whose products run this workflow, each with where its delivery steps run
+    blueprints: list[BlueprintUse] = Field(default_factory=list)
 
 
 class DraftView(BaseModel):
@@ -997,10 +997,19 @@ class DeliveryBinding(BaseModel):
     provider: str
 
 
+class BlueprintUse(BaseModel):
+    """A blueprint whose products run a workflow (ADR-0037: workflows belong to the org)."""
+
+    id: str
+    description: str
+    target: str  # new | repo
+    environment: str = "local"  # where its delivery steps run
+    delivery: list[DeliveryBinding] = Field(default_factory=list)
+
+
 class WorkflowSummary(BaseModel):
-    workflow_id: str  # = blueprint id
-    blueprint: str  # blueprint description
-    environment: str = "local"  # delivery environment of the blueprint
+    workflow_id: str
+    blueprints: list[str] = Field(default_factory=list)  # blueprints whose products run it
     active_version: int
     description: str
     template: str | None

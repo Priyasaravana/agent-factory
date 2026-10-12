@@ -40,7 +40,6 @@ from agent_factory.models import (
 from agent_factory.pillars import BY_ID, IDS, tally
 from agent_factory.readiness import PILLAR_OF
 from agent_factory.state.base import StateStore
-from agent_factory.workflow import LEGACY_HANDLERS
 
 AGENTS = {ChangeStatus.queued, ChangeStatus.running}
 PERSON = {
@@ -368,9 +367,7 @@ def _effort(f: Facts) -> list[StationEffort]:
     by: dict[str, list[dict[str, Any]]] = {}
     for _, ts, c in f.calls:
         if f.since <= ts <= f.now:
-            # calls are agent stations; legacy ids (ADR-0028) count under today's name
-            st = str(c.get("station", "?"))
-            by.setdefault(LEGACY_HANDLERS["agent"].get(st, st), []).append(c)
+            by.setdefault(str(c.get("station", "?")), []).append(c)
     out = [
         StationEffort(
             station=st,

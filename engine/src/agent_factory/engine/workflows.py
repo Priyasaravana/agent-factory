@@ -1,5 +1,5 @@
-"""Workflow services: one versioned workflow per blueprint, seeded from a
-template, edited through a draft, published as immutable versions."""
+"""Workflow services: the org's versioned workflows (`standard` by default, ADR-0037), seeded
+from a template, edited through a draft, published as immutable versions."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from agent_factory.workflow import (
     WorkflowDoc,
     WorkflowStation,
     WorkflowVersionInfo,
-    canonical_handler,
     load_workflow_dir,
     validate_workflow,
     workflow_file,
@@ -124,7 +123,7 @@ class WorkflowRegistry:
     def __init__(
         self,
         store: StateStore,
-        blueprints: dict[str, Path],
+        workflows: dict[str, Path],
         templates_dir: Path,
         skills_dir: Path,
         library: SkillLibrary | None = None,
@@ -135,7 +134,8 @@ class WorkflowRegistry:
         self.skills_dir = skills_dir
         self.library = library
         self._services = {
-            pl: WorkflowService(store, pl, template, skills_dir, library, roles) for pl, template in blueprints.items()
+            wid: WorkflowService(store, wid, template, skills_dir, library, roles)
+            for wid, template in workflows.items()
         }
 
     def skill_users(self, name: str) -> list[str]:
@@ -160,15 +160,6 @@ class WorkflowRegistry:
         return list(self._services)
 
     def ensure_seeded(self) -> None:
-        # Before workflows existed there was one line called "default": it becomes the
-        # workflow of the first blueprint, so existing history is kept.
-        first = next(iter(self._services), None)
-        if (
-            first
-            and self.store.active_workflow_version(first) is None
-            and self.store.active_workflow_version("default")
-        ):
-            self.store.rename_workflow("default", first)
         for svc in self._services.values():
             svc.ensure_seeded()
 
@@ -435,7 +426,7 @@ class Draft:
                 raise WorkflowError("fail_on must be critical, high, medium, low or none")
             st.fail_on = patch["fail_on"]  # type: ignore[assignment]
         if "handler" in patch:
-            h = canonical_handler(st.kind, str(patch["handler"])) if patch["handler"] else None
+            h = str(patch["handler"]) if patch["handler"] else None
             known = AGENT_HANDLERS if st.kind == "agent" else CHECK_HANDLERS
             if h is not None and h not in known:
                 raise WorkflowError(f"unknown {st.kind} handler '{h}' (choose from {sorted(known)})")

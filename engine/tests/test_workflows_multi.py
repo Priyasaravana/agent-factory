@@ -15,7 +15,7 @@ from agent_factory.config import load_config
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.executor import FakeExecutor
 from agent_factory.github import Fetched
-from agent_factory.models import ChangeStatus, CreateProductInput, EventKind
+from agent_factory.models import ChangeStatus, EventKind
 from agent_factory.settings import Settings
 from agent_factory.state import SqliteStateStore
 from agent_factory.workflow import load_workflow_dir, validate_workflow, workflow_warnings
@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 TEMPLATES = REPO / "workflow-templates"
 SKILLS = REPO / "plugin" / "skills"
 DEFAULTS = default_skill_names()  # imported on first start (config: default_skills)
-WF = "fastapi-service"
+WF = "standard"
 
 
 # ------------------------------------------------------------ role checks --
@@ -136,14 +136,13 @@ async def test_unknown_template_and_workflow(make_factory):
         f.workflows["no-such-product"]
 
 
-# ------------------------------------------------ one workflow per product --
+# ------------------------------------------- workflows belong to the org --
 @pytest.fixture
-def two_products(tmp_path):
+def two_workflows(tmp_path):
+    """The standard plus a second org workflow (ADR-0037 §6), with `secure` as the default."""
     cfg = load_config(REPO / ".agent-factory" / "config.yaml")
-    base = cfg.blueprints[WF]
-    cfg.blueprints["secure-api"] = base.model_copy(
-        update={"workflow_template": str(_secure(tmp_path)), "node_ports": [30083, 30084]}
-    )
+    cfg.workflows["secure"] = str(_secure(tmp_path))
+    cfg.default_workflow = "secure"
     settings = Settings(
         factory_mode="dry-run",
         factory_home=str(REPO),
@@ -156,33 +155,32 @@ def two_products(tmp_path):
     return f
 
 
-async def test_each_blueprint_runs_its_own_workflow(two_products):
-    f = two_products
-    assert f.workflows.ids() == [WF, "existing-repo", "secure-api"]
+def test_every_blueprint_runs_the_org_workflow(cfg):
+    assert cfg.workflow_templates() == {"standard": "workflow-templates/standard"}
+    assert {cfg.workflow_for(b, "new") for b in cfg.blueprints} == {"standard"}
+    assert cfg.blueprints_using("standard") == list(cfg.blueprints)
+    assert cfg.eval_blueprint("standard") == "fastapi-service", "evaluations build new products"
+    with pytest.raises(ValueError, match="default_workflow 'nope'"):
+        type(cfg).model_validate({**cfg.model_dump(), "default_workflow": "nope"})
+
+
+async def test_products_run_the_default_workflow_whatever_their_blueprint(two_workflows):
+    f = two_workflows
+    assert f.workflows.ids() == [WF, "secure"]
     a = f.manager.start_change(f.manager.create_product(PRODUCT))
-    b = f.manager.start_change(
-        f.manager.create_product(
-            CreateProductInput(
-                title="Secure notes", requirements="Notes API with tags and search.", blueprint="secure-api"
-            )
-        )
-    )
-    assert a.workflow_id == WF and b.workflow_id == "secure-api"
+    assert a.workflow_id == "secure"
     assert await wait_run(f, a.id) == ChangeStatus.awaiting_feedback
-    assert await wait_run(f, b.id) == ChangeStatus.awaiting_feedback
-    sa = {e.station for e in f.store.list_events(a.id) if e.kind == EventKind.station_finished}
-    sb = {e.station for e in f.store.list_events(b.id) if e.kind == EventKind.station_finished}
-    assert "security-review" not in sa and "security-review" in sb
+    assert "security-review" in {e.station for e in f.store.list_events(a.id) if e.kind == EventKind.station_finished}
 
 
-async def test_publishing_one_workflow_leaves_the_other_alone(two_products):
-    f = two_products
+async def test_publishing_one_workflow_leaves_the_other_alone(two_workflows):
+    f = two_workflows
     d = f.workflows[WF].draft
     _, doc, _ = d.get()
     d.upsert_agent(doc.agents["developer"].model_copy(update={"learnings": "Use typed SQLAlchemy models."}))
     d.publish("developer learnings")
     assert f.workflows[WF].active_version() == 2
-    assert f.workflows["secure-api"].active_version() == 1
+    assert f.workflows["secure"].active_version() == 1
 
 
 # ------------------------------------------------------------- fresh start --
@@ -192,7 +190,7 @@ def test_data_from_before_the_standard_lane_needs_a_reset(tmp_path):
 
     db = tmp_path / "factory.db"
     old = SqliteStateStore(db)
-    old.create_workflow_version("fastapi-service", load_workflow_dir(TEMPLATES / "standard"), "v1 from before")
+    old.create_workflow_version("fastapi-service", load_workflow_dir(TEMPLATES / "standard"), "v1 per blueprint")
     (tmp_path / "artifacts" / "c1").mkdir(parents=True)
     (tmp_path / "artifacts" / "c1" / "events.jsonl").write_text("{}\n")
 

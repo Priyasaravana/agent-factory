@@ -194,7 +194,7 @@ def test_every_status_change_is_recorded_once(tmp_path):
 # ---------------------------------------------------------------- the API --
 async def test_outcomes_api_after_a_real_run(make_factory):
     f = make_factory()
-    w = f.workflows["fastapi-service"]
+    w = f.workflows["standard"]
     w.draft.set_spec_review("first")
     w.draft.publish("gate on")
     product = f.manager.create_product(PRODUCT)
@@ -232,9 +232,9 @@ def test_agent_effort_by_station():
     f.calls = [
         call("implement", 10, 100.0, 0.5, 20, 1),
         call("implement", 30, 300.0, 1.5, 40),
-        call("build", 20, 200.0, 1.0, 30),  # a version from before ADR-0028: counts as implement
-        call("review", 4, 40.0, 0.25, 5),  # likewise code-review
-        ("A", NOW - timedelta(days=40), {"station": "build", "turns": 99, "cost_usd": 9.0}),  # before the window
+        call("implement", 20, 200.0, 1.0, 30),
+        call("code-review", 4, 40.0, 0.25, 5),
+        ("A", NOW - timedelta(days=40), {"station": "implement", "turns": 99, "cost_usd": 9.0}),  # before the window
     ]
     f.denials = [("A", at, {"tool": "Bash"}), ("A", NOW - timedelta(days=40), {"tool": "Bash"})]
     o = compute(f)

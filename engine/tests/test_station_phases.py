@@ -1,5 +1,5 @@
-"""Stations named after the DevOps loop (ADR-0028): new names, phases, and versions
-stored with the old names that keep working unchanged."""
+"""Stations named after the DevOps loop (ADR-0028): names and phases. Names from before
+ADR-0028 are no longer read (ADR-0037 §7: fresh start)."""
 
 from __future__ import annotations
 
@@ -14,44 +14,16 @@ from agent_factory.workflow import (
     AGENT_HANDLERS,
     CHECK_HANDLERS,
     HANDLER_INFO,
-    LEGACY_HANDLERS,
     PHASE_IDS,
-    STAGE_ORDER,
-    WorkflowDoc,
     WorkflowStation,
     load_workflow_dir,
     validate_workflow,
 )
 
-WF = "fastapi-service"
+WF = "standard"
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT = REPO / "workflow-templates" / "standard"
 SKILLS = REPO / "plugin" / "skills"
-
-# the default lane as it was stored before ADR-0028
-OLD_IDS = {
-    "requirements": "intake",
-    "implement": "build",
-    "test": "verify",
-    "quality-gate": "readiness",
-    "code-review": "review",
-    "build": "package",
-    "deploy-repair": "deploy_fix",
-    "handover": "deliver",
-}
-
-
-def _legacy(doc: WorkflowDoc) -> WorkflowDoc:
-    """The same workflow with every station id (and route) under its old name."""
-    old = {**{s.id: s.id for s in doc.stations}, **OLD_IDS}
-    stations = []
-    for s in doc.model_dump()["stations"]:
-        s["id"] = old[s["id"]]
-        s["on_fail"] = old.get(s["on_fail"]) if s["on_fail"] else None
-        s["next"] = old.get(s["next"]) if s["next"] else None
-        stations.append(s)
-    return WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations})
-
 
 # ---------------------------------------------------------------- names --
 def test_every_handler_has_a_label_a_phase_and_a_hint() -> None:
@@ -60,8 +32,6 @@ def test_every_handler_has_a_label_a_phase_and_a_hint() -> None:
         assert info.label and info.hint, name
         assert info.kind == ("agent" if name in AGENT_HANDLERS else "check"), name
         assert info.phase in PHASE_IDS or (name == "agent" and info.phase is None), name
-    phase_order = [PHASE_IDS.index(HANDLER_INFO[h].phase or "plan") for h in STAGE_ORDER]
-    assert phase_order == sorted(phase_order), "the fixed stage order reads left to right through the loop"
 
 
 def test_the_default_lane_reads_as_the_devops_loop() -> None:
@@ -77,16 +47,10 @@ def test_the_default_lane_reads_as_the_devops_loop() -> None:
     assert {s.id: s.label() for s in doc.stations}["quality-gate"] == "Quality gate"
 
 
-def test_build_meant_the_coding_agent_and_now_means_the_image() -> None:
-    """The one name that changed meaning: decided by the station's kind."""
-    assert WorkflowStation(id="build", kind="agent", agent="developer").resolved_handler() == "implement"
+def test_names_from_before_adr_0028_are_not_read() -> None:
     assert WorkflowStation(id="build", kind="check").resolved_handler() == "build"
-    assert WorkflowStation(id="package", kind="check").resolved_handler() == "build"
-    assert WorkflowStation(id="x", kind="agent", agent="a", handler="review").resolved_handler() == "code-review"
+    assert WorkflowStation(id="package", kind="check").resolved_handler() == "package"  # unknown: refused at publish
     assert WorkflowStation(id="lint-docs", kind="agent", agent="a").resolved_handler() == "agent"
-    for kind, names in LEGACY_HANDLERS.items():
-        known = AGENT_HANDLERS if kind == "agent" else CHECK_HANDLERS
-        assert set(names.values()) <= known, kind
 
 
 # --------------------------------------------------------------- phases --
@@ -126,8 +90,8 @@ async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
     assert d.get()[1].phases()["docs-check"] == "code"
     with pytest.raises(WorkflowError, match="phase must be one of"):
         d.update_station("docs-check", {"phase": "monitor"})
-    d.update_station("test", {"handler": "verify"})  # an old handler name is understood
-    assert d.get()[1].station("test").resolved_handler() == "test"
+    with pytest.raises(WorkflowError, match="unknown check handler"):
+        d.update_station("test", {"handler": "verify"})  # names from before ADR-0028 are gone
 
 
 async def test_the_catalog_tells_the_editor_names_and_phases(make_factory) -> None:
@@ -147,11 +111,3 @@ async def test_the_catalog_tells_the_editor_names_and_phases(make_factory) -> No
         r = await c.patch(f"/api/workflows/{WF}/draft/stations/design", json={"phase": "monitor"})
         assert r.status_code >= 400, "a phase must be one of the loop's"
     await ctx.__aexit__(None, None, None)
-
-
-async def test_an_old_check_id_still_resolves_in_a_draft(make_factory) -> None:
-    d = make_factory().workflows[WF].draft
-    d.add_station(WorkflowStation(id="verify", kind="check"))  # an old id: resolves to today's handler
-    assert d.get()[1].station("verify").resolved_handler() == "test"
-    with pytest.raises(WorkflowError, match="check stations need a handler"):
-        d.add_station(WorkflowStation(id="lint", kind="check"))
