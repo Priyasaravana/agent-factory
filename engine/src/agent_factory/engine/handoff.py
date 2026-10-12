@@ -197,6 +197,10 @@ async def _report(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[
             if handler == "assess"
             else ["assessment.json", "assessment.md", "AGENTS.proposed.md"]
         )
+        if handler != "assess":
+            got = _json(out, "assessment.json")
+            if "coverage" in got:
+                data = {"issues": got.get("issue_counts", {}), "coverage_complete": got["coverage"].get("complete")}
     elif kind == "test":
         if handler == "repo-test":
             files = ["repo-test.json"]

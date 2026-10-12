@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import assess, checks, repo_change, risk, stack, tools, traceability
+from agent_factory import assess, checks, repo_change, risk, rollup, stack, tools, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
@@ -1158,17 +1158,46 @@ async def report(ctx: StationContext) -> StationResult:
         "tools": tool_reports(ctx),
         "assessed_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
     }
+    # one view across every station (rollup.py, pure): deduplicated issues, recommendations
+    # ranked by severity and impact, and what the scans covered
+    doc = ctx.workflow_doc
+    planned = [
+        {"station": sid, "check": doc.station(sid).check_name(), "title": doc.station(sid).label()}
+        for sid in doc.plan().stations
+        if doc.station(sid).handler_for(doc.works_on) == "scan"
+    ]
+    rolled = rollup.consolidate(data["findings"], data["tools"], data["recommendations"], planned,
+                                data["secret_scan_ok"])  # fmt: skip
+    data["assessor_recommendations"] = data["recommendations"]
+    data.update(rolled)
     out = artifacts_dir(ctx)
     _write_json(ctx, "assessment.json", data)
     (out / "assessment.md").write_text(assess.render_markdown(data))
     if data["agents_md"]:
         (out / "AGENTS.proposed.md").write_text(data["agents_md"] + "\n")
     level = data["readiness"]["level"]
+    c = data["issue_counts"]
+    worst = ", ".join(f"{c[k]} {k}" for k in ("critical", "high") if c.get(k))
     summary = (
-        f"assessment ready: Level {level}, {len(data['findings'])} findings, {len(data['risks'])} risks, "
-        f"{len(data['recommendations'])} recommended changes" + (", AGENTS.md proposed" if data["agents_md"] else "")
+        f"assessment ready: Level {level}, {len(data['issues'])} issues"
+        + (f" ({worst})" if worst else "")
+        + f" from the rules and {len(planned)} scan(s), {len(data['risks'])} risks, "
+        f"{len(data['recommendations'])} recommended changes"
+        + (", AGENTS.md proposed" if data["agents_md"] else "")
+        + ("" if data["coverage"]["complete"] else "; scan coverage incomplete")
     )
-    await ctx.emit(EventKind.decision, summary, {"assessment": {"level": level, "file": "assessment.md"}})
+    await ctx.emit(
+        EventKind.decision,
+        summary,
+        {
+            "assessment": {
+                "level": level,
+                "file": "assessment.md",
+                "issues": c,
+                "coverage_complete": data["coverage"]["complete"],
+            }
+        },  # fmt: skip
+    )
     return StationResult(StationOutcome.passed, summary)
 
 
@@ -1196,7 +1225,8 @@ def _latest_assessment(ctx: StationContext) -> str:
                 d = json.loads(f.read_text())
             except json.JSONDecodeError:
                 return ""
-            groups = assess.group_findings(d.get("findings", []))[:8]
+            # every station's issues when the report consolidated them (scans included), else the rules'
+            groups = d["issues"][:8] if "issues" in d else assess.group_findings(d.get("findings", []))[:8]
             lines = [f"Readiness Level {d.get('readiness', {}).get('level', '?')}; {d.get('summary', '')}".strip()]
             lines += [f"- finding ({g['severity']}): {g['title']} ({', '.join(g['at'][:3])})" for g in groups]
             lines += [f"- recommended: {r.get('title')}" for r in d.get("recommendations", [])[:5]]

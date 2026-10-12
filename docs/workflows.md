@@ -20,7 +20,7 @@ The factory ships four default lanes, listed under `workflows:` in `.agent-facto
 |---|---|---|---|
 | `new-product` | new build | new | requirements → design → implement → test, scans, code-review, change-risk → build → deploy → acceptance → handover |
 | `product-change` | new build | feature, bug, upkeep | the same stations, for later changes |
-| `repo-assessment` | existing repo | assess | onboard, repo-scan, assess, the scans (report only), report |
+| `repo-assessment` | existing repo | assess | onboard, repo-scan, assess, the scans (report only), report (folds every station's output: deduplicated issues, ranked recommendations, scan coverage) |
 | `repo-change` | existing repo | feature, bug, upkeep | onboard, implement, test, secret and other scans, code-review, change-risk, handover (a pull request) |
 
 A change runs the workflow **assigned** to its product for its kind; without one, the factory

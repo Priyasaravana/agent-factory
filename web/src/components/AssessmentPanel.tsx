@@ -7,9 +7,21 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
 
-type Tab = "findings" | "risks" | "tests" | "next" | "signals" | "agents";
+type Tab = "findings" | "risks" | "tests" | "next" | "coverage" | "signals" | "agents";
 
-const SEV: Record<string, string> = { high: "bad", medium: "warn", low: "muted" };
+const SEV: Record<string, string> = { critical: "bad", high: "bad", medium: "warn", low: "muted", info: "muted" };
+
+type Issue = {
+  id: string;
+  title: string;
+  severity: string;
+  category: string;
+  detail: string;
+  at: string[];
+  places: number;
+  sources: { station: string; via: string; rule: string }[];
+};
+type CoverageCheck = { station: string; title: string; status: string; via?: string; note?: string };
 const KIND: Record<string, string> = { feature: "feature", bug: "bug fix", upkeep: "upkeep" };
 
 /** An existing repo's assessment (ADR-0031): what the engine measured, and what the
@@ -68,6 +80,9 @@ export default function AssessmentPanel({
     risks: d.risks ?? [],
     test_gaps: d.test_gaps ?? [],
     recommendations: d.recommendations ?? [],
+    issues: (d.issues ?? []) as Issue[],
+    issue_counts: d.issue_counts ?? {},
+    coverage: (d.coverage ?? {}) as { complete?: boolean; gaps?: string[]; checks?: CoverageCheck[] },
     dropped: d.dropped ?? [],
     agents_md: d.agents_md ?? "",
     markdown: d.markdown ?? "",
@@ -78,12 +93,18 @@ export default function AssessmentPanel({
     max_points: d.max_points ?? 0,
   };
   const failing = v.signals.filter((s) => !s.ok);
-  const high = v.findings.filter((f) => f.severity === "high").length;
+  // every station's issues when the report consolidated them (rollup), else the rules' findings
+  const rolled = v.coverage.checks !== undefined;
+  const high = rolled
+    ? (v.issue_counts.critical ?? 0) + (v.issue_counts.high ?? 0)
+    : v.findings.filter((f) => f.severity === "high").length;
+  const gaps = v.coverage.gaps ?? [];
   const tabs: [Tab, string][] = [
-    ["findings", `Findings ${v.findings.length}`],
+    ["findings", rolled ? `Issues ${v.issues.length}` : `Findings ${v.findings.length}`],
     ["risks", `Risks ${v.risks.length}`],
     ["tests", `Test gaps ${v.test_gaps.length}`],
     ["next", `Next changes ${v.recommendations.length}`],
+    ...(rolled ? ([["coverage", gaps.length ? "Coverage ⚠" : "Coverage"]] as [Tab, string][]) : []),
     ["signals", `Signals ${v.signals.length - failing.length}/${v.signals.length}`],
     ...(v.agents_md ? ([["agents", "AGENTS.md"]] as [Tab, string][]) : []),
   ];
@@ -107,7 +128,8 @@ export default function AssessmentPanel({
         <span className="pill muted">
           {v.points}/{v.max_points} points
         </span>
-        {high > 0 && <span className="pill bad">{high} high</span>}
+        {high > 0 && <span className="pill bad">{high} critical/high</span>}
+        {rolled && gaps.length > 0 && <span className="pill warn">scan coverage incomplete</span>}
         <Button size="sm" variant="outline" className="ml-auto" onClick={download}>
           <Download /> Report (.md)
         </Button>
@@ -118,6 +140,16 @@ export default function AssessmentPanel({
         {String(v.repo.files ?? 0)} files
       </p>
       {v.summary && <p className="m-0 text-sm">{v.summary}</p>}
+      {rolled && gaps.length > 0 && (
+        <div className="note m-0 text-sm" data-testid="coverage-gaps">
+          <strong>Not every check really ran.</strong> No findings from these is not a clean result:
+          <ul className="m-0 mt-1 pl-5">
+            {gaps.map((g) => (
+              <li key={g}>{g}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-0.5" role="tablist" aria-label="Assessment">
         {tabs.map(([t, label]) => (
@@ -133,7 +165,29 @@ export default function AssessmentPanel({
         ))}
       </div>
 
-      {tab === "findings" && (
+      {tab === "findings" && rolled && (
+        <List empty="No issues from the rules or the scans.">
+          {v.issues.map((i) => (
+            <li key={i.id} className="grid gap-0.5">
+              <span>
+                <span className="text-xs text-muted-foreground">{i.id}</span>{" "}
+                <span className={`pill ${SEV[i.severity] ?? "muted"}`}>{i.severity}</span>{" "}
+                <span className="font-medium">{i.title}</span>
+              </span>
+              {i.detail && <span className="text-muted-foreground">{i.detail}</span>}
+              <Files files={i.at} />
+              <span className="text-xs text-muted-foreground">
+                found by{" "}
+                {i.sources
+                  .map((s) => `${s.station} via ${s.via}${s.rule ? ` (${s.rule})` : ""}`)
+                  .join("; ")}
+                {i.places > i.at.length && ` · ${i.places} places in all`}
+              </span>
+            </li>
+          ))}
+        </List>
+      )}
+      {tab === "findings" && !rolled && (
         <List empty="No findings from the rules.">
           {v.findings.map((f) => (
             <li key={f.rule + f.title} className="grid gap-0.5">
@@ -181,8 +235,18 @@ export default function AssessmentPanel({
             <li key={i}>
               <span className="font-medium">{String(r.title)}</span>{" "}
               <span className="pill info">{KIND[String(r.kind)] ?? String(r.kind)}</span>{" "}
-              <span className="pill muted">effort {String(r.effort)}</span>
+              <span className="pill muted">effort {String(r.effort)}</span>{" "}
+              {r.severity ? (
+                <span className={`pill ${SEV[String(r.severity)] ?? "muted"}`}>{String(r.severity)}</span>
+              ) : null}{" "}
+              {r.impact ? <span className="pill muted">{String(r.impact)} impact</span> : null}
               <div className="text-muted-foreground">{String(r.why)}</div>
+              {r.basis ? (
+                <div className="text-xs text-muted-foreground">
+                  Basis: {String(r.basis)}
+                  {Array.isArray(r.issues) && r.issues.length > 0 && ` · issues ${(r.issues as string[]).join(", ")}`}
+                </div>
+              ) : null}
               {canRequest && productId && ["feature", "bug", "upkeep"].includes(String(r.kind)) && (
                 <Button
                   size="sm"
@@ -206,6 +270,24 @@ export default function AssessmentPanel({
         </ol>
         <Problems error={request.error} />
         </>
+      )}
+      {tab === "coverage" && (
+        <table className="text-sm" data-testid="coverage">
+          <tbody>
+            {(v.coverage.checks ?? []).map((c) => (
+              <tr key={c.station}>
+                <td className="font-medium">{c.title}</td>
+                <td>
+                  <span className={`pill ${c.status === "tool" ? "ok" : c.status === "not run" ? "bad" : "warn"}`}>
+                    {c.status}
+                  </span>
+                </td>
+                <td className="text-muted-foreground">{c.via}</td>
+                <td className="text-xs text-muted-foreground">{c.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
       {tab === "signals" && (
         <ul className="m-0 grid list-none gap-1 p-0 text-sm">

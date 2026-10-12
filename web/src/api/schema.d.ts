@@ -1590,6 +1590,22 @@ export interface components {
             recommendations?: {
                 [key: string]: unknown;
             }[];
+            /** Assessor Recommendations */
+            assessor_recommendations?: {
+                [key: string]: unknown;
+            }[];
+            /** Issues */
+            issues?: {
+                [key: string]: unknown;
+            }[];
+            /** Issue Counts */
+            issue_counts?: {
+                [key: string]: number;
+            };
+            /** Coverage */
+            coverage?: {
+                [key: string]: unknown;
+            };
             /** Dropped */
             dropped?: string[];
             /**
