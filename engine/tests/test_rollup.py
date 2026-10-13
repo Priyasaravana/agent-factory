@@ -95,7 +95,7 @@ def test_coverage_says_what_did_not_really_run() -> None:
     cov = rollup.coverage(PLANNED, scans, secret_scan_ok=False)
     assert not cov["complete"]
     assert [c["status"] for c in cov["checks"]] == ["simulated", "agent", "not run"]
-    assert "local could not answer: osv-scanner did not run" in cov["checks"][1]["note"]
+    assert "the open-source tool could not answer: osv-scanner did not run" in cov["checks"][1]["note"]
     assert cov["gaps"] == [
         "Code scan was simulated: no real results.",
         "Dependency scan was answered by the factory agent, not a scanner.",

@@ -24,6 +24,7 @@ SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
 _RANK = {s: i for i, s in enumerate(SEVERITY_ORDER)}
 MAX_LOCATIONS = 20  # per issue, in the report; the station evidence keeps them all
 
+_PROVIDERS = {"local": "the open-source tool", "github": "GitHub", "snyk": "Snyk", "agent": "the factory agent"}
 CHECK_TITLES = {
     "secrets": "Secret scan",
     "code": "Code scan",
@@ -207,12 +208,18 @@ def coverage(
             status = "simulated"
             notes.append("simulated (dry-run): nothing was scanned")
             gaps.append(f"{title} was simulated: no real results.")
+        elif r.get("nothing_scanned"):
+            status = "nothing to scan"
+            notes.append(f"ran, but found {r['nothing_scanned']}")
+            gaps.append(f"{title} ran but found {r['nothing_scanned']}.")
         elif r.get("provider") == "agent":
             status = "agent"
             notes.append("checked by the factory agent: lower confidence than a scanner, severity capped at high")
             gaps.append(f"{title} was answered by the factory agent, not a scanner.")
         for t in r.get("fallback_from") or []:
-            notes.append(f"{t.get('provider')} could not answer: {t.get('reason')}")
+            notes.append(
+                f"{_PROVIDERS.get(str(t.get('provider')), t.get('provider'))} could not answer: {t.get('reason')}"
+            )
         if r.get("truncated"):
             notes.append("only the first findings were kept (counts cover all)")
             gaps.append(f"{title} found more issues than the report lists.")
