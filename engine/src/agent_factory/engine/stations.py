@@ -1529,22 +1529,35 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
     if ctx.settings.factory_mode == "dry-run":
         return [], tool, {"simulated": True}
     import shlex
+    import tempfile
 
     cmd = tool.command.format(image=tool.image, path=ctx.worktree, repo=shlex.quote(repo) if repo else "")
-    # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
-    res = await ctx.ex.run(cmd, cwd=ctx.worktree, timeout=900, env=env or None)
+    # The report is the tool's stdout, captured whole in a private temp file: the executor keeps
+    # only the tail of stdout+stderr, which cuts a large report and mixes in log lines. The file
+    # is removed in the same step (raw output is never kept, ADR-0034).
+    with tempfile.TemporaryDirectory(prefix="scan-") as tmp:
+        report_file = Path(tmp) / "report.json"
+        # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
+        res = await ctx.ex.run(
+            f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=900, env=env or None
+        )
+        stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
+    text = stdout if stdout.strip() else res.output  # a fake executor answers on its output
     await ctx.emit(
         EventKind.command,
-        f"{tool.title}: exit {res.returncode}, {len(res.output)} bytes of output (raw output not kept)",
+        f"{tool.title}: exit {res.returncode}, {len(text)} bytes of report (raw output not kept)",
         {"returncode": res.returncode, "image": tool.image},
     )
     if tool.strict_exit and not res.ok:
         return f"{tool.title} failed (exit {res.returncode}): check the token's access and that the feature is on"
+    extra: dict[str, Any] = {"image": tool.image} if tool.image else {}
+    if not stdout.strip() and (why := tools.nothing_to_scan(tool, res.output)):
+        return [], tool, {**extra, "nothing_scanned": why}
     try:
-        findings = tools.parse(tool, res.output)
+        findings = tools.parse(tool, text)
     except tools.ToolOutputError as exc:
         return f"{tool.title} did not run: {exc}"
-    return findings, tool, {"image": tool.image} if tool.image else {}
+    return findings, tool, extra
 
 
 async def _scan_with_agent(

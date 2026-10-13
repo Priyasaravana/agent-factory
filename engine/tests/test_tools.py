@@ -312,3 +312,69 @@ def test_scanners_answer_clean_in_the_fake_executor():
     for needle in CLEAN_SCANS:
         tool = next(t for t in tools.TOOLS.values() if needle in t.command.format(image=t.image, path="/w", repo="o/r"))
         assert tools.parse(tool, CLEAN_SCANS[needle]) == []
+
+
+# ------------------------------------------- real tool output (Mac test, 2026-10-13) --
+def test_a_report_between_log_lines_with_braces_is_found():
+    noisy = "time=1 level=info msg={scanning}\n" + json.dumps(SARIF) + "\nINFO done {ok}\n[warn] cache\n"
+    assert [f.rule for f in tools.parse(tools.TOOLS["semgrep"], noisy)] == ["eval-detected", "direct-response-write"]
+    trivy = "2026-10-13T19:00:00Z INFO [misconfig] scanning\n" + json.dumps(TRIVY) + "\n2026 INFO done\n"
+    assert len(tools.parse(tools.TOOLS["trivy-config"], trivy)) == 3
+
+
+def test_osv_with_no_lockfile_found_nothing_to_scan_rather_than_failing():
+    out = "Scanning dir /src\nNo package sources found, --help for usage information.\n"
+    assert tools.nothing_to_scan(tools.TOOLS["osv-scanner"], out).startswith("no lockfile")
+    assert tools.nothing_to_scan(tools.TOOLS["semgrep"], out) == ""
+
+
+@dataclass
+class ShellExecutor(FakeExecutor):
+    """Like the real executor: stdout goes where the command redirects it, and the result keeps
+    only the tail of what is left (stderr), so a report must never be read from it."""
+
+    streams: dict[str, tuple[str, str]] = field(default_factory=dict)  # needle -> (stdout, stderr)
+
+    async def run(self, command, cwd=None, timeout=600, env=None):  # noqa: ANN001, ANN201
+        from pathlib import Path
+
+        from agent_factory.executor import TAIL_CHARS, CommandResult
+
+        for needle, (stdout, stderr) in self.streams.items():
+            if needle in command:
+                self.calls.append(command)
+                if " > " in command:
+                    Path(command.rsplit(" > ", 1)[1].strip("'")).write_text(stdout)  # noqa: ASYNC240
+                    return CommandResult(command, 0, stderr[-TAIL_CHARS:])
+                return CommandResult(command, 0, (stdout + stderr)[-TAIL_CHARS:])
+        return await super().run(command, cwd, timeout, env)
+
+
+async def test_a_large_report_is_read_whole_and_nothing_to_scan_is_a_coverage_gap(make_factory):
+    big = json.loads(json.dumps(SARIF))
+    rules = big["runs"][0]["tool"]["driver"]["rules"]
+    for r in rules:  # medium, so the change goes on to the dependency scan
+        r.get("properties", {}).pop("security-severity", None)
+    rules += [{"id": f"rule-{i}", "shortDescription": {"text": "x" * 80}} for i in range(200)]  # ~25 kB
+    assert len(json.dumps(big)) > 6000
+    ex = ShellExecutor(
+        streams={
+            "semgrep scan": (json.dumps(big), "METRICS: {off}\nRan 1000 rules on 19 files: 2 findings.\n"),
+            "osv-scanner": ("", "Scanning dir /src\nNo package sources found, --help for usage information.\n"),
+        }
+    )
+    f = _live(make_factory, ex)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    await wait_run(f, change.id)
+    folder = f.manager.ws.data_dir / "artifacts" / change.id / "tools"
+    code = json.loads((folder / "code-scan.json").read_text())
+    assert (code["provider"], sum(code["counts"].values()), code["fallback_from"]) == ("local", 2, [])
+    deps = json.loads((folder / "dependency-scan.json").read_text())
+    assert deps["provider"] == "local" and deps["nothing_scanned"].startswith("no lockfile")
+    assert not any(p.name.startswith("scan-") for p in folder.parent.iterdir()), "the raw report is not kept"
+
+    from agent_factory import rollup
+
+    cov = rollup.coverage([{"station": "dependency-scan", "check": "dependencies", "title": "Dependency scan"}],
+                          [deps], True)  # fmt: skip
+    assert cov["checks"][0]["status"] == "nothing to scan" and not cov["complete"]

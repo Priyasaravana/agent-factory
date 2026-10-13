@@ -205,14 +205,34 @@ def _rel(path: str) -> str:
 
 
 def _json(text: str) -> Any:
-    """The tool's JSON document, skipping any log lines printed before it."""
-    start = min((i for i in (text.find("{"), text.find("[")) if i >= 0), default=-1)
-    if start < 0:
+    """The tool's JSON document: the first one that decodes, skipping log lines printed before
+    or after it (a brace inside a log line is not mistaken for the report)."""
+    decoder = json.JSONDecoder()
+    starts = [i for i, ch in enumerate(text) if ch in "{["]
+    if not starts:
         raise ToolOutputError("no JSON in the tool's output")
-    try:
-        return json.loads(text[start:])
-    except json.JSONDecodeError as exc:
-        raise ToolOutputError(f"the tool's output is not valid JSON: {exc.msg}") from exc
+    first_error = ""
+    for i in starts[:200]:
+        try:
+            doc, _ = decoder.raw_decode(text, i)
+        except json.JSONDecodeError as exc:
+            first_error = first_error or exc.msg
+            continue
+        if isinstance(doc, dict) or (isinstance(doc, list) and (not doc or isinstance(doc[0], dict))):
+            return doc
+    raise ToolOutputError(f"the tool's output is not valid JSON: {first_error or 'no report document'}")
+
+
+# What a tool prints when there was nothing it could read: not a failure, but not coverage
+_NOTHING_TO_SCAN = {
+    "osv-scanner": ("No package sources found", "no lockfile or manifest it can read (commit a lockfile)"),
+}
+
+
+def nothing_to_scan(tool: Tool, output: str) -> str:
+    """Why a tool that printed no report found nothing to scan, or "" if it just failed."""
+    marker = _NOTHING_TO_SCAN.get(tool.id)
+    return marker[1] if marker and marker[0].lower() in output.lower() else ""
 
 
 def _cvss(score: Any) -> str | None:
