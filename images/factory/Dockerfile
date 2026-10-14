@@ -53,6 +53,7 @@ COPY .agent-factory .agent-factory
 RUN AGENT_FACTORY_ALLOW_ROOT=1 FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml agent-factory skills cache --out /opt/factory/skill-seeds
 COPY prompts prompts
 COPY workflow-templates workflow-templates
+COPY packs packs
 COPY plugin plugin
 COPY templates templates
 COPY cluster cluster

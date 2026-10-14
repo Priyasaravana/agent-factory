@@ -38,6 +38,26 @@ TOOL_PRESETS: dict[str, list[str]] = {
     "builder": ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"],
 }
 OBSERVE_ONLY_PRESETS = {"observer", "reviewer"}
+# The capability each tool needs (any one of them): an agent gets only the tools its station is
+# granted (ADR-0039 §4 layer 3). WebFetch/WebSearch stay read-only extras behind the egress proxy.
+TOOL_NEEDS: dict[str, frozenset[str]] = {
+    "Read": frozenset({"read-repo"}),
+    "Glob": frozenset({"read-repo"}),
+    "Grep": frozenset({"read-repo"}),
+    "Write": contract.WRITES,
+    "Edit": contract.WRITES,
+    "NotebookEdit": contract.WRITES,
+    "Bash": frozenset({"run-sandbox"}),
+    "Task": frozenset({"write-code"}),  # subagents inherit the builder's tools
+}
+
+
+def tools_within(tools: list[str], grant: Collection[str]) -> tuple[list[str], list[str]]:
+    """(kept, denied): the tools a grant covers, and the rest."""
+    kept = [t for t in tools if t not in TOOL_NEEDS or TOOL_NEEDS[t] & set(grant)]
+    return kept, [t for t in tools if t not in kept]
+
+
 SAFE_EXTRA_TOOLS = {"WebFetch", "WebSearch"}  # read-only additions any preset may opt into
 
 # Station handlers implemented by the engine, named after the DevOps phase they
@@ -86,13 +106,15 @@ REPO_HANDLERS = {
 # The phase columns stations are grouped by, in run order (ADR-0037/0039).
 PHASES: list[tuple[str, str]] = list(contract.COLUMNS)
 PHASE_IDS = [p for p, _ in PHASES]
-Phase = Literal["discover", "design", "plan", "develop", "verify", "deliver", "operate"]
+BuiltinPhase = Literal["discover", "design", "plan", "develop", "verify", "deliver", "operate"]
+# a station's column: a built-in phase, an org column or a pack phase (the registry decides)
+Phase = str
 
 
 class HandlerInfo(BaseModel):
     kind: Literal["agent", "check"]
     label: str
-    phase: Phase | None  # None: a custom agent step takes the phase it sits in
+    phase: BuiltinPhase | None  # None: a custom agent step takes the phase it sits in
     hint: str
 
 
@@ -307,6 +329,9 @@ class WorkflowStation(BaseModel):
     owner: str | None = None
     needs: list[str] | None = None
     gives: list[str] | None = None
+    # capabilities a custom station uses (ADR-0039 §3); built-in types fix theirs. Without it a
+    # custom step is observe-only (read-repo); an admin grants more, inside its phase's allows.
+    uses: list[str] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -379,6 +404,12 @@ class WorkflowStation(BaseModel):
         if self.gives is not None:
             return tuple(contract.parse_ref(g) for g in self.gives)
         return (contract.ArtifactRef("report", self.id.replace("_", "-"), 1),)  # observe-only default
+
+    def uses_caps(self) -> frozenset[str]:
+        t = self.station_type()
+        if t:
+            return t.uses
+        return frozenset(self.uses) if self.uses is not None else contract.OBSERVE
 
     def floor_controls(self) -> frozenset[str]:
         t = self.station_type()
@@ -456,6 +487,10 @@ class WorkflowDoc(BaseModel):
     # `branch` itself (scaffolded worktree, or the team repo's clone) and `request` from the
     # product or change text.
     entry: list[str] = Field(default_factory=lambda: list(DEFAULT_ENTRY))
+    # the lane's scope (ADR-0039 §5): the first and last phase it covers, a run of adjacent
+    # phases. Empty: from its first station's phase to its last's. What it doesn't cover arrives
+    # as entry artifacts from the org's own tools, or leaves as outputs.
+    scope: list[str] = Field(default_factory=list)
 
     @field_validator("spec_review", mode="before")
     @classmethod
@@ -496,7 +531,30 @@ class WorkflowDoc(BaseModel):
 
     def columns(self) -> dict[str, str]:
         """Each station's container column (ADR-0037)."""
-        return contract.columns(self.stations)
+        return contract.columns(self.stations, self.scope[0] if self.scope else contract.COLUMN_IDS[0])
+
+    def scope_phases(self, registry: contract.PhaseRegistry = contract.BUILTIN_REGISTRY) -> list[str]:
+        """The phases the lane covers, in order."""
+        ids = registry.ids
+        if self.scope:
+            first, last = self.scope[0], self.scope[-1]
+        else:
+            cols = [c for c in self.columns().values() if c in registry] or [ids[0]]
+            first, last = min(cols, key=ids.index), max(cols, key=ids.index)
+        return ids[ids.index(first) : ids.index(last) + 1]
+
+    def grant(self, station_id: str, registry: contract.PhaseRegistry = contract.BUILTIN_REGISTRY) -> frozenset[str]:
+        """What the engine lets a station do (ADR-0039 §4 layer 3): what it uses, inside what its
+        phase allows. A repair re-entering verify keeps write-code (see `capability_errors`)."""
+        col = self.columns()
+        st = self.station(station_id)
+        phase_id = col[station_id]
+        if phase_id not in registry:
+            return frozenset()
+        granted = contract.narrow(st.uses_caps(), registry.get(phase_id).allows)
+        if "write-code" in st.uses_caps() and contract.reenters_verify(st, col, registry.ids):
+            granted |= {"write-code"}
+        return granted
 
     def entry_refs(self) -> list[contract.ArtifactRef]:
         return [contract.parse_ref(e) for e in self.entry]
@@ -564,6 +622,7 @@ def validate_workflow(
     skills_dir: Path | None = None,
     imported_skills: Collection[str] = (),
     roles: Collection[str] = tuple(contract.BUILTIN_ROLES),
+    phases: contract.PhaseRegistry = contract.BUILTIN_REGISTRY,
 ) -> list[str]:
     """Return blocking problems; an empty list means the workflow is runnable.
     Non-blocking advice comes from `workflow_warnings`."""
@@ -602,7 +661,7 @@ def validate_workflow(
         if s.only_on_fail and not s.next:
             errors.append(f"repair station '{s.id}' needs `next` (where to go after the fix)")
     errors += _reachability(doc)
-    errors += contract_errors(doc, roles)
+    errors += contract_errors(doc, roles, phases)
     for did, d in doc.docs.items():
         if did != d.id:
             errors.append(f"doc key '{did}' does not match its id '{d.id}'")
@@ -634,10 +693,15 @@ def validate_workflow(
     return errors
 
 
-def contract_errors(doc: WorkflowDoc, roles: Collection[str] = tuple(contract.BUILTIN_ROLES)) -> list[str]:
-    """Publish checks of the station contract (ADR-0037): artifact references, container fit
-    (column + data + floor) and role ids. Run after the structural checks; skipped when a
-    reference does not parse, since fit would only repeat it."""
+def contract_errors(
+    doc: WorkflowDoc,
+    roles: Collection[str] = tuple(contract.BUILTIN_ROLES),
+    phases: contract.PhaseRegistry = contract.BUILTIN_REGISTRY,
+) -> list[str]:
+    """Publish checks of the station contract (ADR-0037, ADR-0039): artifact references, phases
+    from the registry, container fit (column + data + floor), capabilities, scope and role ids.
+    Run after the structural checks; skipped when a reference does not parse, since fit would
+    only repeat it."""
     errors: list[str] = []
     for e in doc.entry:
         try:
@@ -646,27 +710,105 @@ def contract_errors(doc: WorkflowDoc, roles: Collection[str] = tuple(contract.BU
             errors.append(f"entry artifact: {exc}")
     for s in doc.stations:
         custom = s.station_type() is None
-        for label, refs in (("needs", s.needs), ("gives", s.gives)):
+        for label, refs in (("needs", s.needs), ("gives", s.gives), ("uses", s.uses)):
             if refs is None:
                 continue
             if not custom:
                 errors.append(f"station '{s.id}': {label} are fixed by its type '{s.type_id()}'; remove them")
                 continue
             for r in refs:
+                if label == "uses":
+                    if problem := contract.capability_problem(r):
+                        errors.append(f"station '{s.id}' uses: {problem}")
+                    continue
                 try:
                     contract.parse_need(r) if label == "needs" else contract.parse_ref(r)
                 except ValueError as exc:
                     errors.append(f"station '{s.id}' {label}: {exc}")
+        if custom and s.phase and contract.column_of_phase(s.phase) not in phases:
+            errors.append(f"station '{s.id}': unknown phase '{s.phase}' (one of {', '.join(phases.ids)})")
         if not custom and s.phase and contract.column_of_phase(s.phase) != s.column():
             errors.append(
                 f"station '{s.id}': its type '{s.type_id()}' sits in {s.column()}, not {s.phase}; remove `phase`"
             )
     errors += _type_errors(doc)
     errors += _lane_errors(doc)
+    errors += [f"scope: {e}" for e in _scope_ref_errors(doc, phases)]
     if errors:
         return errors
-    errors += contract.fit_errors(doc.stations, doc.entry_refs(), doc.columns(), end_is_exit=True)
+    col = doc.columns()
+    errors += contract.fit_errors(doc.stations, doc.entry_refs(), col, end_is_exit=True, order=phases.ids)
+    errors += contract.capability_errors(doc.stations, col, phases)
+    errors += _tool_errors(doc, phases)
+    errors += scope_errors(doc, phases)
     errors += contract.role_errors(doc.stations, roles)
+    return errors
+
+
+def _scope_ref_errors(doc: WorkflowDoc, phases: contract.PhaseRegistry) -> list[str]:
+    if not doc.scope:
+        return []
+    if len(doc.scope) != 2:
+        return ["give the first and the last phase the lane covers, e.g. [develop, verify]"]
+    unknown = [p for p in doc.scope if p not in phases]
+    if unknown:
+        return [f"unknown phase {', '.join(unknown)} (one of {', '.join(phases.ids)})"]
+    if phases.index(doc.scope[0]) > phases.index(doc.scope[1]):
+        return [f"{doc.scope[0]} comes after {doc.scope[1]}: give the first phase first"]
+    return []
+
+
+# what a lane that delivers without developing must start from (ADR-0039 §5)
+DELIVERY_ENTRY = ("report.test", "report.risk")
+
+
+def scope_errors(doc: WorkflowDoc, phases: contract.PhaseRegistry = contract.BUILTIN_REGISTRY) -> list[str]:
+    """A lane covers a run of adjacent phases (ADR-0039 §5): its stations sit inside it; a scope
+    that changes code includes Verify; one that lets a change out without developing it starts
+    from the code (`image` or `branch`) and the evidence the floor would have made (test, risk)."""
+    errors: list[str] = []
+    span = doc.scope_phases(phases)
+    col = doc.columns()
+    for s in doc.stations:
+        if col[s.id] not in span:
+            errors.append(
+                f"station '{s.id}' sits in {phases.title(col[s.id])}, outside the lane's scope "
+                f"({phases.title(span[0])} to {phases.title(span[-1])})"
+            )
+    changes_code = any(g.type == "branch" for s in doc.stations for g in s.gives_refs())
+    if changes_code and "verify" not in span:
+        errors.append("a scope that changes code must include Verify (test, a secret scan and change-risk)")
+    exits = any(g.type in contract.EXITS for s in doc.stations for g in s.gives_refs())
+    if exits and not changes_code:
+        have = {r.key for r in doc.entry_refs()}
+        missing = [k for k in DELIVERY_ENTRY if k not in have]
+        if not have & {"image", "branch"}:
+            missing.insert(0, "image or branch")
+        if missing:
+            errors.append(
+                f"a lane that delivers without developing must start from {', '.join(missing)} "
+                f"(entry artifacts from your own tools), so nothing leaves without the controls' evidence"
+            )
+    return errors
+
+
+def _tool_errors(doc: WorkflowDoc, phases: contract.PhaseRegistry) -> list[str]:
+    """An agent station's agent may use only the tools its station is granted: publish refuses
+    the rest instead of letting the engine drop them silently at runtime."""
+    errors = []
+    for s in doc.stations:
+        if not s.agent or s.agent not in doc.agents:
+            continue
+        grant = doc.grant(s.id, phases)
+        _, denied = tools_within(doc.agents[s.agent].effective_tools(), grant)
+        if denied:
+            needs = sorted({c for t in denied for c in TOOL_NEEDS[t]})
+            errors.append(
+                f"station '{s.id}': agent '{s.agent}' can use {', '.join(denied)}, but the station is granted "
+                f"only {', '.join(sorted(grant)) or 'nothing'} (it would need {' or '.join(needs)}"
+                + (" in `uses`" if s.station_type() is None else "")
+                + ")"
+            )
     return errors
 
 
@@ -878,6 +1020,8 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
     }
     if list(doc.entry) != list(DEFAULT_ENTRY):
         data["entry"] = list(doc.entry)
+    if doc.scope:
+        data["scope"] = list(doc.scope)
     if doc.eval_gate != "off":
         data["eval_gate"] = doc.eval_gate
     if doc.skill_pins:

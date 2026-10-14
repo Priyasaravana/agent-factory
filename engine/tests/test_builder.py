@@ -32,7 +32,13 @@ async def test_add_custom_station_publish_and_run(make_factory):
     d.upsert_agent(_reviewer())
     product = [s.id for s in d.get()[1].stations]
     d.add_station(
-        WorkflowStation(id="security-review", kind="agent", agent="security-reviewer", on_fail="implement"),
+        WorkflowStation(
+            id="security-review",
+            kind="agent",
+            agent="security-reviewer",
+            on_fail="implement",
+            uses=["read-repo", "run-sandbox"],
+        ),
         position=product.index("implement") + 1,
     )
     ids = [s.id for s in d.get()[1].stations]
@@ -73,6 +79,9 @@ async def test_agent_station_without_agent_blocks_publish(make_factory):
     with pytest.raises(WorkflowError):
         d.publish("incomplete")
     d.update_station("second-look", {"agent": "verifier"})
+    # the verifier runs commands: a custom step gets that only when granted (ADR-0039 §3)
+    assert any("granted only read-repo" in p for p in d.problems())
+    d.update_station("second-look", {"uses": ["read-repo", "run-sandbox"]})
     assert d.problems() == []
 
 

@@ -10,7 +10,7 @@ import re
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agent_factory import ledger
 from agent_factory.agents.runner import AgentRunner
@@ -337,9 +337,11 @@ class ChangeManager:
         kind: ChangeKind | None = None,
         source: ChangeSource = ChangeSource.ui,
         requested_by: str | None = None,
+        provided: dict[str, dict[str, Any]] | None = None,
     ) -> Change:
         """Start a change to a product (ADR-0030). The kind defaults to `new` for the
-        first change and `feature` after it; the requester to the signed-in user."""
+        first change and `feature` after it; the requester to the signed-in user. `provided`:
+        entry artifacts from the org's own tools, by key (ADR-0039 §5)."""
         from agent_factory.identity import current_identity
 
         if product.archived_at:
@@ -368,6 +370,12 @@ class ChangeManager:
         plan = flow.plan()
         if not plan.stations:
             raise InvalidRequestError(f"workflow '{wid}' runs no station")
+        wanted = {r.key for r in flow.entry_refs()} - handoff.ENGINE_ENTRY
+        if unwanted := sorted(set(provided or {}) - wanted):
+            raise InvalidRequestError(
+                f"this lane doesn't start from {', '.join(unwanted)}"
+                + (f" (it takes {', '.join(sorted(wanted))})" if wanted else "")
+            )
         change = Change(
             id=uuid.uuid4().hex[:12],
             product_id=product.id,
@@ -380,6 +388,7 @@ class ChangeManager:
             kind=kind,
             source=source,
             requested_by=requested_by or current_identity().user,
+            provided=dict(provided or {}),
             created_at=now,
             updated_at=now,
         )
@@ -575,7 +584,12 @@ class ChangeManager:
         return change
 
     def feedback(
-        self, product_id: str, text: str, kind: ChangeKind = ChangeKind.feature, items: list[str] | None = None
+        self,
+        product_id: str,
+        text: str,
+        kind: ChangeKind = ChangeKind.feature,
+        items: list[str] | None = None,
+        provided: dict[str, dict[str, Any]] | None = None,
     ) -> Change:
         """A change to a delivered product (ADR-0030): a feature, a bug fix or upkeep; an
         existing repo is assessed again (ADR-0031). `items` are work items from the product's
@@ -609,7 +623,7 @@ class ChangeManager:
             chosen = [i for i in ledger_items if i.id in set(items)]
             text = ledger.request_text(text, chosen)
         self.store.add_feedback(product_id, latest.id if latest else None, text)
-        change = self.start_change(product, change_request=text, kind=kind)
+        change = self.start_change(product, change_request=text, kind=kind, provided=provided)
         self.store.add_event(change.id, EventKind.feedback, text, data={"kind": kind, "work_items": list(items or [])})
         if chosen:
             claimed = ledger.claim(
@@ -879,6 +893,7 @@ class ChangeManager:
             if self.sandbox is not None:
                 ctx.untrusted_ex = self.sandbox.executor(change.id, sid)
             ctx.secrets = self.secrets
+            ctx.grant = flow.grant(sid, self.workflows.phases)  # the capability boundary (ADR-0039 §4)
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
                 ctx.imported_plugin = self.workflows.library.materialise(ctx.skill_pins)

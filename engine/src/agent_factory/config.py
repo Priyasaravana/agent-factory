@@ -306,6 +306,25 @@ class ModelGatewayConfig(BaseModel):
         return v
 
 
+class OrgColumn(BaseModel):
+    """An org column between built-in phases (ADR-0039 §2): look-and-decide only."""
+
+    id: str
+    title: str = Field(min_length=2, max_length=60)
+    after: str  # the built-in phase it follows
+    allows: list[str] = Field(default_factory=lambda: ["read-repo"])
+    gives: list[str] = Field(default_factory=lambda: ["report"])
+
+
+class PhasesConfig(BaseModel):
+    """The org's phase registry (ADR-0039 §2): the seven built-ins always, plus look-and-decide
+    columns an admin adds, plus the phases of packs an admin installed (appended after operate)."""
+
+    columns: list[OrgColumn] = Field(default_factory=list)
+    # pack folders (each with a pack.yaml), relative to the factory home, e.g. packs/ops-pack
+    packs: list[str] = Field(default_factory=list)
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -348,6 +367,7 @@ class FactoryConfig(BaseModel):
         }
     )
     use_factory_defaults: bool = False
+    phases: PhasesConfig = PhasesConfig()
 
     @field_validator("roles")
     @classmethod

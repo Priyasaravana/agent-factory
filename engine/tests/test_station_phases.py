@@ -60,7 +60,8 @@ def test_a_custom_step_sits_in_the_phase_before_it_unless_it_says_otherwise() ->
     doc = load_workflow_dir(DEFAULT)
     ids = [s.id for s in doc.stations]
     doc.stations.insert(
-        ids.index("implement") + 1, WorkflowStation(id="security-review", kind="agent", agent="reviewer")
+        ids.index("implement") + 1,
+        WorkflowStation(id="security-review", kind="agent", agent="reviewer", uses=["read-repo", "run-sandbox"]),
     )
     doc.stations.insert(0, WorkflowStation(id="triage", kind="agent", agent="intake"))
     phases = doc.phases()
@@ -77,8 +78,10 @@ def test_a_custom_step_sits_in_the_phase_before_it_unless_it_says_otherwise() ->
 
 
 def test_an_unknown_phase_is_rejected() -> None:
-    with pytest.raises(ValueError, match="phase"):
-        WorkflowStation(id="x", kind="agent", agent="a", phase="staging")  # type: ignore[arg-type]
+    """Phases come from the registry (ADR-0039 §2), so publish names the unknown one."""
+    doc = load_workflow_dir(DEFAULT)
+    doc.stations.insert(0, WorkflowStation(id="x", kind="agent", agent="intake", phase="staging"))
+    assert any("unknown phase 'staging'" in e for e in validate_workflow(doc, SKILLS, default_skill_names()))
 
 
 async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:

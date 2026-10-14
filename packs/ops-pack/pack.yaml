@@ -1,0 +1,11 @@
+# Example pack (ADR-0039 §2): a phase after operate that may roll an environment back. Packs may
+# allow write and deploy capabilities that org columns can't, so only an admin installs one, after
+# reviewing it: list it under `phases.packs` in the config (packs/ops-pack).
+id: ops-pack
+version: 1.0.0
+title: Operations pack
+phases:
+  - id: observe-act
+    title: Observe & act
+    allows: [read-repo, read-metrics, read-logs, open-incident, "rollback:*"]
+    gives: [report]

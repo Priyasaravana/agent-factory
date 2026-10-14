@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from agent_factory import contract as station_contract
 from agent_factory import evidence
 from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
@@ -117,7 +118,6 @@ from agent_factory.workflow import (
     MAX_DOC_CHARS,
     MAX_LEARNINGS_CHARS,
     OBSERVE_ONLY_PRESETS,
-    PHASES,
     SAFE_EXTRA_TOOLS,
     TOOL_PRESETS,
     AgentSpec,
@@ -395,7 +395,7 @@ async def submit_feedback(f: Factory, product_id: str, body: FeedbackInput) -> C
     product = f.store.get_product(product_id)
     if product:
         await _gate(f, product.blueprint, "change")
-    return f.manager.feedback(product_id, body.text, body.kind, body.items)
+    return f.manager.feedback(product_id, body.text, body.kind, body.items, body.provided)
 
 
 # ------------------------------------------------------ product work ledger --
@@ -1296,7 +1296,11 @@ def get_catalog(f: Factory) -> CatalogView:
         skills=list_skills(f),
         handlers={"agent": sorted(AGENT_HANDLERS), "check": sorted(CHECK_HANDLERS)},
         handler_info=HANDLER_INFO,
-        phases=[PhaseInfo(id=p, label=label) for p, label in PHASES],
+        phases=[
+            PhaseInfo(id=p.id, label=p.title, allows=sorted(p.allows), gives=sorted(p.gives), source=p.source)
+            for p in f.workflows.phases.phases
+        ],
+        capabilities=dict(station_contract.CAPABILITIES),
         requirements={k: dict(v) for k, v in HANDLER_REQUIREMENTS.items()},
         max_previous_iterations=5,
         max_doc_chars=MAX_DOC_CHARS,

@@ -161,4 +161,11 @@
   built-in handler gets a type and a collector, with a test in `tests/test_station_contract.py`.
   A station's handler follows its lane's `works_on` (`handler_for`); publish refuses a station
   without one, so a run shows only its lane's stations (`WorkflowDoc.plan`).
+- Phases and capabilities (ADR-0039 §2–§5): columns come from the phase registry
+  (`contract.PhaseRegistry`: the seven built-ins, org look-and-decide columns from `phases.columns`,
+  pack phases from `phases.packs`). Each station uses capabilities inside its phase's `allows`
+  (`contract.capability_errors`); a new built-in type declares `uses`. At runtime a station gets only
+  its grant (`WorkflowDoc.grant`): agent tools through `ctx.agent`, credentials through
+  `ctx.secret(ref, purpose, capability)`. A new credential use names the capability it serves; never
+  call `ctx.secret` without one inside a station. Tests in `tests/test_phases.py`.
 - Record significant decisions as ADRs in `docs/adr/`.

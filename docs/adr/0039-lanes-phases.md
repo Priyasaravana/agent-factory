@@ -108,7 +108,7 @@ data, floor), roles and owners, org-level workflows (1b-2), fresh start (data ge
 - Promotion needs per-environment credentials: build it after the secret store (ADR-0038).
 - Build (estimates):
   - **1b-3a** lanes replace windows; standard as 4 lanes; product assignments with factory-default fallback; copy, back to factory default; run view by lane — done
-  - **1b-3b** phase registry + capability boundary (publish and runtime); org look-and-decide columns; scope + entry artifacts — ~1.5 days
+  - **1b-3b** phase registry + capability boundary (publish and runtime); org look-and-decide columns; scope + entry artifacts — done (station templates from packs move to 1c, with the builder that offers them)
   - **1c** builder: dotted phase boxes with per-phase templates, drop-time checks, empty/copy, phase-scoped presets, product associations — ~3 days
   - **1d** lane rebase from the standard — ~1 day
   - **promotion** environment track, gates, per-env capabilities — ~3 days, after ADR-0038
@@ -122,7 +122,34 @@ data, floor), roles and owners, org-level workflows (1b-2), fresh start (data ge
 4. Factory default is always available: edits are new versions, "back to factory default" restores the
    shipped lane; copies become org workflows; fall back per product or org-wide at any time (2026-10-12).
 
-## Open questions (for 1b-3b and promotion)
-1. Capability enforcement in 1b-3: tool presets and credentials only (proposed), or also network egress per phase?
-2. Promotion on the local setup: dev only until the cluster target is live, or simulate staging/prod namespaces in kind?
-3. Who may add phases and station templates: admins only (proposed), or also packs installed by an admin?
+5. Capability enforcement (1b-3b): tools and credentials. A station is granted what it uses inside
+   what its phase allows; an agent gets only the tools that grant covers, and a credential reaches it
+   only when it serves a granted capability. Anything undeclared is denied and recorded. Network
+   egress per phase is not part of it (2026-10-14).
+6. Who adds phases: admins add look-and-decide columns in the config; phases that may write or deploy
+   come only from packs an admin installs after review (2026-10-14).
+
+## How 1b-3b builds it
+- `contract.py` (pure): `CAPABILITIES` (`deploy:<env>` and `rollback:<env>` name an environment;
+  `deploy:*` covers any), `Phase`, `BUILTIN_PHASES`, `PhaseRegistry` (built-ins, org columns after
+  the built-in they name, pack phases appended), `org_column_errors`, and `capability_errors` (rule 4:
+  uses and gives inside the column). Every built-in station type declares `uses`. The one exception is
+  a repair that re-enters verify: it may write code from a later column, since the controls run again.
+- Config: `phases: {columns: [{id, title, after, allows, gives}], packs: [packs/<name>]}`; a pack
+  is a folder with `pack.yaml` (`phases.py`); `packs/ops-pack` is the example (Observe & act, rollback).
+- Publish (`workflow.contract_errors`): custom stations may sit in any registry phase, declare `uses`
+  (default read-repo), and their agent's tools must fit the grant (`_tool_errors`). Lane `scope:
+  [first, last]` (default: the span of its stations): stations inside it; a scope that changes code
+  includes Verify; a lane that delivers without developing starts from `image` or `branch` plus
+  `report.test` and `report.risk`.
+- Runtime: the pipeline sets `StationContext.grant = flow.grant(station)`. `ctx.agent` drops tools
+  outside it and runs observe-only without a write capability; `ctx.secret(ref, purpose, capability)`
+  denies a credential that serves no granted capability (registry push → push-image, kubeconfig and
+  pull secret → deploy:<env>, PR/publish token → open-pr, scanner tokens → run-scanners).
+- Entry artifacts other than `request` and `branch` are provided with the change (`provided`, by key)
+  from the org's own tools: schema-checked, recorded as "provided by" the requester and sealed. A
+  provided `report.risk` with holds still waiting is refused.
+- The catalog API lists the registry (allows, gives, source) and the capabilities, for the builder (1c).
+
+## Open questions (for promotion)
+1. Promotion on the local setup: dev only until the cluster target is live, or simulate staging/prod namespaces in kind?

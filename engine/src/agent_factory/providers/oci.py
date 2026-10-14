@@ -95,7 +95,7 @@ class OciRegistryProvider:
         env: dict[str, str] = {}
         logged_in = False
         if self._ref and self.username:
-            password = ctx.secret(self._ref, f"push to {self.host}")
+            password = ctx.secret(self._ref, f"push to {self.host}", "push-image")
             if password is None:
                 return StepResult(False, f"push failed: credential {self._ref} not available")
             env, logged_in = {PASSWORD_ENV: password}, True

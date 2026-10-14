@@ -139,6 +139,9 @@ class Change(BaseModel):
     loops: int = 0
     change_request: str | None = None  # what was asked for this iteration (feedback, bug report, upkeep)
     work_items: list[str] = Field(default_factory=list)  # ledger items it addresses (ADR-0040)
+    # entry artifacts from the org's own tools (ADR-0039 §5), by key (`report.test`): a lane that
+    # starts after the phases that would make them; schema-checked and sealed like any artifact
+    provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     last_failure: str | None = None  # evidence handed to the repair station
     questions: list[str] = Field(default_factory=list)
@@ -713,6 +716,9 @@ class FeedbackInput(BaseModel):
     # work items this change addresses (ADR-0040): they move to "in progress" and are verified
     # by the next assessment
     items: list[str] = Field(default_factory=list, max_length=50)
+    # entry artifacts from your own tools, by key (`report.test`, `image`), for a lane whose scope
+    # starts after the phases that make them (ADR-0039 §5)
+    provided: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=10)
 
 
 class RiskDecisionInput(BaseModel):
@@ -991,8 +997,13 @@ class SkillDetail(BaseModel):
 
 
 class PhaseInfo(BaseModel):
+    """One column of the phase registry (ADR-0039 §2)."""
+
     id: str
     label: str
+    allows: list[str] = Field(default_factory=list)  # capabilities a station here may use
+    gives: list[str] = Field(default_factory=list)  # artifact types a station here may give
+    source: str = "built-in"  # built-in | org | <pack>@<version>
 
 
 class CatalogView(BaseModel):
@@ -1003,7 +1014,8 @@ class CatalogView(BaseModel):
     skills: list[SkillInfo]
     handlers: dict[str, list[str]]
     handler_info: dict[str, HandlerInfo] = Field(default_factory=dict)  # label, phase, hint (ADR-0028)
-    phases: list[PhaseInfo] = Field(default_factory=list)  # the DevOps loop, in run order
+    phases: list[PhaseInfo] = Field(default_factory=list)  # the phase registry, in run order (ADR-0039)
+    capabilities: dict[str, str] = Field(default_factory=dict)  # what a station may do, id -> meaning
     requirements: dict[str, dict[str, bool]]  # handler -> {write, shell} needs
     max_previous_iterations: int
     max_doc_chars: int
@@ -1031,6 +1043,8 @@ class AddStationInput(BaseModel):
     provider: Literal["local", "github", "snyk", "agent"] | None = None
     tool: str | None = None  # a specific catalogue tool (ADR-0034)
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
+    # custom steps only: capabilities beyond observe (read-repo), inside the phase (ADR-0039 §3)
+    uses: list[str] | None = None
     position: int | None = None  # index in the lane; end when omitted
 
 
@@ -1047,6 +1061,7 @@ class UpdateStationInput(BaseModel):
     provider: Literal["local", "github", "snyk", "agent"] | None = None
     tool: str | None = None  # a specific catalogue tool (ADR-0034)
     fail_on: Literal["critical", "high", "medium", "low", "none"] | None = None
+    uses: list[str] | None = None  # custom steps only (ADR-0039 §3)
 
 
 class ReorderStationsInput(BaseModel):

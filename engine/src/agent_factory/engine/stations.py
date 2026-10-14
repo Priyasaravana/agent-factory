@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from agent_factory import assess, checks, repo_change, risk, rollup, stack, tools, traceability
+from agent_factory import assess, checks, contract, repo_change, risk, rollup, stack, tools, traceability
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
@@ -31,7 +31,7 @@ from agent_factory.review import REVIEW_SCHEMA, judge
 from agent_factory.secret_refs import SecretError, SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
-from agent_factory.workflow import AgentSpec, WorkflowDoc, target_of
+from agent_factory.workflow import AgentSpec, WorkflowDoc, target_of, tools_within
 
 
 @dataclass
@@ -70,6 +70,9 @@ class StationContext:
     # where untrusted commands (the generated app's own build/tests) run: a sandbox
     # executor in live mode; None = the engine's executor (dry-run, tests, dev)
     untrusted_ex: Executor | None = None
+    # what this station may do (ADR-0039 §4 layer 3): its uses inside its phase's allows. None:
+    # an engine step outside any station (archive, readiness), which the station boundary doesn't cover
+    grant: frozenset[str] | None = None
 
     @property
     def blueprint(self) -> Blueprint:
@@ -85,9 +88,22 @@ class StationContext:
         """The agent spec bound to this station (agent stations only)."""
         return self.workflow_doc.agent_for(self.station_id)
 
-    def secret(self, ref: str, purpose: str) -> str | None:
+    def secret(self, ref: str, purpose: str, capability: str | None = None) -> str | None:
         """Resolve a secret reference for one step. The value is returned, never
-        logged (the store masks it); the audit trail records only the reference."""
+        logged (the store masks it); the audit trail records only the reference.
+        Inside a station the credential must serve a capability the station is granted; anything
+        undeclared is denied (ADR-0039 §4), and the denial is recorded."""
+        if self.grant is not None and (capability is None or not contract.grants(self.grant, capability)):
+            why = f"needs {capability}" if capability else "serves no declared capability"
+            self.store.add_event(
+                self.change.id,
+                EventKind.decision,
+                f"denied secret {ref} for {purpose}: it {why}, and station '{self.station_id}' is granted "
+                f"{', '.join(sorted(self.grant)) or 'nothing'}",
+                station=self.station_id,
+                data={"secret_ref": ref, "purpose": purpose, "denied": capability or "undeclared"},
+            )
+            return None
         try:
             value = self.secrets.resolve(ref)
         except SecretError as exc:
@@ -145,6 +161,16 @@ class StationContext:
             else:
                 await self.emit(EventKind.log, kind, data)
 
+        allowed, denied = spec.effective_tools(), list[str]()
+        if self.grant is not None:  # only the tools the station is granted (publish refuses the rest)
+            allowed, denied = tools_within(allowed, self.grant)
+        if denied:
+            await self.emit(
+                EventKind.decision,
+                f"denied tools {', '.join(denied)} to agent '{spec.id}': not granted to station '{self.station_id}'",
+                {"denied_tools": denied, "grant": sorted(self.grant or ())},
+            )
+        writes = self.grant is None or bool(self.grant & contract.WRITES)
         on_demand = [k for k in spec.skills if k not in spec.preload_skills]
         if spec.preload_skills:
             await self.emit(
@@ -158,8 +184,8 @@ class StationContext:
             cwd=self.worktree,
             model=self.cfg.models.resolve(spec.model),
             system_prompt=compose_system_prompt(self, spec),
-            tools=spec.effective_tools(),
-            observe_only=spec.observe_only,
+            tools=allowed,
+            observe_only=spec.observe_only or not writes,
             produces=spec.produces,
             max_turns=spec.max_turns,
             skills=[k for k in on_demand if k not in self.skill_pins],
@@ -1387,7 +1413,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
         )
         return StationResult(StationOutcome.passed, f"pull request simulated (dry-run): {branch} → {base}")
     token_ref = ctx.cfg.existing_repos.write_token_ref or ""
-    token = ctx.secret(token_ref, "pull request") if token_ref else None
+    token = ctx.secret(token_ref, "pull request", "open-pr") if token_ref else None
     if not token:
         return StationResult(
             StationOutcome.held,
@@ -1524,7 +1550,7 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
     env: dict[str, str] = {}
     if tool.credential_env:
         token_ref = ctx.cfg.checks.token_ref(tool.provider)
-        token = ctx.secret(token_ref, f"{title} ({tool.title})") if token_ref else None
+        token = ctx.secret(token_ref, f"{title} ({tool.title})", "run-scanners") if token_ref else None
         if not token:
             return f"no token: set {token_ref or f'checks.{tool.provider}_token_ref'}"
         env[tool.credential_env] = token

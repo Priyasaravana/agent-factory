@@ -78,6 +78,7 @@ def _secure(tmp_path: Path) -> Path:
         at,
         WorkflowStation(
             id="security-review", type="agent", agent="security-reviewer", on_fail="implement",
+            uses=["read-repo", "run-sandbox"],
         ),
     )  # fmt: skip
     out = tmp_path / "secure"
