@@ -2,6 +2,13 @@
 
 - Engine: `engine/` (Python 3.12, uv). Tests are the contract: `make test`.
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
+- Run checks quietly (`scripts/check`, see its header): output goes to `.cache/check/<step>.log`
+  and you get one line per step plus only the failures. While developing, run
+  `scripts/check changed` (tests touched by the branch) or `scripts/check test <files> -k <name>`;
+  before a commit or PR, `scripts/check all` (= `make verify`, the same checks as CI). Read a
+  log only when a step fails, and rerun a single failing test with `--tb=long` rather than
+  reading the whole log. mypy is judged against `engine/.mypy-baseline.txt`: never add to it to
+  hide a new error; re-record it only after fixing known ones.
 - If you change `models.py` or `actions.py`, run `make openapi` and commit
   `web/openapi.json` and `web/src/api/schema.d.ts` together (CI checks drift).
 - Workflows (stations + agent specs + reference docs) are data and belong to the org, not a

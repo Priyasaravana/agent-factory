@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -81,3 +81,20 @@ web-build:
 	cd web && npm ci && npm run build
 
 check: lint test web-build ## everything CI runs
+
+# Quiet variants (scripts/check): full output goes to .cache/check/<step>.log, the terminal
+# gets one line per step and only the failing part. Same checks, far less output for agents.
+verify: ## quiet gate before a PR: lint, format, mypy (new errors), engine + auth tests, openapi drift, web build
+	@scripts/check all
+
+test-changed: ## quiet: only the engine tests touched by this branch (fast dev loop)
+	@scripts/check changed
+
+test-quiet: ## quiet: full engine test suite (ARGS="tests/test_x.py -k name" to narrow)
+	@scripts/check test $(ARGS)
+
+mypy-new: ## mypy, reporting only errors not in engine/.mypy-baseline.txt
+	@scripts/check mypy
+
+mypy-baseline: ## re-record the mypy baseline (after fixing known errors, never to hide new ones)
+	@scripts/check mypy-baseline
