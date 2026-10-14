@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Node.js for existing repos' own checks (npm test, ADR-0033), taken from the official image.
-FROM node:22-bookworm-slim AS node
+FROM node:26-bookworm-slim AS node
 
 # Agent sandbox image (ADR-0014). Built by the engine INSIDE dind on first start
 # (agent_factory.sandbox.SandboxManager), from a context it assembles:
