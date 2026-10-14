@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# Quiet checks: full output goes to a log file, the terminal gets one line per step
+# and, on failure, only the failing part. Built to keep Claude/agent sessions small
+# without running fewer checks: `all` runs exactly what CI's engine/auth/web jobs run.
+#
+#   scripts/check all              lint, format, mypy (new errors only), engine + auth tests,
+#                                  OpenAPI drift, web build — the gate before a patch/PR
+#   scripts/check changed          engine tests touched by this branch (fast dev loop)
+#   scripts/check test [ARGS]      engine pytest; ARGS go to pytest (files, -k, --lf, ...)
+#   scripts/check auth             auth lint + tests
+#   scripts/check lint             ruff check + ruff format --check (engine and auth)
+#   scripts/check mypy             mypy, showing only errors not in engine/.mypy-baseline.txt
+#   scripts/check mypy-baseline    re-record the baseline (only after fixing old errors)
+#   scripts/check openapi          web/openapi.json matches the engine
+#   scripts/check web              npm run build (tsc + vite)
+#   scripts/check bg CMD [ARGS]    run CMD in the background (e.g. `bg all`); poll with `status`
+#   scripts/check status           per-step exit codes (RUNNING while busy); the summary once done
+#   scripts/check log NAME         print the full log of step NAME
+#
+# Logs:   .cache/check/<step>.log   exit codes: .cache/check/<step>.rc (RUNNING while busy)
+# Env:    BASE=<ref> for `changed` (default origin/main), TAIL=<n> lines shown on failure (60)
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/.cache/check"
+TAIL="${TAIL:-60}"
+mkdir -p "$OUT"
+export UV_NO_PROGRESS=1 NO_COLOR=1 PY_COLORS=0 LC_ALL=C
+# pytest's cache lives with the logs so --lf / --ff work without writing in the repo
+PYTEST=(uv run -q --extra dev pytest -q --no-header -o "cache_dir=$OUT/pytest-cache" -rfE --tb=short)
+
+status=0
+
+# run NAME DIR CMD...  → log to $OUT/NAME.log, rc to $OUT/NAME.rc, print one line
+run() {
+  local name="$1" dir="$2"; shift 2
+  local log="$OUT/$name.log" start rc
+  start=$(date +%s)
+  echo RUNNING > "$OUT/$name.rc"
+  (cd "$ROOT/$dir" && "$@") > "$log" 2>&1
+  rc=$?
+  echo "$rc" > "$OUT/$name.rc"
+  LAST_SECS=$(( $(date +%s) - start ))
+  LAST_RC=$rc
+  [ "$rc" -ne 0 ] && status=1
+  return "$rc"
+}
+
+ok()   { printf 'ok    %-9s %4ss  %s\n' "$1" "$LAST_SECS" "$2"; }
+fail() { printf 'FAIL  %-9s %4ss  %s  (full log: .cache/check/%s.log)\n' "$1" "$LAST_SECS" "$2" "$1"; }
+
+# the last non-empty line of a log (pytest's "N passed in Xs" line)
+summary() { grep -v '^[[:space:]]*$' "$OUT/$1.log" | tail -n 1; }
+
+# pytest failure view: the FAILED/ERROR list plus the short tracebacks, capped
+pytest_failure() {
+  local log="$OUT/$1.log"
+  grep -E '^(FAILED|ERROR) ' "$log" | head -n 30
+  echo "---- first failures (short tracebacks; rerun one with: scripts/check test 'path::test' --tb=long) ----"
+  awk '/^=+ (FAILURES|ERRORS) =+$/{on=1} /^=+ short test summary/{on=0} on' "$log" | head -n "$TAIL"
+  # collection/usage errors have no FAILURES section
+  grep -qE '^=+ (FAILURES|ERRORS) =+' "$log" || tail -n "$TAIL" "$log"
+}
+
+step_test() {  # engine pytest; extra args pass through
+  local name="${STEP_NAME:-test}" before=$status
+  if run "$name" engine "${PYTEST[@]}" "$@"; then
+    ok "$name" "$(summary "$name")"
+  elif [ "$LAST_RC" -eq 5 ]; then
+    status=$before; echo 0 > "$OUT/$name.rc"; ok "$name" "no tests selected"
+  else
+    fail "$name" "$(summary "$name")"; pytest_failure "$name"
+  fi
+}
+
+step_auth() {
+  if run auth auth sh -c 'uv run -q --extra dev ruff check --quiet --output-format=concise src tests && uv run -q --extra dev pytest -q --no-header -p no:cacheprovider -rfE --tb=short'; then
+    ok auth "$(summary auth)"
+  else
+    fail auth "$(summary auth)"; pytest_failure auth
+  fi
+}
+
+step_lint() {
+  if run lint . sh -c '
+      cd engine && uv run -q --extra dev ruff check --quiet --output-format=concise src tests &&
+      uv run -q --extra dev ruff format --check --quiet src tests &&
+      cd ../auth && uv run -q --extra dev ruff check --quiet --output-format=concise src tests'; then
+    ok lint "ruff check + format clean"
+  else
+    fail lint "ruff (fix: cd engine && uv run ruff check --fix src tests && uv run ruff format src tests)"
+    head -n "$TAIL" "$OUT/lint.log"
+  fi
+}
+
+# mypy errors without line numbers, so moving code doesn't count as a new error
+mypy_norm() { grep -E '^[^ ]+:[0-9]+: error:' | sed -E 's/^([^:]+):[0-9]+: /\1: /' | sort; }
+
+step_mypy() {
+  local base="$ROOT/engine/.mypy-baseline.txt" before=$status
+  run mypy engine uv run -q --extra dev mypy src
+  status=$before  # mypy's own exit code includes the known errors; judged below
+  mypy_norm < "$OUT/mypy.log" > "$OUT/mypy.now"
+  if [ ! -f "$base" ]; then
+    status=1; fail mypy "no baseline: run scripts/check mypy-baseline once on main"; return
+  fi
+  local new fixed
+  new=$(comm -13 "$base" "$OUT/mypy.now")
+  fixed=$(comm -23 "$base" "$OUT/mypy.now" | grep -c . || true)
+  if grep -q 'error: ' <<<"$new"; then
+    status=1; echo 1 > "$OUT/mypy.rc"
+    fail mypy "$(grep -c . <<<"$new") new error(s) vs baseline"
+    # show the new ones with their line numbers from the real output
+    while IFS= read -r line; do
+      local file="${line%%: error: *}" msg="${line#*: error: }"
+      grep -F "$file:" "$OUT/mypy.log" | grep -F -- "error: $msg" | head -n 1
+    done <<<"$new" | head -n "$TAIL"
+  else
+    echo 0 > "$OUT/mypy.rc"
+    local note=""; [ "$fixed" -gt 0 ] && note=", $fixed fixed — run mypy-baseline to lock that in"
+    ok mypy "no new errors ($(grep -c . "$OUT/mypy.now") known, in baseline$note)"
+  fi
+}
+
+step_mypy_baseline() {
+  local before=$status
+  run mypy engine uv run -q --extra dev mypy src
+  mypy_norm < "$OUT/mypy.log" > "$ROOT/engine/.mypy-baseline.txt"
+  status=$before
+  echo "baseline: $(grep -c . "$ROOT/engine/.mypy-baseline.txt") errors → engine/.mypy-baseline.txt"
+}
+
+step_openapi() {
+  if run openapi engine sh -c "uv run -q agent-factory openapi --out '$OUT/openapi.json' && diff -u ../web/openapi.json '$OUT/openapi.json'"; then
+    ok openapi "web/openapi.json up to date"
+  else
+    fail openapi "drift (fix: make openapi, then npm run build)"
+    head -n "$TAIL" "$OUT/openapi.log"
+  fi
+}
+
+step_web() {
+  if [ ! -d "$ROOT/web/node_modules" ]; then
+    run web-deps web npm ci --no-audit --no-fund --loglevel=error || { fail web-deps "npm ci"; tail -n "$TAIL" "$OUT/web-deps.log"; return; }
+  fi
+  if run web web sh -c 'npm run --silent gen:api && git diff --exit-code --stat src/api/schema.d.ts && npm run --silent build'; then
+    ok web "gen:api unchanged, tsc + vite build"
+  else
+    fail web "web build"
+    { grep -E 'error TS|ERROR|error:' "$OUT/web.log" || tail -n "$TAIL" "$OUT/web.log"; } | head -n "$TAIL"
+  fi
+}
+
+# engine tests for files changed on this branch (committed + uncommitted + untracked)
+changed_tests() {
+  local base="${BASE:-origin/main}" files f stem
+  files=$(cd "$ROOT" && { git diff --name-only "$base"...HEAD 2>/dev/null; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u)
+  for f in $files; do
+    case "$f" in
+      engine/tests/conftest.py|engine/pyproject.toml|engine/uv.lock) echo ALL; return ;;
+      engine/tests/test_*.py) [ -f "$ROOT/$f" ] && echo "${f#engine/}" ;;
+      engine/src/agent_factory/*.py)
+        stem=$(basename "$f" .py); [ "$stem" = "__init__" ] && stem=$(basename "$(dirname "$f")")
+        # tests named after the module, and tests that import it
+        ls "$ROOT"/engine/tests/test_"$stem"*.py 2>/dev/null | sed "s#^$ROOT/engine/##"
+        (cd "$ROOT/engine" && grep -lE "^[[:space:]]*(from|import)[[:space:]].*([^A-Za-z0-9_]|^)$stem([^A-Za-z0-9_]|$)" tests/test_*.py 2>/dev/null) ;;
+      engine/src/agent_factory/*|workflow-templates/*|plugin/skills/*|docs/requirements.yaml) echo "SRC:$f" ;;
+    esac
+  done | sort -u
+}
+
+step_changed() {
+  local sel tests other
+  sel=$(changed_tests)
+  if grep -qx ALL <<<"$sel"; then echo "test config changed → full suite"; STEP_NAME=changed step_test; return; fi
+  tests=$(grep -v '^SRC:' <<<"$sel" | tr '\n' ' ')
+  other=$(grep -c '^SRC:' <<<"$sel" || true)
+  [ "$other" -gt 0 ] && echo "note: $other changed non-Python file(s) (templates/schemas/skills) have no direct test mapping — run 'scripts/check all' before the patch"
+  if [ -z "${tests// /}" ]; then echo "no engine tests map to the changes (run 'scripts/check all' before the patch)"; return; fi
+  echo "selected: $tests"
+  # shellcheck disable=SC2086
+  STEP_NAME=changed step_test $tests "$@"
+}
+
+step_status() {
+  local f n
+  if [ -f "$OUT/bg.out" ]; then
+    if grep -qE '^(ALL OK|SOME CHECKS FAILED|DONE rc=)' "$OUT/bg.out"; then cat "$OUT/bg.out"; return; fi
+    echo "running: $(cat "$OUT/bg.cmd" 2>/dev/null)"
+  fi
+  for f in "$OUT"/*.rc; do
+    [ -e "$f" ] || { echo "no runs yet"; return; }
+    n=$(basename "$f" .rc)
+    printf '%-9s %s\n' "$n" "$(cat "$f")"
+  done
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  all)
+    rm -f "$OUT"/*.rc
+    step_lint; step_mypy; step_test; step_auth; step_openapi; step_web
+    [ "$status" -eq 0 ] && echo "ALL OK" || echo "SOME CHECKS FAILED" ;;
+  changed)  step_changed "$@" ;;
+  test)     step_test "$@" ;;
+  auth)     step_auth ;;
+  lint)     step_lint ;;
+  mypy)     step_mypy ;;
+  mypy-baseline) step_mypy_baseline ;;
+  openapi)  step_openapi ;;
+  web)      step_web ;;
+  status)   step_status ;;
+  bg)
+    [ $# -ge 1 ] || { echo "usage: scripts/check bg CMD [ARGS]"; exit 2; }
+    echo "$*" > "$OUT/bg.cmd"; : > "$OUT/bg.out"
+    nohup bash -c 'script="$1"; out="$2"; shift 2; "$script" "$@" > "$out.tmp" 2>&1; rc=$?
+      mv "$out.tmp" "$out"; grep -qE "^(ALL OK|SOME CHECKS FAILED)" "$out" || echo "DONE rc=$rc" >> "$out"' \
+      _ "$ROOT/scripts/check" "$OUT/bg.out" "$@" > /dev/null 2>&1 &
+    echo "started in background: $* (poll: scripts/check status)" ;;
+  log)      cat "$OUT/${1:?step name}.log" ;;
+  *)        awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+esac
+exit "$status"
