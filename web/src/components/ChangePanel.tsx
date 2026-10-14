@@ -281,19 +281,22 @@ function useRunEvents(changeId: string): FactoryEvent[] {
 
 function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
   const [filter, setFilter] = useState<"all" | "decisions" | "stations">("all");
-  const bottom = useRef<HTMLDivElement>(null);
-  // Block body on purpose: newer Chrome returns a Promise from scrollIntoView, and
-  // React would call a returned value as the effect's cleanup (blank page).
+  const [newestFirst, setNewestFirst] = useState(true);
+  const [query, setQuery] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  // Follow new events at the end the user reads from (newest at the top by default).
+  // Block body on purpose: a returned value would become the effect's cleanup.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "nearest" });
-  }, [events.length]);
-  const shown = events.filter((e) =>
-    filter === "all"
-      ? true
-      : filter === "decisions"
-        ? e.kind === "decision"
-        : e.kind.startsWith("station"),
+    const el = box.current;
+    if (el) el.scrollTop = newestFirst ? 0 : el.scrollHeight;
+  }, [events.length, newestFirst]);
+  const q = query.trim().toLowerCase();
+  const matching = events.filter(
+    (e) =>
+      (filter === "all" || (filter === "decisions" ? e.kind === "decision" : e.kind.startsWith("station"))) &&
+      (!q || `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
   );
+  const shown = newestFirst ? [...matching].reverse() : matching;
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -306,25 +309,39 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
             </span>
           )}
         </h4>
-        <span className="text-xs text-muted-foreground">
-          {events.length} events
+        <span className="text-xs text-muted-foreground" data-testid="activity-count">
+          {matching.length === events.length ? `${events.length} events` : `${matching.length} of ${events.length} events`}
         </span>
-        <div className="ml-auto flex gap-1 rounded-lg border bg-card p-0.5">
+        <input
+          type="search"
+          aria-label="Search activity"
+          placeholder="Search activity…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="ml-auto h-8 w-56 text-sm"
+        />
+        <button
+          className="tab"
+          onClick={() => setNewestFirst(!newestFirst)}
+          title="Change the order"
+          aria-label={newestFirst ? "Newest first" : "Oldest first"}
+        >
+          {newestFirst ? "newest first ↓" : "oldest first ↓"}
+        </button>
+        <div className="flex gap-1 rounded-lg border bg-card p-0.5">
           {(["all", "decisions", "stations"] as const).map((f) => (
-            <button
-              key={f}
-              className={`tab ${filter === f ? "active" : ""}`}
-              onClick={() => setFilter(f)}
-            >
+            <button key={f} className={`tab ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
               {f}
             </button>
           ))}
         </div>
       </div>
-      <div className="log">
+      <div className="log" ref={box} data-testid="activity-log">
         {shown.map((e) => (
           <div key={e.id} className={`ev ev-${e.kind}`}>
-            <span className="ts">{new Date(e.ts).toLocaleTimeString()}</span>
+            <span className="ts" title={new Date(e.ts).toLocaleString()}>
+              {new Date(e.ts).toLocaleTimeString()}
+            </span>
             <span className="st">{e.station ?? ""}</span>
             <span className="msg">{e.message}</span>
             {typeof e.data?.output === "string" && e.data.output && (
@@ -336,9 +353,8 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
           </div>
         ))}
         {shown.length === 0 && (
-          <p className="m-0 p-3 text-muted-foreground">Nothing yet.</p>
+          <p className="m-0 p-3 text-muted-foreground">{q ? `Nothing matches “${query.trim()}”.` : "Nothing yet."}</p>
         )}
-        <div ref={bottom} />
       </div>
     </div>
   );
