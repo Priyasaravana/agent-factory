@@ -21,6 +21,7 @@ from agent_factory.models import (
     LearningProposal,
     Product,
     Transition,
+    WorkItem,
 )
 from agent_factory.secret_refs import REDACTOR
 from agent_factory.skills import SkillRecord
@@ -64,6 +65,10 @@ CREATE TABLE IF NOT EXISTS workflow_drafts (
 CREATE TABLE IF NOT EXISTS skill_versions (
   name TEXT NOT NULL, sha TEXT NOT NULL, doc TEXT NOT NULL, installed_at TEXT NOT NULL, PRIMARY KEY (name, sha));
 CREATE TABLE IF NOT EXISTS skill_current (name TEXT PRIMARY KEY, sha TEXT NOT NULL);
+-- the product work ledger: what was found, and what became of it (ADR-0040)
+CREATE TABLE IF NOT EXISTS work_items (
+  id TEXT PRIMARY KEY, product_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, doc TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS work_items_product ON work_items(product_id, status);
 -- facts about the stored data itself, e.g. its generation (reset.py, ADR-0037 §7)
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
@@ -80,6 +85,7 @@ WORK_TABLES = (
     "workflow_versions",
     "workflow_active",
     "workflow_drafts",
+    "work_items",
 )
 
 
@@ -289,6 +295,20 @@ class SqliteStateStore:
         if status:
             sql, args = sql + " AND status=?", (workflow_id, status)
         return [LearningProposal.model_validate_json(r[0]) for r in self._exec(sql + " ORDER BY created_at DESC", args)]
+
+    # ------------------------------------------------- product work ledger --
+    def save_work_items(self, items: list[WorkItem]) -> None:
+        for it in items:
+            self._exec(
+                "INSERT INTO work_items(id, product_id, status, updated_at, doc) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, "
+                "doc=excluded.doc",
+                (it.id, it.product_id, it.status, it.updated_at.isoformat(), REDACTOR.text(it.model_dump_json())),
+            )
+
+    def list_work_items(self, product_id: str) -> list[WorkItem]:
+        rows = self._exec("SELECT doc FROM work_items WHERE product_id=? ORDER BY id", (product_id,))
+        return [WorkItem.model_validate_json(r[0]) for r in rows]
 
     def last_event_data(self, change_id: str, key: str) -> tuple[datetime, Any] | None:
         """(time, data[key]) of the change's latest event whose data carries `key`."""

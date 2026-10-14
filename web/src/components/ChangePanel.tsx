@@ -21,6 +21,7 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
+import ChangeOutcome from "./ChangeOutcome";
 import ToolsPanel from "./ToolsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
@@ -176,6 +177,7 @@ export default function ChangePanel({
             </ul>
           </details>
         )}
+        <ChangeOutcome changeId={changeId} runStatus={r.status} />
         {r.kind === "assess" ? (
           <AssessmentPanel
             changeId={changeId}

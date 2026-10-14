@@ -34,6 +34,7 @@ MEMBER_ACTIONS = {
     "edit_spec",
     "send_back_risk",
     "archive_product",
+    "decide_work_items",
     "run_preflight",
     "log_decision",
 }
@@ -47,6 +48,7 @@ STEERING = {
     "edit_spec",
     "send_back_risk",
     "archive_product",
+    "decide_work_items",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
 

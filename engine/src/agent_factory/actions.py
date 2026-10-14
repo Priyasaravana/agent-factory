@@ -44,6 +44,7 @@ from agent_factory.models import (
     Change,
     ChangeCallsView,
     ChangeDetail,
+    ChangeOutcome,
     ChangeRiskView,
     ChangeStatus,
     ConfigView,
@@ -103,6 +104,8 @@ from agent_factory.models import (
     WorkflowSettingsInput,
     WorkflowSummary,
     WorkflowView,
+    WorkItem,
+    WorkItemDecisionInput,
 )
 from agent_factory.providers import CAPABILITIES
 from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRecord
@@ -392,7 +395,109 @@ async def submit_feedback(f: Factory, product_id: str, body: FeedbackInput) -> C
     product = f.store.get_product(product_id)
     if product:
         await _gate(f, product.blueprint, "change")
-    return f.manager.feedback(product_id, body.text, body.kind)
+    return f.manager.feedback(product_id, body.text, body.kind, body.items)
+
+
+# ------------------------------------------------------ product work ledger --
+@action(
+    "list_work_items",
+    "The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap "
+    "found across its iterations, with its status and history",
+    "GET",
+    "/api/products/{product_id}/work-items",
+)
+def list_work_items(f: Factory, product_id: str) -> list[WorkItem]:
+    from agent_factory import ledger
+
+    if not f.store.get_product(product_id):
+        raise FactoryError("product not found")
+    return sorted(f.store.list_work_items(product_id), key=ledger.sort_key)
+
+
+@action(
+    "decide_work_items",
+    "Won't do, accept the risk (until a date) or reopen work items; the reason is kept (ADR-0040)",
+    "POST",
+    "/api/products/{product_id}/work-items/decide",
+)
+def decide_work_items(f: Factory, product_id: str, body: WorkItemDecisionInput) -> list[WorkItem]:
+    from datetime import UTC, datetime
+
+    from agent_factory import ledger
+
+    _may_steer(f, product_id)
+    items = f.store.list_work_items(product_id)
+    try:
+        changed = ledger.decide(
+            items,
+            body.items,
+            body.decision,
+            reason=body.reason,
+            by=current_identity().user,
+            now=datetime.now(UTC),
+            until=body.until,
+        )
+    except ValueError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+    f.store.save_work_items(changed)
+    return sorted(items, key=ledger.sort_key)
+
+
+@action(
+    "get_change_outcome",
+    "What a change was asked, what it did and changed, what it gathered, and what a later assessment "
+    "verified (ADR-0040)",
+    "GET",
+    "/api/changes/{change_id}/outcome",
+)
+def get_change_outcome(f: Factory, change_id: str) -> ChangeOutcome:
+    from agent_factory.artifacts import Ledger
+
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    folder = f.manager.ws.data_dir / "artifacts" / change_id
+    items = [i for i in f.store.list_work_items(change.product_id) if change_id in i.claimed_by]
+    pr: dict[str, Any] = {}
+    if (folder / "pull-request.json").is_file():
+        pr = json.loads((folder / "pull-request.json").read_text())
+    gathered = [
+        {"artifact": e["artifact"], "station": e["station"], "ref": e.get("ref", "")}
+        for e in Ledger(folder).entries()
+        if e["station"] != "entry"
+    ]
+    got = f.store.last_event_data(change_id, "work_ledger")
+    found = {k: v for k, v in (got[1] if got else {}).items() if isinstance(v, int)}
+    verified = []
+    for it in items:
+        claimed_at = next((h.at for h in it.history if h.event == "claimed" and h.change_id == change_id), None)
+        result = next(
+            (h for h in it.history if claimed_at and h.at > claimed_at and h.event in ("fixed", "still-present")),
+            None,
+        )
+        verified.append(
+            {
+                "item": it.id,
+                "title": it.title,
+                "result": result.event if result else "not verified yet",
+                "by": result.change_id if result else None,
+                "note": result.note if result else "",
+            }
+        )
+    return ChangeOutcome(
+        change_id=change.id,
+        iteration=change.iteration,
+        kind=str(change.kind),
+        status=str(change.status),
+        asked=change.change_request or "",
+        items=items,
+        done=change.summary or "",
+        pr_url=change.pr_url,
+        files=list(pr.get("files") or []),
+        gathered=gathered,
+        found=found,
+        verified=verified,
+    )
 
 
 @action("get_change", "Change with station states", "GET", "/api/changes/{change_id}")

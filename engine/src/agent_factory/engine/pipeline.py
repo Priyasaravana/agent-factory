@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from agent_factory import ledger
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import FactoryConfig
 from agent_factory.engine import handoff
@@ -25,6 +26,7 @@ from agent_factory.models import (
     AVAILABLE_TARGETS,
     RESUMABLE,
     TARGET_KINDS,
+    TERMINAL,
     Change,
     ChangeKind,
     ChangeSource,
@@ -37,6 +39,7 @@ from agent_factory.models import (
     RiskApproval,
     RiskHold,
     StationOutcome,
+    WorkItem,
 )
 from agent_factory.providers import Providers
 from agent_factory.secret_refs import SecretResolver
@@ -571,9 +574,12 @@ class ChangeManager:
         )
         return change
 
-    def feedback(self, product_id: str, text: str, kind: ChangeKind = ChangeKind.feature) -> Change:
+    def feedback(
+        self, product_id: str, text: str, kind: ChangeKind = ChangeKind.feature, items: list[str] | None = None
+    ) -> Change:
         """A change to a delivered product (ADR-0030): a feature, a bug fix or upkeep; an
-        existing repo is assessed again (ADR-0031)."""
+        existing repo is assessed again (ADR-0031). `items` are work items from the product's
+        ledger the change addresses (ADR-0040): spelled out in the request, then in progress."""
         product = self.store.get_product(product_id)
         if not product:
             raise FactoryError("product not found")
@@ -584,9 +590,40 @@ class ChangeManager:
         if latest and latest.status not in FEEDBACK_OPEN:
             raise FactoryError(f"latest change is '{latest.status}'; feedback opens after delivery")
         self.screen(text, f"feedback on {product_id}")
+        chosen: list[WorkItem] = []
+        if items:
+            if kind == ChangeKind.assess:
+                raise InvalidRequestError("an assessment doesn't address work items; it verifies them")
+            ledger_items = self.store.list_work_items(product_id)
+            try:  # checked on copies first: nothing starts if an item can't be claimed
+                ledger.claim(
+                    [i.model_copy(deep=True) for i in ledger_items],
+                    items,
+                    change_id="-",
+                    iteration=0,
+                    now=datetime.now(UTC),
+                    by=None,
+                )
+            except ValueError as exc:
+                raise InvalidRequestError(str(exc)) from exc
+            chosen = [i for i in ledger_items if i.id in set(items)]
+            text = ledger.request_text(text, chosen)
         self.store.add_feedback(product_id, latest.id if latest else None, text)
         change = self.start_change(product, change_request=text, kind=kind)
-        self.store.add_event(change.id, EventKind.feedback, text, data={"kind": kind})
+        self.store.add_event(change.id, EventKind.feedback, text, data={"kind": kind, "work_items": list(items or [])})
+        if chosen:
+            claimed = ledger.claim(
+                chosen,
+                items or [],
+                change_id=change.id,
+                iteration=change.iteration,
+                now=datetime.now(UTC),
+                by=change.requested_by,
+            )
+            self.store.save_work_items(claimed)
+            change = self._get(change.id)
+            change.work_items = [i.id for i in claimed]
+            self.store.save_change(change)
         return change
 
     def recover_on_startup(self) -> list[str]:
@@ -666,7 +703,12 @@ class ChangeManager:
             self._after_stop(change, product)
 
     def _after_stop(self, change: Change, product: Product) -> None:
-        """Evaluation runs report to their evaluation (ADR-0025); never fails the change."""
+        """The product's work ledger (ADR-0040) and evaluation runs (ADR-0025) learn how the
+        change ended; neither ever fails the change."""
+        try:
+            self._update_ledger(self._get(change.id), product)
+        except Exception as exc:  # noqa: BLE001
+            self.store.add_event(change.id, EventKind.log, f"work ledger update failed: {type(exc).__name__}: {exc}")
         if not product.eval_run_id:
             return
         from agent_factory.evals import on_change_stopped
@@ -675,6 +717,54 @@ class ChangeManager:
             on_change_stopped(self, self._get(change.id), self.store.get_product(product.id) or product)
         except Exception as exc:  # noqa: BLE001
             self.store.add_event(change.id, EventKind.log, f"evaluation update failed: {type(exc).__name__}: {exc}")
+
+    def _update_ledger(self, change: Change, product: Product) -> None:
+        """A delivered assessment is folded into the ledger; a change that addressed items
+        leaves them in progress (delivered) or returns them to open (failed, cancelled)."""
+        if change.status not in TERMINAL or product.eval_run_id:
+            return
+        now = datetime.now(UTC)
+        items = self.store.list_work_items(product.id)
+        if change.kind == ChangeKind.assess and change.status == ChangeStatus.awaiting_feedback:
+            import json
+
+            file = self.ws.data_dir / "artifacts" / change.id / "assessment.json"
+            if not file.is_file():
+                return
+            delivered = [
+                c.id
+                for c in self.store.list_changes(product.id)
+                if c.id != change.id
+                and c.status == ChangeStatus.awaiting_feedback
+                and c.kind != ChangeKind.assess
+                and c.created_at < change.created_at
+            ]
+            before = {i.id: i.status for i in items}
+            items = ledger.reconcile(
+                product.id,
+                items,
+                json.loads(file.read_text()),
+                change_id=change.id,
+                iteration=change.iteration,
+                now=now,
+                delivered=delivered,
+            )
+            self.store.save_work_items(items)
+            new = sum(1 for i in items if i.id not in before)
+            fixed = sum(1 for i in items if i.status == "fixed" and before.get(i.id) not in (None, "fixed"))
+            back = sum(1 for i in items if i.status == "open" and before.get(i.id) in ("fixed", "in_progress"))
+            self.store.add_event(
+                change.id,
+                EventKind.decision,
+                f"work ledger: {new} new, {fixed} fixed, {back} still present or back, "
+                f"{sum(1 for i in items if i.status in ('open', 'in_progress'))} open in all",
+                data={"work_ledger": {"new": new, "fixed": fixed, "reopened": back, **ledger.counts(items)}},
+            )
+        elif change.work_items:
+            changed = ledger.release(
+                items, change_id=change.id, status=str(change.status), now=now, pr_url=change.pr_url
+            )
+            self.store.save_work_items(changed)
 
     async def _seal(self, change: Change, product: Product) -> None:
         """Seal the change's evidence at every stop (ADR-0023); never fails the change."""

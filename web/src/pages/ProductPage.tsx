@@ -13,6 +13,7 @@ import { Link, useParams } from "react-router-dom";
 import { ACTIVE, KIND_LABEL, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
+import WorkLedger from "../components/WorkLedger";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
@@ -192,6 +193,12 @@ export default function ProductPage() {
           )}
         </CardContent>
       </Card>
+
+      <WorkLedger
+        productId={product.id}
+        canChange={!product.archived_at && !ACTIVE.has(String(product.latest_status ?? ""))}
+        onChanged={() => qc.invalidateQueries({ queryKey: ["product", productId] })}
+      />
 
       {changes.length > 1 && (
         <div
