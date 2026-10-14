@@ -1377,6 +1377,8 @@ async def pull_request(ctx: StationContext) -> StationResult:
     branch = f"{ctx.cfg.existing_repos.pr_branch_prefix}{ctx.change.id}"
     base = ctx.product.repo_ref or "main"
     info: dict[str, Any] = {"repo": ref.slug, "branch": branch, "base": base, "title": title}
+    # what the change changed, for its outcome (ADR-0040); sealed with the evidence
+    _write_json(ctx, "pull-request.json", {**info, "files": files, "work_items": list(ctx.change.work_items)})
     if ctx.settings.factory_mode == "dry-run":
         await ctx.emit(
             EventKind.decision,

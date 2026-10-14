@@ -123,6 +123,11 @@
   by severity then impact (assessor's plus one per scan check it didn't ask for), and scan
   coverage stated: a scan that didn't run, was simulated or was answered by the agent is a
   gap, never a clean result. Tests in `tests/test_rollup.py`.
+- Product work ledger (ADR-0040): every delivered assessment is folded into the product's
+  `work_items` by the pure `ledger.reconcile` (fingerprints, status, history). An issue is fixed
+  only when its check really ran again; judgement items close only after a change addressed
+  them. Changes address items through `FeedbackInput.items` (`ChangeManager.feedback`); won't
+  do / accepted risk need a reason (`decide_work_items`, steering). Tests in `tests/test_ledger.py`.
 - Scan stations (ADR-0034/0035): a `scan` check is named after what it checks (`check:`
   secrets | code | dependencies | config); the provider (local tool, github, snyk, agent) is
   chosen under `checks:` in the config or per station, with an agent fallback

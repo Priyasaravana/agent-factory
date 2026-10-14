@@ -412,6 +412,153 @@
         }
       }
     },
+    "/api/products/{product_id}/work-items": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap found across its iterations, with its status and history",
+        "description": "The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap found across its iterations, with its status and history",
+        "operationId": "list_work_items",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItem"
+                  },
+                  "title": "Response List Work Items"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/work-items/decide": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Won't do, accept the risk (until a date) or reopen work items; the reason is kept (ADR-0040)",
+        "description": "Won't do, accept the risk (until a date) or reopen work items; the reason is kept (ADR-0040)",
+        "operationId": "decide_work_items",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkItemDecisionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkItem"
+                  },
+                  "title": "Response Decide Work Items"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/outcome": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What a change was asked, what it did and changed, what it gathered, and what a later assessment verified (ADR-0040)",
+        "description": "What a change was asked, what it did and changed, what it gathered, and what a later assessment verified (ADR-0040)",
+        "operationId": "get_change_outcome",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeOutcome"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}": {
       "get": {
         "tags": [
@@ -4311,6 +4458,13 @@
             ],
             "title": "Change Request"
           },
+          "work_items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Work Items"
+          },
           "pr_url": {
             "anyOf": [
               {
@@ -4498,6 +4652,93 @@
         ],
         "title": "ChangeKind",
         "description": "What a change is for (ADR-0030). Every request is a change to a product."
+      },
+      "ChangeOutcome": {
+        "properties": {
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "asked": {
+            "type": "string",
+            "title": "Asked",
+            "default": ""
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "done": {
+            "type": "string",
+            "title": "Done",
+            "default": ""
+          },
+          "pr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Url"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "gathered": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Gathered"
+          },
+          "found": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Found"
+          },
+          "verified": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Verified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "change_id",
+          "iteration",
+          "kind",
+          "status"
+        ],
+        "title": "ChangeOutcome",
+        "description": "What a change was asked to do, what it did and changed, what it gathered, and what a\nlater assessment verified (ADR-0040)."
       },
       "ChangeRiskView": {
         "properties": {
@@ -5801,6 +6042,14 @@
           "kind": {
             "$ref": "#/components/schemas/ChangeKind",
             "default": "feature"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Items"
           }
         },
         "type": "object",
@@ -8387,6 +8636,295 @@
           "cost_usd"
         ],
         "title": "WeekPoint"
+      },
+      "WorkItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "issue",
+              "risk",
+              "test_gap",
+              "recommendation",
+              "coverage_gap"
+            ],
+            "title": "Kind"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "medium"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": ""
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "at": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "At"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "related": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Related"
+          },
+          "change_kind": {
+            "type": "string",
+            "title": "Change Kind",
+            "default": "upkeep"
+          },
+          "effort": {
+            "type": "string",
+            "title": "Effort",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "fixed",
+              "wont_do",
+              "accepted_risk"
+            ],
+            "title": "Status",
+            "default": "open"
+          },
+          "first_iteration": {
+            "type": "integer",
+            "title": "First Iteration",
+            "default": 0
+          },
+          "last_iteration": {
+            "type": "integer",
+            "title": "Last Iteration",
+            "default": 0
+          },
+          "seen_in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Seen In"
+          },
+          "claimed_by": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Claimed By"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
+          },
+          "decision_reason": {
+            "type": "string",
+            "title": "Decision Reason",
+            "default": ""
+          },
+          "decision_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision By"
+          },
+          "accepted_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Until"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItemEvent"
+            },
+            "type": "array",
+            "title": "History"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "kind",
+          "fingerprint",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkItem",
+        "description": "Something found about a product that may need a change (ADR-0040): an issue, a risk, a\ntest gap, a recommendation or a coverage gap. It lives across iterations: found once, seen\nagain, addressed by a change, verified as fixed by a later assessment, or decided against."
+      },
+      "WorkItemDecisionInput": {
+        "properties": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "wont_do",
+              "accepted_risk",
+              "reopen"
+            ],
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Reason",
+            "default": ""
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "decision"
+        ],
+        "title": "WorkItemDecisionInput",
+        "description": "Won't do, accept the risk (until a date), or reopen (ADR-0040)."
+      },
+      "WorkItemEvent": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iteration"
+          },
+          "change_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Id"
+          },
+          "event": {
+            "type": "string",
+            "title": "Event"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "event"
+        ],
+        "title": "WorkItemEvent",
+        "description": "One line of a work item's history (ADR-0040)."
       },
       "WorkflowOutcome": {
         "properties": {

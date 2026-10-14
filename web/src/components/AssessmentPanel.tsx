@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Copy, Download, GitPullRequest, ScanSearch, X } from "lucide-react";
+import { Check, Copy, Download, ScanSearch, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, unwrap } from "../api/client";
@@ -151,6 +151,12 @@ export default function AssessmentPanel({
         </div>
       )}
 
+      {canRequest && (
+        <p className="m-0 text-xs text-muted-foreground">
+          Every issue, risk, test gap and recommendation here is tracked in <strong>Work items</strong> above,
+          across iterations: select any of them to make a change, or mark them won't do.
+        </p>
+      )}
       <div className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-0.5" role="tablist" aria-label="Assessment">
         {tabs.map(([t, label]) => (
           <button
@@ -247,23 +253,7 @@ export default function AssessmentPanel({
                   {Array.isArray(r.issues) && r.issues.length > 0 && ` · issues ${(r.issues as string[]).join(", ")}`}
                 </div>
               ) : null}
-              {canRequest && productId && ["feature", "bug", "upkeep"].includes(String(r.kind)) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-1"
-                  disabled={request.isPending}
-                  onClick={() =>
-                    request.mutate({
-                      title: String(r.title),
-                      why: String(r.why),
-                      kind: String(r.kind) as "feature" | "bug" | "upkeep",
-                    })
-                  }
-                >
-                  <GitPullRequest /> Make this change
-                </Button>
-              )}
+
             </li>
           ))}
           {v.recommendations.length === 0 && <p className="m-0 text-muted-foreground">None.</p>}

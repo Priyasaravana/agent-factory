@@ -188,6 +188,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/work-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap found across its iterations, with its status and history
+         * @description The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap found across its iterations, with its status and history
+         */
+        get: operations["list_work_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/work-items/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Won't do, accept the risk (until a date) or reopen work items; the reason is kept (ADR-0040)
+         * @description Won't do, accept the risk (until a date) or reopen work items; the reason is kept (ADR-0040)
+         */
+        post: operations["decide_work_items"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a change was asked, what it did and changed, what it gathered, and what a later assessment verified (ADR-0040)
+         * @description What a change was asked, what it did and changed, what it gathered, and what a later assessment verified (ADR-0040)
+         */
+        get: operations["get_change_outcome"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}": {
         parameters: {
             query?: never;
@@ -1727,6 +1787,8 @@ export interface components {
             loops: number;
             /** Change Request */
             change_request?: string | null;
+            /** Work Items */
+            work_items?: string[];
             /** Pr Url */
             pr_url?: string | null;
             /** Last Failure */
@@ -1783,6 +1845,49 @@ export interface components {
          * @enum {string}
          */
         ChangeKind: "new" | "feature" | "bug" | "upkeep" | "assess" | "remove";
+        /**
+         * ChangeOutcome
+         * @description What a change was asked to do, what it did and changed, what it gathered, and what a
+         *     later assessment verified (ADR-0040).
+         */
+        ChangeOutcome: {
+            /** Change Id */
+            change_id: string;
+            /** Iteration */
+            iteration: number;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /**
+             * Asked
+             * @default
+             */
+            asked: string;
+            /** Items */
+            items?: components["schemas"]["WorkItem"][];
+            /**
+             * Done
+             * @default
+             */
+            done: string;
+            /** Pr Url */
+            pr_url?: string | null;
+            /** Files */
+            files?: string[];
+            /** Gathered */
+            gathered?: {
+                [key: string]: unknown;
+            }[];
+            /** Found */
+            found?: {
+                [key: string]: number;
+            };
+            /** Verified */
+            verified?: {
+                [key: string]: unknown;
+            }[];
+        };
         /**
          * ChangeRiskView
          * @description The latest change-risk check of a change (ADR-0027) and who may approve it.
@@ -2311,6 +2416,8 @@ export interface components {
             text: string;
             /** @default feature */
             kind: components["schemas"]["ChangeKind"];
+            /** Items */
+            items?: string[];
         };
         /** FromGitHubInput */
         FromGitHubInput: {
@@ -3386,6 +3493,147 @@ export interface components {
             /** Lead Time Median S */
             lead_time_median_s?: number | null;
         };
+        /**
+         * WorkItem
+         * @description Something found about a product that may need a change (ADR-0040): an issue, a risk, a
+         *     test gap, a recommendation or a coverage gap. It lives across iterations: found once, seen
+         *     again, addressed by a change, verified as fixed by a later assessment, or decided against.
+         */
+        WorkItem: {
+            /** Id */
+            id: string;
+            /** Product Id */
+            product_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "issue" | "risk" | "test_gap" | "recommendation" | "coverage_gap";
+            /** Fingerprint */
+            fingerprint: string;
+            /** Title */
+            title: string;
+            /**
+             * Severity
+             * @default medium
+             */
+            severity: string;
+            /**
+             * Category
+             * @default
+             */
+            category: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** At */
+            at?: string[];
+            /** Sources */
+            sources?: {
+                [key: string]: string;
+            }[];
+            /** Related */
+            related?: string[];
+            /**
+             * Change Kind
+             * @default upkeep
+             */
+            change_kind: string;
+            /**
+             * Effort
+             * @default
+             */
+            effort: string;
+            /**
+             * Status
+             * @default open
+             * @enum {string}
+             */
+            status: "open" | "in_progress" | "fixed" | "wont_do" | "accepted_risk";
+            /**
+             * First Iteration
+             * @default 0
+             */
+            first_iteration: number;
+            /**
+             * Last Iteration
+             * @default 0
+             */
+            last_iteration: number;
+            /** Seen In */
+            seen_in?: number[];
+            /** Claimed By */
+            claimed_by?: string[];
+            /** Resolved By */
+            resolved_by?: string | null;
+            /**
+             * Decision Reason
+             * @default
+             */
+            decision_reason: string;
+            /** Decision By */
+            decision_by?: string | null;
+            /** Accepted Until */
+            accepted_until?: string | null;
+            /** History */
+            history?: components["schemas"]["WorkItemEvent"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * WorkItemDecisionInput
+         * @description Won't do, accept the risk (until a date), or reopen (ADR-0040).
+         */
+        WorkItemDecisionInput: {
+            /** Items */
+            items: string[];
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "wont_do" | "accepted_risk" | "reopen";
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Until */
+            until?: string | null;
+        };
+        /**
+         * WorkItemEvent
+         * @description One line of a work item's history (ADR-0040).
+         */
+        WorkItemEvent: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Iteration */
+            iteration?: number | null;
+            /** Change Id */
+            change_id?: string | null;
+            /** Event */
+            event: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** By */
+            by?: string | null;
+        };
         /** WorkflowOutcome */
         WorkflowOutcome: {
             /** Workflow Id */
@@ -3829,6 +4077,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_work_items: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_work_items: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkItemDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_outcome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeOutcome"];
                 };
             };
             /** @description Validation Error */

@@ -138,6 +138,7 @@ class Change(BaseModel):
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
     change_request: str | None = None  # what was asked for this iteration (feedback, bug report, upkeep)
+    work_items: list[str] = Field(default_factory=list)  # ledger items it addresses (ADR-0040)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     last_failure: str | None = None  # evidence handed to the repair station
     questions: list[str] = Field(default_factory=list)
@@ -330,6 +331,85 @@ class Feedback(BaseModel):
     change_id: str | None
     text: str
     created_at: datetime
+
+
+# ------------------------------------------------------ product work ledger --
+class WorkItemEvent(BaseModel):
+    """One line of a work item's history (ADR-0040)."""
+
+    at: datetime
+    iteration: int | None = None
+    change_id: str | None = None
+    # found | seen | claimed | proposed | still-present | fixed | reappeared | wont-do | accepted
+    # | reopened | released
+    event: str
+    note: str = ""
+    by: str | None = None
+
+
+class WorkItem(BaseModel):
+    """Something found about a product that may need a change (ADR-0040): an issue, a risk, a
+    test gap, a recommendation or a coverage gap. It lives across iterations: found once, seen
+    again, addressed by a change, verified as fixed by a later assessment, or decided against."""
+
+    id: str
+    product_id: str
+    kind: Literal["issue", "risk", "test_gap", "recommendation", "coverage_gap"]
+    fingerprint: str  # what makes it the same item across assessments
+    title: str
+    severity: str = "medium"  # critical | high | medium | low | info
+    category: str = ""  # issue: check or rules:<area>; risk: pillar; recommendation: kind
+    detail: str = ""
+    at: list[str] = Field(default_factory=list)  # file[:line] where it was last seen
+    sources: list[dict[str, str]] = Field(default_factory=list)  # station, via, rule
+    related: list[str] = Field(default_factory=list)  # a recommendation's issue items
+    change_kind: str = "upkeep"  # the change that would address it: feature | bug | upkeep
+    effort: str = ""  # S | M | L (recommendations)
+    status: Literal["open", "in_progress", "fixed", "wont_do", "accepted_risk"] = "open"
+    first_iteration: int = 0
+    last_iteration: int = 0  # the latest assessment that reported it
+    seen_in: list[int] = Field(default_factory=list)
+    claimed_by: list[str] = Field(default_factory=list)  # changes that addressed it
+    resolved_by: str | None = None  # the assessment change that verified the fix
+    decision_reason: str = ""
+    decision_by: str | None = None
+    accepted_until: datetime | None = None
+    history: list[WorkItemEvent] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkItemDecisionInput(BaseModel):
+    """Won't do, accept the risk (until a date), or reopen (ADR-0040)."""
+
+    items: list[str] = Field(min_length=1, max_length=200)
+    decision: Literal["wont_do", "accepted_risk", "reopen"]
+    reason: str = Field(default="", max_length=2000)
+    until: datetime | None = None
+
+    @model_validator(mode="after")
+    def _reason(self) -> WorkItemDecisionInput:
+        if self.decision != "reopen" and len(self.reason.strip()) < 10:
+            raise ValueError("say why (at least 10 characters): the reason is kept for audit")
+        return self
+
+
+class ChangeOutcome(BaseModel):
+    """What a change was asked to do, what it did and changed, what it gathered, and what a
+    later assessment verified (ADR-0040)."""
+
+    change_id: str
+    iteration: int
+    kind: str
+    status: str
+    asked: str = ""
+    items: list[WorkItem] = Field(default_factory=list)  # the work items it addressed
+    done: str = ""  # its summary
+    pr_url: str | None = None
+    files: list[str] = Field(default_factory=list)  # what it changed
+    gathered: list[dict[str, Any]] = Field(default_factory=list)  # artifact, station, path
+    found: dict[str, int] = Field(default_factory=dict)  # an assessment: new | seen | fixed | reappeared
+    verified: list[dict[str, Any]] = Field(default_factory=list)  # item, result, by (a later assessment)
 
 
 # ------------------------------------------------------------- API inputs --
@@ -630,6 +710,9 @@ class FeedbackInput(BaseModel):
 
     text: str = Field(min_length=3, max_length=20_000)
     kind: ChangeKind = ChangeKind.feature  # feature | bug | upkeep
+    # work items this change addresses (ADR-0040): they move to "in progress" and are verified
+    # by the next assessment
+    items: list[str] = Field(default_factory=list, max_length=50)
 
 
 class RiskDecisionInput(BaseModel):
