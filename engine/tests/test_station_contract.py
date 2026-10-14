@@ -382,10 +382,10 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
     assert manifest["artifacts"]["entries"] == len(ledger.entries())
 
 
-def _with_station(tmp_path: Path, station: dict) -> Path:
+def _with_station(tmp_path: Path, station: dict, before: str = "implement") -> Path:
     doc = _default()
     stations = doc.model_dump()["stations"]
-    stations.insert([s["id"] for s in stations].index("implement"), station)
+    stations.insert([s["id"] for s in stations].index(before), station)
     out = tmp_path / "custom"
     export_workflow_dir(WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations}), out)
     return out
@@ -393,11 +393,16 @@ def _with_station(tmp_path: Path, station: dict) -> Path:
 
 async def test_an_invalid_output_fails_its_station(make_factory, tmp_path: Path) -> None:
     f = make_factory(agents=FakeAgentRunner())
-    # a custom step that claims to give an image but builds none
-    f.workflows[WF].import_dir(
-        _with_station(tmp_path, {"id": "fake-build", "kind": "agent", "agent": "reviewer", "gives": ["image@1"]}),
-        "custom step claiming an image",
-    )
+    # a custom Deliver step that claims to give an image but builds none
+    step = {
+        "id": "fake-build",
+        "kind": "agent",
+        "agent": "reviewer",
+        "phase": "deliver",
+        "gives": ["image@1"],
+        "uses": ["read-repo", "run-sandbox"],
+    }
+    f.workflows[WF].import_dir(_with_station(tmp_path, step, before="build"), "custom step claiming an image")
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.held
     events = f.store.list_events(change.id)

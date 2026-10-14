@@ -2,7 +2,9 @@
 station gives in the change's ledger, and checks each against its schema.
 
 - **Entry**: before the first station, the workflow's entry artifacts are recorded; one that
-  fails its schema rejects the change before anything runs (held).
+  fails its schema rejects the change before anything runs (held). The engine makes `request`
+  and `branch`; anything else is provided with the change by the org's own tools (ADR-0039 §5)
+  and recorded as "provided by" whoever started it.
 - **Needs**: before a station runs, every artifact it needs must be in the ledger (held if not).
 - **Gives**: after a station passes, each artifact it gives is collected from where the station
   left it and validated; one that fails fails the station (routed by `on_fail`).
@@ -33,6 +35,9 @@ class MissingArtifact(Exception):
     """The station passed but left nothing that makes this artifact."""
 
 
+ENGINE_ENTRY = {"request", "branch"}  # entry artifacts the engine makes itself
+
+
 def ledger_for(ctx: StationContext) -> Ledger:
     return Ledger(artifacts_dir(ctx))
 
@@ -59,6 +64,20 @@ async def record_entry(ctx: StationContext) -> list[str]:
     made: list[tuple[ArtifactRef, dict[str, Any], str]] = []
     errors: list[str] = []
     for ref in ctx.workflow_doc.entry_refs():
+        if ref.key not in ENGINE_ENTRY:
+            if ref.key not in ctx.change.provided:
+                errors.append(f"{ref}: not provided; this lane starts from it, supplied by your own tools")
+                continue
+            manifest, location = (
+                ctx.change.provided[ref.key],
+                f"provided by {ctx.change.requested_by or 'the requester'}",
+            )
+            errors += artifacts.problems(ref, manifest)
+            holds = (manifest.get("data") or {}).get("holds") if ref.key == "report.risk" else None
+            if isinstance(holds, int) and holds > 0:  # the floor: risky changes wait for approval
+                errors.append(f"{ref}: {holds} change-risk finding(s) still wait for approval")
+            made.append((ref, manifest, location))
+            continue
         try:
             manifest, location = await collect(ref, ctx, summary="")
         except MissingArtifact as exc:

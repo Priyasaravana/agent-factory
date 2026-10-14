@@ -3586,16 +3586,7 @@
           "phase": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "discover",
-                  "design",
-                  "plan",
-                  "develop",
-                  "verify",
-                  "deliver",
-                  "operate"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3665,6 +3656,20 @@
               }
             ],
             "title": "Fail On"
+          },
+          "uses": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uses"
           },
           "position": {
             "anyOf": [
@@ -4334,6 +4339,13 @@
             "type": "array",
             "title": "Phases"
           },
+          "capabilities": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Capabilities"
+          },
           "requirements": {
             "additionalProperties": {
               "additionalProperties": {
@@ -4464,6 +4476,14 @@
             },
             "type": "array",
             "title": "Work Items"
+          },
+          "provided": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Provided"
           },
           "pr_url": {
             "anyOf": [
@@ -6050,6 +6070,15 @@
             "type": "array",
             "maxItems": 50,
             "title": "Items"
+          },
+          "provided": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "maxProperties": 10,
+            "title": "Provided"
           }
         },
         "type": "object",
@@ -6690,6 +6719,25 @@
           "label": {
             "type": "string",
             "title": "Label"
+          },
+          "allows": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allows"
+          },
+          "gives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Gives"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": "built-in"
           }
         },
         "type": "object",
@@ -6697,7 +6745,8 @@
           "id",
           "label"
         ],
-        "title": "PhaseInfo"
+        "title": "PhaseInfo",
+        "description": "One column of the phase registry (ADR-0039 \u00a72)."
       },
       "PillarScore": {
         "properties": {
@@ -8425,16 +8474,7 @@
           "phase": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "discover",
-                  "design",
-                  "plan",
-                  "develop",
-                  "verify",
-                  "deliver",
-                  "operate"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -8504,6 +8544,20 @@
               }
             ],
             "title": "Fail On"
+          },
+          "uses": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uses"
           }
         },
         "type": "object",

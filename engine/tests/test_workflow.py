@@ -87,7 +87,13 @@ def _custom_line(tmp_path: Path) -> Path:
     stations = doc.model_dump()["stations"]
     stations.insert(
         [s["id"] for s in stations].index("implement") + 1,
-        {"id": "security-review", "kind": "agent", "agent": "security-reviewer", "on_fail": "implement"},
+        {
+            "id": "security-review",
+            "kind": "agent",
+            "agent": "security-reviewer",
+            "on_fail": "implement",
+            "uses": ["read-repo", "run-sandbox"],
+        },
     )
     out = tmp_path / "custom"
     export_workflow_dir(WorkflowDoc.model_validate({**doc.model_dump(), "stations": stations}), out)

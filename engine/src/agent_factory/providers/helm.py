@@ -114,7 +114,11 @@ class HelmProvider:
     def _env(self, ctx: Any, purpose: str) -> tuple[dict[str, str], bool] | None:
         if not self._kube_ref:
             return {}, False
-        value = ctx.secret(self._kube_ref, purpose) if hasattr(ctx, "change") else ctx.secret(self._kube_ref)
+        value = (
+            ctx.secret(self._kube_ref, purpose, f"deploy:{ctx.providers.environment}")
+            if hasattr(ctx, "change")
+            else ctx.secret(self._kube_ref)
+        )
         return ({KUBECONFIG_ENV: value}, True) if value is not None else None
 
     def _curl(self, url: str) -> str:
@@ -200,7 +204,7 @@ class HelmProvider:
             )
         steps: list[str] = [f"{k} create namespace {ns} --dry-run=client -o yaml | {k} apply -f -"]
         if self.pull_secret_ref:
-            pull = ctx.secret(str(self.pull_secret_ref), "image pull secret")
+            pull = ctx.secret(str(self.pull_secret_ref), "image pull secret", f"deploy:{ctx.providers.environment}")
             if pull is None:
                 return StepResult(False, f"deployment failed: pull secret {self.pull_secret_ref} not available")
             kenv = {**kenv, PULL_ENV: pull}

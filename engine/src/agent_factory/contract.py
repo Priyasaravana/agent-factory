@@ -1,11 +1,15 @@
-"""Station contract (ADR-0037 §1–§5): station types, artifact types and the publish checks.
+"""Station contract (ADR-0037 §1–§5, ADR-0039 §2–§5): station types, artifact types, the phase
+registry with its capability boundaries, and the publish checks.
 
-Pure: no I/O. A workflow is a **container** of seven fixed columns; a station **fits** only if
+Pure: no I/O. A workflow is a **container** of phase columns (the seven built-in phases, plus the
+org's look-and-decide columns and phases from packs an admin installed); a station **fits** only if
 
 1. **column**: it sits in its type's column, columns never step back along the forward order;
 2. **data**: every artifact it needs is given by a station to its left or is an entry artifact;
 3. **floor**: when the workflow changes code, `test`, a secret scan and `change-risk` run after
-   every change to the branch and before anything that gives `image`, `url` or `pr`.
+   every change to the branch and before anything that gives `image`, `url` or `pr`;
+4. **capability**: what it uses and gives stays inside what its phase allows (ADR-0039 §3), so
+   a step drawn in the wrong column is refused at publish and could not act at runtime either.
 
 A **station type** fixes its column, what it needs and what it gives. Implementations differ by
 target (`factory` = a product the factory owns, `repo` = a team's repo); until the handler pairs
@@ -43,7 +47,9 @@ PHASE_TO_COLUMN = {
 
 
 def column_of_phase(phase: str) -> str:
-    return phase if phase in COLUMN_IDS else PHASE_TO_COLUMN[phase]
+    """A DevOps phase name read as its column; any other id is a column id (built-in, org or pack:
+    the registry decides whether it exists)."""
+    return PHASE_TO_COLUMN.get(phase, phase)
 
 
 # -------------------------------------------------------------- artifacts ----
@@ -108,6 +114,183 @@ def need_text(need: Need) -> str:
     return " | ".join(str(r) for r in need)
 
 
+# ----------------------------------------------------------- capabilities ---
+# What a station may do (ADR-0039 §2). A phase allows a set; a station type declares what it uses;
+# the engine grants a station only what it uses inside its phase (tools, credentials, write access).
+CAPABILITIES: dict[str, str] = {
+    "read-repo": "read the branch or the team's repo",
+    "write-docs": "write docs, specs and designs",
+    "write-tickets": "create or update tickets",
+    "write-code": "change the code on the branch",
+    "run-sandbox": "run commands in the sandbox",
+    "run-scanners": "run security scanners and use their service tokens",
+    "push-image": "push an image to the registry",
+    "deploy": "deploy to an environment (deploy:<env>, deploy:* for any)",
+    "promote": "promote an image from one environment to the next",
+    "open-pr": "push a branch and open a pull request (or tag a handover)",
+    "read-metrics": "read metrics",
+    "read-logs": "read logs",
+    "open-incident": "open an incident",
+    "rollback": "roll an environment back (rollback:<env>, rollback:* for any)",
+    "approve": "record a person's approval",
+}
+PER_ENVIRONMENT = {"deploy", "rollback"}  # named per environment: deploy:<env>
+# all an org column may allow: it looks and decides, never writes, deploys or opens a PR
+LOOK_AND_DECIDE = frozenset({"read-repo", "run-scanners", "read-metrics", "read-logs", "approve"})
+OBSERVE = frozenset({"read-repo"})  # what a custom step gets unless an admin grants more
+WRITES = frozenset({"write-code", "write-docs"})
+_CAP = re.compile(r"^(?P<base>[a-z][a-z-]{1,30})(?::(?P<env>\*|[a-z][a-z0-9-]{0,30}))?$")
+
+
+def capability_problem(text: str) -> str | None:
+    """Why `text` is not a capability, or None."""
+    m = _CAP.match(text)
+    if not m or m["base"] not in CAPABILITIES:
+        return f"unknown capability '{text}' (one of {', '.join(CAPABILITIES)})"
+    if (m["base"] in PER_ENVIRONMENT) != bool(m["env"]):
+        return (
+            f"'{text}': {m['base']} names its environment ({m['base']}:<env> or {m['base']}:*)"
+            if m["base"] in PER_ENVIRONMENT
+            else f"'{text}': only {' and '.join(sorted(PER_ENVIRONMENT))} name an environment"
+        )
+    return None
+
+
+def grants(allowed: Collection[str], capability: str) -> bool:
+    """Whether a set of capabilities covers one: `deploy:*` covers `deploy:prod`."""
+    if capability in allowed:
+        return True
+    base, _, env = capability.partition(":")
+    return bool(env) and f"{base}:*" in allowed
+
+
+def narrow(uses: Iterable[str], allowed: Collection[str]) -> frozenset[str]:
+    """What a station is granted: what it uses, inside what its phase allows."""
+    return frozenset(u for u in uses if grants(allowed, u))
+
+
+# ----------------------------------------------------------------- phases ---
+@dataclass(frozen=True)
+class Phase:
+    """One column of the registry (ADR-0039 §2)."""
+
+    id: str
+    title: str
+    allows: frozenset[str]
+    gives: frozenset[str]  # artifact types a station in this phase may give
+    source: str = "built-in"  # built-in | org | <pack>@<version>
+    after: str | None = None  # an org column: the built-in phase it follows
+
+    @property
+    def builtin(self) -> bool:
+        return self.source == "built-in"
+
+
+def _p(pid: str, title: str, allows: Iterable[str], gives: Iterable[str]) -> Phase:
+    return Phase(pid, title, frozenset(allows), frozenset(gives))
+
+
+# The seven built-in phases: fixed in order, never removed (the factory default lanes use only these).
+BUILTIN_PHASES: list[Phase] = [
+    _p("discover", "Discover", ["read-repo", "run-sandbox", "run-scanners", "write-docs", "write-tickets"], ["report"]),
+    _p("design", "Design", ["read-repo", "write-docs", "write-tickets"], ["spec", "design", "stories", "report"]),
+    _p("plan", "Plan", ["read-repo", "write-docs", "write-tickets"], ["design", "stories", "report"]),
+    _p("develop", "Develop", ["read-repo", "write-code", "write-docs", "run-sandbox"], ["branch", "report"]),
+    _p("verify", "Verify", ["read-repo", "run-sandbox", "run-scanners", "approve"], ["report"]),
+    _p(
+        "deliver",
+        "Deliver",
+        ["read-repo", "run-sandbox", "push-image", "deploy:*", "promote", "open-pr", "approve"],
+        ["image", "url", "pr", "report"],
+    ),
+    _p("operate", "Operate", ["read-repo", "read-metrics", "read-logs", "open-incident"], ["report"]),
+]
+assert [p.id for p in BUILTIN_PHASES] == [c for c, _ in COLUMNS]  # noqa: S101 - one list of columns
+PHASE_ID = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+RESERVED_PHASE_IDS = set(COLUMN_IDS) | set(PHASE_TO_COLUMN)
+
+
+def org_column_errors(column: Phase) -> list[str]:
+    """An org column looks and decides only (ADR-0039 §2, settled 2026-10-12)."""
+    errors = []
+    if column.after not in COLUMN_IDS[:-1]:
+        errors.append(
+            f"column '{column.id}': `after` must be a built-in phase it follows "
+            f"({', '.join(COLUMN_IDS[:-1])}); a column after operate comes only from a pack"
+        )
+    extra = sorted(c for c in column.allows if c not in LOOK_AND_DECIDE)
+    if extra:
+        errors.append(
+            f"column '{column.id}' allows {', '.join(extra)}: an org column only looks and decides "
+            f"({', '.join(sorted(LOOK_AND_DECIDE))}); a phase that writes or deploys comes only from a reviewed pack"
+        )
+    if column.gives - {"report"}:
+        errors.append(f"column '{column.id}' may give only reports, not {', '.join(sorted(column.gives - {'report'}))}")
+    return errors
+
+
+class PhaseRegistry:
+    """The ordered phases a workflow's columns come from: the built-ins, the org's look-and-decide
+    columns each after the built-in phase it names, then the phases of installed packs (appended:
+    existing workflows gain an empty column, nothing reorders)."""
+
+    def __init__(self, columns: Sequence[Phase] = (), packs: Sequence[Phase] = ()) -> None:
+        errors = registry_errors(columns, packs)
+        if errors:
+            raise ValueError("; ".join(errors))
+        ordered: list[Phase] = []
+        for b in BUILTIN_PHASES:
+            ordered.append(b)
+            ordered += [c for c in columns if c.after == b.id]
+        self.phases: list[Phase] = ordered + list(packs)
+        self._by_id = {p.id: p for p in self.phases}
+
+    @property
+    def ids(self) -> list[str]:
+        return [p.id for p in self.phases]
+
+    def __contains__(self, phase_id: object) -> bool:
+        return phase_id in self._by_id
+
+    def get(self, phase_id: str) -> Phase:
+        return self._by_id[phase_id]
+
+    def index(self, phase_id: str) -> int:
+        return self.ids.index(phase_id)
+
+    def title(self, phase_id: str) -> str:
+        return self._by_id[phase_id].title if phase_id in self._by_id else phase_id
+
+    def where_allowed(self, capability: str) -> list[str]:
+        return [p.title for p in self.phases if grants(p.allows, capability)]
+
+
+def registry_errors(columns: Sequence[Phase], packs: Sequence[Phase]) -> list[str]:
+    errors: list[str] = []
+    seen: set[str] = set()
+    for p in [*columns, *packs]:
+        if not PHASE_ID.match(p.id):
+            errors.append(f"phase id '{p.id}' must be lowercase letters, digits and dashes")
+        if p.id in RESERVED_PHASE_IDS:
+            errors.append(f"phase id '{p.id}' is a built-in phase name")
+        if p.id in seen:
+            errors.append(f"phase id '{p.id}' is used twice")
+        seen.add(p.id)
+        errors += [f"phase '{p.id}': {msg}" for c in sorted(p.allows) if (msg := capability_problem(c))]
+        errors += [f"phase '{p.id}' gives unknown artifact type '{g}'" for g in sorted(p.gives - set(ARTIFACT_TYPES))]
+    for c in columns:
+        if c.source != "org":
+            errors.append(f"column '{c.id}' is not an org column")
+        errors += org_column_errors(c)
+    for p in packs:
+        if p.source in ("built-in", "org") or "@" not in p.source:
+            errors.append(f"phase '{p.id}': a pack phase names its pack as <pack>@<version>")
+    return errors
+
+
+BUILTIN_REGISTRY = PhaseRegistry()
+
+
 # ----------------------------------------------------------- station types ---
 @dataclass(frozen=True)
 class StationType:
@@ -118,6 +301,7 @@ class StationType:
     # the engine handler per target (None: the type does nothing there and is skipped)
     implementations: dict[str, str | None] = field(default_factory=dict)
     floor: frozenset[str] = frozenset()  # floor controls this type provides: test | secrets | risk
+    uses: frozenset[str] = OBSERVE  # capabilities it needs (ADR-0039 §3), inside its column's allows
 
     def gives_types(self) -> set[str]:
         return {g.type for g in self.gives}
@@ -131,6 +315,7 @@ def _t(
     factory: str | None,
     repo: str | None,
     floor: Iterable[str] = (),
+    uses: Iterable[str] = OBSERVE,
 ) -> StationType:
     return StationType(
         tid,
@@ -139,6 +324,7 @@ def _t(
         tuple(parse_ref(g) for g in gives),
         {"factory": factory, "repo": repo},
         frozenset(floor),
+        frozenset(uses),
     )
 
 
@@ -147,7 +333,7 @@ def _t(
 STATION_TYPES: dict[str, StationType] = {
     t.id: t
     for t in [
-        _t("onboard", "discover", ["branch@1"], ["report.repo@1"], None, "onboard"),
+        _t("onboard", "discover", ["branch@1"], ["report.repo@1"], None, "onboard", uses=["read-repo"]),
         _t(
             "repo-scan",
             "discover",
@@ -156,12 +342,21 @@ STATION_TYPES: dict[str, StationType] = {
             None,
             "repo-scan",
             floor=["secrets"],
+            uses=["read-repo", "run-sandbox", "run-scanners"],
         ),
-        _t("assess", "discover", ["branch@1", "report.readiness@1"], ["report.assessment@1"], None, "assess"),
+        _t(
+            "assess",
+            "discover",
+            ["branch@1", "report.readiness@1"],
+            ["report.assessment@1"],
+            None,
+            "assess",
+            uses=["read-repo", "run-sandbox"],
+        ),
         # how an assessment leaves the lane, after the scans it folds in (ADR-0037 amended 2026-10-11)
         _t("report", "deliver", ["report.assessment@1"], ["report.assessment@1"], None, "report"),
         _t("requirements", "design", ["request@1"], ["spec@1"], "requirements", "requirements"),
-        _t("design", "design", ["spec@1"], ["design@1"], "design", "design"),
+        _t("design", "design", ["spec@1"], ["design@1"], "design", "design", uses=["read-repo", "write-docs"]),
         _t(
             "implement",
             "develop",
@@ -169,11 +364,39 @@ STATION_TYPES: dict[str, StationType] = {
             ["branch@1", "report.change@1"],
             "implement",
             "repo-implement",
+            uses=["read-repo", "write-code", "run-sandbox"],
         ),
-        _t("test", "verify", ["branch@1"], ["report.test@1"], "test", "repo-test", floor=["test"]),
+        _t(
+            "test",
+            "verify",
+            ["branch@1"],
+            ["report.test@1"],
+            "test",
+            "repo-test",
+            floor=["test"],
+            uses=["read-repo", "run-sandbox"],
+        ),
         # agent-readiness Level 3 plus the blueprint's secret scan (quality_gate)
-        _t("quality-gate", "verify", ["branch@1"], ["report.readiness@1"], "quality-gate", None, floor=["secrets"]),
-        _t("scan", "verify", ["branch@1"], ["report.scan@1"], "scan", "scan"),  # secrets floor: check: secrets
+        _t(
+            "quality-gate",
+            "verify",
+            ["branch@1"],
+            ["report.readiness@1"],
+            "quality-gate",
+            None,
+            floor=["secrets"],
+            uses=["read-repo", "run-sandbox", "run-scanners"],
+        ),
+        # secrets floor: check: secrets
+        _t(
+            "scan",
+            "verify",
+            ["branch@1"],
+            ["report.scan@1"],
+            "scan",
+            "scan",
+            uses=["read-repo", "run-sandbox", "run-scanners"],
+        ),
         _t(
             "code-review",
             "verify",
@@ -181,14 +404,49 @@ STATION_TYPES: dict[str, StationType] = {
             ["report.review@1"],
             "code-review",
             "repo-review",
+            uses=["read-repo", "run-sandbox"],
         ),
-        _t("change-risk", "verify", ["branch@1"], ["report.risk@1"], "change-risk", "change-risk", floor=["risk"]),
-        _t("build", "deliver", ["branch@1"], ["image@1"], "build", None),
-        _t("deploy", "deliver", ["image@1"], ["url@1"], "deploy", None),
+        _t(
+            "change-risk",
+            "verify",
+            ["branch@1"],
+            ["report.risk@1"],
+            "change-risk",
+            "change-risk",
+            floor=["risk"],
+            uses=["read-repo", "approve"],
+        ),
+        _t(
+            "build",
+            "deliver",
+            ["branch@1"],
+            ["image@1"],
+            "build",
+            None,
+            uses=["read-repo", "run-sandbox", "push-image"],
+        ),
+        _t("deploy", "deliver", ["image@1"], ["url@1"], "deploy", None, uses=["deploy:*"]),
         # repairs the chart, Dockerfile or app config: a branch change, so it re-enters verify
-        _t("deploy-repair", "deliver", ["branch@1"], ["branch@1"], "deploy-repair", None),
-        _t("acceptance", "deliver", ["url@1", "spec@1"], ["report.acceptance@1"], "acceptance", None),
-        _t("handover", "deliver", ["branch@1"], ["pr@1"], "handover", "pull-request"),
+        # (a repair that re-enters verify may write code outside develop: `capability_errors`)
+        _t(
+            "deploy-repair",
+            "deliver",
+            ["branch@1"],
+            ["branch@1"],
+            "deploy-repair",
+            None,
+            uses=["read-repo", "write-code", "run-sandbox"],
+        ),
+        _t(
+            "acceptance",
+            "deliver",
+            ["url@1", "spec@1"],
+            ["report.acceptance@1"],
+            "acceptance",
+            None,
+            uses=["read-repo", "run-sandbox"],
+        ),
+        _t("handover", "deliver", ["branch@1"], ["pr@1"], "handover", "pull-request", uses=["read-repo", "open-pr"]),
     ]
 }
 CUSTOM = "agent"  # the generic agent handler: a custom station declares its own contract
@@ -225,16 +483,17 @@ class StationLike(Protocol):
     def needs_refs(self) -> tuple[Need, ...]: ...
     def gives_refs(self) -> tuple[ArtifactRef, ...]: ...
     def floor_controls(self) -> frozenset[str]: ...
+    def uses_caps(self) -> frozenset[str]: ...
 
 
 def satisfied(need: Need, have: Collection[ArtifactRef]) -> bool:
     return any(r in have for r in need)
 
 
-def columns(stations: Sequence[StationLike]) -> dict[str, str]:
+def columns(stations: Sequence[StationLike], first: str = COLUMN_IDS[0]) -> dict[str, str]:
     """Each station's column; a custom station without one takes the column of the one before."""
     out: dict[str, str] = {}
-    current = COLUMN_IDS[0]
+    current = first
     for s in stations:
         current = s.column(current)
         out[s.id] = current
@@ -246,24 +505,18 @@ def fit_errors(
     entry: Sequence[ArtifactRef],
     col: dict[str, str] | None = None,
     end_is_exit: bool = False,
+    order: Sequence[str] = COLUMN_IDS,
 ) -> list[str]:
     """Column, data and floor rules (ADR-0037 §1, §5) over a lane's stations (`end_is_exit`: the
-    lane's end counts as an exit, so a lane that changes code can't end before the controls ran)."""
+    lane's end counts as an exit, so a lane that changes code can't end before the controls ran).
+    `order` is the registry's column order (built-ins, org columns, pack phases)."""
     errors: list[str] = []
     forward = [s for s in stations if not s.only_on_fail]
     by_id = {s.id: s for s in stations}
     col = col or columns(stations)
 
     # 1. column rule: free order within a column, never back to an earlier column
-    last = -1
-    for s in forward:
-        i = COLUMN_IDS.index(col[s.id])
-        if i < last:
-            errors.append(
-                f"station '{s.id}' sits in {col[s.id]} but comes after a {COLUMN_IDS[last]} station: "
-                f"columns run {' → '.join(COLUMN_IDS)}"
-            )
-        last = max(last, i)
+    errors += column_errors(forward, col, order)
 
     # 2. data rule: what is available before each forward station
     have: set[ArtifactRef] = set(entry)
@@ -288,7 +541,7 @@ def fit_errors(
                 )
 
     # 3. floor rule
-    errors += floor_errors(stations, by_id, col, end_is_exit)
+    errors += floor_errors(stations, by_id, col, end_is_exit, order)
     return errors
 
 
@@ -297,6 +550,7 @@ def floor_errors(
     by_id: dict[str, StationLike] | None = None,
     col: dict[str, str] | None = None,
     end_is_exit: bool = False,
+    order: Sequence[str] = COLUMN_IDS,
 ) -> list[str]:
     """Mandatory controls (ADR-0037 §5). A workflow that never gives `branch` has no scope floor.
     With `end_is_exit`, the lane's end counts as an exit: a lane that changes code must not end
@@ -346,7 +600,7 @@ def floor_errors(
     for s in stations:
         if s.floor_controls() and s.on_fail and s.on_fail in by_id:
             target = col[s.on_fail]
-            if COLUMN_IDS.index(target) > COLUMN_IDS.index("develop"):
+            if order.index(target) > order.index("develop"):
                 errors.append(
                     f"station '{s.id}' is a mandatory control: its failure must route back to develop "
                     f"or hold, not to '{s.on_fail}' ({target})"
@@ -354,17 +608,47 @@ def floor_errors(
     return sorted(set(errors))
 
 
-def column_errors(forward: Sequence[StationLike], col: dict[str, str]) -> list[str]:
+def column_errors(forward: Sequence[StationLike], col: dict[str, str], order: Sequence[str] = COLUMN_IDS) -> list[str]:
     """The column rule alone, over a whole lane."""
     errors, last = [], -1
     for s in forward:
-        i = COLUMN_IDS.index(col[s.id])
+        i = order.index(col[s.id])
         if i < last:
             errors.append(
-                f"station '{s.id}' sits in {col[s.id]} but comes after a {COLUMN_IDS[last]} station: "
-                f"columns run {' → '.join(COLUMN_IDS)}"
+                f"station '{s.id}' sits in {col[s.id]} but comes after a {order[last]} station: "
+                f"columns run {' → '.join(order)}"
             )
         last = max(last, i)
+    return errors
+
+
+def reenters_verify(s: StationLike, col: dict[str, str], order: Sequence[str]) -> bool:
+    """A repair whose fix goes back through verify (the floor runs again after it)."""
+    return s.only_on_fail and bool(s.next) and s.next in col and order.index(col[s.next]) <= order.index("verify")
+
+
+def capability_errors(
+    stations: Sequence[StationLike], col: dict[str, str], registry: PhaseRegistry = BUILTIN_REGISTRY
+) -> list[str]:
+    """Rule 4 (ADR-0039 §3): each station uses and gives no more than its column allows. The one
+    exception: a repair that re-enters verify may change the branch from a later column (deploy
+    repair), since the mandatory controls run again on what it wrote."""
+    errors: list[str] = []
+    for s in stations:
+        phase = registry.get(col[s.id])
+        repair = reenters_verify(s, col, registry.ids)
+        for c in sorted(s.uses_caps()):
+            if problem := capability_problem(c):
+                errors.append(f"station '{s.id}': {problem}")
+            elif not grants(phase.allows, c) and not (repair and c == "write-code"):
+                where = registry.where_allowed(c)
+                errors.append(
+                    f"station '{s.id}' uses {c}, which {phase.title} does not allow"
+                    + (f" (it belongs to {' or '.join(where)})" if where else "")
+                )
+        for t in sorted({g.type for g in s.gives_refs()} - phase.gives):
+            if not (repair and t == "branch"):
+                errors.append(f"station '{s.id}' gives {t}, which a {phase.title} station may not give")
     return errors
 
 

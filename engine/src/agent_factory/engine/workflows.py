@@ -8,7 +8,7 @@ from collections.abc import Collection
 from pathlib import Path
 
 from agent_factory.checks import CHECKS, PROVIDERS
-from agent_factory.contract import BUILTIN_ROLES, COLUMN_IDS
+from agent_factory.contract import BUILTIN_REGISTRY, BUILTIN_ROLES, PhaseRegistry, capability_problem
 from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
@@ -50,6 +50,7 @@ class WorkflowService:
         skills_dir: Path,
         library: SkillLibrary | None = None,
         roles: Collection[str] = tuple(BUILTIN_ROLES),
+        phases: PhaseRegistry = BUILTIN_REGISTRY,
     ) -> None:
         self.store = store
         self.workflow_id = workflow_id
@@ -57,6 +58,7 @@ class WorkflowService:
         self.skills_dir = skills_dir
         self.library = library
         self.roles = tuple(roles)  # role ids a station may name as owner (ADR-0037)
+        self.phases = phases  # the phase registry its columns come from (ADR-0039 §2)
         self._cache: dict[int, WorkflowDoc] = {}
         self.draft = Draft(self)
 
@@ -101,7 +103,7 @@ class WorkflowService:
         return self.library.imported_names() if self.library else set()
 
     def validate(self, doc: WorkflowDoc) -> list[str]:
-        return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles)
+        return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles, self.phases)
 
     def create_version(self, doc: WorkflowDoc, note: str, activate: bool = True) -> int:
         problems = self.validate(doc)
@@ -133,22 +135,24 @@ class WorkflowRegistry:
         skills_dir: Path,
         library: SkillLibrary | None = None,
         roles: Collection[str] = tuple(BUILTIN_ROLES),
+        phases: PhaseRegistry = BUILTIN_REGISTRY,
     ) -> None:
         self.store = store
         self.templates_dir = templates_dir
         self.skills_dir = skills_dir
         self.library = library
         self.roles = tuple(roles)
+        self.phases = phases
         self.factory_ids = list(workflows)
         self._services = {
-            wid: WorkflowService(store, wid, template, skills_dir, library, roles)
+            wid: WorkflowService(store, wid, template, skills_dir, library, roles, phases)
             for wid, template in workflows.items()
         }
         for wid in store.list_workflow_ids():
             if wid not in self._services:
                 doc = store.get_workflow_version(wid, store.active_workflow_version(wid) or 1)
                 path = self.template_path(doc.template if doc else None)
-                self._services[wid] = WorkflowService(store, wid, path, skills_dir, library, roles)
+                self._services[wid] = WorkflowService(store, wid, path, skills_dir, library, roles, phases)
 
     def is_factory(self, workflow_id: str) -> bool:
         return workflow_id in self.factory_ids
@@ -174,7 +178,9 @@ class WorkflowRegistry:
         if new_id in self._services:
             raise WorkflowError(f"workflow '{new_id}' already exists")
         src = self[source_id]
-        svc = WorkflowService(self.store, new_id, src.template_dir, self.skills_dir, self.library, self.roles)
+        svc = WorkflowService(
+            self.store, new_id, src.template_dir, self.skills_dir, self.library, self.roles, self.phases
+        )
         svc.create_version(src.get(), note)
         self._services[new_id] = svc
         return svc
@@ -445,6 +451,7 @@ class Draft:
             "fail_on",
             "check",
             "provider",
+            "uses",
         }
         unknown = set(patch) - allowed
         if unknown:
@@ -481,9 +488,18 @@ class Draft:
                 raise WorkflowError(f"unknown {st.kind} handler '{h}' (choose from {sorted(known)})")
             st.handler = h
         if "phase" in patch:
-            if patch["phase"] and patch["phase"] not in PHASE_IDS + COLUMN_IDS:
-                raise WorkflowError(f"phase must be one of {COLUMN_IDS + PHASE_IDS}, not '{patch['phase']}'")
+            phases = self.s.phases.ids
+            if patch["phase"] and patch["phase"] not in phases + PHASE_IDS:
+                raise WorkflowError(f"phase must be one of {phases}, not '{patch['phase']}'")
             st.phase = patch["phase"] or None  # type: ignore[assignment]
+        if "uses" in patch:  # custom steps only: an admin grants more than observe (ADR-0039 §3)
+            if st.station_type() is not None:
+                raise WorkflowError(f"station '{station_id}': its type '{st.type_id()}' fixes what it uses")
+            uses = [str(u) for u in patch["uses"]] if isinstance(patch["uses"], list) else None
+            for u in uses or []:
+                if problem := capability_problem(u):
+                    raise WorkflowError(problem)
+            st.uses = uses
         if "agent" in patch:
             if st.kind != "agent" and st.resolved_handler() != "scan":  # a scan may fall back to one
                 raise WorkflowError(f"station '{station_id}' is a deterministic check and has no agent")

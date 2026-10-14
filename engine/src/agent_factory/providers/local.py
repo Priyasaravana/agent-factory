@@ -140,7 +140,7 @@ class LocalProvider:
         ws = ctx.ws
         repo = ws.product_dir(ctx.product.slug)
         ref = getattr(getattr(self, "auth", None), "secret_ref", None) or "env://GITHUB_TOKEN"
-        token = ctx.secret(ref, "publish")
+        token = ctx.secret(ref, "publish", "open-pr")
         if not token:
             await ctx.emit(EventKind.decision, f"publish NOT done: no GitHub token ({ref} not available)")
             return StepResult(True, f"NOT pushed ({ref} not available)")

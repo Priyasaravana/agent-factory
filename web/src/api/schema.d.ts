@@ -1389,7 +1389,7 @@ export interface components {
              */
             only_on_fail: boolean;
             /** Phase */
-            phase?: ("discover" | "design" | "plan" | "develop" | "verify" | "deliver" | "operate") | null;
+            phase?: string | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */
@@ -1398,6 +1398,8 @@ export interface components {
             tool?: string | null;
             /** Fail On */
             fail_on?: ("critical" | "high" | "medium" | "low" | "none") | null;
+            /** Uses */
+            uses?: string[] | null;
             /** Position */
             position?: number | null;
         };
@@ -1739,6 +1741,10 @@ export interface components {
             };
             /** Phases */
             phases?: components["schemas"]["PhaseInfo"][];
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: string;
+            };
             /** Requirements */
             requirements: {
                 [key: string]: {
@@ -1789,6 +1795,12 @@ export interface components {
             change_request?: string | null;
             /** Work Items */
             work_items?: string[];
+            /** Provided */
+            provided?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
             /** Pr Url */
             pr_url?: string | null;
             /** Last Failure */
@@ -2418,6 +2430,12 @@ export interface components {
             kind: components["schemas"]["ChangeKind"];
             /** Items */
             items?: string[];
+            /** Provided */
+            provided?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
         };
         /** FromGitHubInput */
         FromGitHubInput: {
@@ -2714,12 +2732,24 @@ export interface components {
             /** Weekly */
             weekly?: components["schemas"]["WeekPoint"][];
         };
-        /** PhaseInfo */
+        /**
+         * PhaseInfo
+         * @description One column of the phase registry (ADR-0039 §2).
+         */
         PhaseInfo: {
             /** Id */
             id: string;
             /** Label */
             label: string;
+            /** Allows */
+            allows?: string[];
+            /** Gives */
+            gives?: string[];
+            /**
+             * Source
+             * @default built-in
+             */
+            source: string;
         };
         /**
          * PillarScore
@@ -3436,7 +3466,7 @@ export interface components {
             /** Agent */
             agent?: string | null;
             /** Phase */
-            phase?: ("discover" | "design" | "plan" | "develop" | "verify" | "deliver" | "operate") | null;
+            phase?: string | null;
             /** Check */
             check?: ("secrets" | "code" | "dependencies" | "config") | null;
             /** Provider */
@@ -3445,6 +3475,8 @@ export interface components {
             tool?: string | null;
             /** Fail On */
             fail_on?: ("critical" | "high" | "medium" | "low" | "none") | null;
+            /** Uses */
+            uses?: string[] | null;
         };
         /** ValidationError */
         ValidationError: {
