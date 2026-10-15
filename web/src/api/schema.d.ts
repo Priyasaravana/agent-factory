@@ -168,6 +168,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a change of this kind must bring from your own tools (the lane's provided entry artifacts)
+         * @description What a change of this kind must bring from your own tools (the lane's provided entry artifacts)
+         */
+        get: operations["get_change_entry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/feedback": {
         parameters: {
             query?: never;
@@ -1152,6 +1172,66 @@ export interface paths {
         patch: operations["update_draft_station"];
         trace?: never;
     };
+    "/api/workflows/{workflow_id}/draft/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What each phase box's Add station offers, with what adding each one now would break
+         * @description What each phase box's Add station offers, with what adding each one now would break
+         */
+        get: operations["get_draft_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/stations/from-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a station from a template at the end of a phase box
+         * @description Add a station from a template at the end of a phase box
+         */
+        post: operations["add_draft_station_from_template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/draft/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scope the draft's lane to a preset: stations outside it are removed, its missing controls added
+         * @description Scope the draft's lane to a preset: stations outside it are removed, its missing controls added
+         */
+        post: operations["apply_draft_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows/{workflow_id}/draft/stations/order": {
         parameters: {
             query?: never;
@@ -1365,6 +1445,15 @@ export interface components {
         ActivateInput: {
             /** Override Reason */
             override_reason?: string | null;
+        };
+        /** AddFromTemplateInput */
+        AddFromTemplateInput: {
+            /** Template */
+            template: string;
+            /** Phase */
+            phase: string;
+            /** Id */
+            id?: string | null;
         };
         /** AddStationInput */
         AddStationInput: {
@@ -1745,6 +1834,10 @@ export interface components {
             capabilities?: {
                 [key: string]: string;
             };
+            /** Scope Presets */
+            scope_presets?: components["schemas"]["ScopePresetInfo"][];
+            /** Entry Choices */
+            entry_choices?: components["schemas"]["EntryArtifactView"][];
             /** Requirements */
             requirements: {
                 [key: string]: {
@@ -1850,6 +1943,15 @@ export interface components {
             /** Stations */
             stations: components["schemas"]["StationView"][];
             risk?: components["schemas"]["ChangeRiskView"] | null;
+        };
+        /** ChangeEntryView */
+        ChangeEntryView: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Kind */
+            kind: string;
+            /** Takes */
+            takes: components["schemas"]["ProvidedArtifactInfo"][];
         };
         /**
          * ChangeKind
@@ -2071,6 +2173,13 @@ export interface components {
              */
             at: string;
         };
+        /** DraftTemplatesView */
+        DraftTemplatesView: {
+            /** Phases */
+            phases: {
+                [key: string]: components["schemas"]["StationTemplateView"][];
+            };
+        };
         /** DraftView */
         DraftView: {
             /** Workflow Id */
@@ -2123,6 +2232,21 @@ export interface components {
             eval_gate: string;
             /** Evals */
             evals?: components["schemas"]["EvalCase"][];
+            /**
+             * Works On
+             * @default factory
+             */
+            works_on: string;
+            /** Kinds */
+            kinds?: string[];
+            /** Scope */
+            scope?: string[];
+            /** Span */
+            span?: string[];
+            /** Preset */
+            preset?: string | null;
+            /** Entry */
+            entry?: components["schemas"]["EntryArtifactView"][];
         };
         /** DuplicateAgentInput */
         DuplicateAgentInput: {
@@ -2140,6 +2264,24 @@ export interface components {
              * @default 0
              */
             n: number;
+        };
+        /**
+         * EntryArtifactView
+         * @description An artifact a lane starts from: the factory makes the request and the code; anything else
+         *     comes from the org's own tools with each change (ADR-0039 §5).
+         */
+        EntryArtifactView: {
+            /** Ref */
+            ref: string;
+            /** Key */
+            key: string;
+            /** Title */
+            title: string;
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "factory" | "your tools";
         };
         /** EnvironmentView */
         EnvironmentView: {
@@ -2802,6 +2944,19 @@ export interface components {
             /** Checks */
             checks: components["schemas"]["CheckView"][];
         };
+        /** PresetAppliedView */
+        PresetAppliedView: {
+            draft: components["schemas"]["DraftView"];
+            /** Removed */
+            removed: string[];
+            /** Added */
+            added: string[];
+        };
+        /** PresetInput */
+        PresetInput: {
+            /** Preset */
+            preset: string;
+        };
         /** Product */
         Product: {
             /** Id */
@@ -2867,6 +3022,22 @@ export interface components {
          * @enum {string}
          */
         ProductTarget: "new" | "repo" | "factory";
+        /**
+         * ProvidedArtifactInfo
+         * @description An entry artifact a change to this product must bring from the org's own tools.
+         */
+        ProvidedArtifactInfo: {
+            /** Key */
+            key: string;
+            /** Ref */
+            ref: string;
+            /** Title */
+            title: string;
+            /** Example */
+            example: {
+                [key: string]: unknown;
+            };
+        };
         /** PublishInput */
         PublishInput: {
             /** Note */
@@ -3044,6 +3215,21 @@ export interface components {
             then: string;
             /** Covers */
             covers?: string[];
+        };
+        /** ScopePresetInfo */
+        ScopePresetInfo: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Hint */
+            hint: string;
+            /** Scope */
+            scope: string[];
+            /** Entry */
+            entry: string[];
+            /** Adds */
+            adds: string[];
         };
         /** SkillDetail */
         SkillDetail: {
@@ -3245,6 +3431,34 @@ export interface components {
              */
             denied: number;
         };
+        /**
+         * StationTemplateView
+         * @description What a phase box's "Add station" offers, with the drop-time check.
+         */
+        StationTemplateView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Hint */
+            hint: string;
+            /** Kind */
+            kind: string;
+            /** Source */
+            source: string;
+            /**
+             * Control
+             * @default false
+             */
+            control: boolean;
+            /**
+             * Present
+             * @default false
+             */
+            present: boolean;
+            /** Adds Problems */
+            adds_problems?: string[];
+        };
         /** StationView */
         StationView: {
             /** Id */
@@ -3285,6 +3499,27 @@ export interface components {
             check?: string | null;
             /** Provider */
             provider?: string | null;
+            /**
+             * Type
+             * @default
+             */
+            type: string;
+            /**
+             * Control
+             * @default false
+             */
+            control: boolean;
+            /**
+             * Custom
+             * @default false
+             */
+            custom: boolean;
+            /** Uses */
+            uses?: string[];
+            /** Needs */
+            needs?: string[];
+            /** Gives */
+            gives?: string[];
         };
         /** TemplateInfo */
         TemplateInfo: {
@@ -3690,6 +3925,10 @@ export interface components {
             learn_from_runs?: boolean | null;
             /** Eval Gate */
             eval_gate?: ("off" | "warn" | "block") | null;
+            /** Scope */
+            scope?: string[] | null;
+            /** Entry */
+            entry?: string[] | null;
         };
         /** WorkflowSummary */
         WorkflowSummary: {
@@ -4074,6 +4313,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_entry: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+            };
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeEntryView"];
                 };
             };
             /** @description Validation Error */
@@ -5798,6 +6070,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_draft_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftTemplatesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_draft_station_from_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddFromTemplateInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_draft_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetAppliedView"];
                 };
             };
             /** @description Validation Error */

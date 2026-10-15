@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,26 @@ def missing_needs(ctx: StationContext) -> list[str]:
     return [contract.need_text(n) for n in station.needs_refs() if not contract.satisfied(n, have)]
 
 
+def provided_problems(refs: Iterable[ArtifactRef], provided: dict[str, Any]) -> list[str]:
+    """Why the artifacts a change brings from the org's own tools don't satisfy the lane's entry
+    (ADR-0039 §5): missing, invalid against their schema, or a change-risk report still waiting
+    for approval. Checked when the change starts and again when its entry is recorded."""
+    errors: list[str] = []
+    for ref in refs:
+        if ref.key in ENGINE_ENTRY:
+            continue
+        if ref.key not in provided:
+            errors.append(f"{ref}: not provided; this lane starts from it, supplied by your own tools")
+            continue
+        manifest = provided[ref.key]
+        errors += artifacts.problems(ref, manifest)
+        data = manifest.get("data") if isinstance(manifest, dict) else None
+        holds = data.get("holds") if isinstance(data, dict) and ref.key == "report.risk" else None
+        if isinstance(holds, int) and holds > 0:  # the floor: risky changes wait for approval
+            errors.append(f"{ref}: {holds} change-risk finding(s) still wait for approval")
+    return errors
+
+
 async def record_entry(ctx: StationContext) -> list[str]:
     """Record the workflow's entry artifacts once per change; return why any is rejected."""
     ledger = ledger_for(ctx)
@@ -65,18 +85,11 @@ async def record_entry(ctx: StationContext) -> list[str]:
     errors: list[str] = []
     for ref in ctx.workflow_doc.entry_refs():
         if ref.key not in ENGINE_ENTRY:
-            if ref.key not in ctx.change.provided:
-                errors.append(f"{ref}: not provided; this lane starts from it, supplied by your own tools")
-                continue
-            manifest, location = (
-                ctx.change.provided[ref.key],
-                f"provided by {ctx.change.requested_by or 'the requester'}",
-            )
-            errors += artifacts.problems(ref, manifest)
-            holds = (manifest.get("data") or {}).get("holds") if ref.key == "report.risk" else None
-            if isinstance(holds, int) and holds > 0:  # the floor: risky changes wait for approval
-                errors.append(f"{ref}: {holds} change-risk finding(s) still wait for approval")
-            made.append((ref, manifest, location))
+            problems = provided_problems([ref], ctx.change.provided)
+            errors += problems
+            if ref.key in ctx.change.provided:
+                location = f"provided by {ctx.change.requested_by or 'the requester'}"
+                made.append((ref, ctx.change.provided[ref.key], location))
             continue
         try:
             manifest, location = await collect(ref, ctx, summary="")

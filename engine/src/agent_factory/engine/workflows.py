@@ -7,8 +7,9 @@ import re
 from collections.abc import Collection
 from pathlib import Path
 
+from agent_factory import station_templates as tpl
 from agent_factory.checks import CHECKS, PROVIDERS
-from agent_factory.contract import BUILTIN_REGISTRY, BUILTIN_ROLES, PhaseRegistry, capability_problem
+from agent_factory.contract import BUILTIN_REGISTRY, BUILTIN_ROLES, PhaseRegistry, capability_problem, parse_ref
 from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
@@ -136,9 +137,14 @@ class WorkflowRegistry:
         library: SkillLibrary | None = None,
         roles: Collection[str] = tuple(BUILTIN_ROLES),
         phases: PhaseRegistry = BUILTIN_REGISTRY,
+        pack_templates: Collection[tpl.StationTemplate] = (),
     ) -> None:
         self.store = store
         self.templates_dir = templates_dir
+        # what the builder's phase boxes offer: built-in templates, then those of installed packs
+        self.station_templates = {**tpl.BUILTIN_TEMPLATES, **{t.id: t for t in pack_templates}}
+        # the agents the factory default lanes give each type: a new station borrows one if its lane has none
+        self.agent_library = tpl.agent_library(sorted((templates_dir / "standard" / "lanes").glob("*.yaml")))
         self.skills_dir = skills_dir
         self.library = library
         self.roles = tuple(roles)
@@ -492,6 +498,10 @@ class Draft:
             if patch["phase"] and patch["phase"] not in phases + PHASE_IDS:
                 raise WorkflowError(f"phase must be one of {phases}, not '{patch['phase']}'")
             st.phase = patch["phase"] or None  # type: ignore[assignment]
+            if st.phase and st.station_type() is None:  # moved to another phase box: go to its end
+                doc.stations.remove(st)
+                order = self.s.phases.ids
+                doc.stations.insert(tpl.insert_position(doc, st.column(), order), st)
         if "uses" in patch:  # custom steps only: an admin grants more than observe (ADR-0039 §3)
             if st.station_type() is not None:
                 raise WorkflowError(f"station '{station_id}': its type '{st.type_id()}' fixes what it uses")
@@ -507,6 +517,70 @@ class Draft:
                 raise WorkflowError(f"agent '{patch['agent']}' not found")
             st.agent = str(patch["agent"])
         self._save(doc)
+
+    # ------------------------------------------------- builder (ADR-0039 1c) --
+    def add_template(
+        self,
+        template: tpl.StationTemplate,
+        phase: str,
+        station_id: str | None = None,
+        library: tpl.AgentLibrary | None = None,
+    ) -> str:
+        """Add a template's station at the end of a phase box; returns the new station's id.
+        Only the phase's own templates are offered there (a Deliver station can't land in Develop)."""
+        _, doc, _ = self.get()
+        if phase not in self.s.phases:
+            raise WorkflowError(f"unknown phase '{phase}' (one of {', '.join(self.s.phases.ids)})")
+        if not template.available_for(doc.works_on):
+            raise WorkflowError(f"'{template.title}' does not work on this lane's kind of product")
+        if template.phase not in (None, phase):
+            raise WorkflowError(
+                f"'{template.title}' belongs to {self.s.phases.title(template.phase)}, not {self.s.phases.title(phase)}"
+            )
+        if station_id is not None:
+            if not STATION_ID.match(station_id):
+                raise WorkflowError(
+                    f"station id '{station_id}' must be 2-41 chars: lowercase letters, digits, '-' or '_'"
+                )
+            if any(s.id == station_id for s in doc.stations):
+                raise WorkflowError(f"station '{station_id}' already exists")
+        out, sid = tpl.with_station(doc, template, phase, self.s.phases.ids, station_id, library)
+        self._save(out)
+        return sid
+
+    def set_scope(self, scope: list[str] | None, entry: list[str] | None) -> None:
+        """The lane's scope (first and last phase; empty: what its stations cover) and what it
+        starts from. Publish checks both (`scope_errors`)."""
+        _, doc, _ = self.get()
+        if scope is not None:
+            if scope and (len(scope) != 2 or any(p not in self.s.phases for p in scope)):
+                raise WorkflowError(f"scope is a first and a last phase from {', '.join(self.s.phases.ids)}")
+            if scope and self.s.phases.index(scope[0]) > self.s.phases.index(scope[1]):
+                scope = [scope[1], scope[0]]
+            doc.scope = list(scope)
+        if entry is not None:
+            for e in entry:
+                try:
+                    parse_ref(e)
+                except ValueError as exc:
+                    raise WorkflowError(f"entry artifact: {exc}") from exc
+            doc.entry = list(dict.fromkeys(["request@1", "branch@1", *entry]))
+        self._save(doc)
+
+    def apply_preset(
+        self,
+        preset_id: str,
+        templates: dict[str, tpl.StationTemplate],
+        library: tpl.AgentLibrary | None = None,
+    ) -> tpl.PresetResult:
+        """Scope the lane to a preset: stations outside it go, the preset's stations it lacks come."""
+        preset = tpl.PRESETS.get(preset_id)
+        if preset is None:
+            raise WorkflowError(f"unknown preset '{preset_id}' (one of {', '.join(tpl.PRESETS)})")
+        _, doc, _ = self.get()
+        result = tpl.apply_preset(doc, preset, self.s.phases.ids, templates, library)
+        self._save(result.doc)
+        return result
 
     # ---------------------------------------------------------------- docs --
     def upsert_doc(self, ref: RefDoc) -> None:

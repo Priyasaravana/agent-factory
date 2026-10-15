@@ -6,7 +6,7 @@ import { api, unwrap, type AgentSpec, type DraftView, type RefDoc } from "../api
 import type { components } from "../api/schema";
 import AgentCard from "../components/AgentCard";
 import AgentEditor from "../components/AgentEditor";
-import LaneBuilder, { type LaneOps } from "../components/LaneBuilder";
+import PhaseBoard, { type BoardOps } from "../components/PhaseBoard";
 
 type Editing = { kind: "agent"; spec?: AgentSpec } | { kind: "doc"; doc?: RefDoc } | null;
 
@@ -51,30 +51,16 @@ export default function WorkflowEditPage() {
 
   if (!draft.data || !catalog.data) return <p className="muted">Loading…</p>;
   const d = draft.data;
-  const st = (station_id: string) => ({ params: { path: { ...wid, station_id } } });
-  const laneOps: LaneOps = {
+  const boardOps: BoardOps = {
+    run: (fn) => m.mutate(fn),
+    apply,
     busy: m.isPending,
-    add: ({ position, ...body }) =>
-      m.mutate(() =>
-        unwrap(
-          api.POST("/api/workflows/{workflow_id}/draft/stations", {
-            params: { path: wid },
-            body: { ...body, only_on_fail: body.only_on_fail ?? false, position },
-          }),
-        ),
-      ),
-    remove: (id) => m.mutate(() => unwrap(api.DELETE("/api/workflows/{workflow_id}/draft/stations/{station_id}", st(id)))),
-    reorder: (order) => {
-      // optimistic: show the new order at once, the server answer replaces it
-      apply({ ...d, stations: order.map((id) => d.stations.find((s) => s.id === id)!) });
-      m.mutate(() =>
-        unwrap(api.PUT("/api/workflows/{workflow_id}/draft/stations/order", { params: { path: wid }, body: { order } })),
-      );
+    editAgent: (id) => {
+      const spec = d.agents.find((a) => a.spec.id === id)?.spec;
+      if (!spec) return;
+      setEditing({ kind: "agent", spec });
+      requestAnimationFrame(() => document.getElementById("agents")?.scrollIntoView({ behavior: "smooth" }));
     },
-    update: (id, patch) =>
-      m.mutate(() =>
-        unwrap(api.PATCH("/api/workflows/{workflow_id}/draft/stations/{station_id}", { ...st(id), body: patch })),
-      ),
   };
 
   return (
@@ -148,6 +134,17 @@ export default function WorkflowEditPage() {
             </>
           )}
         </p>
+      </section>
+
+      <section className="card">
+        <div className="mb-3 grid gap-0.5">
+          <h3 className="m-0">Stations</h3>
+          <p className="muted small m-0">
+            What runs, phase by phase. Pick a preset to scope the lane, or add stations to each phase.
+          </p>
+        </div>
+        <PhaseBoard workflowId={workflowId} draft={d} catalog={catalog.data} ops={boardOps} />
+        {m.error && <p className="error">{m.error.message}</p>}
       </section>
 
       <section className="card" data-testid="spec-review-setting">
@@ -295,19 +292,8 @@ export default function WorkflowEditPage() {
         </p>
       </section>
 
-      <section className="card">
-        <h3>Lane</h3>
-        <LaneBuilder
-          draft={d}
-          handlers={catalog.data.handlers}
-          info={catalog.data.handler_info}
-          phases={catalog.data.phases}
-          ops={laneOps}
-        />
-        {m.error && <p className="error">{m.error.message}</p>}
-      </section>
 
-      <section className="card">
+      <section className="card scroll-mt-4" id="agents">
         <div className="row spread">
           <h3>Agents</h3>
           <button onClick={() => setEditing({ kind: "agent" })}>New agent</button>

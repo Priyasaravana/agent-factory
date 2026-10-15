@@ -90,9 +90,13 @@ async def test_the_editor_can_set_a_custom_steps_phase(make_factory) -> None:
     d.add_station(WorkflowStation(id="docs-check", kind="agent", agent="reviewer"), position=at)
     assert d.get()[1].phases()["docs-check"] == "develop"
     d.update_station("docs-check", {"phase": "verify"})
-    assert d.get()[1].phases()["docs-check"] == "verify"
+    doc = d.get()[1]
+    assert doc.phases()["docs-check"] == "verify"
+    # moved to another phase box: it goes to the end of that box (ADR-0039 1c)
+    after = [s.id for s in doc.stations][[s.id for s in doc.stations].index("docs-check") + 1]
+    assert doc.phases()[after] == "deliver"
     d.update_station("docs-check", {"phase": None})
-    assert d.get()[1].phases()["docs-check"] == "develop"
+    assert d.get()[1].phases()["docs-check"] == "verify"  # the phase of the station before it
     with pytest.raises(WorkflowError, match="phase must be one of"):
         d.update_station("docs-check", {"phase": "monitor"})
     with pytest.raises(WorkflowError, match="unknown check handler"):

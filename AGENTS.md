@@ -168,4 +168,8 @@
   its grant (`WorkflowDoc.grant`): agent tools through `ctx.agent`, credentials through
   `ctx.secret(ref, purpose, capability)`. A new credential use names the capability it serves; never
   call `ctx.secret` without one inside a station. Tests in `tests/test_phases.py`.
+- The builder (ADR-0039 1c): what a phase box offers comes from `station_templates.py` (built-in
+  types, scans per check, a custom step, pack stations). Keep it pure; the draft stores, publish
+  still checks everything. A new built-in type is offered automatically in its column; a new preset
+  gets a case in `tests/test_builder.py` showing it publishes on each default lane.
 - Record significant decisions as ADRs in `docs/adr/`.

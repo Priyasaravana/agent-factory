@@ -19,6 +19,7 @@ import {
 } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
+import ProvidedArtifacts from "./ProvidedArtifacts";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
@@ -474,12 +475,14 @@ function FeedbackForm({
 }) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<IterationKind>("feature");
+  // entry artifacts from your own tools, when this product's lane starts after the phases that make them
+  const [provided, setProvided] = useState<Record<string, Record<string, unknown>> | null>({});
   const send = useMutation({
     mutationFn: () =>
       unwrap(
         api.POST("/api/products/{product_id}/feedback", {
           params: { path: { product_id: productId } },
-          body: { text, kind },
+          body: { text, kind, provided: provided ?? {} },
         }),
       ),
     onSuccess: () => {
@@ -534,7 +537,8 @@ function FeedbackForm({
         required
         minLength={3}
       />
-      <Button className="w-fit" disabled={send.isPending}>
+      <ProvidedArtifacts productId={productId} kind={kind} onChange={setProvided} />
+      <Button className="w-fit" disabled={send.isPending || provided === null}>
         <Send /> Request {ITERATION_KINDS[kind].title.toLowerCase()}
         {repo ? " as a pull request" : " & start next iteration"}
       </Button>

@@ -9,3 +9,20 @@ phases:
     title: Observe & act
     allows: [read-repo, read-metrics, read-logs, open-incident, "rollback:*"]
     gives: [report]
+# Station templates (ADR-0039 §3): offered in their phase's "Add station" list, each with its agent.
+# Loading refuses one whose `uses` (or its agent's tools) fall outside its phase's `allows`.
+stations:
+  - id: rollout-review
+    title: Rollout review
+    hint: reads the code and the release notes after a deploy and reports what to watch
+    phase: observe-act
+    gives: [report.rollout-review@1]
+    uses: [read-repo, read-metrics, read-logs]
+    agent: agents/rollout-reviewer.md
+  - id: runbook-check
+    title: Runbook check
+    hint: checks the change keeps the runbook, alerts and dashboards in step with the code
+    phase: verify
+    gives: [report.runbook-check@1]
+    uses: [read-repo]
+    agent: agents/runbook-checker.md

@@ -28,7 +28,7 @@ from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, 
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, ChangeStatus
-from agent_factory.phases import registry_for
+from agent_factory.phases import load_phases
 from agent_factory.providers import Providers
 from agent_factory.sandbox import SandboxManager
 from agent_factory.secret_refs import SecretResolver
@@ -96,6 +96,8 @@ def build_factory(
 
     secrets = SecretResolver(settings)
     library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
+    # built-in phases + org columns + installed packs (ADR-0039 §2), and the packs' station templates
+    phases, pack_templates = load_phases(cfg, home)
     workflows = WorkflowRegistry(
         store,
         {wid: home / template for wid, template in cfg.workflow_templates().items()},
@@ -103,7 +105,8 @@ def build_factory(
         home / "plugin" / "skills",
         library,
         cfg.role_ids(),
-        registry_for(cfg, home),  # built-in phases + org columns + installed packs (ADR-0039 §2)
+        phases,
+        pack_templates,
     )
     # default skills first: the default workflow template uses them
     skill_problems = library.ensure_defaults(
