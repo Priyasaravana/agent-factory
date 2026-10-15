@@ -109,7 +109,7 @@ data, floor), roles and owners, org-level workflows (1b-2), fresh start (data ge
 - Build (estimates):
   - **1b-3a** lanes replace windows; standard as 4 lanes; product assignments with factory-default fallback; copy, back to factory default; run view by lane — done
   - **1b-3b** phase registry + capability boundary (publish and runtime); org look-and-decide columns; scope + entry artifacts — done (station templates from packs move to 1c, with the builder that offers them)
-  - **1c** builder: dotted phase boxes with per-phase templates, drop-time checks, empty/copy, phase-scoped presets, product associations — ~3 days
+  - **1c** builder: dotted phase boxes with per-phase templates, drop-time checks, phase-scoped presets, pack station templates, provided entry artifacts in the change form — done (empty container and product associations already came with 1b-3a's copy and assign)
   - **1d** lane rebase from the standard — ~1 day
   - **promotion** environment track, gates, per-env capabilities — ~3 days, after ADR-0038
 
@@ -150,6 +150,24 @@ data, floor), roles and owners, org-level workflows (1b-2), fresh start (data ge
   from the org's own tools: schema-checked, recorded as "provided by" the requester and sealed. A
   provided `report.risk` with holds still waiting is refused.
 - The catalog API lists the registry (allows, gives, source) and the capabilities, for the builder (1c).
+
+### What 1c built (2026-10-15)
+- Templates (`station_templates.py`, pure): every built-in type in its own phase (scan once per check),
+  a custom agent step offered in every phase, and the stations of installed packs (`stations:` in
+  `pack.yaml`, each with its agent; loading refuses one whose `uses` or agent tools fall outside its
+  phase). A phase box offers only its phase's templates; `Draft.add_template` refuses any other.
+- A new station lands at the end of its phase, with its failures routed back to the develop station
+  (controls, scans, review, build), the agent its type already uses in the lane (else one that fits
+  the grant, else the one the factory default lanes use, brought with its reference docs). A custom
+  step gets its own observe-only agent whose starter prompt blocks publishing until it is written.
+- Drop-time check: `GET …/draft/templates` lists each phase's templates with what adding each one now
+  would break, in the publish checks' words.
+- Scope presets (`SCOPE_PRESETS`): Design only, Development only, Test & secure, Delivery only, Full
+  package. Applying one sets scope and entry, removes stations outside the scope or left unable to run
+  (a code change without Verify, a need nothing gives), and adds the preset's stations the lane lacks.
+- A product says what its next change must bring (`GET /api/products/{id}/entry`, with example
+  manifests); `start_change` refuses missing or invalid provided artifacts up front
+  (`handoff.provided_problems`, the same check the entry record runs).
 
 ## Open questions (for promotion)
 1. Promotion on the local setup: dev only until the cluster target is live, or simulate staging/prod namespaces in kind?

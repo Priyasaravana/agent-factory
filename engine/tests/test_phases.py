@@ -14,10 +14,10 @@ from agent_factory import contract
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.config import FactoryConfig, OrgColumn, PhasesConfig
 from agent_factory.contract import BUILTIN_REGISTRY, Phase, PhaseRegistry, capability_problem, grants
-from agent_factory.engine.handoff import ledger_for
+from agent_factory.engine.handoff import ledger_for, provided_problems
 from agent_factory.engine.pipeline import InvalidRequestError
 from agent_factory.engine.stations import StationContext
-from agent_factory.models import ChangeStatus, EventKind
+from agent_factory.models import ChangeStatus
 from agent_factory.phases import PackError, load_pack, registry_for
 from agent_factory.workflow import (
     AgentSpec,
@@ -165,8 +165,8 @@ def test_a_bad_column_in_the_config_stops_the_registry(tmp_path: Path) -> None:
     with pytest.raises(PackError, match="only looks and decides"):
         registry_for(cfg, tmp_path)
     (tmp_path / "p").mkdir()
-    (tmp_path / "p" / "pack.yaml").write_text("id: p\nversion: '1'\nstations: []\n")
-    with pytest.raises(PackError, match="come with the workflow builder"):
+    (tmp_path / "p" / "pack.yaml").write_text("id: p\nversion: '1'\n")
+    with pytest.raises(PackError, match="String should match pattern"):
         load_pack(tmp_path / "p")
 
 
@@ -350,12 +350,14 @@ async def _delivery_factory(make_factory, tmp_path: Path):
 
 async def test_entry_artifacts_come_from_your_own_tools(make_factory, tmp_path: Path) -> None:
     f = await _delivery_factory(make_factory, tmp_path)
-    missing = f.manager.start_change(f.manager.create_product(PRODUCT))
-    assert await wait_run(f, missing.id) == ChangeStatus.held
-    held = f.store.get_change(missing.id)
-    assert "report.test@1: not provided" in (held.last_failure or "")
-
-    product = f.manager.create_product(PRODUCT.model_copy(update={"title": "Second bookmarks"}))
+    product = f.manager.create_product(PRODUCT)
+    # refused when the change starts, in plain words, not held halfway through a run
+    with pytest.raises(InvalidRequestError, match="report.test@1: not provided"):
+        f.manager.start_change(product)
+    with pytest.raises(InvalidRequestError, match=r"report.test@1 data/ok: True was expected"):
+        f.manager.start_change(
+            product, provided={"report.test": {**_TEST, "data": {"ok": False}}, "report.risk": _RISK}
+        )
     with pytest.raises(InvalidRequestError, match="doesn't start from image"):
         f.manager.start_change(product, provided={"image": {}})
     change = f.manager.start_change(product, provided={"report.test": _TEST, "report.risk": _RISK})
@@ -368,12 +370,19 @@ async def test_entry_artifacts_come_from_your_own_tools(make_factory, tmp_path: 
 async def test_a_provided_risk_report_with_holds_is_refused(make_factory, tmp_path: Path) -> None:
     f = await _delivery_factory(make_factory, tmp_path)
     risky = {**_RISK, "data": {"digest": "abc", "holds": 2}}
-    change = f.manager.start_change(
-        f.manager.create_product(PRODUCT), provided={"report.test": _TEST, "report.risk": risky}
-    )
-    assert await wait_run(f, change.id) == ChangeStatus.held
-    assert "2 change-risk finding(s) still wait for approval" in (f.store.get_change(change.id).last_failure or "")
-    assert not any(e.kind == EventKind.station_started for e in f.store.list_events(change.id))
+    product = f.manager.create_product(PRODUCT)
+    with pytest.raises(InvalidRequestError, match=r"2 change-risk finding\(s\) still wait for approval"):
+        f.manager.start_change(product, provided={"report.test": _TEST, "report.risk": risky})
+    assert f.store.list_changes(product.id) == []
+
+
+def test_provided_problems_are_the_same_check_at_start_and_at_entry() -> None:
+    refs = [contract.parse_ref(r) for r in ("request@1", "branch@1", "report.test@1", "report.risk@1")]
+    assert provided_problems(refs, {"report.test": _TEST, "report.risk": _RISK}) == []
+    assert provided_problems(refs, {"report.test": _TEST}) == [
+        "report.risk@1: not provided; this lane starts from it, supplied by your own tools"
+    ]
+    assert provided_problems(refs[:2], {}) == []  # the factory makes the request and the code
 
 
 async def _ctx_for(f, change_id: str) -> StationContext:

@@ -376,6 +376,8 @@ class ChangeManager:
                 f"this lane doesn't start from {', '.join(unwanted)}"
                 + (f" (it takes {', '.join(sorted(wanted))})" if wanted else "")
             )
+        if problems := handoff.provided_problems(flow.entry_refs(), dict(provided or {})):
+            raise InvalidRequestError("this change can't start yet: " + "; ".join(problems))
         change = Change(
             id=uuid.uuid4().hex[:12],
             product_id=product.id,

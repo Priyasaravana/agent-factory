@@ -442,6 +442,11 @@ class EvalCase(BaseModel):
 
 
 DEFAULT_ENTRY = ("request@1", "branch@1")
+# the prompt a custom step's new agent starts with (the builder, ADR-0039 1c); publish refuses it
+CUSTOM_PROMPT = (
+    "Say what this step looks at and what it reports.\n\n"
+    "Replace this text before publishing: an agent does only what its prompt asks.\n"
+)
 _WORKS_ON = {"factory": "a new build", "repo": "an existing repo"}
 
 
@@ -676,6 +681,8 @@ def validate_workflow(
             errors.append(f"agent key '{aid}' does not match its id '{spec.id}'")
         if not spec.prompt.strip():
             errors.append(f"agent '{aid}' has an empty prompt")
+        elif spec.prompt.strip() == CUSTOM_PROMPT.strip():
+            errors.append(f"agent '{aid}' still has the starter prompt: say what its step should look at and report")
         if skills_dir is not None:
             for sk in spec.skills:
                 if sk not in imported_skills and not (skills_dir / sk / "SKILL.md").exists():

@@ -203,29 +203,56 @@
   .preview { @apply grid gap-2 border-primary/50; }
   .diff .add { @apply text-ok; } .diff .del { @apply text-bad; }
 
-  /* lane builder */
-  .builder { @apply grid items-start gap-4 md:grid-cols-[200px_1fr]; }
-  .palette { @apply sticky top-4 grid gap-1.5; }
-  .tile {
-    @apply grid cursor-grab touch-none gap-0.5 rounded-lg border border-l-4 border-l-primary bg-card px-3 py-2 text-left
-      text-foreground shadow-none hover:bg-muted hover:brightness-100;
+  /* workflow builder (ADR-0039 1c): scope bar, phase boxes, station drawer */
+  .scope { @apply grid gap-3 rounded-xl border bg-muted/40 p-4; }
+  .scope-head { @apply flex flex-wrap items-start justify-between gap-3; }
+  .presets { @apply inline-flex max-w-full flex-wrap gap-0.5 rounded-lg border bg-card p-0.5; }
+  .preset { @apply rounded-md bg-transparent px-3 py-1.5 text-xs text-muted-foreground shadow-none hover:bg-muted hover:text-foreground hover:brightness-100; }
+  .preset.on { @apply bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground; }
+  .rail { @apply flex flex-wrap items-center gap-1.5; }
+  .rail-step {
+    @apply rounded-full border border-dashed bg-transparent px-3 py-1 text-xs text-muted-foreground shadow-none
+      hover:border-primary/60 hover:bg-card hover:text-foreground hover:brightness-100;
   }
-  .tile.check { @apply border-l-muted-foreground; }
-  .tile.dragging { @apply opacity-40; }
-  .tile.overlay { @apply cursor-grabbing shadow-xl; }
-  .lane { @apply m-0 mb-2 grid list-none gap-2.5 p-0 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]; }
-  .lane-card { @apply grid content-start gap-1.5 rounded-lg border border-t-4 border-t-primary bg-card px-3 py-2.5; }
-  .lane-card.check { @apply border-t-muted-foreground; }
-  .lane-card.repair { @apply border-dashed; }
-  .lane-card.bad { @apply border-bad; }
-  .lane-card.dragging { @apply z-10 opacity-50; }
-  .lane-card .phase { @apply text-[11px] font-medium uppercase tracking-wide text-primary; }
-  .lane-card .phase.muted { @apply text-muted-foreground; }
-  .lane-card.over, .lane-end.over { @apply border-primary; }
-  .lane-card .name { @apply break-all text-[15px]; }
-  .lane-card select { @apply px-2 py-1 text-xs; }
-  .grip { @apply cursor-grab touch-none bg-transparent px-1 text-base text-muted-foreground shadow-none hover:bg-muted; }
-  .lane-end { @apply grid min-h-20 place-items-center rounded-lg border-2 border-dashed text-xs text-muted-foreground; }
+  .rail-step.on { @apply border-solid border-primary/50 bg-accent text-accent-foreground; }
+  .entry { @apply flex flex-wrap items-center gap-1.5; }
+  .entry-x { @apply ml-0.5 rounded-full bg-transparent p-0.5 text-current shadow-none hover:bg-info/20 hover:brightness-100; }
+  .add-entry { @apply gap-1 rounded-full border border-dashed bg-transparent px-2.5 py-0.5 text-xs text-muted-foreground shadow-none hover:border-primary hover:text-primary hover:brightness-100; }
+
+  .board { @apply m-0 grid list-none gap-2 p-0; }
+  .phase-box { @apply grid gap-3 rounded-xl border-2 border-dashed border-border bg-card/60 p-3 md:grid-cols-[168px_minmax(0,1fr)]; }
+  .phase-box.outside { @apply border-warn/60; }
+  .phase-box.collapsed { @apply flex items-baseline gap-2 border px-3 py-1.5 opacity-70 md:grid-cols-none; }
+  .phase-head { @apply grid content-start gap-1; }
+  .phase-stations { @apply m-0 grid list-none gap-2 p-0 [grid-template-columns:repeat(auto-fill,minmax(208px,1fr))]; }
+  .st-card {
+    @apply grid grid-cols-[auto_minmax(0,1fr)] rounded-lg border bg-card shadow-xs transition-colors
+      hover:border-primary/50;
+  }
+  .st-card.repair { @apply border-dashed; }
+  .st-card.bad { @apply border-bad/70; }
+  .st-card.dragging { @apply z-10 opacity-50; }
+  .st-open {
+    @apply grid min-w-0 justify-stretch gap-1 whitespace-normal bg-transparent px-2 py-2 text-left font-normal
+      text-foreground shadow-none hover:brightness-100 active:translate-y-0;
+  }
+  .grip { @apply cursor-grab touch-none self-stretch rounded-l-lg rounded-r-none bg-transparent px-1 text-muted-foreground shadow-none hover:bg-muted hover:brightness-100; }
+  .add-station {
+    @apply min-h-14 w-full border border-dashed bg-transparent text-muted-foreground shadow-none hover:border-primary
+      hover:bg-accent/40 hover:text-primary hover:brightness-100;
+  }
+  .drawer {
+    @apply fixed inset-y-0 right-0 z-50 flex w-[min(100vw,28rem)] flex-col gap-4 overflow-y-auto border-l bg-card p-5
+      shadow-2xl focus:outline-none;
+    animation: drawer-in 180ms ease-out;
+  }
+  .drawer section + section { @apply border-t pt-4; }
   .route.fail { @apply font-bold text-warn; }
-  .new-station { @apply mt-3 grid gap-2.5 border-primary/50; }
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer { animation: none; }
 }

@@ -359,6 +359,65 @@
         }
       }
     },
+    "/api/products/{product_id}/entry": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What a change of this kind must bring from your own tools (the lane's provided entry artifacts)",
+        "description": "What a change of this kind must bring from your own tools (the lane's provided entry artifacts)",
+        "operationId": "get_change_entry",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeEntryView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/feedback": {
       "post": {
         "tags": [
@@ -2967,6 +3026,155 @@
         }
       }
     },
+    "/api/workflows/{workflow_id}/draft/templates": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What each phase box's Add station offers, with what adding each one now would break",
+        "description": "What each phase box's Add station offers, with what adding each one now would break",
+        "operationId": "get_draft_templates",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftTemplatesView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/stations/from-template": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Add a station from a template at the end of a phase box",
+        "description": "Add a station from a template at the end of a phase box",
+        "operationId": "add_draft_station_from_template",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFromTemplateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflow_id}/draft/preset": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Scope the draft's lane to a preset: stations outside it are removed, its missing controls added",
+        "description": "Scope the draft's lane to a preset: stations outside it are removed, its missing controls added",
+        "operationId": "apply_draft_preset",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workflow Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetAppliedView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workflows/{workflow_id}/draft/stations/order": {
       "put": {
         "tags": [
@@ -3519,6 +3727,35 @@
         },
         "type": "object",
         "title": "ActivateInput"
+      },
+      "AddFromTemplateInput": {
+        "properties": {
+          "template": {
+            "type": "string",
+            "title": "Template"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "template",
+          "phase"
+        ],
+        "title": "AddFromTemplateInput"
       },
       "AddStationInput": {
         "properties": {
@@ -4346,6 +4583,20 @@
             "type": "object",
             "title": "Capabilities"
           },
+          "scope_presets": {
+            "items": {
+              "$ref": "#/components/schemas/ScopePresetInfo"
+            },
+            "type": "array",
+            "title": "Scope Presets"
+          },
+          "entry_choices": {
+            "items": {
+              "$ref": "#/components/schemas/EntryArtifactView"
+            },
+            "type": "array",
+            "title": "Entry Choices"
+          },
           "requirements": {
             "additionalProperties": {
               "additionalProperties": {
@@ -4659,6 +4910,32 @@
           "stations"
         ],
         "title": "ChangeDetail"
+      },
+      "ChangeEntryView": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "takes": {
+            "items": {
+              "$ref": "#/components/schemas/ProvidedArtifactInfo"
+            },
+            "type": "array",
+            "title": "Takes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "kind",
+          "takes"
+        ],
+        "title": "ChangeEntryView"
       },
       "ChangeKind": {
         "type": "string",
@@ -5149,6 +5426,25 @@
         ],
         "title": "DenialView"
       },
+      "DraftTemplatesView": {
+        "properties": {
+          "phases": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/StationTemplateView"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Phases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phases"
+        ],
+        "title": "DraftTemplatesView"
+      },
       "DraftView": {
         "properties": {
           "workflow_id": {
@@ -5261,6 +5557,50 @@
             },
             "type": "array",
             "title": "Evals"
+          },
+          "works_on": {
+            "type": "string",
+            "title": "Works On",
+            "default": "factory"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kinds"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scope"
+          },
+          "span": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Span"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "entry": {
+            "items": {
+              "$ref": "#/components/schemas/EntryArtifactView"
+            },
+            "type": "array",
+            "title": "Entry"
           }
         },
         "type": "object",
@@ -5323,6 +5663,39 @@
         },
         "type": "object",
         "title": "DurationStat"
+      },
+      "EntryArtifactView": {
+        "properties": {
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "factory",
+              "your tools"
+            ],
+            "title": "By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref",
+          "key",
+          "title",
+          "by"
+        ],
+        "title": "EntryArtifactView",
+        "description": "An artifact a lane starts from: the factory makes the request and the code; anything else\ncomes from the org's own tools with each change (ADR-0039 \u00a75)."
       },
       "EnvironmentView": {
         "properties": {
@@ -6840,6 +7213,47 @@
         ],
         "title": "PreflightView"
       },
+      "PresetAppliedView": {
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/DraftView"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed"
+          },
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          }
+        },
+        "type": "object",
+        "required": [
+          "draft",
+          "removed",
+          "added"
+        ],
+        "title": "PresetAppliedView"
+      },
+      "PresetInput": {
+        "properties": {
+          "preset": {
+            "type": "string",
+            "title": "Preset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset"
+        ],
+        "title": "PresetInput"
+      },
       "Product": {
         "properties": {
           "id": {
@@ -7057,6 +7471,36 @@
         ],
         "title": "ProductTarget",
         "description": "What the factory works on (ADR-0030)."
+      },
+      "ProvidedArtifactInfo": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "example": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Example"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "ref",
+          "title",
+          "example"
+        ],
+        "title": "ProvidedArtifactInfo",
+        "description": "An entry artifact a change to this product must bring from the org's own tools."
       },
       "PublishInput": {
         "properties": {
@@ -7451,6 +7895,53 @@
           "then"
         ],
         "title": "ScenarioView"
+      },
+      "ScopePresetInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scope"
+          },
+          "entry": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Entry"
+          },
+          "adds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Adds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "hint",
+          "scope",
+          "entry",
+          "adds"
+        ],
+        "title": "ScopePresetInfo"
       },
       "SkillDetail": {
         "properties": {
@@ -7984,6 +8475,57 @@
         "title": "StationEffort",
         "description": "Agent effort per station over the Outcomes window (ADR-0022)."
       },
+      "StationTemplateView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "control": {
+            "type": "boolean",
+            "title": "Control",
+            "default": false
+          },
+          "present": {
+            "type": "boolean",
+            "title": "Present",
+            "default": false
+          },
+          "adds_problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Adds Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "hint",
+          "kind",
+          "source"
+        ],
+        "title": "StationTemplateView",
+        "description": "What a phase box's \"Add station\" offers, with the drop-time check."
+      },
       "StationView": {
         "properties": {
           "id": {
@@ -8107,6 +8649,42 @@
               }
             ],
             "title": "Provider"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": ""
+          },
+          "control": {
+            "type": "boolean",
+            "title": "Control",
+            "default": false
+          },
+          "custom": {
+            "type": "boolean",
+            "title": "Custom",
+            "default": false
+          },
+          "uses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uses"
+          },
+          "needs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Needs"
+          },
+          "gives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Gives"
           }
         },
         "type": "object",
@@ -9075,6 +9653,36 @@
               }
             ],
             "title": "Eval Gate"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 12
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry"
           }
         },
         "type": "object",

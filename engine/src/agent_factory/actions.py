@@ -28,12 +28,14 @@ from starlette.background import BackgroundTask
 
 from agent_factory import contract as station_contract
 from agent_factory import evidence
+from agent_factory import station_templates as tpl
 from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
 from agent_factory.models import (
     ActivateInput,
+    AddFromTemplateInput,
     AddStationInput,
     AgentCallView,
     AgentView,
@@ -45,6 +47,7 @@ from agent_factory.models import (
     Change,
     ChangeCallsView,
     ChangeDetail,
+    ChangeEntryView,
     ChangeOutcome,
     ChangeRiskView,
     ChangeStatus,
@@ -55,8 +58,10 @@ from agent_factory.models import (
     DeliveryBinding,
     DeliveryView,
     DenialView,
+    DraftTemplatesView,
     DraftView,
     DuplicateAgentInput,
+    EntryArtifactView,
     EnvironmentView,
     EvalRun,
     EvalSuiteInput,
@@ -75,8 +80,11 @@ from agent_factory.models import (
     OutcomesView,
     PhaseInfo,
     PreflightView,
+    PresetAppliedView,
+    PresetInput,
     Product,
     ProductDetail,
+    ProvidedArtifactInfo,
     PublishInput,
     ReadinessView,
     ReorderStationsInput,
@@ -87,6 +95,7 @@ from agent_factory.models import (
     RiskDecisionInput,
     RiskFindingView,
     ScenarioView,
+    ScopePresetInfo,
     SkillDetail,
     SkillInfo,
     SkillSourceInput,
@@ -96,6 +105,7 @@ from agent_factory.models import (
     SpecView,
     StartEvalInput,
     StationAgentInput,
+    StationTemplateView,
     StationView,
     TemplateInfo,
     ToolReportView,
@@ -381,6 +391,31 @@ def get_product(f: Factory, product_id: str) -> ProductDetail:
     return ProductDetail(
         product=product, changes=f.store.list_changes(product_id), feedback=f.store.list_feedback(product_id)
     )
+
+
+@action(
+    "get_change_entry",
+    "What a change of this kind must bring from your own tools (the lane's provided entry artifacts)",
+    "GET",
+    "/api/products/{product_id}/entry",
+)
+def get_change_entry(f: Factory, product_id: str, kind: str | None = None) -> ChangeEntryView:
+    from agent_factory.engine.handoff import ENGINE_ENTRY
+    from agent_factory.engine.pipeline import TARGET_KINDS
+
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    first, later = TARGET_KINDS[product.target]
+    kind = kind or (later[0] if f.store.list_changes(product_id) else first)
+    wid = f.manager.lane_for(product, kind)
+    flow = f.workflows[wid].get()
+    takes = [
+        ProvidedArtifactInfo(key=r.key, ref=str(r), title=tpl.artifact_title(r.key), example=tpl.example_manifest(r))
+        for r in flow.entry_refs()
+        if r.key not in ENGINE_ENTRY
+    ]
+    return ChangeEntryView(workflow_id=wid, kind=kind, takes=takes)
 
 
 @action(
@@ -845,6 +880,8 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
         draft.set_learn_from_runs(body.learn_from_runs)
     if body.eval_gate is not None:
         draft.set_eval_gate(body.eval_gate)
+    if body.scope is not None or body.entry is not None:
+        draft.set_scope(body.scope, body.entry)
     return get_draft(f, workflow_id)
 
 
@@ -1232,6 +1269,12 @@ def _station_views_for(doc: WorkflowDoc) -> list[StationView]:
             fail_on=s.fail_on,
             check=s.check_name() or None if s.resolved_handler() == "scan" else None,
             provider=s.provider,
+            type=s.type_id(),
+            control=bool(s.floor_controls()),
+            custom=s.station_type() is None,
+            uses=sorted(s.uses_caps()),
+            needs=[station_contract.need_text(n) for n in s.needs_refs()],
+            gives=[str(g) for g in s.gives_refs()],
         )
         for s in doc.stations
     ]
@@ -1301,6 +1344,13 @@ def get_catalog(f: Factory) -> CatalogView:
             for p in f.workflows.phases.phases
         ],
         capabilities=dict(station_contract.CAPABILITIES),
+        scope_presets=[
+            ScopePresetInfo(
+                id=p.id, title=p.title, hint=p.hint, scope=list(p.scope), entry=list(p.entry), adds=list(p.adds)
+            )
+            for p in tpl.SCOPE_PRESETS
+        ],
+        entry_choices=[_entry_view(e) for e in tpl.ENTRY_CHOICES],
         requirements={k: dict(v) for k, v in HANDLER_REQUIREMENTS.items()},
         max_previous_iterations=5,
         max_doc_chars=MAX_DOC_CHARS,
@@ -1337,6 +1387,31 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
+        works_on=doc.works_on,
+        kinds=list(doc.kinds),
+        scope=list(doc.scope),
+        span=_span(f, doc),
+        preset=tpl.preset_of(doc),
+        entry=[_entry_view(e) for e in doc.entry],
+    )
+
+
+def _span(f: Factory, doc: WorkflowDoc) -> list[str]:
+    try:
+        return doc.scope_phases(f.workflows.phases)
+    except (ValueError, KeyError):  # an invalid scope: publish reports it
+        return []
+
+
+def _entry_view(ref: str) -> EntryArtifactView:
+    from agent_factory.engine.handoff import ENGINE_ENTRY
+
+    try:
+        key = station_contract.parse_ref(ref).key
+    except ValueError:
+        key = ref
+    return EntryArtifactView(
+        ref=ref, key=key, title=tpl.artifact_title(key), by="factory" if key in ENGINE_ENTRY else "your tools"
     )
 
 
@@ -1419,6 +1494,74 @@ def update_draft_station(f: Factory, workflow_id: str, station_id: str, body: Up
 def delete_draft_station(f: Factory, workflow_id: str, station_id: str) -> DraftView:
     f.workflows[workflow_id].draft.remove_station(station_id)
     return get_draft(f, workflow_id)
+
+
+# ------------------------------------------------------ builder (ADR-0039 1c) --
+@action(
+    "get_draft_templates",
+    "What each phase box's Add station offers, with what adding each one now would break",
+    "GET",
+    "/api/workflows/{workflow_id}/draft/templates",
+)
+def get_draft_templates(f: Factory, workflow_id: str) -> DraftTemplatesView:
+    w = f.workflows[workflow_id]
+    _, doc, _ = w.draft.get()
+    order = f.workflows.phases.ids
+    before = w.validate(doc)
+    present = {s.type_id() for s in doc.stations} | {
+        f"scan:{s.check_name()}" for s in doc.stations if s.resolved_handler() == "scan"
+    }
+    out: dict[str, list[StationTemplateView]] = {}
+    for phase in order:
+        views = []
+        for t in f.workflows.station_templates.values():
+            if not tpl.offered(t, phase, doc):
+                continue
+            title, hint = t.title_for(doc.works_on)
+            tid = t.station.get("type")
+            views.append(
+                StationTemplateView(
+                    id=t.id,
+                    title=title,
+                    hint=hint,
+                    kind=t.kind,
+                    source=t.source,
+                    control=t.control,
+                    present=t.id in present or (t.id.startswith("type:") and tid in present),
+                    adds_problems=tpl.added_problems(
+                        doc, t, phase, order, w.validate, before, f.workflows.agent_library
+                    ),
+                )
+            )
+        out[phase] = views
+    return DraftTemplatesView(phases=out)
+
+
+@action(
+    "add_draft_station_from_template",
+    "Add a station from a template at the end of a phase box",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/stations/from-template",
+)
+def add_draft_station_from_template(f: Factory, workflow_id: str, body: AddFromTemplateInput) -> DraftView:
+    template = f.workflows.station_templates.get(body.template)
+    if template is None:
+        raise WorkflowError(f"unknown station template '{body.template}'")
+    f.workflows[workflow_id].draft.add_template(template, body.phase, body.id, f.workflows.agent_library)
+    return get_draft(f, workflow_id)
+
+
+@action(
+    "apply_draft_preset",
+    "Scope the draft's lane to a preset: stations outside it are removed, its missing controls added",
+    "POST",
+    "/api/workflows/{workflow_id}/draft/preset",
+)
+def apply_draft_preset(f: Factory, workflow_id: str, body: PresetInput) -> PresetAppliedView:
+    result = f.workflows[workflow_id].draft.apply_preset(
+        body.preset, f.workflows.station_templates, f.workflows.agent_library
+    )
+    return PresetAppliedView(draft=get_draft(f, workflow_id), removed=result.removed, added=result.added)
 
 
 @action(

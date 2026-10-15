@@ -519,6 +519,10 @@ class WorkflowSettingsInput(BaseModel):
     spec_review: Literal["off", "first", "always"] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
     eval_gate: Literal["off", "warn", "block"] | None = None  # evaluation gate (ADR-0025)
+    # the lane's scope (ADR-0039 §5): first and last phase; [] = what its stations cover
+    scope: list[str] | None = Field(default=None, max_length=2)
+    # what the lane starts from beyond the request and the code, e.g. report.test@1
+    entry: list[str] | None = Field(default=None, max_length=12)
 
 
 class AgentCallView(BaseModel):
@@ -750,6 +754,14 @@ class StationView(BaseModel):
     fail_on: str | None = None
     check: str | None = None  # scan stations: what is checked (ADR-0035)
     provider: str | None = None  # who answers it, when the station overrides the config
+    # the builder (ADR-0039 1c): the station's type, whether it is a mandatory control, and for a
+    # custom step what it declares (built-in types fix theirs)
+    type: str = ""
+    control: bool = False
+    custom: bool = False
+    uses: list[str] = Field(default_factory=list)
+    needs: list[str] = Field(default_factory=list)
+    gives: list[str] = Field(default_factory=list)
 
 
 class ToolFindingView(BaseModel):
@@ -957,6 +969,81 @@ class DraftView(BaseModel):
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
+    # the lane (ADR-0039): what it works on, the change kinds it serves, its scope and entry
+    works_on: str = "factory"
+    kinds: list[str] = Field(default_factory=list)
+    scope: list[str] = Field(default_factory=list)  # as set: [first, last] or [] (what the stations cover)
+    span: list[str] = Field(default_factory=list)  # the phases it covers, in order
+    preset: str | None = None  # the scope preset it matches, if any
+    entry: list[EntryArtifactView] = Field(default_factory=list)
+
+
+class EntryArtifactView(BaseModel):
+    """An artifact a lane starts from: the factory makes the request and the code; anything else
+    comes from the org's own tools with each change (ADR-0039 §5)."""
+
+    ref: str  # e.g. report.test@1
+    key: str  # e.g. report.test
+    title: str
+    by: Literal["factory", "your tools"]
+
+
+class ScopePresetInfo(BaseModel):
+    id: str
+    title: str
+    hint: str
+    scope: list[str]  # [] = what the lane's stations cover
+    entry: list[str]  # beyond the request and the code
+    adds: list[str]  # template ids it adds when the lane has none of their kind
+
+
+class StationTemplateView(BaseModel):
+    """What a phase box's "Add station" offers, with the drop-time check."""
+
+    id: str
+    title: str
+    hint: str
+    kind: str  # agent | check
+    source: str  # built-in | <pack>@<version>
+    control: bool = False  # a mandatory control (test, secret scan, change-risk)
+    present: bool = False  # the lane already has a station of this type
+    # what adding it at the end of this phase now would break, in the publish checks' words
+    adds_problems: list[str] = Field(default_factory=list)
+
+
+class DraftTemplatesView(BaseModel):
+    phases: dict[str, list[StationTemplateView]]  # phase id -> templates its box offers
+
+
+class AddFromTemplateInput(BaseModel):
+    template: str
+    phase: str
+    id: str | None = None  # the station id; suggested from the template when omitted
+
+
+class PresetInput(BaseModel):
+    preset: str
+
+
+class PresetAppliedView(BaseModel):
+    draft: DraftView
+    removed: list[str]  # stations outside the new scope
+    added: list[str]  # stations the preset added
+
+
+class ProvidedArtifactInfo(BaseModel):
+    """An entry artifact a change to this product must bring from the org's own tools."""
+
+    key: str
+    ref: str
+    title: str
+    example: dict[str, Any]  # a valid manifest with placeholder values, to edit
+
+
+class ChangeEntryView(BaseModel):
+    workflow_id: str
+    kind: str
+    takes: list[ProvidedArtifactInfo]
 
 
 class SkillInfo(BaseModel):
@@ -1016,6 +1103,8 @@ class CatalogView(BaseModel):
     handler_info: dict[str, HandlerInfo] = Field(default_factory=dict)  # label, phase, hint (ADR-0028)
     phases: list[PhaseInfo] = Field(default_factory=list)  # the phase registry, in run order (ADR-0039)
     capabilities: dict[str, str] = Field(default_factory=dict)  # what a station may do, id -> meaning
+    scope_presets: list[ScopePresetInfo] = Field(default_factory=list)  # the builder (ADR-0039 §5)
+    entry_choices: list[EntryArtifactView] = Field(default_factory=list)  # what a lane may start from
     requirements: dict[str, dict[str, bool]]  # handler -> {write, shell} needs
     max_previous_iterations: int
     max_doc_chars: int
