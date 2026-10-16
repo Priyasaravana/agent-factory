@@ -28,6 +28,7 @@ from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, 
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, ChangeStatus
+from agent_factory.packs import install as install_packs
 from agent_factory.phases import load_phases
 from agent_factory.providers import Providers
 from agent_factory.sandbox import SandboxManager
@@ -96,8 +97,10 @@ def build_factory(
 
     secrets = SecretResolver(settings)
     library = SkillLibrary(store, home / "plugin" / "skills", data_dir / "skill-plugins")
-    # built-in phases + org columns + installed packs (ADR-0039 §2), and the packs' station templates
-    phases, pack_templates = load_phases(cfg, home)
+    # installed packs (ADR-0039 §2, ADR-0041): each blueprint bound to the stack pack it names, then
+    # built-in phases + org columns + pack phases, and the packs' station templates
+    installed = install_packs(cfg, home)
+    phases, pack_templates = load_phases(cfg, home, installed)
     workflows = WorkflowRegistry(
         store,
         {wid: home / template for wid, template in cfg.workflow_templates().items()},

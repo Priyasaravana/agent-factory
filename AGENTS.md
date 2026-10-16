@@ -40,6 +40,18 @@
   git publish) stay in the engine. New egress goes through `sandbox.egress`.
 - Generated repos must stay at agent-readiness Level 3 (`readiness.py`). A new
   golden path ships the same signals in its template.
+- Stack packs (ADR-0041): what the factory builds comes from a **stack pack**, an ADR-0039 pack
+  (`packs/<id>/pack.yaml`, listed under `packs:` in the config) with a `stack:` section: template,
+  golden-path skill, verify command, technologies, port, chart and `readiness.yaml`. A blueprint
+  names its pack (`pack:`) and keeps the install's own settings; a pack field the config sets anyway
+  is an override, recorded in evidence. Signal ids, levels, points and pillars stay in
+  `readiness.py`; the stack-specific signals (`STACK_SIGNALS`) are proved by the pack's declarative
+  rules (`file`, `glob`, `contains`, `matches`, `all`, `any`: pure, nothing executed), and a pack
+  that leaves one unproved is refused at load. Lanes stay stack-neutral: the product's pack skill is
+  preloaded for the design, implement and deploy-repair agents (`STACK_SKILL_HANDLERS`), never listed
+  in a lane. Each change records the pack's id, version and folder SHA-256 (`stack_pack` event,
+  provenance, sealed manifest). Pack code is in `packs.py`; tests in `tests/test_packs.py`. Adding a
+  stack is adding a folder: change the engine only for a new rule kind or toolchain.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
   `undeploy()` (archive) besides its capability methods. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
@@ -163,7 +175,7 @@
   without one, so a run shows only its lane's stations (`WorkflowDoc.plan`).
 - Phases and capabilities (ADR-0039 §2–§5): columns come from the phase registry
   (`contract.PhaseRegistry`: the seven built-ins, org look-and-decide columns from `phases.columns`,
-  pack phases from `phases.packs`). Each station uses capabilities inside its phase's `allows`
+  pack phases from the packs under `packs:`). Each station uses capabilities inside its phase's `allows`
   (`contract.capability_errors`); a new built-in type declares `uses`. At runtime a station gets only
   its grant (`WorkflowDoc.grant`): agent tools through `ctx.agent`, credentials through
   `ctx.secret(ref, purpose, capability)`. A new credential use names the capability it serves; never

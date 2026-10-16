@@ -158,7 +158,7 @@ Mapped to [practices.md](../practices.md).
 | §7 Quality pillars: usability uncovered | `a11y` with axe in Playwright, in packs 2 and 3. |
 
 ## Plan
-1. **Pack foundation, with FastAPI extracted** (~3 days): `stack:` schema and loader, rule interpreter, blueprint → pack binding, skill lookup, pack id@version and hash in evidence. Done when the FastAPI evaluation is unchanged and readiness fixtures score the same.
+1. **Pack foundation, with FastAPI extracted** (~3 days; done in `feat/stack-packs-foundation`): `stack:` schema and loader, rule interpreter, blueprint → pack binding, skill lookup, pack id@version and hash in evidence. Done when the FastAPI evaluation is unchanged and readiness fixtures score the same.
 2. **Stack cards and "switch to <pack>"** (~1 day): stack cards on the create form, and the intake question offers to switch.
 3. **`nextjs-web`** (~3 days): template, `readiness.yaml` with `a11y`, skill, the sandbox's Chromium layer, 3 cases.
 4. **`react-spa`** (~2 days): reuses the Node rules from step 3.

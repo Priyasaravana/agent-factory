@@ -115,7 +115,7 @@ Publishing is **blocked** when an agent can't do its station's job safely:
 | `context_docs` | Team standards from the workflow's **reference docs**. Max 20,000 chars each and 40,000 per agent. |
 | `learnings` | Human-approved lessons, used instead of free-form memory: versioned and reproducible. |
 | `previous_iterations` | For each earlier iteration of the same product: what was asked, the outcome, and the decisions. |
-| skills | Loaded on demand (the agent decides from each skill's description), or **preloaded** (`preload_skills`: the skill's instructions go into the system prompt, so they are always followed). Built-in or imported from GitHub and pinned per version (see [skills.md](skills.md)). |
+| skills | Loaded on demand (the agent decides from each skill's description), or **preloaded** (`preload_skills`: the skill's instructions go into the system prompt, so they are always followed). Built-in or imported from GitHub and pinned per version (see [skills.md](skills.md)). The design, implement and deploy-repair agents also get the product's stack-pack skill preloaded (ADR-0041), so lanes never name a stack. |
 
 ## Workflow file (`workflow.yaml`)
 
@@ -206,8 +206,9 @@ spec or load a `.md` file. Its numbered items become R1, R2, … with their
 wording kept.
 
 ### What a blueprint can build
-Each blueprint declares its `stack` in `.agent-factory/config.yaml`
-(`fastapi-service`: python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes).
+Each blueprint builds with a stack pack (ADR-0041), whose `technologies` are the blueprint's `stack`
+(`fastapi-service` in `packs/fastapi-service/pack.yaml`: python, fastapi, postgres, sqlalchemy,
+docker, helm, kubernetes).
 If a product *requires* something else (Node.js, Go, MongoDB, a React UI…), intake
 quotes it and the change pauses with a question instead of building Python anyway.
 Answer "build it with python" to go ahead, or cancel and create the product on a blueprint

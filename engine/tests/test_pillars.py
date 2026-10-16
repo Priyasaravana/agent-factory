@@ -7,13 +7,13 @@ import json
 
 from conftest import PRODUCT, wait_run
 from test_outcomes import _facts
-from test_readiness import _generated_repo
+from test_readiness import _generated_repo, score
 
 from agent_factory import evidence
 from agent_factory.models import ChangeStatus
 from agent_factory.outcomes import compute
 from agent_factory.pillars import IDS, PILLARS, evidence_pillar, tally
-from agent_factory.readiness import PILLAR_OF, SECRET_SCAN, SIGNALS, score
+from agent_factory.readiness import PILLAR_OF, SECRET_SCAN, SIGNALS
 
 # The agreed primary pillar of every signal. Changing one is a deliberate decision.
 MAPPING = {

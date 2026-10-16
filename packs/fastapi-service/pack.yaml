@@ -1,0 +1,22 @@
+# Stack pack #1 (ADR-0041): the FastAPI service the factory has built since ADR-0001, extracted
+# unchanged. A pack says WHAT to build; the blueprint in the config that names it (`pack:`) says
+# where and how this install runs it (environment, ports, scan commands, minimum level).
+# Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
+id: fastapi-service
+version: 1.0.0
+title: FastAPI service
+stack:
+  builds: service
+  summary: Python FastAPI REST service with Postgres, a Helm chart and one container on Kubernetes
+  # what this pack builds with; intake asks before building a request that needs anything else
+  technologies: [python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes]
+  template: template                  # copied into a new product's repo
+  skill: skills/fastapi-golden-path   # preloaded for the design, implement and deploy-repair agents
+  toolchain: [python@3.12, uv]        # what the sandbox image provides today
+  verify: make verify
+  e2e: E2E_BASE_URL={url} uv run pytest tests/e2e
+  port: 8000
+  health: {live: /healthz, ready: /readyz}
+  chart: deploy/chart
+  detect: {files: [pyproject.toml], deps: [fastapi]}
+  readiness: readiness.yaml           # how this stack proves the stack-specific signals

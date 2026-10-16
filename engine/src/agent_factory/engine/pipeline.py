@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_factory import ledger
 from agent_factory.agents.runner import AgentRunner
-from agent_factory.config import FactoryConfig
+from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
 from agent_factory.engine.stations import STATIONS, StationContext, StationResult
 from agent_factory.engine.workflows import WorkflowRegistry
@@ -811,6 +811,19 @@ class ChangeManager:
         if change.cost_usd != cost:
             self.store.save_change(change)  # the retro's model spend belongs to this change
 
+    def _record_pack(self, change: Change, blueprint: Blueprint) -> None:
+        """Which stack pack this change builds with, once per change (ADR-0041 §7)."""
+        pack = blueprint.pack_binding
+        if pack is None or self.store.events_with_key([change.id], "stack_pack"):
+            return
+        changed = f"; config overrides {', '.join(sorted(pack.overrides))}" if pack.overrides else ""
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"stack pack {pack.source} (sha256 {pack.sha256[:12]}){changed}",
+            data={"stack_pack": pack.evidence()},
+        )
+
     async def _drive(self, change: Change, product: Product) -> None:
         change.status = ChangeStatus.running
         self.store.save_change(change)
@@ -844,6 +857,7 @@ class ChangeManager:
             owner = str(getattr(self.cfg.policies.publish, "owner", "") or "")
             await self.ws.ensure_product_repo(product.slug, blueprint.template or "", owner)
             worktree = await self.ws.create_worktree(product.slug, change.id)
+            self._record_pack(change, blueprint)
         deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
 
         plan = flow.plan()

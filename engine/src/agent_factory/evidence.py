@@ -162,6 +162,12 @@ def latest_seal(store: Any, change_id: str) -> dict[str, Any] | None:
     return seals[-1][2] if seals else None
 
 
+def _pack_facts(cfg: Any, blueprint: str) -> dict[str, Any] | None:
+    bp = cfg.blueprints.get(blueprint)
+    pack = bp.pack_binding if bp is not None else None
+    return pack.evidence() if pack is not None else None
+
+
 async def seal(mgr: Any, change: Any, product: Any) -> str:
     """Write events.jsonl, the spec snapshot, manifest.json and SHA256SUMS for this
     run as it stands now, and record the manifest's digest in the event log."""
@@ -210,6 +216,8 @@ async def seal(mgr: Any, change: Any, product: Any) -> str:
             "repo_url": product.repo_url,
         },
         "workflow": {"id": change.workflow_id, "version": change.workflow_version},
+        # the stack pack the product is built with (ADR-0041 §7); added keys keep schema v1
+        "pack": _pack_facts(mgr.cfg, product.blueprint),
         "source": {"branch": f"run/{change.id}", "commit": commit},
         "image": images[-1][2] if images else None,
         "events": len(events),

@@ -164,6 +164,7 @@ changed_tests() {
         # tests named after the module, and tests that import it
         ls "$ROOT"/engine/tests/test_"$stem"*.py 2>/dev/null | sed "s#^$ROOT/engine/##"
         (cd "$ROOT/engine" && grep -lE "^[[:space:]]*(from|import)[[:space:]].*([^A-Za-z0-9_]|^)$stem([^A-Za-z0-9_]|$)" tests/test_*.py 2>/dev/null) ;;
+      packs/*) echo tests/test_packs.py; echo tests/test_readiness.py ;;
       engine/src/agent_factory/*|workflow-templates/*|plugin/skills/*|docs/requirements.yaml) echo "SRC:$f" ;;
     esac
   done | sort -u

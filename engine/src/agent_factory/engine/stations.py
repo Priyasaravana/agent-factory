@@ -83,6 +83,20 @@ class StationContext:
         """The station contract's target (ADR-0037): `factory` or `repo`."""
         return target_of(self.blueprint.target)
 
+    def preloaded_skills(self, spec: AgentSpec) -> list[str]:
+        """The skills whose text goes into this agent's prompt: the spec's `preload_skills`, plus the
+        product's stack-pack skill for the agents that design, write or repair its code (ADR-0041 §1),
+        so lanes stay stack-neutral and each product gets its own stack's golden path."""
+        names = list(spec.preload_skills)
+        pack = self.blueprint.pack_binding
+        if pack is None or pack.skill is None or pack.skill in names:
+            return names
+        try:
+            handler = self.workflow_doc.station(self.station_id).handler_for(self.workflow_doc.works_on)
+        except (KeyError, ValueError):
+            return names
+        return [*names, pack.skill] if handler in STACK_SKILL_HANDLERS else names
+
     @property
     def spec(self) -> AgentSpec:
         """The agent spec bound to this station (agent stations only)."""
@@ -171,11 +185,10 @@ class StationContext:
                 {"denied_tools": denied, "grant": sorted(self.grant or ())},
             )
         writes = self.grant is None or bool(self.grant & contract.WRITES)
-        on_demand = [k for k in spec.skills if k not in spec.preload_skills]
-        if spec.preload_skills:
-            await self.emit(
-                EventKind.log, f"preloaded skills: {spec.preload_skills}", {"preloaded": spec.preload_skills}
-            )
+        preload = self.preloaded_skills(spec)
+        on_demand = [k for k in spec.skills if k not in preload]
+        if preload:
+            await self.emit(EventKind.log, f"preloaded skills: {preload}", {"preloaded": preload})
         req = AgentRequest(
             change_id=self.change.id,
             station=self.station_id,
@@ -203,7 +216,7 @@ class StationContext:
             req.model,
             self._emit,
             skills=spec.skills,
-            preloaded=spec.preload_skills,
+            preloaded=preload,
         )
         res = await self.agents.run(req, call.wrap(sink))
         self.change.cost_usd += res.cost_usd
@@ -224,7 +237,7 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
             "## Reference documents (team standards — follow them)\n\n"
             + "\n\n".join(f"### {d.title}\n{d.content.strip()}" for d in docs)
         )
-    preloaded = [(name, text) for name in spec.preload_skills if (text := skill_text(ctx, name))]
+    preloaded = [(name, text) for name in ctx.preloaded_skills(spec) if (text := skill_text(ctx, name))]
     if preloaded:
         parts.append(
             "## Skills for this station (follow them; already loaded, no need to invoke)\n\n"
@@ -240,13 +253,19 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
 
 
 MAX_PRELOAD_CHARS = 15_000
+# the agents that get the product's stack-pack skill (ADR-0041 §1): design, develop and fix
+STACK_SKILL_HANDLERS = frozenset({"design", "implement", "deploy-repair"})
 
 
 def skill_text(ctx: StationContext, name: str) -> str:
-    """SKILL.md body (without frontmatter) of a built-in or pinned imported skill."""
+    """SKILL.md body (without frontmatter) of the product's stack-pack skill, a pinned imported
+    skill or a built-in one."""
     candidates = [ctx.ws.factory_home / "plugin" / "skills" / name / "SKILL.md"]
     if ctx.imported_plugin:
         candidates.insert(0, ctx.imported_plugin / "skills" / name / "SKILL.md")
+    pack = ctx.blueprint.pack_binding
+    if pack is not None and pack.skill == name and pack.skill_file is not None:
+        candidates.insert(0, pack.skill_file)
     for path in candidates:
         if path.exists():
             body = re.sub(r"^---\s*\n.*?\n---\s*\n?", "", path.read_text(), count=1, flags=re.DOTALL)
@@ -618,7 +637,7 @@ async def quality_gate(ctx: StationContext) -> StationResult:
     else:
         await ctx.emit(EventKind.decision, "secret scan NOT run: no secret_scan_command configured")
         scan_ok = False
-    card = score(ctx.worktree, scan_ok)
+    card = score(ctx.worktree, scan_ok, line.readiness_rules)  # the stack's own checks (ADR-0041 §3)
     data = card.as_data()
     out = artifacts_dir(ctx)
     out.mkdir(parents=True, exist_ok=True)
@@ -708,7 +727,11 @@ async def _sbom_and_provenance(ctx: StationContext, image: str, sha: str) -> Com
             "iteration": ctx.change.iteration,
             "sandboxed": ctx.untrusted_ex is not None,
         },
-        "materials": {"sbom": str(sbom) if sbom.exists() else None},
+        "materials": {
+            "sbom": str(sbom) if sbom.exists() else None,
+            # the stack pack it was built from (ADR-0041 §7): id, version, folder SHA-256, overrides
+            "pack": pack.evidence() if (pack := ctx.blueprint.pack_binding) else None,
+        },
     }
     (out / "provenance.json").write_text(json.dumps(provenance, indent=2))
     await ctx.emit(

@@ -55,7 +55,6 @@ COPY prompts prompts
 COPY workflow-templates workflow-templates
 COPY packs packs
 COPY plugin plugin
-COPY templates templates
 COPY cluster cluster
 # Build context for the agent sandbox image; the engine builds it inside dind.
 COPY images/sandbox images/sandbox

@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from agent_factory.packs import PackBinding
+    from agent_factory.readiness import StackRules
 
 PolicyMode = Literal["auto", "manual", "off"]
 
@@ -36,9 +40,12 @@ class Models(BaseModel):
 
 class Blueprint(BaseModel):
     description: str = ""
-    # what the blueprint works on (ADR-0030/0031): `new` builds from `template`;
+    # what the blueprint works on (ADR-0030/0031): `new` builds from its pack's template;
     # `repo` works on a team's existing repository (no template, nothing deployed)
     target: Literal["new", "repo"] = "new"
+    # the stack pack it builds with (ADR-0041): the pack gives template, verify command, stack,
+    # port and chart; a field set here as well overrides the pack's and is recorded as evidence
+    pack: str | None = None
     template: str | None = None
     verify_command: str = "make verify"
     scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
@@ -56,13 +63,29 @@ class Blueprint(BaseModel):
     stack: list[str] = Field(default_factory=list)
     node_ports: list[int] = Field(default_factory=lambda: [30080])
 
+    _pack: PackBinding | None = PrivateAttr(default=None)
+
     @model_validator(mode="after")
     def _template_for_new(self) -> Blueprint:
-        if self.target == "new" and not self.template:
-            raise ValueError("a blueprint that builds new products needs a `template`")
+        if self.target == "new" and not (self.template or self.pack):
+            raise ValueError("a blueprint that builds new products needs a `pack` (or a `template`)")
         if self.target == "repo":
             self.node_ports = []  # nothing is deployed
         return self
+
+    def bind_pack(self, binding: PackBinding) -> None:
+        """Set by `packs.bind` when the factory starts."""
+        self._pack = binding
+
+    @property
+    def pack_binding(self) -> PackBinding | None:
+        """The installed pack this blueprint builds with (None: no pack, or not bound yet)."""
+        return self._pack
+
+    @property
+    def readiness_rules(self) -> StackRules | None:
+        """How this blueprint's stack proves the stack-specific readiness signals (ADR-0041 §3)."""
+        return self._pack.rules if self._pack else None
 
     @field_validator("node_ports", mode="before")
     @classmethod
@@ -321,7 +344,7 @@ class PhasesConfig(BaseModel):
     columns an admin adds, plus the phases of packs an admin installed (appended after operate)."""
 
     columns: list[OrgColumn] = Field(default_factory=list)
-    # pack folders (each with a pack.yaml), relative to the factory home, e.g. packs/ops-pack
+    # read as an alias of the top-level `packs:` (ADR-0041 §1) and folded into it
     packs: list[str] = Field(default_factory=list)
 
 
@@ -368,6 +391,16 @@ class FactoryConfig(BaseModel):
     )
     use_factory_defaults: bool = False
     phases: PhasesConfig = PhasesConfig()
+    # the packs an admin installed, after reviewing them (ADR-0039 §2, ADR-0041): folders with a
+    # pack.yaml, relative to the factory home. `phases.packs` is read as an alias.
+    packs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _fold_pack_alias(self) -> FactoryConfig:
+        if self.phases.packs:
+            self.packs = list(dict.fromkeys([*self.packs, *self.phases.packs]))
+            self.phases.packs = []
+        return self
 
     @field_validator("roles")
     @classmethod

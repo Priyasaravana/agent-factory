@@ -3,6 +3,8 @@ agent always follows them instead of deciding whether to open the skill."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from conftest import PRODUCT, wait_run
 from pydantic import ValidationError
@@ -37,6 +39,10 @@ async def test_preloaded_skills_are_in_the_prompt_and_not_on_demand(make_factory
     assert "agent-watchdog" not in req.imported_skills and "factory-station-contract" not in req.skills
     assert "name: agent-watchdog" not in req.system_prompt, "frontmatter is stripped"
     other = next(c for c in runner.calls if c.role == "developer")
-    assert "### Skill:" not in other.system_prompt
-    logs = [e.message for e in f.store.list_events(change.id) if e.message.startswith("preloaded skills")]
-    assert logs == ["preloaded skills: ['agent-watchdog', 'factory-station-contract']"]
+    # the developer gets only its product's stack-pack skill (ADR-0041 §1), never the verifier's
+    assert re.findall(r"### Skill: (\S+)", other.system_prompt) == ["fastapi-golden-path"]
+    logs = {e.message for e in f.store.list_events(change.id) if e.message.startswith("preloaded skills")}
+    assert logs == {
+        "preloaded skills: ['agent-watchdog', 'factory-station-contract']",
+        "preloaded skills: ['fastapi-golden-path']",
+    }
