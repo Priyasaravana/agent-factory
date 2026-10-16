@@ -1,6 +1,7 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-10-01 (after the evaluation harness change).
+Status: living reference · last reviewed 2026-10-16 (after the builder, before stack packs).
+Every ADR has a **Best practices** section that maps its decision to the sections below (from ADR-0041 on).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
 The factory is judged twice:
@@ -19,12 +20,12 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 | Testing | ✅ pytest, coverage ≥ 80%, acceptance tests, e2e smoke suite (holdout stays hidden by design) | ✅ engine + auth tests, Playwright |
 | Docs & instructions | ✅ AGENTS.md, README | ✅ AGENTS.md, ADRs, runbook |
 | Environment & sandbox | ✅ reproducible; agents and `make verify` run in a sandbox (ADR-0014) | ✅ compose; sandbox per agent session |
-| Code quality | ✅ small golden-path modules | 🟡 `actions.py` > 500 lines |
+| Code quality | ✅ small golden-path modules | 🟡 `actions.py` is ~1,800 lines |
 | Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per change, egress log, per-agent-call records, transcripts and denials (ADR-0022); no OpenTelemetry export yet |
-| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model, sealed evidence per change (ADR-0023) |
+| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model, sealed evidence per change (ADR-0023), capability grants per station (ADR-0039) |
 
 **Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
-🟡 model tiers per agent (no provider fallback) · ⬜ intake from issues/Jira ·
+🟡 model tiers per agent (no provider fallback) · ✅ lanes per kind of work: new product, product change, repo assessment, repo change as a PR (ADR-0031/0033/0039) · ⬜ intake from issues/Jira ·
 ⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
 
 **Headline metric:** share of delivered apps at Level 3+. ✅ The Quality gate station scores every change (21 signals + secret scan, each tagged with a quality pillar, §7) and fails the change below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
@@ -39,24 +40,24 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
   - ✅ → Outcomes page, from a status transition log (ADR-0019, [definitions](outcomes.md)).
 - **Small batches:** ✅ feedback iterations are small changes. Keep them small (cap the change-request scope).
 - **Strong version control:** ✅ versioned workflows and pinned skills · ⬜ every generated app gets its own repo history by default.
-- **Quality internal platform:** ✅ golden path and blueprint workflows.
+- **Quality internal platform:** ✅ golden path and blueprint workflows · 🟡 one golden path only (FastAPI) → stack packs, one per stack (ADR-0041).
 - **Clear AI policy:** 🟡 guardrail hooks. Write down which actions agents may never take (see §3).
 
 ## 3. OWASP Top 10 for Agentic Applications (2026)
 Maps directly to our agents. See [security/threat-model.md](security/threat-model.md).
 - **Goal hijack / prompt injection** (via requirements, feedback, imported skills):
   - 🟡 skills are reviewed and pinned;
-  - ⬜ treat requirements and feedback as untrusted in prompts.
+  - 🟡 trusted people, untrusted text: only signed-in members start work, the diff decides the risk (ADR-0027) · ⬜ mark requirements and feedback as untrusted data inside prompts.
 - **Tool misuse & unexpected code execution:** ✅ sandbox with egress allowlist, and hooks as a second layer.
-- **Identity & privilege abuse:** ✅ agents hold no credentials beyond the model token and cannot reach the engine or gateway.
-- **Supply chain (skills, templates, packages):** ✅ pinned commits, consent for scripts, SBOM + provenance · ⬜ image signing (with a registry).
+- **Identity & privilege abuse:** ✅ agents hold no credentials beyond the model token and cannot reach the engine · ✅ with the LiteLLM gateway, a virtual key per agent call instead of the model token (ADR-0036; `direct` stays the default) · ✅ each station gets only its phase's capabilities (ADR-0039).
+- **Supply chain (skills, templates, packages):** ✅ pinned commits, consent for scripts, SBOM + provenance · ⬜ pack id, version and hash in provenance (ADR-0041) · ⬜ image signing (with a registry).
 - **Memory/context poisoning:** 🟡 earlier-iteration docs are fed back. Keep holdout scenarios out of builder context (✅).
 - **Cascading failures & rogue agents:** ✅ deterministic ChangeManager, loop limits, usage limits, HOLD on missing evidence.
 - **Human-agent trust:** ✅ evidence shown for every decision; people approve publish.
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
 - **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ⬜ signature (cosign) once images go to a registry.
-- **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker (Python base images patch-only) · ✅ CI builds and tests the shipped images and runs a dry-run end-to-end smoke test (ADR-0016) · ⬜ pin Actions to commit SHAs, branch protection with required checks on main.
+- **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker (Python base images patch-only) · ✅ CI builds and tests the shipped images and runs a dry-run end-to-end smoke test (ADR-0016) · ✅ branch protection: a ruleset on main requires the `engine`, `auth`, `web`, `golden-path`, `images` and `e2e` checks · ⬜ pin Actions to commit SHAs (they use version tags).
 
 ## 5. Agent engineering
 - ✅ Deterministic orchestration and LLM work only inside stations ("workflows before agents").
@@ -100,27 +101,27 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
 | Cost | ⬜ | factory-side cost per change only | `resource_requests` (runtime cost estimable) → phase 5 |
 | Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
-| Usability | ⬜ | — | `a11y` (axe in Playwright), UI golden path with screenshots |
+| Usability | ⬜ | — | `a11y` (axe in Playwright) → Next.js and React SPA packs (ADR-0041) |
 | Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules | — |
-| Portability | 🟡 | uv.lock, Dockerfile, app chooses its Python | `chart_lint` (helm) → phase 5 |
+| Portability | 🟡 | uv.lock, Dockerfile, app chooses its Python, Helm chart to any cluster (ADR-0026) · one stack only | `chart_lint`; more stacks → stack packs (ADR-0041) |
 | Compliance & evidence | ✅ | acceptance tests, traceability, e2e, review evidence, SBOM, provenance, sealed evidence with a pillar index (ADR-0023) | — |
 
 ### The factory itself
 
 | Pillar | State | Notes |
 |---|---|---|
-| Security | ✅ | secret refs + redaction, auth + audit, access rules, sandbox + egress allowlist, no root, threat model · ⬜ model token behind an auth proxy |
+| Security | ✅ | secret refs + redaction, auth + audit, access rules, sandbox + egress allowlist, no root, threat model, model gateway with a virtual key per call (ADR-0036, optional), capability grants per station (ADR-0039) |
 | Reliability | 🟡 | `make backup` / `restore` / `upgrade`, loop and usage limits, SQLite reads under the lock · ⬜ single node, no HA, Postgres deferred |
 | Performance & scalability | ⬜ | no measured capacity · parallel tasks (DAG) later |
 | Operability & observability | 🟡 | event log, per-call records, transcripts, Outcomes, runbook · ⬜ OpenTelemetry GenAI export |
 | Cost | ✅ | cost per delivered change (failed changes included), usage limits, model tiers per agent |
 | Interoperability | 🟡 | OpenAPI-first API, API tokens · ⬜ MCP integrations, issue intake, Backstage/Port plugin |
 | Usability | 🟡 | new UI, themes, ⌘K · ⬜ accessibility check on the factory UI |
-| Maintainability | 🟡 | ruff, mypy, tsc, engine + e2e tests · `actions.py` > 500 lines |
-| Portability | 🟡 | docker compose only · ⬜ any cluster via `deploy/helm` (phase 5) |
+| Maintainability | 🟡 | ruff, mypy (with a baseline), tsc, engine + e2e tests · `actions.py` is ~1,800 lines |
+| Portability | 🟡 | docker compose for the factory · ✅ generated apps to any registry and cluster (ADR-0026) · ⬜ live check on `local-ingress` |
 | Compliance & evidence | ✅ | audit log, versioned workflows, approvals, sealed evidence manifest (ADR-0023) · ⬜ SSDF / ISO 42001 mapping on demand |
 
-**Headline:** generated apps are strong on security, maintainability and evidence, partial on reliability, operability, interoperability and portability, and uncovered on performance, cost and usability. Phase 5 (helm) closes most of reliability, performance, cost and portability; `a11y` and `openapi_valid` follow.
+**Headline:** generated apps are strong on security, maintainability and evidence, partial on reliability, operability, interoperability and portability, and uncovered on performance, cost and usability. They are also one stack only. Stack packs (ADR-0041) come next: the same Level 3 in every stack, and `a11y` as the first usability signal.
 
 ## Roadmap
 - **Done:**
@@ -136,9 +137,28 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
   - evidence manifest change: every stopped change sealed (events, spec, review, traceability, SBOM, provenance, transcripts, each with SHA-256); re-verified on every view; one-zip download for the product's creator or an admin; checkable with `sha256sum -c` (ADR-0023).
   - quality pillars change: ten pillars (Well-Architected + ISO/IEC 25010); every readiness signal tagged with one pillar; readiness report, change page, Outcomes and the sealed evidence grouped by pillar; uncovered pillars shown as uncovered (ADR-0024).
   - evaluation harness change: a fixed evaluation suite per workflow; every new version measured against the active one before it serves real products; the `block` gate keeps it a candidate until nothing regressed, with recorded overrides (ADR-0025).
-- **Next:**
-  - model token behind an auth proxy.
-- **Then:** phase 5, generic `registry/oci` + `deploy/helm` providers (any dev cluster, ingress hosts instead of NodePorts), then ECR + Argo CD.
+  - since 2026-10-01:
+    - cluster target with OCI registry and Helm (ADR-0026);
+    - change-risk policy (ADR-0027);
+    - products, changes and blueprints (ADR-0029);
+    - work items (ADR-0030);
+    - existing repos: assessment (ADR-0031) and changes as pull requests (ADR-0033);
+    - engineering standards as skills (ADR-0032);
+    - tool and scan stations (ADR-0034/0035);
+    - model gateway (ADR-0036);
+    - station contract (ADR-0037);
+    - lanes, phase registry, capability boundaries and the builder (ADR-0039);
+    - product work ledger (ADR-0040).
+- **Next:** stack packs (ADR-0041):
+  - FastAPI extracted as pack #1;
+  - Next.js web app with `a11y`;
+  - React SPA;
+  - per-pack evaluation;
+  - then full-stack.
+- **Then:**
+  - live check of the cluster target on `local-ingress`;
+  - secret store, then gated promotion;
+  - ECR + Argo CD.
 - **Later:**
   - intake from GitHub issues;
   - staged rollout and rollback;

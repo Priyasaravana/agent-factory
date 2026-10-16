@@ -172,4 +172,6 @@
   types, scans per check, a custom step, pack stations). Keep it pure; the draft stores, publish
   still checks everything. A new built-in type is offered automatically in its column; a new preset
   gets a case in `tests/test_builder.py` showing it publishes on each default lane.
-- Record significant decisions as ADRs in `docs/adr/`.
+- Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
+  `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
+  closes or opens an item there.
