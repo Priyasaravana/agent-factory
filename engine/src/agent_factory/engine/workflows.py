@@ -103,6 +103,13 @@ class WorkflowService:
     def imported_skills(self) -> set[str]:
         return self.library.imported_names() if self.library else set()
 
+    def standard(self, works_on: str | None = None) -> WorkflowDoc | None:
+        """The factory default lane this workflow comes from (what Full package restores)."""
+        if not workflow_file(self.template_dir).exists():
+            return None
+        doc = load_workflow_dir(self.template_dir)
+        return doc if works_on in (None, doc.works_on) else None
+
     def validate(self, doc: WorkflowDoc) -> list[str]:
         return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles, self.phases)
 
@@ -578,7 +585,8 @@ class Draft:
         if preset is None:
             raise WorkflowError(f"unknown preset '{preset_id}' (one of {', '.join(tpl.PRESETS)})")
         _, doc, _ = self.get()
-        result = tpl.apply_preset(doc, preset, self.s.phases.ids, templates, library)
+        standard = self.s.standard(doc.works_on)
+        result = tpl.apply_preset(doc, preset, self.s.phases.ids, templates, library, standard)
         self._save(result.doc)
         return result
 

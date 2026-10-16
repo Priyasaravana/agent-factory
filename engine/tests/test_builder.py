@@ -186,6 +186,54 @@ def test_a_preset_adds_missing_controls_once() -> None:
     assert result.added == ["change-risk"]  # test and a secret scan (quality gate) were there
 
 
+@pytest.mark.parametrize("lane", ["new-product", "product-change", "repo-change", "repo-assessment"])
+@pytest.mark.parametrize("narrow", ["design-only", "test-and-secure", "delivery-only", "development-only"])
+def test_full_package_brings_the_whole_lane_back(lane: str, narrow: str) -> None:
+    """Reported 2026-10-16: Full package after Design only kept only the design stations."""
+    standard = _lane(lane)
+    scoped = tpl.apply_preset(standard, tpl.PRESETS[narrow], ORDER, library=LIBRARY, standard=standard).doc
+    back = tpl.apply_preset(scoped, tpl.PRESETS["full"], ORDER, library=LIBRARY, standard=standard)
+    assert _ids(back.doc) == _ids(standard)
+    assert {s.id: (s.agent, s.on_fail, s.next) for s in back.doc.stations} == {
+        s.id: (s.agent, s.on_fail, s.next) for s in standard.stations
+    }
+    assert _errors(back.doc) == []
+    assert tpl.preset_of(back.doc) == "full"
+
+
+def test_a_lane_with_stations_removed_is_not_the_full_package() -> None:
+    standard = _lane("new-product")
+    doc = standard.model_copy(deep=True)
+    assert tpl.preset_of(doc, standard) == "full"
+    doc.stations = [s for s in doc.stations if s.id != "code-review"]
+    assert tpl.preset_of(doc, standard) is None
+    assert tpl.preset_of(doc) == "full"  # without the standard, scope and entry decide
+
+
+def test_full_package_keeps_your_own_stations_in_their_phase() -> None:
+    standard = _lane("new-product")
+    doc, sid = tpl.with_station(standard, T["custom"], "verify", ORDER)
+    scoped = tpl.apply_preset(doc, tpl.PRESETS["test-and-secure"], ORDER, standard=standard).doc
+    back = tpl.apply_preset(scoped, tpl.PRESETS["full"], ORDER, standard=standard).doc
+    assert sid in _ids(back) and back.columns()[sid] == "verify"
+    assert len(back.stations) == len(standard.stations) + 1
+
+
+def test_a_preset_re_adds_the_standard_station_with_its_agent() -> None:
+    standard = _lane("new-product")
+    scoped = tpl.apply_preset(standard, tpl.PRESETS["test-and-secure"], ORDER, standard=standard).doc
+    design = tpl.apply_preset(scoped, tpl.PRESETS["design-only"], ORDER, library=LIBRARY, standard=standard)
+    assert design.added == ["requirements", "design"]
+    assert {s.id: s.agent for s in design.doc.stations} == {"requirements": "intake", "design": "architect"}
+
+
+def test_a_new_requirements_station_gets_the_intake_agent_not_any_observer() -> None:
+    doc = _lane("new-product")
+    doc.stations = [s for s in doc.stations if s.id != "requirements"]
+    out, sid = tpl.with_station(doc, T["type:requirements"], "design", ORDER, library=LIBRARY)
+    assert out.station(sid).agent == "intake"
+
+
 def test_full_package_keeps_every_station() -> None:
     doc = _lane("new-product")
     result = tpl.apply_preset(doc, tpl.PRESETS["full"], ORDER)
