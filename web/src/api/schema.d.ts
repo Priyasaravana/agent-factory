@@ -2245,6 +2245,13 @@ export interface components {
             span?: string[];
             /** Preset */
             preset?: string | null;
+            /** Presets */
+            presets?: string[];
+            /**
+             * Evaluable
+             * @default false
+             */
+            evaluable: boolean;
             /** Entry */
             entry?: components["schemas"]["EntryArtifactView"][];
         };

@@ -144,6 +144,8 @@ def test_moving_a_custom_step_to_another_phase_box_puts_it_at_the_end_of_that_bo
 @pytest.mark.parametrize("preset", [p.id for p in tpl.SCOPE_PRESETS])
 def test_every_preset_gives_a_lane_that_publishes(lane: str, preset: str) -> None:
     doc = _lane(lane)
+    if not tpl.PRESETS[preset].applies(doc):
+        pytest.skip("the preset doesn't fit this lane")
     result = tpl.apply_preset(doc, tpl.PRESETS[preset], ORDER, library=LIBRARY)
     out = result.doc
     if not out.stations:  # nothing of this lane fits (e.g. delivery only on a repo lane keeps the PR)
@@ -155,7 +157,7 @@ def test_every_preset_gives_a_lane_that_publishes(lane: str, preset: str) -> Non
 
 
 def test_test_and_secure_keeps_only_the_controls_and_routes_to_nowhere() -> None:
-    result = tpl.apply_preset(_lane("new-product"), tpl.PRESETS["test-and-secure"], ORDER)
+    result = tpl.apply_preset(_lane("product-change"), tpl.PRESETS["test-and-secure"], ORDER)
     out = result.doc
     assert "implement" in result.removed and "build" in result.removed
     assert all(s.on_fail is None or s.on_fail in _ids(out) for s in out.stations)
@@ -171,7 +173,7 @@ def test_a_borrowed_agent_comes_with_its_station() -> None:
 
 
 def test_delivery_only_starts_from_your_reports() -> None:
-    result = tpl.apply_preset(_lane("new-product"), tpl.PRESETS["delivery-only"], ORDER)
+    result = tpl.apply_preset(_lane("product-change"), tpl.PRESETS["delivery-only"], ORDER)
     # it can't change the code (no Verify) nor accept against a spec it doesn't have
     assert {"deploy-repair", "acceptance"} <= set(result.removed)
     keys = {r.key for r in result.doc.entry_refs()}
@@ -191,6 +193,8 @@ def test_a_preset_adds_missing_controls_once() -> None:
 def test_full_package_brings_the_whole_lane_back(lane: str, narrow: str) -> None:
     """Reported 2026-10-16: Full package after Design only kept only the design stations."""
     standard = _lane(lane)
+    if not tpl.PRESETS[narrow].applies(standard):
+        pytest.skip("the preset doesn't fit this lane")
     scoped = tpl.apply_preset(standard, tpl.PRESETS[narrow], ORDER, library=LIBRARY, standard=standard).doc
     back = tpl.apply_preset(scoped, tpl.PRESETS["full"], ORDER, library=LIBRARY, standard=standard)
     assert _ids(back.doc) == _ids(standard)
@@ -211,7 +215,7 @@ def test_a_lane_with_stations_removed_is_not_the_full_package() -> None:
 
 
 def test_full_package_keeps_your_own_stations_in_their_phase() -> None:
-    standard = _lane("new-product")
+    standard = _lane("product-change")
     doc, sid = tpl.with_station(standard, T["custom"], "verify", ORDER)
     scoped = tpl.apply_preset(doc, tpl.PRESETS["test-and-secure"], ORDER, standard=standard).doc
     back = tpl.apply_preset(scoped, tpl.PRESETS["full"], ORDER, standard=standard).doc
@@ -220,7 +224,7 @@ def test_full_package_keeps_your_own_stations_in_their_phase() -> None:
 
 
 def test_a_preset_re_adds_the_standard_station_with_its_agent() -> None:
-    standard = _lane("new-product")
+    standard = _lane("product-change")
     scoped = tpl.apply_preset(standard, tpl.PRESETS["test-and-secure"], ORDER, standard=standard).doc
     design = tpl.apply_preset(scoped, tpl.PRESETS["design-only"], ORDER, library=LIBRARY, standard=standard)
     assert design.added == ["requirements", "design"]
@@ -232,6 +236,25 @@ def test_a_new_requirements_station_gets_the_intake_agent_not_any_observer() -> 
     doc.stations = [s for s in doc.stations if s.id != "requirements"]
     out, sid = tpl.with_station(doc, T["type:requirements"], "design", ORDER, library=LIBRARY)
     assert out.station(sid).agent == "intake"
+
+
+def test_presets_fit_the_lane() -> None:
+    """New builds can stop early but not start late; assessments have a fixed shape (2026-10-16)."""
+    ids = {
+        lane: [p.id for p in tpl.presets_for(_lane(lane))]
+        for lane in ("new-product", "product-change", "repo-change", "repo-assessment")
+    }
+    assert ids["new-product"] == ["design-only", "development-only", "full"]
+    assert ids["product-change"] == ids["repo-change"] == [p.id for p in tpl.SCOPE_PRESETS]
+    assert ids["repo-assessment"] == []
+
+
+def test_the_evaluation_gate_is_only_for_lanes_that_build_new_products() -> None:
+    doc = _lane("product-change")
+    assert doc.eval_gate == "off" and _errors(doc) == []
+    doc.eval_gate = "block"
+    assert any("doesn't build new products" in e for e in _errors(doc))
+    assert _lane("new-product").eval_gate == "block"
 
 
 def test_full_package_keeps_every_station() -> None:
@@ -336,13 +359,17 @@ async def test_builder_over_http(make_factory) -> None:
         )
         assert r.status_code == 200 and any(s["id"] == "code-scan" for s in r.json()["stations"])
 
+        assert draft["presets"] == ["design-only", "development-only", "full"] and draft["evaluable"]
         r = await c.post("/api/workflows/new-product/draft/preset", json={"preset": "delivery-only"})
+        assert r.status_code == 409 and "can't start later" in r.text
+        r = await c.post("/api/workflows/product-change/draft/preset", json={"preset": "delivery-only"})
         assert r.status_code == 200, r.text
         body = r.json()
         assert "implement" in body["removed"] and body["draft"]["preset"] == "delivery-only"
         assert body["draft"]["span"] == ["deliver"]
         assert [e["by"] for e in body["draft"]["entry"]].count("your tools") == 2
 
+        assert not body["draft"]["evaluable"]
         r = await c.patch(
             "/api/workflows/new-product/draft/settings", json={"scope": ["verify", "develop"], "entry": []}
         )

@@ -975,6 +975,8 @@ class DraftView(BaseModel):
     scope: list[str] = Field(default_factory=list)  # as set: [first, last] or [] (what the stations cover)
     span: list[str] = Field(default_factory=list)  # the phases it covers, in order
     preset: str | None = None  # the scope preset it matches, if any
+    presets: list[str] = Field(default_factory=list)  # the presets that fit this lane
+    evaluable: bool = False  # the evaluation gate applies: the lane builds new products (ADR-0025)
     entry: list[EntryArtifactView] = Field(default_factory=list)
 
 

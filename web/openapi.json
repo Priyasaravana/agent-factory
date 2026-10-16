@@ -5595,6 +5595,18 @@
             ],
             "title": "Preset"
           },
+          "presets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Presets"
+          },
+          "evaluable": {
+            "type": "boolean",
+            "title": "Evaluable",
+            "default": false
+          },
           "entry": {
             "items": {
               "$ref": "#/components/schemas/EntryArtifactView"

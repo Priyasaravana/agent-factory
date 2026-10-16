@@ -12,9 +12,9 @@ entry: [request@1, branch@1]
 # Spec review gate (ADR-0017): pause after design until a person approves the spec.
 #   off (default) · first: the first change to a product · always: every iteration
 spec_review: "off"
-# Evaluation gate (ADR-0025): a published version is measured on ../evals.yaml first.
-#   block: it stays a candidate until it shows no regression · warn: activate now, evaluate and report · off
-eval_gate: block
+# Evaluation gate (ADR-0025): evaluations build fixed new products, so only the New product lane
+# has one; a gate here would keep every published version a candidate that can never activate.
+eval_gate: "off"
 stations:
   # design: what to build and how
   - {id: requirements, type: requirements, agent: intake}

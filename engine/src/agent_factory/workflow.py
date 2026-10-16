@@ -695,7 +695,13 @@ def validate_workflow(
             errors.append(f"evaluation case id '{cid}' must be lowercase letters, digits or '-' (max 31)")
     if len(case_ids) > MAX_EVAL_CASES:
         errors.append(f"at most {MAX_EVAL_CASES} evaluation cases (each one is a full build)")
-    if doc.eval_gate != "off" and not doc.evals:
+    if doc.eval_gate != "off" and "new" not in doc.kinds:
+        # evaluations build fixed new products (ADR-0025): a gate elsewhere would keep every
+        # published version a candidate that can never activate
+        errors.append(
+            "the evaluation gate measures new builds, and this lane doesn't build new products: set it to off"
+        )
+    elif doc.eval_gate != "off" and not doc.evals:
         errors.append(f"eval_gate '{doc.eval_gate}' needs at least one evaluation case")
     return errors
 

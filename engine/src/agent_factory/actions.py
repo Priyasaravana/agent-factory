@@ -1392,6 +1392,8 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         scope=list(doc.scope),
         span=_span(f, doc),
         preset=tpl.preset_of(doc, w.standard(doc.works_on)),
+        presets=[p.id for p in tpl.presets_for(doc)],
+        evaluable="new" in doc.kinds,
         entry=[_entry_view(e) for e in doc.entry],
     )
 
