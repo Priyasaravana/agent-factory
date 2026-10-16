@@ -140,6 +140,16 @@ class ScopePreset:
     scope: tuple[str, ...]  # (first, last); empty: whatever the lane's stations cover
     entry: tuple[str, ...] = ()  # beyond the request and the branch
     adds: tuple[str, ...] = ()  # template ids
+    # also for lanes that build new products: a new build has no code before Develop, so a lane
+    # that starts at Verify or Deliver would test or ship an empty scaffold
+    for_new_builds: bool = False
+
+    def applies(self, doc: WorkflowDoc) -> bool:
+        """Whether the preset makes sense for the lane (ADR-0039 1c, 2026-10-16): assessment lanes
+        have a fixed shape; new builds can stop early but can't start late; change lanes take all."""
+        if "assess" in doc.kinds:
+            return False
+        return self.for_new_builds or "new" not in doc.kinds
 
 
 SCOPE_PRESETS: list[ScopePreset] = [
@@ -149,6 +159,7 @@ SCOPE_PRESETS: list[ScopePreset] = [
         "Turn a request into a spec and a design. Building happens in your own tools.",
         ("design", "plan"),
         adds=("type:requirements", "type:design"),
+        for_new_builds=True,
     ),
     ScopePreset(
         "development-only",
@@ -156,6 +167,7 @@ SCOPE_PRESETS: list[ScopePreset] = [
         "Write the change and verify it. Your own pipeline delivers it.",
         ("develop", "verify"),
         adds=("type:implement", "type:test", "scan:secrets", "type:change-risk"),
+        for_new_builds=True,
     ),
     ScopePreset(
         "test-and-secure",
@@ -177,9 +189,14 @@ SCOPE_PRESETS: list[ScopePreset] = [
         "Full package",
         "The factory's whole lane again, every phase from the request to delivery, plus your own steps.",
         (),
+        for_new_builds=True,
     ),
 ]
 PRESETS = {p.id: p for p in SCOPE_PRESETS}
+
+
+def presets_for(doc: WorkflowDoc) -> list[ScopePreset]:
+    return [p for p in SCOPE_PRESETS if p.applies(doc)]
 
 
 def preset_of(doc: WorkflowDoc, standard: WorkflowDoc | None = None) -> str | None:

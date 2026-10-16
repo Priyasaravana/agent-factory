@@ -140,7 +140,7 @@ export default function WorkflowEditPage() {
         <div className="mb-3 grid gap-0.5">
           <h3 className="m-0">Stations</h3>
           <p className="muted small m-0">
-            What runs, phase by phase. Pick a preset to scope the lane, or add stations to each phase.
+            What runs, phase by phase. Add stations to each phase, or pick a preset where the lane offers them.
           </p>
         </div>
         <PhaseBoard workflowId={workflowId} draft={d} catalog={catalog.data} ops={boardOps} />
@@ -185,25 +185,49 @@ export default function WorkflowEditPage() {
         </div>
       </section>
 
-      <EvalSettings
-        d={d}
-        busy={m.isPending}
-        setGate={(value) =>
-          m.mutate(() =>
-            unwrap(
-              api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
-                params: { path: wid },
-                body: { eval_gate: value },
-              }),
-            ),
-          )
-        }
-        saveCases={(cases) =>
-          m.mutate(() =>
-            unwrap(api.PUT("/api/workflows/{workflow_id}/draft/evals", { params: { path: wid }, body: { cases } })),
-          )
-        }
-      />
+      {d.evaluable ? (
+        <EvalSettings
+          d={d}
+          busy={m.isPending}
+          setGate={(value) =>
+            m.mutate(() =>
+              unwrap(
+                api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                  params: { path: wid },
+                  body: { eval_gate: value },
+                }),
+              ),
+            )
+          }
+          saveCases={(cases) =>
+            m.mutate(() =>
+              unwrap(api.PUT("/api/workflows/{workflow_id}/draft/evals", { params: { path: wid }, body: { cases } })),
+            )
+          }
+        />
+      ) : (
+        d.eval_gate !== "off" && (
+          <section className="card">
+            <h3>Evaluation gate</h3>
+            <p className="warnings">
+              The gate is set to <strong>{d.eval_gate}</strong>, but evaluations build fixed new products and this lane
+              doesn't build new products, so no version could ever pass it. Turn it off to publish.
+            </p>
+            <button disabled={m.isPending} onClick={() =>
+              m.mutate(() =>
+              unwrap(
+                api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                  params: { path: wid },
+                  body: { eval_gate: "off" },
+                }),
+              ),
+            )
+            }>
+              Turn the evaluation gate off
+            </button>
+          </section>
+        )
+      )}
 
       <section className="card" data-testid="learn-setting">
         <h3>Learn from changes</h3>

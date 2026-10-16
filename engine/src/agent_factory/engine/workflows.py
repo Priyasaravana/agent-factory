@@ -585,6 +585,15 @@ class Draft:
         if preset is None:
             raise WorkflowError(f"unknown preset '{preset_id}' (one of {', '.join(tpl.PRESETS)})")
         _, doc, _ = self.get()
+        if not preset.applies(doc):
+            raise WorkflowError(
+                f"'{preset.title}' doesn't fit this lane"
+                + (
+                    ": an assessment lane has a fixed shape"
+                    if "assess" in doc.kinds
+                    else ": a new build has no code before Develop, so it can't start later"
+                )
+            )
         standard = self.s.standard(doc.works_on)
         result = tpl.apply_preset(doc, preset, self.s.phases.ids, templates, library, standard)
         self._save(result.doc)

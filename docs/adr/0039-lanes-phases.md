@@ -165,6 +165,12 @@ data, floor), roles and owners, org-level workflows (1b-2), fresh start (data ge
 - Scope presets (`SCOPE_PRESETS`): Design only, Development only, Test & secure, Delivery only, Full
   package. Applying one sets scope and entry, removes stations outside the scope or left unable to run
   (a code change without Verify, a need nothing gives), and adds the preset's stations the lane lacks.
+- Presets fit the lane (2026-10-16): a lane that builds new products offers Design only, Development
+  only and Full package (a new build has no code before Develop, so it can't start later); change
+  lanes offer all five; an assessment lane keeps its shape. Full package restores the factory default
+  lane (every station, agent and route) plus the lane's own custom steps. The evaluation gate is only
+  for lanes that build new products: publish refuses it elsewhere, and Product change ships with it
+  off (it was `block`, so its versions could never activate).
 - A product says what its next change must bring (`GET /api/products/{id}/entry`, with example
   manifests); `start_change` refuses missing or invalid provided artifacts up front
   (`handoff.provided_problems`, the same check the entry record runs).

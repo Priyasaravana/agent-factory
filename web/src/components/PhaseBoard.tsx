@@ -302,7 +302,8 @@ function LaneScope({
   const phases = catalog.phases ?? [];
   const ids = phases.map((p) => p.id);
   const span = draft.span ?? [];
-  const presets = catalog.scope_presets ?? [];
+  // only the presets that fit this lane: new builds can't start late, assessments keep their shape
+  const presets = (catalog.scope_presets ?? []).filter((p) => (draft.presets ?? []).includes(p.id));
   const [asking, setAsking] = useState<Preset | null>(null);
   const title = (pid: string) => phases.find((p) => p.id === pid)?.label ?? pid;
   // the preset's stations this lane doesn't have yet (the ones applying it would add)
@@ -377,6 +378,7 @@ function LaneScope({
             )}
           </span>
         </div>
+        {presets.length > 0 && (
         <div className="presets" role="radiogroup" aria-label="Scope preset">
           {presets.map((p) => (
             <Tip key={p.id} label={p.hint} side="bottom">
@@ -393,6 +395,7 @@ function LaneScope({
             </Tip>
           ))}
         </div>
+        )}
       </div>
 
       <div className="rail" aria-label="Phases this lane covers">
