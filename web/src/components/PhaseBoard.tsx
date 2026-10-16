@@ -508,6 +508,12 @@ function LaneScope({
                 from your own tools.
               </p>
             )}
+            {asking.id === "full" && (
+              <p>
+                <strong className="text-foreground">Brought back:</strong> every station of the factory default lane
+                this lane is missing, with its agent and routes. Your own custom steps stay.
+              </p>
+            )}
             <p>Nothing is live until you publish the draft.</p>
           </>
         )}

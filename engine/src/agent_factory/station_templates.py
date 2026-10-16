@@ -175,18 +175,23 @@ SCOPE_PRESETS: list[ScopePreset] = [
     ScopePreset(
         "full",
         "Full package",
-        "Every phase the lane's stations cover, from the request to delivery.",
+        "The factory's whole lane again, every phase from the request to delivery, plus your own steps.",
         (),
     ),
 ]
 PRESETS = {p.id: p for p in SCOPE_PRESETS}
 
 
-def preset_of(doc: WorkflowDoc) -> str | None:
-    """The preset a lane's scope and entry match, if any."""
+def preset_of(doc: WorkflowDoc, standard: WorkflowDoc | None = None) -> str | None:
+    """The preset a lane's scope and entry match, if any. Full package also needs every station of
+    the factory default lane (when known): a lane with stations removed is no longer the full one."""
     for p in SCOPE_PRESETS:
         entry = [*DEFAULT_ENTRY, *p.entry]
         if list(doc.scope) == list(p.scope) and sorted(doc.entry) == sorted(entry):
+            if p.id == "full" and standard is not None:
+                ids = {s.id for s in doc.stations}
+                if any(s.id not in ids for s in standard.stations):
+                    return None
             return p.id
     return None
 
@@ -311,19 +316,20 @@ def _agent_for(
     doc: WorkflowDoc, station: WorkflowStation, library: AgentLibrary | None = None
 ) -> tuple[str | None, AgentSpec | None]:
     """The agent a new station starts with, and the spec to add when it comes from the library:
-    the one another station of its type uses, else an agent of the lane that fits, else the agent
-    the factory default lanes use for this type."""
+    the one another station of its type uses, else the one the factory default lanes give this
+    type (an intake agent for requirements, not any observer that happens to fit), else an agent
+    of the lane that fits."""
     tid = station.type_id()
     for s in doc.stations:
         if s.agent in doc.agents and s.type_id() == tid and tid != contract.CUSTOM:
             return s.agent, None
+    spec = (library.get(f"{doc.works_on}:{tid}") or library.get(tid)) if library else None
+    if spec is not None:
+        return spec.id, (None if spec.id in doc.agents else spec)
     for aid, own in doc.agents.items():
         if _fits(doc, station, own):
             return aid, None
-    spec = (library.get(f"{doc.works_on}:{tid}") or library.get(tid)) if library else None
-    if spec is None:
-        return None, None
-    return spec.id, (None if spec.id in doc.agents else spec)
+    return None, None
 
 
 @dataclass
@@ -483,14 +489,21 @@ def apply_preset(
     order: Sequence[str],
     templates: dict[str, StationTemplate] | None = None,
     library: AgentLibrary | None = None,
+    standard: WorkflowDoc | None = None,
 ) -> PresetResult:
     """Set the lane's scope and entry to the preset's, drop the stations outside it or unable to
-    run in it (routes to them are cleared) and add the preset's stations the lane has none of."""
+    run in it (routes to them are cleared) and add the preset's stations the lane has none of.
+    `standard` is the factory default lane the workflow comes from: Full package brings back every
+    station of it the lane lacks, and a preset re-adds a standard station as it is there (its id,
+    agent and routes) rather than a fresh one from the template."""
     templates = templates or BUILTIN_TEMPLATES
     out = doc.model_copy(deep=True)
     out.scope = list(preset.scope)
     out.entry = [*DEFAULT_ENTRY, *preset.entry]
     result = PresetResult(out)
+    if not preset.scope and standard is not None:
+        result.doc, result.added = restore_standard(out, standard, order)
+        return result
     if preset.scope:
         first, last = order.index(preset.scope[0]), order.index(preset.scope[-1])
         span = set(order[first : last + 1])
@@ -504,7 +517,84 @@ def apply_preset(
         t = templates.get(tid)
         if t is None or not t.available_for(out.works_on) or _has_kind(out, t) or t.phase is None:
             continue
+        from_standard = _standard_station(standard, t, out) if standard else None
+        if from_standard is not None:
+            out = _with_standard(out, standard, from_standard, order)  # type: ignore[arg-type]
+            result.added.append(from_standard.id)
+            continue
         out, sid = with_station(out, t, t.phase, order, library=library)
         result.added.append(sid)
     result.doc = out
     return result
+
+
+def _standard_station(standard: WorkflowDoc, t: StationTemplate, doc: WorkflowDoc) -> WorkflowStation | None:
+    """The station of the factory default lane a template stands for, when its id is free."""
+    taken = {s.id for s in doc.stations}
+    for s in standard.stations:
+        if s.id in taken:
+            continue
+        if t.id.startswith("scan:") and s.resolved_handler() == "scan" and s.check_name() == t.id[5:]:
+            return s
+        if t.id.startswith("type:") and s.type_id() == t.station.get("type"):
+            return s
+    return None
+
+
+def _bring_agent(out: WorkflowDoc, standard: WorkflowDoc, station: WorkflowStation) -> None:
+    if station.agent and station.agent not in out.agents and station.agent in standard.agents:
+        spec = standard.agents[station.agent]
+        out.agents[spec.id] = spec
+        for d in spec.context_docs:
+            if d not in out.docs and d in standard.docs:
+                out.docs[d] = standard.docs[d]
+
+
+def _clean_routes(out: WorkflowDoc) -> None:
+    ids = {s.id for s in out.stations}
+    for s in out.stations:
+        if s.on_fail not in ids:
+            s.on_fail = None
+        if s.next not in ids:
+            s.next = None
+
+
+def _with_standard(
+    out: WorkflowDoc, standard: WorkflowDoc, station: WorkflowStation, order: Sequence[str]
+) -> WorkflowDoc:
+    out = out.model_copy(deep=True)
+    st = station.model_copy(deep=True)
+    _bring_agent(out, standard, st)
+    out.stations.insert(insert_position(out, st.column(), order), st)
+    _clean_routes(out)
+    return out
+
+
+def restore_standard(doc: WorkflowDoc, standard: WorkflowDoc, order: Sequence[str]) -> tuple[WorkflowDoc, list[str]]:
+    """The lane as its factory default lane, in the standard's order, plus your own steps (custom and
+    pack stations) at the end of their phase. Stations it shares with the standard keep the lane's
+    settings, and routes a narrower scope cleared come back. Returns the restored ids."""
+    out = doc.model_copy(deep=True)
+    mine = {s.id: s for s in out.stations}
+    restored = [s.id for s in standard.stations if s.id not in mine]
+    stations = [mine.get(s.id) or s.model_copy(deep=True) for s in standard.stations]
+    out.stations = stations
+    for s in stations:
+        if s.id in restored:
+            _bring_agent(out, standard, s)
+    col = doc.columns()
+    by_std = {s.id: s for s in standard.stations}
+    for s in stations:  # a route a narrower scope cleared comes back with its station
+        std = by_std[s.id]
+        s.on_fail = s.on_fail or std.on_fail
+        s.next = s.next or std.next
+    for own in doc.stations:
+        # your own steps stay (custom and pack stations); built-in stations the standard doesn't
+        # have (a narrower preset's additions) go, so Full package is the factory's whole lane
+        if own.id not in by_std and own.station_type() is None:
+            copy = own.model_copy(deep=True)
+            if copy.station_type() is None:
+                copy.phase = copy.phase or col[own.id]  # keep its phase wherever it lands
+            out.stations.insert(insert_position(out, col[own.id], order), copy)
+    _clean_routes(out)
+    return out, restored
