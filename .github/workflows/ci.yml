@@ -47,12 +47,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - uses: azure/setup-helm@v5
-      - run: cd templates/fastapi-service && make verify
-      - run: helm lint templates/fastapi-service/deploy/chart
-      - run: helm template t templates/fastapi-service/deploy/chart > /dev/null
+      - run: cd packs/fastapi-service/template && make verify
+      - run: helm lint packs/fastapi-service/template/deploy/chart
+      - run: helm template t packs/fastapi-service/template/deploy/chart > /dev/null
       # the cluster target (helm provider, ADR-0026): ClusterIP + an Ingress with TLS and a pull secret
       - run: |
-          helm template t templates/fastapi-service/deploy/chart --set service.type=ClusterIP \
+          helm template t packs/fastapi-service/template/deploy/chart --set service.type=ClusterIP \
             --set ingress.enabled=true --set ingress.host=t.apps.example.com --set ingress.tls=true \
             --set 'imagePullSecrets[0].name=factory-pull' > /tmp/ingress.yaml
           grep -q '^kind: Ingress' /tmp/ingress.yaml
@@ -112,7 +112,7 @@ jobs:
           docker run --rm af-sandbox:ci sh -c 'claude --version && uv python list --only-installed'
       - name: the sandbox verifies the golden path as the sandbox user, without interpreter downloads
         run: |
-          work=$(mktemp -d) && cp -r templates/fastapi-service/. "$work" && chmod -R a+rwX "$work"
+          work=$(mktemp -d) && cp -r packs/fastapi-service/template/. "$work" && chmod -R a+rwX "$work"
           docker run --rm --user 10001:10001 --read-only --cap-drop ALL \
             --tmpfs /tmp:rw,exec,mode=1777 --tmpfs /home/agent:rw,exec,uid=10001,gid=10001 \
             -e HOME=/home/agent -e UV_PYTHON_DOWNLOADS=never \

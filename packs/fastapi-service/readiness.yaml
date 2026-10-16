@@ -1,0 +1,45 @@
+# How a FastAPI repo proves the stack-specific agent-readiness signals (ADR-0041 §3).
+# Signal ids, levels, points and pillars are the engine's (readiness.py, pillars.py); a pack only
+# says how its stack proves each one, and must map every stack-specific signal or it is refused.
+# Rule kinds: file, glob, contains {file|glob, text}, matches {file|glob, regex}, all, any.
+# Pure checks on the repo's files: nothing is executed.
+signals:
+  linter:
+    check: {contains: {file: pyproject.toml, text: "[tool.ruff"}}
+    hint: configure ruff
+  formatter:
+    check: {contains: {file: Makefile, text: "ruff format --check"}}
+    hint: run `ruff format --check` in `make lint`
+  unit_tests:
+    check: {glob: "tests/test_*.py"}
+    hint: add tests/test_*.py
+  lockfile:
+    check: {file: uv.lock}
+    hint: commit uv.lock
+  structured_logs:
+    check:
+      all:
+        - {contains: {glob: "app/**/*.py", text: JsonFormatter}}
+        - {contains: {glob: "app/**/*.py", text: configure_logging}}
+    hint: keep app/observability.py wired in app/main.py
+  coverage_gate:
+    check: {contains: {file: Makefile, text: "--cov-fail-under="}}
+    hint: keep `--cov-fail-under` in `make test`
+  acceptance_tests:
+    check: {file: tests/test_acceptance.py}
+    hint: turn tests/acceptance/scenarios.yaml into tests/test_acceptance.py
+  e2e_tests:
+    check: {glob: "tests/e2e/test_*.py"}
+    hint: keep tests/e2e/ (smoke tests against a deployment)
+  health_endpoints:
+    check:
+      all:
+        - {contains: {glob: "app/**/*.py", text: '"/healthz"'}}
+        - {contains: {glob: "app/**/*.py", text: '"/readyz"'}}
+    hint: keep /healthz and /readyz
+  metrics:
+    check: {contains: {glob: "app/**/*.py", text: '"/metrics"'}}
+    hint: keep /metrics (app/observability.py)
+  tracing:
+    check: {contains: {glob: "app/**/*.py", text: opentelemetry}}
+    hint: keep OpenTelemetry setup (app/observability.py)

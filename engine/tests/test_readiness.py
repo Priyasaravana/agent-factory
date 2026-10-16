@@ -12,9 +12,17 @@ from conftest import PRODUCT, REPO, wait_run
 from agent_factory.engine.workspace import render_codeowners
 from agent_factory.executor import FakeExecutor
 from agent_factory.models import ChangeStatus, EventKind
-from agent_factory.readiness import SIGNALS, score
+from agent_factory.packs import load_pack
+from agent_factory.readiness import SIGNALS, StackRules
+from agent_factory.readiness import score as score_with
 
-TEMPLATE = REPO / "templates" / "fastapi-service"
+PACK = load_pack(REPO / "packs" / "fastapi-service")
+TEMPLATE = PACK.path("template")
+
+
+def score(root: Path, secret_scan_ok: bool | None = None, rules: StackRules | None = PACK.rules):
+    """Scored as a FastAPI product: the pack proves the stack-specific signals (ADR-0041 §3)."""
+    return score_with(root, secret_scan_ok, rules)
 
 
 def _generated_repo(tmp_path: Path) -> Path:

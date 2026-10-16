@@ -35,17 +35,22 @@ workflows:
 use_factory_defaults: false
 
 # ---------------------------------------------------------------------------
-# Product lines = golden paths. Adding an app type means adding a template
-# folder and an entry here, not writing engine code.
+# Packs (ADR-0039 §2, ADR-0041): reviewed folders an admin installs. A stack pack says WHAT to
+# build: template, golden-path skill, verify command, technologies, port, chart and how its stack
+# proves the readiness signals. Adding a stack means adding a pack folder, not engine code.
 # ---------------------------------------------------------------------------
+packs:
+  - packs/fastapi-service
+
+# Blueprints say WHERE and HOW this install runs a pack: environment, node ports, scan commands,
+# minimum readiness level. A pack field set here as well overrides the pack's (recorded as evidence).
 blueprints:
   fastapi-service:
     description: Python FastAPI REST service with Postgres, Helm chart, NodePort
-    template: templates/fastapi-service
-    verify_command: make verify
-    # What this blueprint builds with. A request that requires anything else (e.g. Node.js,
-    # Go, MongoDB, a React UI) is asked about at intake instead of silently built in Python.
-    stack: [python, fastapi, postgres, sqlalchemy, docker, helm, kubernetes]
+    # template, verify command, port, chart and stack come from the pack. A request that requires
+    # anything outside the pack's technologies (e.g. Node.js, Go, MongoDB, a React UI) is asked
+    # about at intake instead of silently built in Python.
+    pack: fastapi-service
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
     # factory image. {image} is filled in by the Package station. Pin a digest
     # (aquasec/trivy@sha256:...) once you have verified one you trust.
@@ -62,8 +67,6 @@ blueprints:
     sbom_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
       anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
-    chart_path: deploy/chart
-    service_port: 8000
     node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 

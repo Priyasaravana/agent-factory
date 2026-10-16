@@ -28,7 +28,7 @@ def test_engine_and_auth_images_run_the_python_ci_tests():
 
 
 def test_the_sandbox_provides_the_python_the_golden_path_pins():
-    template = ROOT / "templates" / "fastapi-service"
+    template = ROOT / "packs" / "fastapi-service" / "template"
     pinned = (template / ".python-version").read_text().strip()
     m = re.search(r'^ARG APP_PYTHONS="([^"]+)"', (ROOT / "images" / "sandbox" / "Dockerfile").read_text(), re.M)
     assert m, "images/sandbox/Dockerfile must declare APP_PYTHONS"

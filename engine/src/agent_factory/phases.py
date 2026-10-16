@@ -1,7 +1,8 @@
 """The org's phase registry (ADR-0039 §2) from the config and the packs an admin installed.
 
 The pure registry and its rules live in `contract` (`PhaseRegistry`, `registry_errors`); this
-module only reads the files. A pack is a folder with `pack.yaml`:
+module only reads the files. A pack is a folder with `pack.yaml` (`packs.py`; a pack may also add
+a stack, ADR-0041):
 
     id: ops-pack
     version: 1.0.0
@@ -30,66 +31,13 @@ Loading refuses a template whose `uses` (or its agent's tools) fall outside its 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
-
-import yaml
-from pydantic import BaseModel, Field
 
 from agent_factory import contract
 from agent_factory.config import FactoryConfig
 from agent_factory.contract import Phase, PhaseRegistry
+from agent_factory.packs import Pack, PackError, PackStation, load_pack
 from agent_factory.station_templates import StationTemplate
 from agent_factory.workflow import TOOL_NEEDS, AgentSpec, parse_agent_md, tools_within
-
-
-class PackError(ValueError):
-    pass
-
-
-class PackPhase(BaseModel):
-    id: str
-    title: str = Field(min_length=2, max_length=60)
-    allows: list[str] = Field(default_factory=list)
-    gives: list[str] = Field(default_factory=lambda: ["report"])
-
-
-_BOTH: tuple[Literal["factory", "repo"], ...] = ("factory", "repo")
-
-
-class PackStation(BaseModel):
-    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,30}$")
-    title: str = Field(min_length=2, max_length=60)
-    hint: str = Field(default="", max_length=200)
-    phase: str
-    works_on: list[Literal["factory", "repo"]] = Field(default_factory=lambda: list(_BOTH), min_length=1)
-    needs: list[str] = Field(default_factory=list)
-    gives: list[str] = Field(default_factory=list)
-    uses: list[str] = Field(default_factory=lambda: ["read-repo"])
-    agent: str  # path of its agent spec inside the pack, e.g. agents/reviewer.md
-
-
-class Pack(BaseModel):
-    id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,40}$")
-    version: str = Field(pattern=r"^[0-9][0-9A-Za-z.+-]{0,30}$")
-    title: str = ""
-    phases: list[PackPhase] = Field(default_factory=list)
-    stations: list[PackStation] = Field(default_factory=list)
-    folder: Path | None = None
-
-    @property
-    def source(self) -> str:
-        return f"{self.id}@{self.version}"
-
-
-def load_pack(folder: Path) -> Pack:
-    file = folder / "pack.yaml"
-    if not file.is_file():
-        raise PackError(f"pack {folder}: no pack.yaml")
-    raw = yaml.safe_load(file.read_text()) or {}
-    try:
-        return Pack.model_validate({**raw, "folder": folder})
-    except ValueError as exc:
-        raise PackError(f"pack {folder}: {exc}") from exc
 
 
 def _template(pack: Pack, st: PackStation, registry: PhaseRegistry) -> StationTemplate:
@@ -140,10 +88,13 @@ def _template(pack: Pack, st: PackStation, registry: PhaseRegistry) -> StationTe
     )
 
 
-def load_phases(cfg: FactoryConfig, home: Path) -> tuple[PhaseRegistry, list[StationTemplate]]:
+def load_phases(
+    cfg: FactoryConfig, home: Path, packs: list[Pack] | None = None
+) -> tuple[PhaseRegistry, list[StationTemplate]]:
     """The registry this install's workflows are checked and run against, and the station
-    templates its packs add to the builder."""
-    packs = [load_pack(home / rel) for rel in cfg.phases.packs]
+    templates its packs add to the builder. `packs`: already loaded (`packs.install`), else loaded."""
+    if packs is None:
+        packs = [load_pack(home / rel) for rel in cfg.packs]
     registry = _registry(cfg, packs)
     templates = [_template(p, st, registry) for p in packs for st in p.stations]
     ids = [t.id for t in templates]

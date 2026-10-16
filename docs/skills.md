@@ -7,7 +7,8 @@ editor.
 
 | Source | Where | Changes by |
 |---|---|---|
-| Built in | `plugin/skills/`: the factory's own (`factory-station-contract`, `fastapi-golden-path`, `helm-kind-deploy`) and the engineering standards below | a PR to this repo |
+| Built in | `plugin/skills/`: the factory's own (`factory-station-contract`, `helm-kind-deploy`) and the engineering standards below | a PR to this repo |
+| Stack packs | `packs/<id>/skills/`: each stack's golden path (`fastapi-golden-path` in `packs/fastapi-service`), preloaded for the design, implement and deploy-repair agents of that pack's products (ADR-0041) | a PR to this repo (a new pack version) |
 | Default imports | `default_skills` in `.agent-factory/config.yaml`: BuilderIO/skills at a pinned commit, installed on first start | the pin in config (new installs), then the Skills page |
 | Imported | a folder in any GitHub repo, stored in the factory DB and pinned to a commit | **Skills** page in the UI (or the API) |
 

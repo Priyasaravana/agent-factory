@@ -8,7 +8,6 @@ skills:
 - efficient-frontier
 - read-the-damn-docs
 - factory-station-contract
-- fastapi-golden-path
 - devsecops-practices
 - security-pillar
 max_turns: 120

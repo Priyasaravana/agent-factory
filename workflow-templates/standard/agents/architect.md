@@ -6,7 +6,6 @@ tools: author
 skills:
 - read-the-damn-docs
 - factory-station-contract
-- fastapi-golden-path
 - well-architected-standards
 - security-pillar
 - reliability-pillar
