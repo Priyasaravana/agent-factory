@@ -6,6 +6,9 @@ the engine decides (`conflicts`, a pure function) whether any is outside the
 blueprint's stack. A conflict pauses the change with a question instead of
 silently building something else. A deterministic keyword scan (`mentions`) is a
 second opinion: a mention intake did not report is recorded, never blocking.
+
+Before the first build, the question also offers the other installed stacks that build everything
+the request requires (`switch_options`, ADR-0041 §2): the product may switch to one of them.
 """
 
 from __future__ import annotations
@@ -77,10 +80,27 @@ def conflicts(required: list[str], stack: list[str]) -> list[str]:
     return out
 
 
-def question(conflicting: list[str], quotes: dict[str, str], stack: list[str], line: str) -> str:
+def switch_options(required: list[str], stacks: dict[str, list[str]]) -> list[str]:
+    """Blueprints (in the given order) whose stack builds every required technology. Pure.
+    A blueprint that declares no stack is never offered: it promises nothing."""
+    return [name for name, have in stacks.items() if have and not conflicts(required, have)]
+
+
+def question(
+    conflicting: list[str],
+    quotes: dict[str, str],
+    stack: list[str],
+    line: str,
+    switch_to: list[tuple[str, str]] | None = None,
+) -> str:
+    """`switch_to`: (blueprint, title) of the stacks this product may switch to instead."""
     asked = "; ".join(f'{c} ("{quotes[c]}")' if quotes.get(c) else c for c in conflicting)
-    return (
+    text = (
         f"This request requires {asked}, but the '{line}' blueprint builds with {', '.join(stack)}. "
         f"Reply 'build it with {stack[0]}' to go ahead on this stack (the requirement will be recorded as "
-        "changed), or cancel this change and create the product on a blueprint that supports it."
+        "changed), "
     )
+    if switch_to:
+        names = ", ".join(f"{title} ({bp})" for bp, title in switch_to)
+        return text + f"or switch this product to a stack that builds it: {names}. Nothing has been built yet."
+    return text + "or cancel this change and create the product on a blueprint that supports it."

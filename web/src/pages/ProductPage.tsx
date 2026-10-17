@@ -129,6 +129,7 @@ export default function ProductPage() {
       <div className="grid gap-3 sm:grid-cols-3">
         <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
+          {product.pack && <span className="block text-xs font-normal text-muted-foreground">stack pack {product.pack}</span>}
         </Fact>
         {product.target === "repo" ? (
           <Fact icon={<GitBranch />} label="Branch">

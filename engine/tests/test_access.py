@@ -27,6 +27,7 @@ MEMBER_ACTIONS = {
     "onboard_repo",
     "submit_feedback",
     "answer_questions",
+    "switch_stack",
     "resume_change",
     "cancel_change",
     "approve_spec",
@@ -41,6 +42,7 @@ MEMBER_ACTIONS = {
 STEERING = {
     "submit_feedback",
     "answer_questions",
+    "switch_stack",
     "resume_change",
     "cancel_change",
     "approve_spec",
@@ -111,6 +113,7 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
         attempts = [
             ("POST", f"/api/products/{oid}/feedback", {"text": "add a reset endpoint"}),
             ("POST", f"/api/changes/{change_id}/answers", {"answers": ["x"]}),
+            ("POST", f"/api/changes/{change_id}/switch-stack", {"blueprint": "fastapi-service"}),
             ("POST", f"/api/changes/{change_id}/resume", None),
             ("POST", f"/api/changes/{change_id}/cancel", None),
             ("POST", f"/api/products/{oid}/archive", None),

@@ -50,8 +50,12 @@
   that leaves one unproved is refused at load. Lanes stay stack-neutral: the product's pack skill is
   preloaded for the design, implement and deploy-repair agents (`STACK_SKILL_HANDLERS`), never listed
   in a lane. Each change records the pack's id, version and folder SHA-256 (`stack_pack` event,
-  provenance, sealed manifest). Pack code is in `packs.py`; tests in `tests/test_packs.py`. Adding a
-  stack is adding a folder: change the engine only for a new rule kind or toolchain.
+  provenance, sealed manifest). Pack code is in `packs.py`; tests in `tests/test_packs.py`.
+  Requesters pick the stack on the create form (`ConfigView.stacks`: one card per blueprint that builds
+  new products; the product records `pack`). A stack conflict offers `Change.switch_to`
+  (`stack.switch_options`, pure) only before the first build: the first change, with the product repo
+  still only its template (`ChangeManager.switch_stack`, tests in `tests/test_stack_switch.py`).
+  Adding a stack is adding a folder: change the engine only for a new rule kind or toolchain.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
   `undeploy()` (archive) besides its capability methods. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).

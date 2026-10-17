@@ -119,6 +119,8 @@ class Product(BaseModel):
     # org workflows assigned to this product, per change kind (ADR-0039); unassigned kinds run the
     # factory default lane for (works_on, kind)
     workflows: dict[str, str] = Field(default_factory=dict)
+    # the stack pack it builds with, as `id@version` (ADR-0041 §2); None: a blueprint without a pack
+    pack: str | None = None
 
 
 class Change(BaseModel):
@@ -146,6 +148,9 @@ class Change(BaseModel):
     last_failure: str | None = None  # evidence handed to the repair station
     questions: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)
+    # a stack conflict before the first build: blueprints whose pack builds what was asked for, so
+    # the product may switch to one instead of answering (ADR-0041 §2)
+    switch_to: list[str] = Field(default_factory=list)
     resume_at: datetime | None = None
     summary: str | None = None
     cost_usd: float = 0.0
@@ -907,11 +912,28 @@ class HealthView(BaseModel):
     preflight: str = "unknown"
 
 
+class StackCard(BaseModel):
+    """One choice on the create form's "What are you building?" (ADR-0041 §2): a blueprint that
+    builds new products, described by the stack pack it builds with."""
+
+    blueprint: str
+    title: str
+    summary: str
+    builds: str | None = None  # service | web-app | spa | ...; None: a blueprint without a pack
+    technologies: list[str] = Field(default_factory=list)
+    pack: str | None = None  # id@version
+
+
+class SwitchStackInput(BaseModel):
+    blueprint: str = Field(min_length=1, max_length=80)
+
+
 class ConfigView(BaseModel):
     name: str
     mode: str
     workflows: dict[str, int]  # blueprint -> active workflow version
     blueprints: dict[str, str]  # blueprints that build new products
+    stacks: list[StackCard] = Field(default_factory=list)  # the same blueprints as stack cards
     repo_blueprints: dict[str, str] = Field(default_factory=dict)  # blueprints for existing repos (ADR-0031)
     policies: dict[str, str]
     gates: list[str]
