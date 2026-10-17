@@ -222,6 +222,7 @@ class PackBinding:
     rules: StackRules | None
     # fields the config sets anyway: {field: {"pack": value, "config": value}}
     overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+    summary: str = ""  # one line for the stack card on the create form (ADR-0041 §2)
 
     @property
     def source(self) -> str:
@@ -287,6 +288,7 @@ def bind(cfg: FactoryConfig, packs: list[Pack], home: Path) -> None:
                 skill,
                 pack.rules,
                 overrides,
+                pack.stack.summary,
             )
         )
 

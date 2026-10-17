@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ACTIVE, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
+import StackCards from "../components/StackCards";
 import StatusPill from "../components/StatusPill";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -246,7 +247,10 @@ function NewProductForm({ titleRef }: { titleRef: RefObject<HTMLInputElement> })
   const config = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });
   const [title, setTitle] = useState("");
   const [requirements, setRequirements] = useState("");
-  const [line, setLine] = useState("fastapi-service");
+  const stacks = config.data?.stacks ?? [];
+  const [picked, setLine] = useState<string | null>(null);
+  // the first stack until the requester picks one (the cards arrive with the config)
+  const line = picked ?? stacks[0]?.blueprint ?? "fastapi-service";
   const [format, setFormat] = useState<"prose" | "spec">("prose");
   const loadSpec = async (file: File | undefined) => {
     if (!file) return;
@@ -283,16 +287,7 @@ function NewProductForm({ titleRef }: { titleRef: RefObject<HTMLInputElement> })
           minLength={3}
         />
       </label>
-      <label>
-        Blueprint
-        <select value={line} onChange={(e) => setLine(e.target.value)}>
-          {Object.entries(config.data?.blueprints ?? { "fastapi-service": "" }).map(([k, v]) => (
-            <option key={k} value={k}>
-              {k} {v ? `— ${v}` : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+      {stacks.length > 0 && <StackCards cards={stacks} value={line} onChange={setLine} />}
       <div className="grid gap-1.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium" id="req-label">

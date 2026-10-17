@@ -771,6 +771,59 @@
         }
       }
     },
+    "/api/changes/{change_id}/switch-stack": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Answer a stack conflict by building on another installed stack (before the first build only)",
+        "description": "Answer a stack conflict by building on another installed stack (before the first build only)",
+        "operationId": "switch_stack",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchStackInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/resume": {
       "post": {
         "tags": [
@@ -4772,6 +4825,13 @@
             "type": "array",
             "title": "Answers"
           },
+          "switch_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Switch To"
+          },
           "resume_at": {
             "anyOf": [
               {
@@ -5216,6 +5276,13 @@
             },
             "type": "object",
             "title": "Blueprints"
+          },
+          "stacks": {
+            "items": {
+              "$ref": "#/components/schemas/StackCard"
+            },
+            "type": "array",
+            "title": "Stacks"
           },
           "repo_blueprints": {
             "additionalProperties": {
@@ -7433,6 +7500,17 @@
             },
             "type": "object",
             "title": "Workflows"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack"
           }
         },
         "type": "object",
@@ -8401,6 +8479,59 @@
         ],
         "title": "SpecView"
       },
+      "StackCard": {
+        "properties": {
+          "blueprint": {
+            "type": "string",
+            "title": "Blueprint"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "builds": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Builds"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Technologies"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack"
+          }
+        },
+        "type": "object",
+        "required": [
+          "blueprint",
+          "title",
+          "summary"
+        ],
+        "title": "StackCard",
+        "description": "One choice on the create form's \"What are you building?\" (ADR-0041 \u00a72): a blueprint that\nbuilds new products, described by the stack pack it builds with."
+      },
       "StartEvalInput": {
         "properties": {
           "version": {
@@ -8710,6 +8841,21 @@
           "attempts"
         ],
         "title": "StationView"
+      },
+      "SwitchStackInput": {
+        "properties": {
+          "blueprint": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Blueprint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "blueprint"
+        ],
+        "title": "SwitchStackInput"
       },
       "TemplateInfo": {
         "properties": {

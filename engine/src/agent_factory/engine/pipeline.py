@@ -197,6 +197,7 @@ class ChangeManager:
             created_at=_now(),
             node_port=node_port,
             host_port=host_port,
+            pack=line.pack_binding.source if line.pack_binding else None,
         )
         return self.store.create_product(product)
 
@@ -421,11 +422,76 @@ class ChangeManager:
         if change.status != ChangeStatus.needs_input:
             raise FactoryError("change is not waiting for answers")
         change.answers = answers
+        change.switch_to = []  # answering keeps the stack
         change.status = ChangeStatus.queued
         self.store.save_change(change)
         self.store.add_event(
             change.id, EventKind.decision, f"{by} answered intake questions", data={"answers": answers}
         )
+        self._schedule(change.id)
+        return change
+
+    async def switch_stack(self, change_id: str, blueprint: str, by: str) -> Change:
+        """Answer a stack conflict by building the product on another installed stack (ADR-0041
+        §2). Only before the first build: the product's first change, waiting at intake, and its
+        repo still only the template. The scaffold is discarded; intake runs again on the new stack."""
+        change = self._get(change_id)
+        if change.status != ChangeStatus.needs_input or self.is_active(change_id):
+            raise FactoryError("change is not waiting for answers")
+        if blueprint not in change.switch_to:
+            offered = ", ".join(change.switch_to) or "none"
+            raise InvalidRequestError(f"'{blueprint}' is not a stack this change may switch to (offered: {offered})")
+        product = self.store.get_product(change.product_id)
+        if not product:
+            raise FactoryError("product not found")
+        changes = self.store.list_changes(product.id)
+        if len(changes) != 1 or not await self.ws.only_scaffold(product.slug):
+            change.switch_to = []
+            self.store.save_change(change)
+            raise InvalidRequestError("the product has been built already: its stack can no longer switch")
+        line = self.cfg.blueprints[blueprint]
+        before, before_pack = product.blueprint, product.pack
+        node_port, host_port = product.node_port, product.host_port
+        if not self.uses_node_ports(blueprint):
+            node_port = host_port = None
+        elif node_port not in line.node_ports:
+            free = self.usable_node_ports(blueprint)
+            if not free:
+                raise FactoryError("no free app port for that stack: archive a product you no longer need")
+            node_port = free[0]
+            host_port = self.settings.app_host_port_base + line.node_ports.index(node_port)
+        await self.ws.discard_scaffold(product.slug, [change.id])
+        product.blueprint, product.node_port, product.host_port = blueprint, node_port, host_port
+        product.pack = line.pack_binding.source if line.pack_binding else None
+        self.store.save_product(product)
+        change.questions, change.answers, change.switch_to = [], [], []
+        change.summary = None
+        change.status = ChangeStatus.queued
+        self.store.save_change(change)
+        self._sync_product(change, product)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"{by} switched the stack from {before} to {blueprint}; intake runs again",
+            data={
+                "stack_switch": {
+                    "from": before,
+                    "to": blueprint,
+                    "from_pack": before_pack,
+                    "pack": product.pack,
+                    "by": by,
+                }
+            },
+        )
+        if self.cfg.blueprints[before].environment != line.environment:
+            env = self.providers.for_blueprint(blueprint)
+            self.store.add_event(
+                change.id,
+                EventKind.decision,
+                f"delivery environment: {env.environment} — "
+                + ", ".join(f"{cap}: {who}" for cap, who in env.describe().items()),
+                data={"environment": env.environment, **env.describe()},
+            )
         self._schedule(change.id)
         return change
 
@@ -814,8 +880,11 @@ class ChangeManager:
     def _record_pack(self, change: Change, blueprint: Blueprint) -> None:
         """Which stack pack this change builds with, once per change (ADR-0041 §7)."""
         pack = blueprint.pack_binding
-        if pack is None or self.store.events_with_key([change.id], "stack_pack"):
+        if pack is None:
             return
+        recorded = self.store.events_with_key([change.id], "stack_pack")
+        if recorded and recorded[-1][2].get("id") == pack.id:
+            return  # once per change, and again only after a stack switch (ADR-0041 §2)
         changed = f"; config overrides {', '.join(sorted(pack.overrides))}" if pack.overrides else ""
         self.store.add_event(
             change.id,
@@ -994,6 +1063,7 @@ class ChangeManager:
             if result.outcome == StationOutcome.needs_input:
                 change.status = ChangeStatus.needs_input
                 change.questions = result.questions
+                change.switch_to = result.switch_to
                 change.answers = []
                 change.attempts[sid] -= 1
                 change.summary = "waiting for your answers"

@@ -81,6 +81,23 @@ class Workspace:
         await self.git(f'commit -q -m "chore: scaffold from {template}"', repo)
         return repo
 
+    async def only_scaffold(self, slug: str) -> bool:
+        """The product repo holds nothing but the template it was scaffolded from: no change has
+        landed on main yet (ADR-0041 §2: the stack may still switch)."""
+        repo = self.product_dir(slug)
+        if not (repo / ".git").exists():
+            return True
+        res = await self.git("rev-list --count main", repo)
+        return res.ok and res.output.strip().splitlines()[-1:] == ["1"]
+
+    async def discard_scaffold(self, slug: str, change_ids: list[str]) -> None:
+        """Remove a product repo that is still only its template, with the changes' worktrees and
+        hidden scenarios, so the next run scaffolds from another stack (ADR-0041 §2)."""
+        for cid in change_ids:
+            shutil.rmtree(self.change_dir(cid), ignore_errors=True)
+        shutil.rmtree(self.product_dir(slug), ignore_errors=True)
+        shutil.rmtree(self.holdout_dir(slug), ignore_errors=True)
+
     async def sync_repo(self, slug: str, url: str, branch: str | None, timeout: float = 300) -> tuple[str, str]:
         """Clone an existing repository read-only, or fetch its branch again (ADR-0031).
         Shallow, no submodules, no hooks, no LFS, no prompts, and pushing is disabled.

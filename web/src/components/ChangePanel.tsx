@@ -6,6 +6,7 @@ import {
   Play,
   RefreshCw,
   Send,
+  Shuffle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -28,6 +29,7 @@ import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
 import SpecPanel from "./SpecPanel";
+import { buildsOf } from "./StackCards";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
 import { Button } from "./ui/button";
@@ -211,6 +213,7 @@ export default function ChangePanel({
           <Questions
             changeId={changeId}
             questions={r.questions ?? []}
+            switchTo={r.switch_to ?? []}
             onDone={refresh}
           />
         )}
@@ -366,10 +369,12 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
 function Questions({
   changeId,
   questions,
+  switchTo,
   onDone,
 }: {
   changeId: string;
   questions: string[];
+  switchTo: string[];
   onDone: () => void;
 }) {
   const [answers, setAnswers] = useState<string[]>(questions.map(() => ""));
@@ -392,6 +397,7 @@ function Questions({
       }}
     >
       <h4 className="m-0">Intake needs a decision from you</h4>
+      {switchTo.length > 0 && <SwitchStack changeId={changeId} switchTo={switchTo} onDone={onDone} />}
       {questions.map((q, i) => (
         <label key={i}>
           {q}
@@ -409,6 +415,72 @@ function Questions({
       </Button>
       {submit.error && <p className="error">{submit.error.message}</p>}
     </form>
+  );
+}
+
+/** A stack conflict before the first build: build on a stack that does what was asked (ADR-0041 §2). */
+function SwitchStack({
+  changeId,
+  switchTo,
+  onDone,
+}: {
+  changeId: string;
+  switchTo: string[];
+  onDone: () => void;
+}) {
+  const config = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });
+  const cards = new Map((config.data?.stacks ?? []).map((c) => [c.blueprint, c]));
+  const send = useMutation({
+    mutationFn: (blueprint: string) =>
+      unwrap(
+        api.POST("/api/changes/{change_id}/switch-stack", {
+          params: { path: { change_id: changeId } },
+          body: { blueprint },
+        }),
+      ),
+    onSuccess: (_d, blueprint) => {
+      toast.success("Stack switched", {
+        description: `${cards.get(blueprint)?.title ?? blueprint}: intake runs again on the new stack.`,
+      });
+      onDone();
+    },
+  });
+  return (
+    <div className="grid gap-2 rounded-lg border bg-card p-3">
+      <p className="m-0 text-sm">
+        <span className="font-medium">Nothing has been built yet,</span>{" "}
+        <span className="text-muted-foreground">so this product can switch to a stack that builds what was asked:</span>
+      </p>
+      <div className="grid gap-2">
+        {switchTo.map((bp) => {
+          const c = cards.get(bp);
+          const { label, icon: Icon } = c ? buildsOf(c) : { label: "", icon: Shuffle };
+          return (
+            <div key={bp} className="flex flex-wrap items-center gap-3">
+              <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <Icon className="size-4" />
+              </span>
+              <span className="grid min-w-0 flex-1">
+                <span className="text-sm font-semibold">
+                  {c?.title ?? bp} {label && <span className="font-normal text-muted-foreground">· {label}</span>}
+                </span>
+                {c?.summary && <span className="text-xs text-muted-foreground">{c.summary}</span>}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={send.isPending}
+                onClick={() => send.mutate(bp)}
+              >
+                <Shuffle /> Switch to {c?.title ?? bp}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      <Problems error={send.error} />
+      <p className="m-0 text-xs text-muted-foreground">Or answer below to keep the current stack.</p>
+    </div>
   );
 }
 

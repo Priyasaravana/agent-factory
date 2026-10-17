@@ -103,10 +103,12 @@ from agent_factory.models import (
     SpecEditInput,
     SpecReviewInput,
     SpecView,
+    StackCard,
     StartEvalInput,
     StationAgentInput,
     StationTemplateView,
     StationView,
+    SwitchStackInput,
     TemplateInfo,
     ToolReportView,
     TraceRow,
@@ -255,6 +257,7 @@ def get_config(f: Factory) -> ConfigView:
         mode=f.settings.factory_mode,
         workflows={w.workflow_id: w.active_version() for w in f.workflows},
         blueprints={k: v.description for k, v in f.cfg.blueprints.items() if v.target == "new"},
+        stacks=_stack_cards(f),
         repo_blueprints={k: v.description for k, v in f.cfg.blueprints.items() if v.target == "repo"},
         policies={k: getattr(p, k).mode for k in ("implement", "deploy", "publish", "merge", "recover")},
         gates=[f"{g.kind} after {g.after}" for g in f.cfg.gates],
@@ -579,6 +582,38 @@ def list_events(f: Factory, change_id: str, after: int = 0) -> list[Event]:
 def answer_questions(f: Factory, change_id: str, body: AnswersInput) -> Change:
     _may_steer_change(f, change_id)
     return f.manager.answer(change_id, body.answers)
+
+
+@action(
+    "switch_stack",
+    "Answer a stack conflict by building on another installed stack (before the first build only)",
+    "POST",
+    "/api/changes/{change_id}/switch-stack",
+)
+async def switch_stack(f: Factory, change_id: str, body: SwitchStackInput) -> Change:
+    _may_steer_change(f, change_id)
+    await _gate(f, body.blueprint, "change")
+    return await f.manager.switch_stack(change_id, body.blueprint, current_identity().user)
+
+
+def _stack_cards(f: Factory) -> list[StackCard]:
+    """The create form's "What are you building?": one card per blueprint that builds new products."""
+    out = []
+    for name, bp in f.cfg.blueprints.items():
+        if bp.target != "new":
+            continue
+        pack = bp.pack_binding
+        out.append(
+            StackCard(
+                blueprint=name,
+                title=pack.title if pack and pack.title else name,
+                summary=(pack.summary if pack else "") or bp.description,
+                builds=pack.builds if pack else None,
+                technologies=list(bp.stack),
+                pack=pack.source if pack else None,
+            )
+        )
+    return out
 
 
 @action("resume_change", "Resume a held, interrupted or paused change", "POST", "/api/changes/{change_id}/resume")

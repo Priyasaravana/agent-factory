@@ -328,6 +328,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/switch-stack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a stack conflict by building on another installed stack (before the first build only)
+         * @description Answer a stack conflict by building on another installed stack (before the first build only)
+         */
+        post: operations["switch_stack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/resume": {
         parameters: {
             query?: never;
@@ -1902,6 +1922,8 @@ export interface components {
             questions?: string[];
             /** Answers */
             answers?: string[];
+            /** Switch To */
+            switch_to?: string[];
             /** Resume At */
             resume_at?: string | null;
             /** Summary */
@@ -2084,6 +2106,8 @@ export interface components {
             blueprints: {
                 [key: string]: string;
             };
+            /** Stacks */
+            stacks?: components["schemas"]["StackCard"][];
             /** Repo Blueprints */
             repo_blueprints?: {
                 [key: string]: string;
@@ -3014,6 +3038,8 @@ export interface components {
             workflows?: {
                 [key: string]: string;
             };
+            /** Pack */
+            pack?: string | null;
         };
         /** ProductDetail */
         ProductDetail: {
@@ -3402,6 +3428,25 @@ export interface components {
             traceability?: components["schemas"]["TraceRow"][];
             review?: components["schemas"]["ReviewView"] | null;
         };
+        /**
+         * StackCard
+         * @description One choice on the create form's "What are you building?" (ADR-0041 §2): a blueprint that
+         *     builds new products, described by the stack pack it builds with.
+         */
+        StackCard: {
+            /** Blueprint */
+            blueprint: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string;
+            /** Builds */
+            builds?: string | null;
+            /** Technologies */
+            technologies?: string[];
+            /** Pack */
+            pack?: string | null;
+        };
         /** StartEvalInput */
         StartEvalInput: {
             /** Version */
@@ -3527,6 +3572,11 @@ export interface components {
             needs?: string[];
             /** Gives */
             gives?: string[];
+        };
+        /** SwitchStackInput */
+        SwitchStackInput: {
+            /** Blueprint */
+            blueprint: string;
         };
         /** TemplateInfo */
         TemplateInfo: {
@@ -4574,6 +4624,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AnswersInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_stack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchStackInput"];
             };
         };
         responses: {

@@ -40,6 +40,7 @@ class StationResult:
     summary: str
     failure_evidence: str | None = None  # handed to the on_fail station
     questions: list[str] = field(default_factory=list)
+    switch_to: list[str] = field(default_factory=list)  # needs_input: stacks it may switch to (ADR-0041)
     resets_at: int | None = None
     approval_digest: str | None = None  # needs_approval: what an approval must cover (ADR-0027)
     approval_findings: int = 0  # needs_approval: how many findings wait
@@ -434,15 +435,17 @@ framework, datastore, UI framework), quoting the words that require it. Do not l
 only mentioned as clients, callers or external systems. Do not switch stacks yourself."""
 
 
-async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
+async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> tuple[str, list[str]] | None:
     """The engine decides (stack.conflicts) from what intake reported; a keyword scan of the
-    order is a second opinion that is recorded, never blocking. Returns the question to ask."""
+    order is a second opinion that is recorded, never blocking. Returns the question to ask and
+    the blueprints the product may switch to instead (before its first build, ADR-0041 §2)."""
     line_stack = ctx.blueprint.stack
     if not line_stack:
         return None
     reported = [r for r in spec.get("stack_required", []) if isinstance(r, dict) and r.get("technology")]
+    required = [str(r["technology"]) for r in reported]
     quotes = {stack.normalize(str(r["technology"])): str(r.get("quote", ""))[:200] for r in reported}
-    bad = stack.conflicts([str(r["technology"]) for r in reported], line_stack)
+    bad = stack.conflicts(required, line_stack)
     text = "\n".join([ctx.product.requirements, ctx.change.change_request or ""])
     have = {stack.normalize(s) for s in line_stack}
     unreported = sorted(stack.mentions(text) - have - set(quotes))
@@ -454,7 +457,7 @@ async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
         )
     if not bad:
         return None
-    data = {"stack_conflict": {"required": bad, "quotes": quotes, "stack": line_stack}}
+    data: dict[str, Any] = {"stack_conflict": {"required": bad, "quotes": quotes, "stack": line_stack}}
     if ctx.change.answers:
         await ctx.emit(
             EventKind.decision,
@@ -462,8 +465,30 @@ async def _stack_check(ctx: StationContext, spec: dict[str, Any]) -> str | None:
             data,
         )
         return None
-    await ctx.emit(EventKind.decision, f"stack conflict: the request requires {', '.join(bad)}", data)
-    return stack.question(bad, quotes, line_stack, ctx.product.blueprint)
+    switch_to = await _switch_options(ctx, required)
+    data["stack_conflict"]["switch_to"] = switch_to
+    offered = f"; may switch to {', '.join(switch_to)}" if switch_to else ""
+    await ctx.emit(EventKind.decision, f"stack conflict: the request requires {', '.join(bad)}{offered}", data)
+    titles = [(bp, _stack_title(ctx.cfg, bp)) for bp in switch_to]
+    return stack.question(bad, quotes, line_stack, ctx.product.blueprint, titles), switch_to
+
+
+def _stack_title(cfg: Any, blueprint: str) -> str:
+    pack = cfg.blueprints[blueprint].pack_binding
+    return str(pack.title) if pack and pack.title else blueprint
+
+
+async def _switch_options(ctx: StationContext, required: list[str]) -> list[str]:
+    """The other blueprints that build new products and every required technology, while the
+    product may still switch: its first change, and its repo still only the template."""
+    if ctx.change.iteration != 1 or not await ctx.ws.only_scaffold(ctx.product.slug):
+        return []
+    stacks = {
+        name: bp.stack
+        for name, bp in ctx.cfg.blueprints.items()
+        if bp.target == "new" and name != ctx.product.blueprint
+    }
+    return stack.switch_options(required, stacks)
 
 
 async def requirements(ctx: StationContext) -> StationResult:
@@ -522,12 +547,14 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     if problems:
         return StationResult(StationOutcome.failed, "spec is not traceable", "\n".join(problems))
     questions = [q for q in spec.get("blocking_questions", []) if q.strip()]
-    asked = await _stack_check(ctx, spec)
-    if asked and not ctx.change.answers:
+    conflict = await _stack_check(ctx, spec)
+    if conflict and not ctx.change.answers:
+        asked, switch_to = conflict
         return StationResult(
             StationOutcome.needs_input,
             "the request requires a stack this blueprint does not build",
             questions=[asked, *questions],
+            switch_to=switch_to,
         )
     if questions and not ctx.change.answers:
         return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
