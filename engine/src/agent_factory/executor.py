@@ -69,6 +69,7 @@ CLEAN_SCANS = {
     "osv-scanner": '{"results": []}',
     "--report-format json --report-path /dev/stdout": "[]",  # gitleaks
     " config --format json": '{"Results": []}',  # trivy config
+    " image --quiet --format json": '{"SchemaVersion": 2, "Results": []}',  # trivy image (ADR-0042)
     "snyk code test": '{"version": "2.1.0", "runs": []}',
     "snyk test --all-projects": '{"version": "2.1.0", "runs": []}',
     "snyk iac test": '{"version": "2.1.0", "runs": []}',
@@ -85,8 +86,9 @@ class FakeExecutor:
 
     fail_on: list[str] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
-    # what a command prints, by a substring of it: scanners answer like a clean scan (ADR-0034)
-    scan_outputs: dict[str, str] = field(default_factory=lambda: dict(CLEAN_SCANS))
+    # what a command prints, by a substring of it: scanners answer like a clean scan (ADR-0034).
+    # A list answers in turn, its last entry from then on (a scan before and after a fix).
+    scan_outputs: dict[str, str | list[str]] = field(default_factory=lambda: dict(CLEAN_SCANS))
 
     async def run(
         self,
@@ -103,5 +105,7 @@ class FakeExecutor:
         await asyncio.sleep(0.05)
         for needle, output in self.scan_outputs.items():
             if needle in command:
+                if isinstance(output, list):
+                    output = output.pop(0) if len(output) > 1 else output[0]
                 return CommandResult(command, 0, output)
         return CommandResult(command, 0, f"[dry-run] ok: {command}")

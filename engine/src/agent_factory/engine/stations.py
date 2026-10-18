@@ -19,7 +19,19 @@ from typing import Any
 
 import yaml
 
-from agent_factory import assess, checks, contract, repo_change, risk, rollup, stack, tools, traceability
+from agent_factory import (
+    assess,
+    checks,
+    contract,
+    image_scan,
+    ledger,
+    repo_change,
+    risk,
+    rollup,
+    stack,
+    tools,
+    traceability,
+)
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
@@ -28,6 +40,7 @@ from agent_factory.models import Change, EventKind, Product, ProductTarget, Stat
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
+from agent_factory.providers.base import StepResult
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
 from agent_factory.review import REVIEW_SCHEMA, judge
@@ -755,6 +768,9 @@ async def build_image(ctx: StationContext) -> StationResult:
     scan = await p.scan.scan(ctx, local_image)
     if not scan.ok:
         return StationResult(StationOutcome.failed, scan.summary, scan.detail)
+    stop, scanned = await _judge_image_scan(ctx, local_image, scan)
+    if stop is not None:
+        return stop
     sbom = await _sbom_and_provenance(ctx, local_image, sha)
     if sbom is not None and not sbom.ok:
         return StationResult(StationOutcome.failed, "packaging failed at: SBOM", failed_detail(sbom.command, sbom))
@@ -764,7 +780,93 @@ async def build_image(ctx: StationContext) -> StationResult:
         return StationResult(StationOutcome.failed, push.summary, push.detail)
     await ctx.emit(EventKind.decision, f"image built and {push.summary}: {ref}", {"image": str(ref)})
     extra = ", SBOM + provenance recorded" if sbom is not None else ""
-    return StationResult(StationOutcome.passed, f"image {ref} built, {scan.summary}{extra} and {push.summary}")
+    return StationResult(StationOutcome.passed, f"image {ref} built, {scanned}{extra} and {push.summary}")
+
+
+LOCKFILES = ("package-lock.json", "uv.lock", "poetry.lock")
+
+
+def _lockfiles(root: Path) -> dict[str, str]:
+    """The product's committed lockfiles (root and one level down, never dependencies' own)."""
+    out: dict[str, str] = {}
+    for name in LOCKFILES:
+        for p in [root / name, *root.glob(f"*/{name}")]:
+            rel = str(p.relative_to(root))
+            if p.is_file() and "node_modules" not in rel:
+                out[rel] = p.read_text(errors="replace")
+    return out
+
+
+async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -> tuple[StationResult | None, str]:
+    """Image findings as evidence, routed by type (ADR-0042). Returns a result when the change
+    stops here (back to develop, or held for a person), else None and the scan's summary."""
+    from datetime import UTC, datetime
+
+    report = scan.data.get("report")
+    if report is None:  # nothing ran (no scan_command): the provider already said so
+        return None, scan.summary
+    locks = _lockfiles(ctx.worktree)
+    try:
+        findings = image_scan.parse(str(report), image_scan.locked_packages(locks))
+    except image_scan.NotAnImageReport as exc:
+        # an older `scan_command` without `--format json`: its exit code decides, as before
+        await ctx.emit(EventKind.decision, f"image findings not read ({exc}); the scan's exit code decides")
+        if scan.data.get("returncode", 0) != 0:
+            return StationResult(StationOutcome.failed, "packaging failed at: image scan", scan.detail), ""
+        return None, "scanned (exit code only)"
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    evidence = out / "image-scan.json"
+    previous: list[str] | None = None
+    if evidence.is_file():
+        try:
+            prev = json.loads(evidence.read_text())
+            if prev.get("action") == "fix":
+                previous = list(prev.get("app_fixes") or [])
+        except (OSError, ValueError):
+            previous = None
+    now = datetime.now(UTC)
+    items = ctx.store.list_work_items(ctx.product.id)
+    accepted = ledger.accepted_image_keys(items, [f.key for f in findings], now)
+    verdict = image_scan.judge(findings, accepted=accepted, previous_fixes=previous, fail_on=ctx.blueprint.scan_fail_on)
+    dockerfile = ctx.worktree / "Dockerfile"
+    base = image_scan.base_image(dockerfile.read_text(errors="replace")) if dockerfile.is_file() else ""
+    data = {"image": image, "base_image": base, "lockfiles": sorted(locks), **verdict.as_data()}
+    evidence.write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023); no raw report
+    stats: dict[str, int] = {}
+    if not ctx.product.eval_run_id:  # evaluation products keep no ledger (ADR-0025)
+        changed, stats = ledger.fold_image_scan(
+            ctx.product.id,
+            items,
+            [
+                {
+                    "key": f.key,
+                    "title": image_scan.ledger_title(f),
+                    "severity": f.severity,
+                    "detail": image_scan.ledger_detail(f),
+                    "at": [f.path or f.ecosystem],
+                    "rule": f.cve,
+                }
+                for f in verdict.findings
+            ],
+            change_id=ctx.change.id,
+            iteration=ctx.change.iteration,
+            now=now,
+        )
+        if changed:
+            ctx.store.save_work_items(changed)
+    headline = verdict.headline()
+    keys = ("action", "fail_on", "repeated", "counts", "app_fixes", "base_fixes", "no_fix", "accepted")
+    await ctx.emit(
+        EventKind.decision,
+        headline + (f" · work ledger: {stats['new']} new, {stats['fixed']} fixed" if stats else ""),
+        {"image_scan": {k: data[k] for k in keys} | {"base_image": base}, "work_ledger": stats},
+    )
+    if verdict.action == "fix":
+        return StationResult(StationOutcome.failed, headline, image_scan.developer_brief(verdict, sorted(locks))), ""
+    if verdict.action == "hold":
+        return StationResult(StationOutcome.held, headline, image_scan.person_brief(verdict, base)), ""
+    return None, headline.removeprefix("image scan: ")
 
 
 def artifacts_dir(ctx: StationContext) -> Path:

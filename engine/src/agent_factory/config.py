@@ -48,7 +48,11 @@ class Blueprint(BaseModel):
     pack: str | None = None
     template: str | None = None
     verify_command: str = "make verify"
-    scan_command: str | None = None  # container-image vulnerability scan; {image} placeholder
+    # container-image vulnerability scan; {image} placeholder. Trivy's JSON report (`--format json`)
+    # is parsed into findings the Build station routes by origin (ADR-0042); any other output falls
+    # back to the command's exit code.
+    scan_command: str | None = None
+    scan_fail_on: Literal["critical", "high"] = "critical"  # lower severities are recorded, never block
     chart_path: str = "deploy/chart"
     environment: str = "local"  # where its delivery steps run (see `environments`)
     # Quality gate station: the generated repo must reach this agent-readiness level (1-3)

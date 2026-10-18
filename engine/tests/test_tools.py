@@ -309,7 +309,12 @@ async def test_without_a_fallback_a_tool_that_does_not_run_holds_the_change(make
 
 
 def test_scanners_answer_clean_in_the_fake_executor():
+    from agent_factory import image_scan
+
     for needle in CLEAN_SCANS:
+        if " image " in needle:  # the Build station's image scan (ADR-0042), not a tool station
+            assert image_scan.parse(CLEAN_SCANS[needle]) == []
+            continue
         tool = next(t for t in tools.TOOLS.values() if needle in t.command.format(image=t.image, path="/w", repo="o/r"))
         assert tools.parse(tool, CLEAN_SCANS[needle]) == []
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.executor import CommandResult
@@ -78,12 +79,27 @@ class LocalProvider:
         if not template:
             await ctx.emit(EventKind.decision, "security scan NOT run: no scan_command configured")
             return StepResult(True, "not scanned")
+        import shlex
+        import tempfile
+
         cmd = template.format(image=local_image)
-        res = await ctx.cmd(cmd, timeout=1500)
-        if not res.ok:
-            head = " ".join(cmd.split()[:2])
-            return StepResult(False, f"packaging failed at: {head}", failed_detail(cmd, res))
-        return StepResult(True, "scanned")
+        # The report is stdout, captured whole in a private temp file (the executor keeps only the
+        # tail of stdout+stderr). The Build station parses and judges it (ADR-0042); the raw report
+        # is never kept, only normalised findings.
+        with tempfile.TemporaryDirectory(prefix="image-scan-") as tmp:
+            report_file = Path(tmp) / "report.json"
+            res = await ctx.ex.run(f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=1500)
+            stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
+        report = stdout if stdout.strip() else res.output  # a fake executor answers on its output
+        await ctx.emit(
+            EventKind.command,
+            f"{'✓' if res.ok else '✗'} {cmd} (exit {res.returncode}, {len(report)} bytes of report)",
+            {"returncode": res.returncode, "output": "" if stdout.strip() else res.output[-3000:]},
+        )
+        data = {"report": report, "returncode": res.returncode, "timed_out": res.timed_out}
+        if res.timed_out:
+            return StepResult(False, "packaging failed at: image scan (timed out)", failed_detail(cmd, res), data)
+        return StepResult(True, "scanned", failed_detail(cmd, res) if not res.ok else "", data)
 
     # -------------------------------------------------------------- deploy --
     def target(self, ctx: StationContext) -> str:

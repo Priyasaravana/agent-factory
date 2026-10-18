@@ -56,7 +56,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - **Human-agent trust:** ✅ evidence shown for every decision; people approve publish.
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
-- **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ⬜ signature (cosign) once images go to a registry.
+- **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ✅ image CVEs read as findings, routed by origin (app bump to the developer, base image or no fix to a person), recorded in the work ledger with accepted risks that expire (ADR-0042) · ⬜ scheduled rescans of live images · ⬜ signature (cosign) once images go to a registry.
 - **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker (Python base images patch-only) · ✅ CI builds and tests the shipped images and runs a dry-run end-to-end smoke test (ADR-0016) · ✅ branch protection: a ruleset on main requires the `engine`, `auth`, `web`, `golden-path`, `images` and `e2e` checks · ⬜ pin Actions to commit SHAs (they use version tags).
 
 ## 5. Agent engineering
@@ -95,7 +95,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 
 | Pillar | State | Have | Next signals (proposed ids) → phase |
 |---|---|---|---|
-| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; Trivy, SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
+| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
 | Reliability | 🟡 | liveness and readiness endpoints | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
 | Performance & scalability | ⬜ | — | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |

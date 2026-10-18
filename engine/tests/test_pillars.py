@@ -72,7 +72,7 @@ def test_old_scorecards_without_pillars_are_tallied_by_signal_id():
 
 
 def test_evidence_files_have_a_primary_pillar():
-    assert evidence_pillar("sbom.spdx.json") == "security"
+    assert evidence_pillar("sbom.spdx.json") == evidence_pillar("image-scan.json") == "security"
     assert evidence_pillar("traceability.json") == evidence_pillar("spec/spec.md") == "compliance"
     assert evidence_pillar("sessions/01-build-developer.jsonl") == "operability"
     assert evidence_pillar("spec") is None and evidence_pillar("notes.txt") is None

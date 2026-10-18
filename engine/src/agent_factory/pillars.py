@@ -64,6 +64,7 @@ def tally(signals: Iterable[dict[str, Any]], pillar_of: dict[str, str]) -> dict[
 # Evidence files (ADR-0023) by primary pillar, for the sealed pillar index. First match wins.
 EVIDENCE_RULES: list[tuple[str, str]] = [
     ("sbom.spdx.json", "security"),
+    ("image-scan.json", "security"),  # image findings (ADR-0042)
     ("provenance.json", "compliance"),
     ("traceability.json", "compliance"),
     ("review.json", "compliance"),
