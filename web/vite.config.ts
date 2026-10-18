@@ -3,18 +3,27 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
+const VENDOR_CHUNKS: Record<string, string[]> = {
+  react: ["react", "react-dom", "react-router", "react-router-dom", "scheduler", "@tanstack/react-query", "@tanstack/query-core"],
+  ui: ["@radix-ui", "cmdk", "sonner", "lucide-react"],
+  dnd: ["@dnd-kit"],
+};
+
 // In dev, proxy /api to the engine; in compose, nginx does the same.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   build: {
     rollupOptions: {
       output: {
         // Long-lived vendor chunks: app changes don't bust the framework cache.
-        manualChunks: {
-          react: ["react", "react-dom", "react-router-dom", "@tanstack/react-query"],
-          ui: ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-tooltip", "cmdk", "sonner", "lucide-react"],
-          dnd: ["@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
+        // Vite 8 (Rolldown) takes manualChunks only as a function.
+        manualChunks(id: string) {
+          if (!id.includes("/node_modules/")) return undefined;
+          for (const [chunk, packages] of Object.entries(VENDOR_CHUNKS)) {
+            if (packages.some((name) => id.includes(`/node_modules/${name}/`))) return chunk;
+          }
+          return undefined;
         },
       },
     },
