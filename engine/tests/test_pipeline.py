@@ -130,3 +130,23 @@ async def test_restart_marks_running_runs_interrupted(make_factory):
     f.store.save_change(r)
     assert f.manager.recover_on_startup() == [change.id]
     assert f.store.get_change(change.id).status == ChangeStatus.interrupted
+
+
+async def test_time_budget_holds_a_run_and_restarts_on_resume(make_factory):
+    """The wall-clock budget is per run: it stops a runaway run, and a person's resume starts a new
+    one. Time spent waiting for a person never counts (a change that waited longer than the budget
+    for an approval could otherwise never run again: Guestbook, 2026-10-18)."""
+    from datetime import UTC, datetime, timedelta
+
+    f = make_factory()
+    f.manager.cfg.budgets.change_wall_clock_minutes = 0
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.held
+    held = f.store.get_change(change.id)
+    assert "0-minute time budget" in held.summary
+
+    held.created_at = datetime.now(UTC) - timedelta(hours=5)  # it waited hours for a person
+    f.store.save_change(held)
+    f.manager.cfg.budgets.change_wall_clock_minutes = 120
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
