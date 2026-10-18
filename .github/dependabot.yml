@@ -12,6 +12,11 @@ updates:
     schedule: {interval: weekly}
     groups:
       web: {patterns: ["*"]}
+    ignore:
+      # openapi-typescript (which generates the API types) supports TypeScript 5 only.
+      # Lift this when it accepts the next major.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
@@ -30,6 +35,10 @@ updates:
     ignore:
       - dependency-name: python
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # The sandbox's Node major is what stack packs ask for (`toolchain: [node@22]`,
+      # sandbox/toolchain.py): a Node major is a deliberate change with the packs' templates.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /images/auth
     schedule: {interval: weekly}

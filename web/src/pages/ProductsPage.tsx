@@ -127,7 +127,7 @@ export default function ProductsPage() {
   );
 }
 
-function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
+function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement | null> }) {
   const [mode, setMode] = useState<"new" | "repo">("new");
   return (
     <Card className="relative overflow-hidden lg:sticky lg:top-20">
@@ -241,7 +241,7 @@ function RepoForm() {
   );
 }
 
-function NewProductForm({ titleRef }: { titleRef: RefObject<HTMLInputElement> }) {
+function NewProductForm({ titleRef }: { titleRef: RefObject<HTMLInputElement | null> }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const config = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });

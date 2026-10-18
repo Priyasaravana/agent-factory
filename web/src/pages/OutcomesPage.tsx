@@ -376,7 +376,7 @@ function TimeSplit({ o }: { o: Outcomes }) {
 /** The element's rendered width, so SVG text and marks stay at their real pixel size. */
 function useWidth<T extends HTMLElement>(
   fallback: number,
-): [React.RefObject<T>, number] {
+): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
   const [w, setW] = useState(fallback);
   useEffect(() => {
