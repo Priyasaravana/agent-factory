@@ -156,6 +156,46 @@ def test_a_rename_or_a_moved_test_is_not_a_removal() -> None:
     assert risk.check_diff(risk.parse_diff(diff)) == []
 
 
+SCAN_EXCLUSION = """\
+diff --git a/.gitleaks.toml b/.gitleaks.toml
+new file mode 100644
+--- /dev/null
++++ b/.gitleaks.toml
+@@ -0,0 +1,3 @@
++[allowlist]
++description = "build outputs and dependencies"
++paths = ["node_modules", ".next"]
+diff --git a/.trivyignore b/.trivyignore
+--- a/.trivyignore
++++ b/.trivyignore
+@@ -1 +1,2 @@
+ CVE-2026-0001
++CVE-2026-13221
+diff --git a/.semgrepignore b/.semgrepignore
+deleted file mode 100644
+--- a/.semgrepignore
++++ /dev/null
+@@ -1 +0,0 @@
+-tests/
+"""
+
+
+def test_an_agent_telling_a_scanner_to_skip_things_waits_for_a_person() -> None:
+    """Seen live (nextjs-web, 2026-10-18): after a noisy secret scan the developer agent committed a
+    .gitleaks.toml allowlist. Narrowing a security scan removes a safety net (category 2)."""
+    findings = risk.holds(risk.check_diff(risk.parse_diff(SCAN_EXCLUSION)))
+    assert [(f.rule, f.category, f.file) for f in findings] == [
+        ("net-scan-exclusions", 2, ".gitleaks.toml"),
+        ("net-scan-exclusions", 2, ".trivyignore"),
+    ], "adding or editing one narrows the scan; deleting one widens it again"
+
+
+def test_an_ordinary_config_change_is_not_a_scan_exclusion() -> None:
+    diff = "diff --git a/eslint.config.mjs b/eslint.config.mjs\n@@ -1,0 +1 @@\n+export default [];\n"
+    diff += "diff --git a/docs/gitleaks.md b/docs/gitleaks.md\n@@ -1,0 +1 @@\n+How we use .gitleaks.toml\n"
+    assert risk.check_diff(risk.parse_diff(diff)) == []
+
+
 def test_the_digest_ignores_line_numbers_but_not_content() -> None:
     a = risk.check_diff(risk.parse_diff(DIFF))
     b = risk.check_diff(risk.parse_diff(DIFF.replace("@@ -40,0 +42,1 @@", "@@ -60,0 +77,1 @@")))

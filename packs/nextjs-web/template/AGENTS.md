@@ -43,7 +43,8 @@ and Acceptance stations depend on them.
   specs and the docs from Intake/Design. No secrets in the repo (a secret scan runs on every
   delivery).
 - Config only from environment variables. No secrets in code or the chart values.
-- Keep the container non-root (`USER node`), `output: "standalone"` and the port at 3000.
+- Keep the runtime image distroless and non-root (`USER nonroot`), `output: "standalone"` and
+  the port at 3000. It has no shell or npm: anything the app needs at run time ships in the build.
 - Do not change the chart's `image.*`, `service.*`, `ingress.*` or `imagePullSecrets` value
   names: the Deploy station sets them (NodePort locally, ClusterIP + Ingress on a cluster).
 - Keep `@playwright/test` at the version in `package.json`: the factory's sandbox provides the

@@ -304,6 +304,20 @@ LINE_RULES: tuple[LineRule, ...] = (
     ),
 )
 
+# Files that tell a security scanner what to skip: adding or editing one narrows a scan, so a
+# person decides (category 2). Deleting one only widens the scan again.
+SCANNER_EXCLUSIONS = (
+    ".gitleaks.toml",
+    ".gitleaksignore",
+    ".trivyignore",
+    ".trivyignore.yaml",
+    ".semgrepignore",
+    ".snyk",
+    "osv-scanner.toml",
+    ".secrets.baseline",
+    ".bandit",
+)
+
 _URL = re.compile(r"https?://([A-Za-z0-9.-]+)(?::\d+)?")
 SAFE_HOSTS = (
     "localhost",
@@ -355,6 +369,8 @@ def check_diff(files: list[FileDiff], allowed_hosts: Iterable[str] = ()) -> list
                 add("net-ci-deleted", 2, "hold", "CI workflow deleted", f.path, None, "")
             elif f.path in {".pre-commit-config.yaml", ".github/dependabot.yml", ".github/CODEOWNERS", "CODEOWNERS"}:
                 add("net-guard-file-deleted", 2, "hold", "repository guard deleted", f.path, None, "")
+        elif f.path.rsplit("/", 1)[-1] in SCANNER_EXCLUSIONS:
+            add("net-scan-exclusions", 2, "hold", "security scan told to skip files or findings", f.path, None, "")
         # line rules
         for r in LINE_RULES:
             if not r.applies(f.path):

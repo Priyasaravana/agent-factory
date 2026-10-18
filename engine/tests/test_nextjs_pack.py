@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_a11y_signal():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.0.0" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.0.1" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -132,7 +132,10 @@ def test_the_template_keeps_its_contract_with_the_pack_and_the_chart():
     values = yaml.safe_load((TEMPLATE / "deploy" / "chart" / "values.yaml").read_text())
     deployment = (TEMPLATE / "deploy" / "chart" / "templates" / "deployment.yaml").read_text()
     assert f"EXPOSE {pack.port}" in docker and values["containerPort"] == pack.port
-    assert re.search(r"^USER node$", docker, re.M), "non-root"
+    assert re.search(r"^USER nonroot$", docker, re.M), "non-root"
+    runtime = re.findall(r"^FROM (\S+)", docker, re.M)[-1]
+    assert runtime.startswith("gcr.io/distroless/nodejs22-"), "no shell, npm or Debian extras in the runtime image"
+    assert "runAsUser: 65532" in deployment, "the chart runs the image's own non-root user"
     assert f"path: {pack.health.live}" in deployment and f"path: {pack.health.ready}" in deployment
     assert 'output: "standalone"' in (TEMPLATE / "next.config.ts").read_text()
     make = (TEMPLATE / "Makefile").read_text()
@@ -297,7 +300,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.0.0"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.0.1"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)

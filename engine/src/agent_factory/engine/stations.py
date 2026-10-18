@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Awaitable, Callable
+import shutil
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -663,6 +666,32 @@ async def run_tests(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "lint, tests, coverage and security checks passed")
 
 
+# ------------------------------------------------------------ scan scope --
+@asynccontextmanager
+async def committed_files(ctx: StationContext) -> AsyncIterator[Path]:
+    """A throw-away copy of what the change would commit: tracked files plus new files git does not
+    ignore. Scanners read this, never the worktree, so dependencies and build output a verify run
+    leaves behind (node_modules, .next, .venv) are not reported as the product's own findings.
+    It lives under the data dir, which dind sees at the same path, and is removed afterwards."""
+    listed = await ctx.ws.git("ls-files -z --cached --others --exclude-standard", ctx.worktree)
+    if not listed.ok:  # never scan less than asked: fall back to the whole worktree
+        yield ctx.worktree
+        return
+    dest = ctx.ws.data_dir / "scan" / f"{ctx.change.id}-{ctx.station_id}-{uuid.uuid4().hex[:6]}"
+    root = ctx.worktree.resolve()
+    try:
+        for rel in filter(None, listed.output.split("\0")):
+            src = ctx.worktree / rel
+            if not src.is_file() or root not in src.resolve().parents:  # deleted, or a link out of the repo
+                continue
+            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest / rel)
+        dest.mkdir(parents=True, exist_ok=True)
+        yield dest
+    finally:
+        shutil.rmtree(dest, ignore_errors=True)
+
+
 # ------------------------------------------------------------ quality gate --
 async def quality_gate(ctx: StationContext) -> StationResult:
     """Score the repo against the agent-readiness signals (docs/practices.md) and
@@ -671,7 +700,8 @@ async def quality_gate(ctx: StationContext) -> StationResult:
     scan_ok: bool | None = None
     scan_evidence = ""
     if line.secret_scan_command:
-        res = await ctx.cmd(line.secret_scan_command.format(path=ctx.worktree), timeout=600)
+        async with committed_files(ctx) as scope:
+            res = await ctx.cmd(line.secret_scan_command.format(path=scope), timeout=600)
         scan_ok = res.ok
         if not res.ok:
             scan_evidence = f"\nSecret scan (values redacted):\n{res.output[-2500:]}"
@@ -1172,7 +1202,8 @@ async def repo_scan(ctx: StationContext) -> StationResult:
     paths = assess.files(ctx.worktree)
     scan_ok: bool | None = None
     if ctx.blueprint.secret_scan_command:
-        res = await ctx.cmd(ctx.blueprint.secret_scan_command.format(path=ctx.worktree), timeout=600)
+        async with committed_files(ctx) as scope:
+            res = await ctx.cmd(ctx.blueprint.secret_scan_command.format(path=scope), timeout=600)
         scan_ok = res.ok
     else:
         await ctx.emit(EventKind.decision, "secret scan NOT run: no secret_scan_command configured")
@@ -1644,17 +1675,19 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
     import shlex
     import tempfile
 
-    cmd = tool.command.format(image=tool.image, path=ctx.worktree, repo=shlex.quote(repo) if repo else "")
     # The report is the tool's stdout, captured whole in a private temp file: the executor keeps
     # only the tail of stdout+stderr, which cuts a large report and mixes in log lines. The file
-    # is removed in the same step (raw output is never kept, ADR-0034).
-    with tempfile.TemporaryDirectory(prefix="scan-") as tmp:
-        report_file = Path(tmp) / "report.json"
-        # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
-        res = await ctx.ex.run(
-            f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=900, env=env or None
-        )
-        stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
+    # is removed in the same step (raw output is never kept, ADR-0034). The tool reads only what
+    # the change would commit (`committed_files`), not dependencies or build output.
+    async with committed_files(ctx) as scope:
+        cmd = tool.command.format(image=tool.image, path=scope, repo=shlex.quote(repo) if repo else "")
+        with tempfile.TemporaryDirectory(prefix="scan-") as tmp:
+            report_file = Path(tmp) / "report.json"
+            # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
+            res = await ctx.ex.run(
+                f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=900, env=env or None
+            )
+            stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
     text = stdout if stdout.strip() else res.output  # a fake executor answers on its output
     await ctx.emit(
         EventKind.command,
