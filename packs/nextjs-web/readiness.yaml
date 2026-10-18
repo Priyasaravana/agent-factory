@@ -1,0 +1,77 @@
+# How a Next.js repo proves the stack-specific agent-readiness signals (ADR-0041 §3).
+# Signal ids, levels, points and pillars are the engine's (readiness.py, pillars.py); a pack only
+# says how its stack proves each one, and must map every stack-specific signal or it is refused.
+# Rule kinds: file, glob, contains {file|glob, text}, matches {file|glob, regex}, all, any.
+# Pure checks on the repo's files: nothing is executed.
+signals:
+  linter:
+    check:
+      all:
+        - {file: eslint.config.mjs}
+        - {contains: {file: Makefile, text: "eslint . --max-warnings=0"}}
+    hint: keep eslint.config.mjs and `eslint . --max-warnings=0` in `make lint`
+  formatter:
+    check: {contains: {file: Makefile, text: "prettier --check"}}
+    hint: run `prettier --check .` in `make lint`
+  unit_tests:
+    check:
+      any:
+        - {glob: "tests/**/*.test.ts"}
+        - {glob: "tests/**/*.test.tsx"}
+    hint: add tests/*.test.ts (vitest)
+  lockfile:
+    check: {file: package-lock.json}
+    hint: commit package-lock.json
+  structured_logs:
+    check:
+      all:
+        - {contains: {file: package.json, text: '"pino"'}}
+        - {contains: {file: src/lib/logger.ts, text: "pino("}}
+    hint: keep src/lib/logger.ts (pino JSON logs)
+  coverage_gate:
+    check: {matches: {file: vitest.config.mts, regex: 'thresholds:\s*\{[^}]*lines:\s*([89]\d|100)\b'}}
+    hint: keep coverage thresholds of 80 or more in vitest.config.mts
+  acceptance_tests:
+    check:
+      any:
+        - {file: tests/acceptance.test.ts}
+        - {file: tests/acceptance.test.tsx}
+    hint: turn tests/acceptance/scenarios.yaml into tests/acceptance.test.ts
+  e2e_tests:
+    check:
+      all:
+        - {file: playwright.config.ts}
+        - {glob: "e2e/*.spec.ts"}
+    hint: keep playwright.config.ts and e2e/*.spec.ts (run against each deployment)
+  health_endpoints:
+    check:
+      all:
+        - {file: src/app/api/healthz/route.ts}
+        - {file: src/app/api/readyz/route.ts}
+    hint: keep /api/healthz and /api/readyz
+  metrics:
+    check: {contains: {file: src/app/api/metrics/route.ts, text: registry.metrics()}}
+    hint: keep /api/metrics (src/lib/metrics.ts)
+  tracing:
+    check: {contains: {file: src/instrumentation.ts, text: registerOTel}}
+    hint: keep OpenTelemetry setup (src/instrumentation.ts)
+
+  # this pack's own signal (counts for its products only): the first usability check
+  a11y:
+    level: 3
+    pillar: usability
+    title: accessibility checked on every page
+    check:
+      all:
+        - {contains: {file: package.json, text: '"@axe-core/playwright"'}}
+        - {contains: {file: e2e/a11y.spec.ts, text: AxeBuilder}}
+        - {matches: {file: e2e/a11y.spec.ts, regex: 'impact === "(serious|critical)"'}}
+        - {file: e2e/routes.ts}
+    hint: keep e2e/a11y.spec.ts (axe on every route in e2e/routes.ts, failing on serious or critical)
+
+# How tests name the requirements they cover (traceability, ADR-0017): `@R1` in the test title
+# (vitest, Playwright). `requirements_traced` and the traceability matrix use it.
+requirement_tags:
+  files: ["tests/**/*.ts", "tests/**/*.tsx", "e2e/**/*.ts"]
+  pattern: '@(R\d+)\b'
+  example: 'it("adds a book @R1", …)'

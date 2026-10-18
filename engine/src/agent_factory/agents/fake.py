@@ -128,9 +128,14 @@ class FakeAgentRunner:
             tests.mkdir(exist_ok=True)
             reqs = req.cwd / "docs" / "requirements.yaml"
             ids = re.findall(r"id: (R\d+)", reqs.read_text()) if reqs.exists() else ["R1"]
-            tags = ", ".join(f'"{i}"' for i in ids)
-            body = f"@pytest.mark.req({tags})\ndef test_acceptance_dry_run() -> None:\n    assert True\n"
-            (tests / "test_acceptance.py").write_text("import pytest\n\n\n" + body)
+            if (req.cwd / "package.json").is_file():  # a TypeScript stack (nextjs-web): tags in titles
+                title = " ".join(f"@{i}" for i in ids)
+                body = f'import {{ it }} from "vitest";\n\nit("acceptance dry run {title}", () => {{}});\n'
+                (tests / "acceptance.test.ts").write_text(body)
+            else:
+                tags = ", ".join(f'"{i}"' for i in ids)
+                body = f"@pytest.mark.req({tags})\ndef test_acceptance_dry_run() -> None:\n    assert True\n"
+                (tests / "test_acceptance.py").write_text("import pytest\n\n\n" + body)
         if req.role == "developer" and self.risky_once and self._risky_state != "removed":
             for rel, text in self.risky_once.items():
                 path = req.cwd / rel

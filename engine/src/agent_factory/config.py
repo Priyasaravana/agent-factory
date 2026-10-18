@@ -83,6 +83,21 @@ class Blueprint(BaseModel):
         return self._pack
 
     @property
+    def health_path(self) -> str:
+        """The liveness path the deploy smoke check calls: the pack's, else `/healthz`."""
+        return self._pack.health_live if self._pack else "/healthz"
+
+    @property
+    def e2e_command(self) -> str | None:
+        """The pack's end-to-end command against the deployed app ({url}), if it has one."""
+        return self._pack.e2e if self._pack else None
+
+    @property
+    def pack_egress(self) -> tuple[str, ...]:
+        """Egress this blueprint's products' sandboxes get on top of `sandbox.egress`."""
+        return self._pack.egress if self._pack else ()
+
+    @property
     def readiness_rules(self) -> StackRules | None:
         """How this blueprint's stack proves the stack-specific readiness signals (ADR-0041 §3)."""
         return self._pack.rules if self._pack else None

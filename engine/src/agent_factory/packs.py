@@ -145,7 +145,23 @@ class Pack(BaseModel):
 
 # never part of what a pack is: tool caches and local environments a developer may leave behind
 IGNORED = frozenset(
-    {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", "node_modules", ".DS_Store"}
+    {
+        ".git",
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        "node_modules",
+        ".DS_Store",
+        # Node builds and test runs (nextjs-web and other web packs)
+        ".next",
+        "coverage",
+        "test-results",
+        "playwright-report",
+        "next-env.d.ts",
+        "tsconfig.tsbuildinfo",
+    }
 )
 
 
@@ -184,12 +200,29 @@ def _check_stack(pack: Pack) -> StackRules:
         if not (skill / "SKILL.md").is_file():
             raise PackError(f"pack {pack.source}: stack.skill '{stack.skill}' has no SKILL.md")
     if stack.evals:
-        _inside(pack, stack.evals, "stack.evals", is_dir=False)
+        _check_evals(pack, _inside(pack, stack.evals, "stack.evals", is_dir=False))
     file = _inside(pack, stack.readiness, "stack.readiness", is_dir=False)
     try:
         return parse_stack_rules(yaml.safe_load(file.read_text()), f"pack {pack.source} {stack.readiness}")
     except (RuleError, yaml.YAMLError) as exc:
         raise PackError(str(exc)) from exc
+
+
+def _check_evals(pack: Pack, file: Path) -> None:
+    """A pack's evaluation cases (ADR-0041 §6): a list of cases with distinct ids."""
+    from agent_factory.workflow import EvalCase
+
+    where = f"pack {pack.source}: {file.name}"
+    try:
+        raw = yaml.safe_load(file.read_text())
+        cases = [EvalCase.model_validate(c) for c in raw] if isinstance(raw, list) else None
+    except (yaml.YAMLError, ValueError) as exc:
+        raise PackError(f"{where}: {exc}") from exc
+    if not cases:
+        raise PackError(f"{where}: a non-empty list of cases (id, title, requirements)")
+    ids = [c.id for c in cases]
+    if dupes := sorted({i for i in ids if ids.count(i) > 1}):
+        raise PackError(f"{where}: case ids listed twice: {', '.join(dupes)}")
 
 
 def load_pack(folder: Path) -> Pack:
@@ -223,6 +256,11 @@ class PackBinding:
     # fields the config sets anyway: {field: {"pack": value, "config": value}}
     overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     summary: str = ""  # one line for the stack card on the create form (ADR-0041 §2)
+    health_live: str = "/healthz"  # what the deploy smoke check calls
+    health_ready: str = "/readyz"
+    e2e: str | None = None  # the pack's end-to-end command; {url}: the deployed app
+    egress: tuple[str, ...] = ()  # added to this pack's products' sandboxes only (ADR-0041 §7)
+    toolchain: tuple[str, ...] = ()  # what the sandbox image must provide (ADR-0041 §4)
 
     @property
     def source(self) -> str:
@@ -289,6 +327,11 @@ def bind(cfg: FactoryConfig, packs: list[Pack], home: Path) -> None:
                 pack.rules,
                 overrides,
                 pack.stack.summary,
+                pack.stack.health.live,
+                pack.stack.health.ready,
+                pack.stack.e2e,
+                tuple(pack.stack.egress),
+                tuple(pack.stack.toolchain),
             )
         )
 

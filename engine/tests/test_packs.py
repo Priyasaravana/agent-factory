@@ -158,7 +158,8 @@ def test_a_packs_own_signal_counts_for_its_products_only(tmp_path):
         "signals": {
             **{s.id: {"check": {"file": "nothing-here"}, "hint": "h"} for s in rules.signals},
             "a11y": {"check": {"file": "a11y.json"}, "level": 3, "pillar": "usability", "title": "accessible"},
-        }
+        },
+        "requirement_tags": _readiness(FASTAPI)["requirement_tags"],
     }
     own = parse_stack_rules(raw)
     card = score(tmp_path, True, own)

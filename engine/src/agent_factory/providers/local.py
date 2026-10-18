@@ -2,7 +2,7 @@
 
 registry  `kind load` the image into the local cluster
 scan      the blueprint's `scan_command` (Trivy in dind)
-deploy    Helm to kind, NodePort, curl /healthz
+deploy    Helm to kind, NodePort, curl the pack's liveness path (/healthz)
 publish   `gh` with GITHUB_TOKEN from .env (moves to secret references in phase 2)
 """
 
@@ -104,12 +104,13 @@ class LocalProvider:
         )
         res = await ctx.cmd(helm, timeout=420)
         if res.ok:
+            live = f"{self.internal_url(ctx)}{ctx.blueprint.health_path}"  # the pack's liveness path
             smoke = await ctx.cmd(
-                f"for i in $(seq 1 30); do curl -fsS {self.internal_url(ctx)}/healthz && exit 0; sleep 2; done; exit 1",
+                f"for i in $(seq 1 30); do curl -fsS {live} && exit 0; sleep 2; done; exit 1",
                 timeout=90,
             )
             if smoke.ok:
-                return StepResult(True, f"deployed {image} to {ns}; healthz ok")
+                return StepResult(True, f"deployed {image} to {ns}; {ctx.blueprint.health_path.lstrip('/')} ok")
             res = smoke
         return StepResult(False, "deployment failed", res.output[-2500:])
 

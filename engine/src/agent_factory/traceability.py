@@ -3,7 +3,8 @@
 Sources in a generated repo:
     docs/requirements.yaml             [{id: R1, title, detail}]  written by Intake
     tests/acceptance/scenarios.yaml    [{id, given, when, then, covers: [R1]}]
-    tests/**/*.py                      @pytest.mark.req("R1", ...) on each test
+    tests/**/*.py                      @pytest.mark.req("R1", ...) on each test (the stack pack's
+                                       `requirement_tags` rule says where and how, ADR-0041)
     <data>/holdout/<slug>/scenarios.yaml   hidden scenarios, also with `covers`
 Everything here is a pure function of files, so the Quality gate station, the spec
 view and the acceptance evidence all agree.
@@ -13,14 +14,44 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 REQ_ID = re.compile(r"^R\d+$")
-_REQ_CALL = re.compile(r"\breq\(([^)]*)\)")
-_ID_IN_CALL = re.compile(r"""["'](R\d+)["']""")
+
+
+@dataclass(frozen=True)
+class TagRule:
+    """How a stack's tests name the requirements they cover (ADR-0041 §3, `requirement_tags` in
+    the pack's readiness.yaml). `pattern` finds each tag; its first group holds the ids, read with
+    `ids` when the tag can list several, else the group is one id. Pure: files are only read."""
+
+    files: tuple[str, ...]
+    pattern: re.Pattern[str]
+    ids: re.Pattern[str] | None
+    example: str
+
+    def found(self, text: str) -> list[str]:
+        out: list[str] = []
+        for m in self.pattern.finditer(text):
+            blob = m.group(1) if m.groups() else m.group(0)
+            if self.ids is None:
+                out += [blob] if REQ_ID.match(blob) else []
+            else:
+                out += [i for i in self.ids.findall(blob) if REQ_ID.match(i)]
+        return out
+
+
+# Python with pytest: the rule from before stack packs, used when no pack says otherwise
+PYTEST_TAGS = TagRule(
+    files=("tests/**/*.py",),
+    pattern=re.compile(r"\breq\(([^)]*)\)"),
+    ids=re.compile(r"""["'](R\d+)["']"""),
+    example='@pytest.mark.req("R1")',
+)
 
 
 def _load_list(path: Path) -> list[dict[str, Any]]:
@@ -66,15 +97,17 @@ def acceptance_scenarios(root: Path) -> list[dict[str, Any]]:
     return scenarios(root / "tests" / "acceptance" / "scenarios.yaml")
 
 
-def test_tags(root: Path) -> dict[str, int]:
-    """Requirement id -> number of @pytest.mark.req(...) tags found in tests/."""
+def test_tags(root: Path, tags: TagRule | None = None) -> dict[str, int]:
+    """Requirement id -> number of tags found in the stack's test files (pytest by default)."""
+    rule = tags or PYTEST_TAGS
     counts: dict[str, int] = {}
-    tests = root / "tests"
-    if not tests.is_dir():
-        return counts
-    for f in sorted(tests.rglob("*.py")):
-        for call in _REQ_CALL.findall(f.read_text(errors="replace")):
-            for rid in _ID_IN_CALL.findall(call):
+    seen: set[Path] = set()
+    for pattern in rule.files:
+        for f in sorted(root.glob(pattern)):
+            if f in seen or not f.is_file() or "node_modules" in f.relative_to(root).parts:
+                continue
+            seen.add(f)
+            for rid in rule.found(f.read_text(errors="replace")):
                 counts[rid] = counts.get(rid, 0) + 1
     return counts
 
@@ -105,11 +138,14 @@ def diff(old: list[dict[str, str]], new: list[dict[str, str]]) -> dict[str, list
 
 
 def matrix(
-    root: Path, holdout: list[dict[str, Any]] | None = None, verdict: list[dict[str, Any]] | None = None
+    root: Path,
+    holdout: list[dict[str, Any]] | None = None,
+    verdict: list[dict[str, Any]] | None = None,
+    tags: TagRule | None = None,
 ) -> list[dict[str, Any]]:
     """One row per requirement: its acceptance scenarios, tagged tests and, when a
     verdict is given, the hidden scenarios it was checked by live (pass/fail)."""
-    tags = test_tags(root)
+    counts = test_tags(root, tags)
     acc = acceptance_scenarios(root)
     results: dict[str, bool] = {}
     for r in verdict or []:
@@ -125,7 +161,7 @@ def matrix(
                 "id": rid,
                 "title": req["title"],
                 "scenarios": [s["id"] for s in acc if rid in s["covers"]],
-                "tests": tags.get(rid, 0),
+                "tests": counts.get(rid, 0),
                 "holdout": [
                     {"scenario": s["id"], "passed": results.get(s["id"])} for s in holdout or [] if rid in s["covers"]
                 ],
@@ -135,19 +171,25 @@ def matrix(
     return rows
 
 
-def untraced(root: Path) -> list[str]:
+def untraced(root: Path, tags: TagRule | None = None) -> list[str]:
     """Requirements without an acceptance scenario or a tagged test (readiness signal)."""
+    rule = tags or PYTEST_TAGS
     reqs = requirements(root)
     if not reqs:
         return ["docs/requirements.yaml missing or empty"]
-    tags, acc = test_tags(root), acceptance_scenarios(root)
+    counts, acc = test_tags(root, rule), acceptance_scenarios(root)
     gaps = []
     for r in reqs:
         if not any(r["id"] in s["covers"] for s in acc):
             gaps.append(f"{r['id']} has no acceptance scenario")
-        if not tags.get(r["id"]):
-            gaps.append(f'{r["id"]} has no test tagged @pytest.mark.req("{r["id"]}")')
+        if not counts.get(r["id"]):
+            gaps.append(f"{r['id']} has no test tagged {tag_example(rule, r['id'])}")
     return gaps
+
+
+def tag_example(rule: TagRule | None, rid: str = "R1") -> str:
+    """The stack's tag for one requirement, for hints and agent instructions."""
+    return (rule or PYTEST_TAGS).example.replace("R1", rid)
 
 
 def _num(rid: str) -> int:

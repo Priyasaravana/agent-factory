@@ -15,6 +15,8 @@ check from the product's pack (`readiness.yaml`, parsed by `parse_stack_rules`),
 rules this module interprets: `file`, `glob`, `contains`, `matches`, `all`, `any`. Rules only
 read files, never execute anything. A pack must map every stack-specific signal, so Level 3
 means the same in every stack; it may add signals of its own, which count for its products only.
+It also says how its tests name requirement ids (`requirement_tags`), which
+`requirements_traced` and the traceability matrix read.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agent_factory.pillars import BY_ID, IDS, tally
-from agent_factory.traceability import untraced
+from agent_factory.traceability import PYTEST_TAGS, TagRule, tag_example, untraced
 
 POINTS = {1: 1, 2: 2, 3: 4}
 
@@ -186,6 +188,7 @@ class StackSignal:
 @dataclass(frozen=True)
 class StackRules:
     signals: tuple[StackSignal, ...]
+    tags: TagRule = PYTEST_TAGS  # how this stack's tests name requirement ids
 
     def get(self, sid: str) -> StackSignal | None:
         return next((s for s in self.signals if s.id == sid), None)
@@ -313,9 +316,53 @@ def parse_stack_rules(raw: Any, where: str = "readiness.yaml") -> StackRules:
             f"{where}: does not prove {', '.join(missing)}; every stack-specific signal needs a check, "
             "so Level 3 means the same in every stack"
         )
+    tags: TagRule | None = None
+    try:
+        tags = parse_tag_rule(raw.get("requirement_tags"), f"{where}: requirement_tags")
+    except RuleError as exc:
+        errors.append(str(exc))
     if errors:
         raise RuleError("; ".join(errors))
-    return StackRules(tuple(out))
+    assert tags is not None  # noqa: S101
+    return StackRules(tuple(out), tags)
+
+
+def parse_tag_rule(raw: Any, where: str = "requirement_tags") -> TagRule:
+    """`requirement_tags: {files: [globs], pattern: regex with one group, ids?: regex, example}`.
+    Required: without it the traceability signal would read another stack's tests."""
+    if not isinstance(raw, Mapping):
+        raise RuleError(
+            f"{where}: needed, so requirement ids are found in this stack's tests "
+            "({files: [globs], pattern, ids?, example})"
+        )
+    if extra_keys := set(raw) - {"files", "pattern", "ids", "example"}:
+        raise RuleError(f"{where}: unexpected {', '.join(sorted(extra_keys))}")
+    files = raw.get("files")
+    if not isinstance(files, list) or not files:
+        raise RuleError(f"{where}.files: a non-empty list of globs")
+    globs = tuple(_safe_path(f, f"{where}.files") for f in files)
+    compiled: dict[str, re.Pattern[str] | None] = {"pattern": None, "ids": None}
+    for key in compiled:
+        value = raw.get(key)
+        if value is None and key == "ids":
+            continue
+        if not isinstance(value, str) or not value:
+            raise RuleError(f"{where}.{key}: a non-empty regex")
+        try:
+            compiled[key] = re.compile(value)
+        except re.error as exc:
+            raise RuleError(f"{where}.{key}: bad regex: {exc}") from exc
+    pattern = compiled["pattern"]
+    assert pattern is not None  # noqa: S101
+    if pattern.groups < 1:
+        raise RuleError(f"{where}.pattern: needs one group holding the requirement id(s)")
+    example = raw.get("example")
+    if not isinstance(example, str) or "R1" not in example:
+        raise RuleError(f'{where}.example: how a test tags R1, e.g. @pytest.mark.req("R1")')
+    rule = TagRule(globs, pattern, compiled["ids"], example)
+    if rule.found(example) != ["R1"]:
+        raise RuleError(f"{where}: the pattern does not find R1 in its own example '{example}'")
+    return rule
 
 
 @dataclass
@@ -371,7 +418,15 @@ def score(root: Path, secret_scan_ok: bool | None = None, rules: StackRules | No
     """The repo's scorecard. `rules`: how the product's stack pack proves the stack-specific
     signals (and its own); without a pack those signals fail, with a hint saying why."""
     results: list[tuple[Signal, bool]] = []
+    tags = rules.tags if rules else PYTEST_TAGS
     for s in SIGNALS:
+        if s.id == "requirements_traced":  # stack-neutral, but read with the stack's tag rule
+            hint = (
+                "cover each requirement in docs/requirements.yaml with an acceptance scenario and a test "
+                f"tagged {tag_example(tags, 'R…')}"
+            )
+            results.append((replace(s, hint=hint), _ok(lambda r: not untraced(r, tags), root)))
+            continue
         if s.check is not None:
             results.append((s, _ok(s.check, root)))
             continue

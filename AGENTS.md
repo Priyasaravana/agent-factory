@@ -55,6 +55,15 @@
   new products; the product records `pack`). A stack conflict offers `Change.switch_to`
   (`stack.switch_options`, pure) only before the first build: the first change, with the product repo
   still only its template (`ChangeManager.switch_stack`, tests in `tests/test_stack_switch.py`).
+  The engine also reads from the pack: the liveness path the deploy smoke check calls
+  (`Blueprint.health_path`), the e2e command the acceptance station runs against the live app before
+  the verifier (`_run_e2e`), how tests tag requirement ids (`requirement_tags` in `readiness.yaml`, read
+  by `traceability.TagRule`; required), `egress` (a proxy per egress set, used only by that pack's
+  products: `SandboxManager.proxy_name`) and `toolchain` (`sandbox/toolchain.py`: optional image layers
+  such as `chromium` are built only when an installed pack asks; preflight refuses a pack whose
+  toolchain the image lacks). Packs: `fastapi-service`, `nextjs-web` (tests in
+  `tests/test_nextjs_pack.py`). A web pack's template pins `@playwright/test` to the sandbox's
+  `PLAYWRIGHT_VERSION`.
   Adding a stack is adding a folder: change the engine only for a new rule kind or toolchain.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
   `undeploy()` (archive) besides its capability methods. New change-starting actions
@@ -64,9 +73,9 @@
   Python (factory/auth images, CI) is one version; apps pick theirs from the
   sandbox's `APP_PYTHONS` (`tests/test_python_versions.py`).
 - Generated apps are spec-driven (ADR-0017): every requirement in
-  `docs/requirements.yaml` is covered by a scenario (`covers`) and a test tagged
-  `@pytest.mark.req("R1")`. Coverage checks live in `traceability.py`; keep
-  them pure functions of the repo's files.
+  `docs/requirements.yaml` is covered by a scenario (`covers`) and a test tagged the
+  stack's way (`@pytest.mark.req("R1")` in FastAPI, `@R1` in a test title in Next.js).
+  Coverage checks live in `traceability.py`; keep them pure functions of the repo's files.
 - No root in the factory's containers (ADR-0018). The factory image runs as uid
   10001 with no capabilities; the only root step is `cluster/init.sh` in the
   one-shot `factory-init` service. Dockerfile build steps that run the CLI set

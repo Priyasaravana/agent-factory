@@ -197,6 +197,41 @@ async def test_untrusted_commands_run_in_a_fresh_sandbox(tmp_path):
     assert "HTTPS_PROXY=http://factory-egress:3128" in call and "af.run=r1" in call
 
 
+async def test_a_packs_egress_gets_its_own_proxy_and_others_keep_the_shared_one(tmp_path):
+    """ADR-0041 §7: a stack pack's egress reaches only its own products' sandboxes."""
+    ex = FakeExecutor(scan_outputs={"docker logs": '{"event": "listening"}'})
+    mgr = _ready_manager(tmp_path, ex)
+    shared = mgr.cfg.proxy
+    assert mgr.proxy_name() == mgr.proxy_name(["registry.npmjs.org:443"]) == shared  # already allowed
+    pack = ("cdn.example.org:443",)
+    own = mgr.proxy_name(pack)
+    assert own.startswith(f"{shared}-") and own != shared
+
+    await mgr.executor("r1", "verify").run("make verify", cwd=tmp_path)
+    assert not any(c.startswith("docker run -d") for c in ex.calls)  # no pack egress: nothing started
+    assert f"HTTPS_PROXY=http://{shared}:3128" in ex.calls[-1]
+
+    await mgr.executor("r2", "verify", pack).run("make verify", cwd=tmp_path)
+    await mgr.executor("r2", "e2e", pack).run("make e2e", cwd=tmp_path)
+    started = [c for c in ex.calls if c.startswith("docker run -d")]
+    assert len(started) == 1 and f"--name {own} " in started[0]  # started once, on first use
+    assert "--allow cdn.example.org:443" in started[0]
+    assert all(f"--allow {r}" in started[0] for r in mgr.cfg.egress)  # the shared rules too
+    assert f"HTTPS_PROXY=http://{own}:3128" in ex.calls[-1]
+
+    req = AgentRequest(change_id="r2", station="build", role="dev", prompt="p", cwd=tmp_path, model="m")
+    assert f"HTTPS_PROXY=http://{shared}:3128" in " ".join(mgr.agent_spec(req).argv(["claude"]))
+    req.egress = list(pack)
+    assert f"HTTPS_PROXY=http://{own}:3128" in " ".join(mgr.agent_spec(req).argv(["claude"]))
+
+
+async def test_a_pack_proxy_that_cannot_start_stops_the_command(tmp_path):
+    ex = FakeExecutor(fail_on=["docker run -d"])
+    res = await _ready_manager(tmp_path, ex).executor("r1", "verify", ("cdn.example.org:443",)).run("make verify")
+    assert not res.ok and "egress for this stack not ready" in res.output
+    assert not any("make verify" in c for c in ex.calls)
+
+
 async def test_nothing_runs_while_the_sandbox_is_not_ready(tmp_path):
     ex = FakeExecutor()
     mgr = SandboxManager(SandboxConfig(), tmp_path, tmp_path, ex=ex)

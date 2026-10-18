@@ -53,6 +53,7 @@ class AgentRequest:
     protected_paths: list[str] = field(default_factory=list)  # e.g. holdout dir
     readable_extra_dirs: list[Path] = field(default_factory=list)
     subagent_model: str = "haiku"  # efficient-frontier: cheap model for mechanical work
+    egress: list[str] = field(default_factory=list)  # the product's stack pack's extra egress (ADR-0041 §7)
 
 
 @dataclass
@@ -166,6 +167,8 @@ class ClaudeAgentRunner:
         cli = shutil.which(SANDBOX_CLI)
         if cli is None:
             return AgentResult(ok=False, error=f"{SANDBOX_CLI} not installed; refusing to run unsandboxed")
+        if problem := await self.sandbox.ensure_proxy(req.egress):
+            return AgentResult(ok=False, error=f"agent sandbox egress for this stack not ready: {problem}")
         spec = self.sandbox.agent_spec(req)
         spec.withhold_env = list(session.withhold)  # e.g. the engine's model credential behind a gateway
         path = self.sandbox.write_spec(spec)

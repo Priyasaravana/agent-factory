@@ -1,0 +1,37 @@
+# image.*, service.* and ingress.* are set by the factory's Deploy station:
+# the local target uses a NodePort; a cluster target (helm provider) uses ClusterIP + an ingress host.
+image:
+  repository: app
+  tag: dev
+  pullPolicy: IfNotPresent     # tags are commit SHAs: an image never changes under a tag
+
+imagePullSecrets: []           # e.g. [{name: factory-pull}] for a private registry
+
+replicaCount: 1
+containerPort: 3000
+
+service:
+  type: NodePort               # ClusterIP behind an ingress
+  port: 80
+  nodePort: 30080
+
+ingress:
+  enabled: false
+  host: app.example.com
+  className: nginx
+  tls: false                   # serve TLS from the <name>-tls secret (e.g. made by cert-manager)
+  annotations: {}
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 512Mi}
+
+env: {}   # extra non-secret env vars
+
+# turn off when the app stores nothing (DATABASE_URL is then unset)
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: app
+  user: app
+  storage: 1Gi

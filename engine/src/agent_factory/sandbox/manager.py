@@ -5,8 +5,11 @@ factory container (engine, secrets, docker client)
     ▼
 dind ── network "factory-sandbox" (--internal: no route out)
          ├── af-sbx-<run>-<station>   agent CLI / `make verify`, worktree only
-         └── factory-egress           allowlist proxy, also on the default bridge
-                                      (the only way to the internet or the apps)
+         ├── factory-egress           allowlist proxy, also on the default bridge
+         │                            (the only way to the internet or the apps)
+         └── factory-egress-<hash>    the same allowlist plus a stack pack's `egress`, started
+                                      on first use and used only by that pack's products
+                                      (ADR-0041 §7)
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from typing import TYPE_CHECKING
 from agent_factory.config import SandboxConfig
 from agent_factory.executor import CommandResult, Executor, LocalExecutor
 from agent_factory.providers.base import Readiness
-from agent_factory.sandbox import egress
+from agent_factory.sandbox import egress, toolchain
 from agent_factory.sandbox.spec import (
     CACHE_VOLUME,
     PROXY_PORT,
@@ -90,14 +93,19 @@ class SandboxManager:
         factory_home: Path,
         data_dir: Path,
         ex: Executor | None = None,
+        layers: list[str] | tuple[str, ...] = (),
     ) -> None:
         self.cfg = cfg
+        # optional image layers the installed stack packs ask for (`toolchain.layers_for`)
+        self.layers = list(layers)
         self.home = factory_home
         self.data_dir = data_dir
         self.ex = ex or LocalExecutor()
         self.state = Readiness("unknown", ["not started"])
         self._ensure: asyncio.Task[Readiness] | None = None
         self._tag: str | None = None
+        self._extra_proxies: set[str] = set()  # pack egress sets with a running proxy
+        self._proxy_lock = asyncio.Lock()
 
     # ------------------------------------------------------------ identity --
     @property
@@ -108,7 +116,8 @@ class SandboxManager:
     def tag(self) -> str:
         if self._tag is None:
             self._tag = content_tag(
-                [self.context_dir, self.home / "plugin", Path(egress.__file__)], extra=f"cli={cli_version()}"
+                [self.context_dir, self.home / "plugin", Path(egress.__file__)],
+                extra=f"cli={cli_version()}" + (f" layers={','.join(self.layers)}" if self.layers else ""),
             )
         return self._tag
 
@@ -116,8 +125,30 @@ class SandboxManager:
     def image(self) -> str:
         return f"{self.cfg.image}:{self.tag}"
 
-    def egress_hash(self) -> str:
-        return content_tag([], extra=json.dumps([self.image, sorted(self.cfg.egress), sorted(self.cfg.routes)]))
+    def egress_hash(self, extra: tuple[str, ...] | list[str] = ()) -> str:
+        rules = sorted({*self.cfg.egress, *extra})
+        return content_tag([], extra=json.dumps([self.image, rules, sorted(self.cfg.routes)]))
+
+    def proxy_name(self, extra: tuple[str, ...] | list[str] = ()) -> str:
+        """The proxy a session uses: the shared one, or the one for its pack's extra egress. Rules
+        the shared allowlist already has add nothing, so they keep the shared proxy."""
+        added = sorted(set(extra) - set(self.cfg.egress))
+        if not added:
+            return self.cfg.proxy
+        return f"{self.cfg.proxy}-{content_tag([], extra=json.dumps(added))[:10]}"
+
+    async def ensure_proxy(self, extra: tuple[str, ...] | list[str] = ()) -> str | None:
+        """Start the proxy for a pack's egress set on first use. None: ready (or not needed)."""
+        name = self.proxy_name(extra)
+        if name == self.cfg.proxy or name in self._extra_proxies:
+            return None
+        async with self._proxy_lock:
+            if name in self._extra_proxies:
+                return None
+            problem = await self._proxy(name, tuple(extra))
+            if problem is None:
+                self._extra_proxies.add(name)
+            return problem
 
     # ---------------------------------------------------------- bootstrap --
     def start(self) -> None:
@@ -146,7 +177,9 @@ class SandboxManager:
                     self.state = Readiness("failed", [problem])
                     log.error("sandbox not ready: %s", problem)
                     return self.state
-            self.state = Readiness("ready", [f"image {self.image}", f"{len(self.cfg.egress)} egress rules"])
+            reasons = [f"image {self.image}", f"{len(self.cfg.egress)} egress rules"]
+            reasons += [f"with {toolchain.LAYERS[x]}" for x in self.layers if x in toolchain.LAYERS]
+            self.state = Readiness("ready", reasons)
             log.info("sandbox ready: %s", self.image)
         except Exception as exc:  # noqa: BLE001 - reported as readiness, never raised into a change
             self.state = Readiness("failed", [f"{type(exc).__name__}: {exc}"])
@@ -163,7 +196,8 @@ class SandboxManager:
         # --progress=plain (not -q): a failing step's own output (e.g. a download
         # error) is kept, not just the Dockerfile excerpt. One retry covers a
         # transient network failure; the layer cache makes it cheap.
-        cmd = f"docker build --progress=plain -t {self.image} {ctx}"
+        args = "".join(f"{a} " for a in toolchain.build_args(self.layers, toolchain.from_home(self.home)))
+        cmd = f"docker build --progress=plain {args}-t {self.image} {ctx}"
         for attempt in range(1, self.build_attempts + 1):
             res = await self._sh(cmd, timeout=1800)
             if res.ok:
@@ -197,15 +231,17 @@ class SandboxManager:
         res = await self._sh(f"docker network create --internal --label {LABEL}=network {net}")
         return None if res.ok else f"could not create network {net}: {res.output[-500:]}"
 
-    async def _proxy(self) -> str | None:
-        name, want = self.cfg.proxy, self.egress_hash()
+    async def _proxy(self, name: str | None = None, extra: tuple[str, ...] = ()) -> str | None:
+        name = name or self.cfg.proxy
+        want = self.egress_hash(extra)
         cur = await self._sh(
             f"docker inspect -f '{{{{index .Config.Labels \"af.egress\"}}}} {{{{.State.Running}}}}' {name}"
         )
         if cur.ok and cur.output.strip().split()[-2:] == [want, "true"]:
             return None
         await self._sh(f"docker rm -f {name} >/dev/null 2>&1")
-        allow = " ".join(f"--allow {shlex.quote(r)}" for r in self.cfg.egress)
+        rules = [*self.cfg.egress, *(r for r in extra if r not in self.cfg.egress)]
+        allow = " ".join(f"--allow {shlex.quote(r)}" for r in rules)
         allow += "".join(f" --route {shlex.quote(r)}" for r in self.cfg.routes)
         change = (
             f"docker run -d --name {name} --restart unless-stopped --label {LABEL}=egress --label af.egress={want} "
@@ -232,14 +268,16 @@ class SandboxManager:
         return None
 
     # -------------------------------------------------------------- specs --
-    def base_spec(self, name: str, workdir: Path, labels: dict[str, str]) -> SandboxSpec:
+    def base_spec(
+        self, name: str, workdir: Path, labels: dict[str, str], egress: tuple[str, ...] | list[str] = ()
+    ) -> SandboxSpec:
         return SandboxSpec(
             name=name,
             image=self.image,
             network=self.cfg.network,
             workdir=str(workdir),
             mounts=[Mount(str(workdir), str(workdir), readonly=False), *git_mounts(workdir)],
-            env=proxy_env(self.cfg.proxy),
+            env=proxy_env(self.proxy_name(egress)),
             labels={LABEL: "session", **labels},
             memory=self.cfg.memory,
             cpus=self.cfg.cpus,
@@ -248,7 +286,7 @@ class SandboxManager:
 
     def agent_spec(self, req: AgentRequest) -> SandboxSpec:
         name = container_name(req.change_id, req.station, uuid.uuid4().hex[:6])
-        spec = self.base_spec(name, req.cwd, {"af.run": req.change_id, "af.station": req.station})
+        spec = self.base_spec(name, req.cwd, {"af.run": req.change_id, "af.station": req.station}, req.egress)
         extra = [req.imported_plugin] if req.imported_plugin else []
         extra += list(req.readable_extra_dirs)
         spec.mounts += [Mount(str(p), str(p), readonly=True) for p in extra if p and Path(p).exists()]
@@ -268,8 +306,10 @@ class SandboxManager:
     async def remove_change(self, change_id: str) -> None:
         await self._sh(f"docker ps -aq --filter label=af.run={change_id} | xargs -r docker rm -f >/dev/null 2>&1")
 
-    def executor(self, change_id: str = "", station: str = "") -> SandboxExecutor:
-        return SandboxExecutor(self, change_id, station)
+    def executor(
+        self, change_id: str = "", station: str = "", egress: tuple[str, ...] | list[str] = ()
+    ) -> SandboxExecutor:
+        return SandboxExecutor(self, change_id, station, tuple(egress))
 
     # -------------------------------------------------------------- probe --
     async def probe(self) -> list[dict[str, object]]:
@@ -309,8 +349,10 @@ class SandboxExecutor:
     same interface as LocalExecutor, but each command runs in a fresh sandbox
     with only its working directory mounted and none of the engine's env."""
 
-    def __init__(self, mgr: SandboxManager, change_id: str = "", station: str = "") -> None:
-        self.mgr, self.change_id, self.station = mgr, change_id, station
+    def __init__(
+        self, mgr: SandboxManager, change_id: str = "", station: str = "", egress: tuple[str, ...] = ()
+    ) -> None:
+        self.mgr, self.change_id, self.station, self.egress = mgr, change_id, station, egress
 
     async def run(
         self,
@@ -322,9 +364,12 @@ class SandboxExecutor:
         ready = await self.mgr.ready()
         if ready.state != "ready":
             return CommandResult(command, 125, "sandbox not ready: " + "; ".join(ready.reasons))
+        if problem := await self.mgr.ensure_proxy(self.egress):
+            return CommandResult(command, 125, f"sandbox egress for this stack not ready: {problem}")
         workdir = Path(cwd) if cwd else Path.cwd()
         name = container_name(self.change_id or "exec", self.station, uuid.uuid4().hex[:6])
-        spec = self.mgr.base_spec(name, workdir, {"af.run": self.change_id or "exec", "af.station": self.station})
+        labels = {"af.run": self.change_id or "exec", "af.station": self.station}
+        spec = self.mgr.base_spec(name, workdir, labels, self.egress)
         spec.env.update(env or {})  # explicit, non-secret values only
         argv = spec.argv(["bash", "-lc", command])
         res = await self.mgr.ex.run(shlex.join(argv), timeout=timeout)

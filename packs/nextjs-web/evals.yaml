@@ -1,0 +1,24 @@
+# Evaluation cases for the nextjs-web pack (ADR-0041 §6): small, representative web apps. Each is a
+# full build, test, deploy and live check, so keep them few. `answers` are given if intake asks
+# blocking questions; that counts as needing help.
+- id: reading-list
+  title: Reading list
+  requirements: >-
+    A page to add books with a title, an author and an optional link. Show the list with unread
+    books first, mark a book as read, and delete a book. A title is required; show a clear error
+    when it is missing.
+  answers: ["Use your best judgement and record it as an assumption."]
+- id: rsvp
+  title: Event RSVP
+  requirements: >-
+    An event page showing the event's name, date and place. Visitors reply with their name and
+    yes, no or maybe. Show the counts per answer and the names of everyone who said yes. A name
+    is required and one person can change their answer by replying again with the same name.
+  answers: ["Use your best judgement and record it as an assumption."]
+- id: status-board
+  title: Team status board
+  requirements: >-
+    A board where team members post a short status (at most 280 characters) with their name.
+    Show the latest status per person, newest first, and a page per person with their history.
+    Empty or too-long statuses are rejected with a message.
+  answers: ["Use your best judgement and record it as an assumption."]

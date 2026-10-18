@@ -335,13 +335,15 @@ def test_sandbox_check_keeps_the_gateway_egress(monkeypatch, tmp_path):
     class Manager:
         image = "img:1"
 
-        def __init__(self, sb: Any, *_: Any) -> None:
+        def __init__(self, sb: Any, *_: Any, layers: Any = ()) -> None:
             built.append(sb)
+            assert list(layers) == ["chromium"], "the same image layers as the engine's (nextjs-web)"
 
         async def probe(self) -> list[dict[str, object]]:
             return []
 
     monkeypatch.setattr(sandbox_mod, "SandboxManager", Manager)
+    monkeypatch.setenv("FACTORY_HOME", str(root))  # the packs it reads for the image's layers
     with pytest.raises(SystemExit):
         cli._sandbox_check()
     assert built[0].egress[0] == "model-gateway:4000" and DIRECT_MODEL_EGRESS not in built[0].egress
