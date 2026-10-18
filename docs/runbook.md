@@ -73,10 +73,15 @@ asked to choose your own. Create a product and watch all 8 stations pass. The ge
 - **Permission denied under `/data`.** Something wrote files as another user.
   `docker compose up -d` reruns factory-init, which hands `/data` back to uid
   10001. `make privilege-check` shows each container's user and capabilities.
-- **The scan step is slow the first time.** The Package station runs the scanner
+- **The scan step is slow the first time.** The Build station runs the scanner
   (`scan_command` in `config.yaml`) as a container inside dind. The first run
   pulls the image and downloads its vulnerability DB into the `trivy-cache`
   volume. Pin the image to a digest you have verified.
+- **A change is held at build with "base image" or "no fix released".** The image
+  scan found a critical CVE the developer can't bump (ADR-0042). The hold names
+  the package and the base image. Either move to a patched base image, or accept
+  the risk with an expiry on the product's work ledger, then resume the change.
+  If the scan says "image findings not read", `scan_command` lacks `--format json`.
 - **Image build fails downloading a tool.** Each tool has its own `RUN` line in
   `images/factory/Dockerfile`, so the failing layer names the tool. Bump that
   tool's `ARG` version.

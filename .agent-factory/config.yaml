@@ -56,11 +56,14 @@ blueprints:
     # about at intake instead of silently built in Python.
     pack: fastapi-service
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
-    # factory image. {image} is filled in by the Package station. Pin a digest
+    # factory image. {image} is filled in by the Build station. Pin a digest
     # (aquasec/trivy@sha256:...) once you have verified one you trust.
+    # The JSON report is judged by the engine (ADR-0042): critical CVEs block (`scan_fail_on`),
+    # an app dependency goes back to the developer with the exact bump, a base-image or unfixed
+    # CVE holds for a person; high CVEs are recorded in the product's work ledger.
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:latest image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}
+      aquasec/trivy:latest image --quiet --format json --severity HIGH,CRITICAL {image}
     # Readiness station: the generated repo must stay at agent-readiness Level 3
     # (docs/practices.md). The secret scan runs in dind on the run worktree ({path}).
     min_readiness_level: 3
@@ -80,7 +83,7 @@ blueprints:
     pack: nextjs-web
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:latest image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}
+      aquasec/trivy:latest image --quiet --format json --severity HIGH,CRITICAL {image}
     min_readiness_level: 3
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3

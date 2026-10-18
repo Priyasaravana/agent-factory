@@ -173,6 +173,15 @@
   so dependencies and build output are not reported as the product's findings
   (`tests/test_scan_scope.py`). A diff that adds or edits a scanner's exclusions (`.gitleaks.toml`,
   `.trivyignore`, …: `risk.SCANNER_EXCLUSIONS`) is held for a person (category 2).
+- Image findings (ADR-0042): the Build station reads the image scan's Trivy JSON (`scan_command`
+  with `--format json`) through the pure `image_scan.parse`/`judge`. Origin decides the route: a
+  package the product's lockfile pins is an app dependency (fail to develop with the exact bump);
+  OS packages and unpinned language packages are the base image's (hold for a person); no fix
+  released holds until a person accepts the risk. The same app findings after a fix loop hold. Only
+  normalised findings are kept (`artifacts/<change>/image-scan.json`), and every scan is folded into
+  the work ledger (`ledger.fold_image_scan`, category `image`) so a person can accept a risk with an
+  expiry and resume. Output that isn't Trivy JSON falls back to the exit code, and says so. Tests in
+  `tests/test_image_scan.py`.
 - Model access goes through the gateway seam (ADR-0036, `gateway.py`): `ClaudeAgentRunner`
   opens a gateway session per agent call (a virtual key behind a gateway) and closes it in
   a `finally`. A sandbox never gets a credential the session withholds

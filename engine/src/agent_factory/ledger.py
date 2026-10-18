@@ -374,6 +374,108 @@ def decide(
     return out
 
 
+IMAGE = "image"  # category of the Build station's image findings (ADR-0042)
+
+
+def image_fingerprint(key: str) -> str:
+    return fingerprint("issue", "", key)
+
+
+def accepted_image_keys(items: list[WorkItem], keys: Iterable[str], now: datetime) -> set[str]:
+    """Finding keys whose risk a person accepted and that haven't expired (ADR-0042)."""
+    ok = {
+        it.fingerprint
+        for it in items
+        if it.category == IMAGE
+        and it.status == "accepted_risk"
+        and (it.accepted_until is None or it.accepted_until > now)
+    }
+    return {k for k in keys if image_fingerprint(k) in ok}
+
+
+def fold_image_scan(
+    product_id: str,
+    items: list[WorkItem],
+    findings: list[dict[str, Any]],
+    *,
+    change_id: str,
+    iteration: int,
+    now: datetime,
+) -> tuple[list[WorkItem], dict[str, int]]:
+    """Fold one image scan into the ledger (ADR-0042). `findings` are candidates with `key`,
+    `title`, `severity`, `detail`, `at`, `rule`. The scan is a real check of the whole image, so an
+    image item it no longer finds is fixed. Returns the items that changed and what happened."""
+    changed: dict[str, WorkItem] = {}
+    stats = {"new": 0, "fixed": 0, "reopened": 0}
+    by_fp = {it.fingerprint: it for it in items if it.category == IMAGE}
+    ids = {it.id for it in items}
+    seen: set[str] = set()
+    for f in findings:
+        fp = image_fingerprint(f["key"])
+        seen.add(fp)
+        it = by_fp.get(fp)
+        if it is None:
+            it = WorkItem(
+                id=item_id(product_id, fp),
+                product_id=product_id,
+                kind="issue",
+                fingerprint=fp,
+                title=f["title"],
+                category=IMAGE,
+                change_kind="upkeep",
+                first_iteration=iteration,
+                created_at=now,
+                updated_at=now,
+            )
+            while it.id in ids:
+                it.id = it.id + "x"
+            ids.add(it.id)
+            by_fp[fp] = it
+            items.append(it)
+            stats["new"] += 1
+            _log(it, now, "found", "in the built image", iteration=iteration, change_id=change_id)
+        elif it.status == "fixed":
+            it.status, it.resolved_by = "open", None
+            stats["reopened"] += 1
+            _log(it, now, "reappeared", "found again in the built image", iteration=iteration, change_id=change_id)
+        elif it.status == "accepted_risk" and it.accepted_until and it.accepted_until <= now:
+            it.status = "open"
+            stats["reopened"] += 1
+            _log(it, now, "reopened", "risk acceptance expired", iteration=iteration, change_id=change_id)
+        elif it.status == "in_progress" and change_id in it.claimed_by:
+            it.status = "open"  # the change that addresses it built an image that still has it
+            stats["reopened"] += 1
+            _log(it, now, "still-present", f"still in the image built by change {change_id}", change_id=change_id)
+        elif iteration not in it.seen_in:
+            _log(it, now, "seen", iteration=iteration, change_id=change_id)
+        else:
+            if (it.severity, it.detail) == (f["severity"], f["detail"]):
+                continue  # the same scan again within this iteration: nothing new to record
+        it.title, it.severity, it.detail = f["title"], f["severity"], f["detail"]
+        it.at = list(f.get("at") or [])[:20]
+        it.sources = [{"station": "build", "via": "image scan", "rule": f.get("rule", "")}]
+        it.last_iteration = iteration
+        if iteration not in it.seen_in:
+            it.seen_in.append(iteration)
+        it.updated_at = now
+        changed[it.id] = it
+    for it in by_fp.values():
+        if it.fingerprint in seen or it.status not in (*OPEN, "accepted_risk"):
+            continue
+        it.status, it.resolved_by = "fixed", change_id
+        stats["fixed"] += 1
+        _log(
+            it,
+            now,
+            "fixed",
+            f"no longer in the image built by change {change_id}",
+            iteration=iteration,
+            change_id=change_id,
+        )
+        changed[it.id] = it
+    return sorted(changed.values(), key=sort_key), stats
+
+
 def request_text(text: str, items: list[WorkItem]) -> str:
     """The change request with the items it addresses spelled out for the developer and the PR."""
     lines = [text.strip(), "", "Work items to address:"]
