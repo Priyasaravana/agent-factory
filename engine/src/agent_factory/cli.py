@@ -80,7 +80,10 @@ def main() -> None:
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
-    sctx = sbsub.add_parser("context", help="assemble the sandbox image build context (CI builds and tests it)")
+    sctx = sbsub.add_parser(
+        "context",
+        help="assemble the sandbox image build context and its `build-args` file (CI builds and tests it)",
+    )
     sctx.add_argument("--out", required=True)
 
     args = parser.parse_args()
@@ -102,13 +105,7 @@ def main() -> None:
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
-        from agent_factory.sandbox.manager import assemble_context
-        from agent_factory.settings import Settings
-
-        problem = assemble_context(Path(Settings().factory_home), Path(args.out))
-        if problem:
-            raise SystemExit(problem)
-        print(f"sandbox build context in {args.out}")
+        _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
         _sandbox_check()
 
@@ -131,12 +128,36 @@ def _reset(confirm: bool) -> None:
         print("nothing deleted: run again with --confirm to delete the above")
 
 
+def _sandbox_context(out: Path) -> None:
+    """The build context the engine builds the sandbox from, plus `<out>/build-args`: the
+    `docker build` arguments for the layers the installed packs ask for (ADR-0041 §4), so CI
+    builds and tests the same image the engine would."""
+    from agent_factory.app_factory import sandbox_layers
+    from agent_factory.config import load_config
+    from agent_factory.packs import install
+    from agent_factory.sandbox import toolchain
+    from agent_factory.sandbox.manager import assemble_context
+    from agent_factory.settings import Settings
+
+    s = Settings()
+    home = Path(s.factory_home)
+    problem = assemble_context(home, out)
+    if problem:
+        raise SystemExit(problem)
+    config = Path(s.factory_config)
+    cfg = load_config(config if config.is_file() else home / ".agent-factory" / "config.yaml")
+    args = toolchain.build_args(sandbox_layers(install(cfg, home)), toolchain.from_home(home))
+    (out / "build-args").write_text(" ".join(args) + "\n")
+    print(f"sandbox build context in {out}; build args: {' '.join(args) or '(none)'}")
+
+
 def _sandbox_check() -> None:
     import asyncio
     import sys
 
-    from agent_factory.app_factory import effective_sandbox
+    from agent_factory.app_factory import effective_sandbox, sandbox_layers
     from agent_factory.config import load_config
+    from agent_factory.packs import install
     from agent_factory.sandbox import SandboxManager
     from agent_factory.settings import Settings
 
@@ -144,7 +165,9 @@ def _sandbox_check() -> None:
     cfg = load_config(s.factory_config)
     # the same egress as the engine's (gateway included), or ensure() would rebuild the proxy without it
     sb = effective_sandbox(cfg)
-    mgr = SandboxManager(sb, Path(s.factory_home), Path(s.data_dir or cfg.factory.data_dir))
+    # and the same image layers, or the check would build (and test) a different image
+    layers = sandbox_layers(install(cfg, Path(s.factory_home)))
+    mgr = SandboxManager(sb, Path(s.factory_home), Path(s.data_dir or cfg.factory.data_dir), layers=layers)
     print(f"sandbox image {mgr.image}; network {sb.network}; egress {sb.egress}; model via {sb.model_endpoint}")
     results = asyncio.run(mgr.probe())
     for r in results:

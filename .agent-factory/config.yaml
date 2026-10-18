@@ -41,6 +41,10 @@ use_factory_defaults: false
 # ---------------------------------------------------------------------------
 packs:
   - packs/fastapi-service
+  # Next.js web apps (ADR-0041 step 3). Its toolchain asks for Chromium, so the agent sandbox image
+  # gains a browser layer (~150 MB) for the Playwright and accessibility tests; remove this line
+  # (and the nextjs-web blueprint) to keep the smaller image.
+  - packs/nextjs-web
 
 # Blueprints say WHERE and HOW this install runs a pack: environment, node ports, scan commands,
 # minimum readiness level. A pack field set here as well overrides the pack's (recorded as evidence).
@@ -69,6 +73,23 @@ blueprints:
       anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
     node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
+
+  nextjs-web:
+    description: Next.js web app with Postgres, Helm chart, NodePort
+    # template, verify and e2e commands, port, health paths, chart and stack come from the pack
+    pack: nextjs-web
+    scan_command: >-
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
+      aquasec/trivy:latest image --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed {image}
+    min_readiness_level: 3
+    secret_scan_command: >-
+      docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
+      detect --no-git --source {path} --redact --no-banner --exit-code 1
+    sbom_command: >-
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
+      anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
+    node_ports: 30080-30099       # the same app ports as every blueprint: one pool, shared
+    environment: local
 
   # Teams' existing repositories (ADR-0031): cloned read-only and assessed. Nothing is
   # built, deployed or pushed; the report and a proposed AGENTS.md are sealed evidence.

@@ -1,6 +1,6 @@
 # Best practices we measure the factory against
 
-Status: living reference · last reviewed 2026-10-16 (after the builder, before stack packs).
+Status: living reference · last reviewed 2026-10-18 (stack packs: FastAPI and Next.js).
 Every ADR has a **Best practices** section that maps its decision to the sections below (from ADR-0041 on).
 Legend: ✅ in place · 🟡 partial · ⬜ not yet · → the phase that closes it.
 
@@ -40,7 +40,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
   - ✅ → Outcomes page, from a status transition log (ADR-0019, [definitions](outcomes.md)).
 - **Small batches:** ✅ feedback iterations are small changes. Keep them small (cap the change-request scope).
 - **Strong version control:** ✅ versioned workflows and pinned skills · ⬜ every generated app gets its own repo history by default.
-- **Quality internal platform:** ✅ golden path and blueprint workflows · 🟡 one golden path only (FastAPI) → stack packs, one per stack (ADR-0041).
+- **Quality internal platform:** ✅ golden path and blueprint workflows · ✅ one golden path per stack: FastAPI service and Next.js web app (ADR-0041) · ⬜ React SPA and full-stack packs.
 - **Clear AI policy:** 🟡 guardrail hooks. Write down which actions agents may never take (see §3).
 
 ## 3. OWASP Top 10 for Agentic Applications (2026)
@@ -86,7 +86,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | operability | `structured_logs`, `metrics`, `tracing` |
 | cost | — uncovered |
 | interoperability | `design_docs` (spec, design, OpenAPI contract) |
-| usability | — uncovered (`e2e_tests` checks behaviour, not usability) |
+| usability | `a11y` (pack signal: Next.js; axe on every route, serious or critical fails) |
 | maintainability | `readme`, `linter`, `formatter`, `unit_tests`, `agents_md`, `verify_target`, `precommit`, `ci`, `coverage_gate` |
 | portability | `lockfile` |
 | compliance | `acceptance_tests`, `requirements_traced`, `e2e_tests` |
@@ -101,9 +101,9 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
 | Cost | ⬜ | factory-side cost per change only | `resource_requests` (runtime cost estimable) → phase 5 |
 | Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
-| Usability | ⬜ | — | `a11y` (axe in Playwright) → Next.js and React SPA packs (ADR-0041) |
+| Usability | 🟡 | `a11y` in the Next.js pack: axe in the Playwright e2e suite, run against every deployment (ADR-0041) · services have no UI, so it stays uncovered there | `a11y` in the React SPA pack |
 | Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules | — |
-| Portability | 🟡 | uv.lock, Dockerfile, app chooses its Python, Helm chart to any cluster (ADR-0026) · one stack only | `chart_lint`; more stacks → stack packs (ADR-0041) |
+| Portability | 🟡 | lockfile, Dockerfile, app chooses its Python, Helm chart to any cluster (ADR-0026) · two stacks: FastAPI and Next.js (ADR-0041) | `chart_lint`; more stacks → React SPA, full-stack packs |
 | Compliance & evidence | ✅ | acceptance tests, traceability, e2e, review evidence, SBOM, provenance, sealed evidence with a pillar index (ADR-0023) | — |
 
 ### The factory itself
@@ -121,7 +121,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Portability | 🟡 | docker compose for the factory · ✅ generated apps to any registry and cluster (ADR-0026) · ⬜ live check on `local-ingress` |
 | Compliance & evidence | ✅ | audit log, versioned workflows, approvals, sealed evidence manifest (ADR-0023) · ⬜ SSDF / ISO 42001 mapping on demand |
 
-**Headline:** generated apps are strong on security, maintainability and evidence, partial on reliability, operability, interoperability and portability, and uncovered on performance, cost and usability. They are also one stack only. Stack packs (ADR-0041) come next: the same Level 3 in every stack, and `a11y` as the first usability signal.
+**Headline:** generated apps are strong on security, maintainability and evidence, partial on reliability, operability, interoperability, portability and usability (web apps only), and uncovered on performance and cost. They come in two stacks with the same Level 3 (ADR-0041): FastAPI services and Next.js web apps, whose `a11y` check is the first usability signal.
 
 ## Roadmap
 - **Done:**
@@ -150,8 +150,8 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
     - lanes, phase registry, capability boundaries and the builder (ADR-0039);
     - product work ledger (ADR-0040).
 - **Next:** stack packs (ADR-0041):
-  - FastAPI extracted as pack #1;
-  - Next.js web app with `a11y`;
+  - ✅ FastAPI extracted as pack #1;
+  - ✅ Next.js web app with `a11y`;
   - React SPA;
   - per-pack evaluation;
   - then full-stack.

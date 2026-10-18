@@ -226,13 +226,16 @@ class HelmProvider:
             return StepResult(False, "deployment failed", res.output[-2500:])
         url = self.public_url(ctx)
         smoke = await ctx.cmd(
-            f"for i in $(seq 1 30); do {self._curl(url + '/healthz')} && exit 0; sleep 2; done; exit 1", timeout=90
+            f"for i in $(seq 1 30); do {self._curl(url + ctx.blueprint.health_path)} && exit 0; sleep 2; done; exit 1",
+            timeout=90,
         )
         if not smoke.ok:
             return StepResult(
-                False, f"deployed, but {url}/healthz did not answer through the ingress", smoke.output[-2500:]
+                False,
+                f"deployed, but {url}{ctx.blueprint.health_path} did not answer through the ingress",
+                smoke.output[-2500:],
             )
-        return StepResult(True, f"deployed {image} to {ns}; {url}/healthz ok", data={"url": url})
+        return StepResult(True, f"deployed {image} to {ns}; {url}{ctx.blueprint.health_path} ok", data={"url": url})
 
     async def diagnostics(self, ctx: StationContext) -> str:
         env = self._env(ctx, "diagnostics")

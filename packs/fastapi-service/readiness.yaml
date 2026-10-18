@@ -43,3 +43,11 @@ signals:
   tracing:
     check: {contains: {glob: "app/**/*.py", text: opentelemetry}}
     hint: keep OpenTelemetry setup (app/observability.py)
+
+# How tests name the requirements they cover (traceability, ADR-0017): the first group of
+# `pattern` holds the ids, read with `ids`. `requirements_traced` and the traceability matrix use it.
+requirement_tags:
+  files: ["tests/**/*.py"]
+  pattern: '\breq\(([^)]*)\)'
+  ids: '["''](R\d+)["'']'
+  example: '@pytest.mark.req("R1")'

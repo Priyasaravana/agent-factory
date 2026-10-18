@@ -157,6 +157,7 @@ class Preflight:
             checks.append(self._workflow(pl))
             return self._view(pl, env.environment, checks, start)
         checks.append(await self._docker_disk(live))  # only products that are built need it
+        checks.append(self._toolchain(pl))
         # one check per distinct integration, reported under the capabilities it serves
         by_integration: dict[str, list[str]] = {}
         for cap in ("registry", "deploy", "scan", "publish"):
@@ -311,6 +312,33 @@ class Preflight:
             state,
             [f"{len(usable)} free app port(s)", *mapped_note],
             blocks=["product"],
+        )
+
+    def _toolchain(self, pl: str) -> CheckView:
+        """The sandbox image provides what the blueprint's stack pack needs (ADR-0041 §4)."""
+        from agent_factory.sandbox import toolchain
+
+        pack = self.m.cfg.blueprints[pl].pack_binding
+        if pack is None or not pack.toolchain:
+            return _check("toolchain", "Stack toolchain", "agents", "ready", ["no toolchain declared"], blocks=[])
+        layers = toolchain.layers_for(
+            bp.pack_binding.toolchain for bp in self.m.cfg.blueprints.values() if bp.pack_binding
+        )
+        if gaps := toolchain.missing(pack.toolchain, toolchain.from_home(self.m.ws.factory_home), layers):
+            return _check(
+                "toolchain",
+                "Stack toolchain",
+                "agents",
+                "failed",
+                [f"pack {pack.source} needs {', '.join(gaps)}, which the sandbox image does not provide"],
+            )
+        return _check(
+            "toolchain",
+            "Stack toolchain",
+            "agents",
+            "ready",
+            [f"{pack.source}: {', '.join(pack.toolchain)}"],
+            blocks=[],
         )
 
     def _scanner(self, scan_command: str | None) -> CheckView:

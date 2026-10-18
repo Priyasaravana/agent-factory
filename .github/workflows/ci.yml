@@ -47,9 +47,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - uses: azure/setup-helm@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: cd packs/fastapi-service/template && make verify
       - run: helm lint packs/fastapi-service/template/deploy/chart
       - run: helm template t packs/fastapi-service/template/deploy/chart > /dev/null
+      # stack pack #2 (ADR-0041): the Next.js template meets its own bar, and its chart renders
+      - run: cd packs/nextjs-web/template && make verify
+      - run: helm lint packs/nextjs-web/template/deploy/chart
+      - run: |
+          helm template t packs/nextjs-web/template/deploy/chart | grep -q 'path: /api/healthz'
       # the cluster target (helm provider, ADR-0026): ClusterIP + an Ingress with TLS and a pull secret
       - run: |
           helm template t packs/fastapi-service/template/deploy/chart --set service.type=ClusterIP \
@@ -108,7 +116,8 @@ jobs:
       - name: build the sandbox image
         run: |
           cd engine && FACTORY_HOME=.. uv run --python 3.12 agent-factory sandbox context --out /tmp/sandbox-ctx
-          docker build -t af-sandbox:ci /tmp/sandbox-ctx
+          # with the layers the installed packs ask for (Chromium for nextjs-web), as the engine builds it
+          docker build $(cat /tmp/sandbox-ctx/build-args) -t af-sandbox:ci /tmp/sandbox-ctx
           docker run --rm af-sandbox:ci sh -c 'claude --version && uv python list --only-installed'
       - name: the sandbox verifies the golden path as the sandbox user, without interpreter downloads
         run: |
@@ -117,6 +126,16 @@ jobs:
             --tmpfs /tmp:rw,exec,mode=1777 --tmpfs /home/agent:rw,exec,uid=10001,gid=10001 \
             -e HOME=/home/agent -e UV_PYTHON_DOWNLOADS=never \
             -v "$work:/work" -w /work af-sandbox:ci make verify
+      - name: the sandbox verifies the Next.js template and runs its e2e + accessibility tests with its Chromium
+        run: |
+          work=$(mktemp -d) && cp -r packs/nextjs-web/template/. "$work" && chmod -R a+rwX "$work"
+          docker run --rm --user 10001:10001 --read-only --cap-drop ALL \
+            --tmpfs /tmp:rw,exec,mode=1777 --tmpfs /home/agent:rw,exec,uid=10001,gid=10001 \
+            -e HOME=/home/agent -v "$work:/work" -w /work af-sandbox:ci sh -c '
+              make verify &&
+              cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/ &&
+              (cd .next/standalone && PORT=3000 HOSTNAME=127.0.0.1 node server.js &) && sleep 3 &&
+              make e2e BASE_URL=http://127.0.0.1:3000'
 
   # The whole stack, as a user sees it, in dry-run (no model usage, so free):
   # compose up, sandbox isolation from inside a real sandbox, then a browser

@@ -28,10 +28,11 @@ from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, 
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware
 from agent_factory.models import TERMINAL, ChangeStatus
+from agent_factory.packs import Pack
 from agent_factory.packs import install as install_packs
 from agent_factory.phases import load_phases
 from agent_factory.providers import Providers
-from agent_factory.sandbox import SandboxManager
+from agent_factory.sandbox import SandboxManager, toolchain
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.skills import SkillError, SkillLibrary
@@ -67,7 +68,14 @@ def effective_sandbox(cfg: FactoryConfig) -> SandboxConfig:
     return cfg.sandbox.model_copy(update={"egress": egress, "routes": routes, "model_endpoint": egress[0]})
 
 
-def sandbox_for(cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Path) -> SandboxManager | None:
+def sandbox_layers(packs: list[Pack]) -> list[str]:
+    """The optional sandbox image layers the installed stack packs ask for (ADR-0041 §4)."""
+    return toolchain.layers_for(p.stack.toolchain for p in packs if p.stack)
+
+
+def sandbox_for(
+    cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Path, packs: list[Pack] | None = None
+) -> SandboxManager | None:
     mode = settings.agent_sandbox or cfg.sandbox.mode
     if mode == "off":
         log.warning(
@@ -76,7 +84,7 @@ def sandbox_for(cfg: FactoryConfig, settings: Settings, home: Path, data_dir: Pa
         )
         return None
     cfg.sandbox = effective_sandbox(cfg)
-    return SandboxManager(cfg.sandbox, home, data_dir)
+    return SandboxManager(cfg.sandbox, home, data_dir, layers=sandbox_layers(packs or []))
 
 
 def build_factory(
@@ -133,7 +141,7 @@ def build_factory(
             ) from exc
         raise  # first start: template -> workflow v1 per blueprint (never overwrites)
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
-    sandbox = sandbox_for(cfg, settings, home, data_dir) if live else None
+    sandbox = sandbox_for(cfg, settings, home, data_dir, installed) if live else None
     factory.sandbox = sandbox
     gateway = build_gateway(cfg.model_gateway, secrets) if live else DirectGateway()
     if agents is None:

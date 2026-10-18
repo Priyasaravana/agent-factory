@@ -14,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_factory.executor import CommandResult, Executor, LocalExecutor
+from agent_factory.packs import IGNORED
 
 
 def render_codeowners(repo: Path, owner: str) -> None:
@@ -74,7 +75,8 @@ class Workspace:
             return repo
         src = self.factory_home / template
         repo.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, repo, dirs_exist_ok=True)
+        # build leftovers in the factory's own copy of a template (node_modules, .venv, …) stay out
+        shutil.copytree(src, repo, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*IGNORED))
         render_codeowners(repo, owner)
         await self.git("init -q -b main", repo)
         await self.git("add -A", repo)

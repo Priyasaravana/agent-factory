@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    ignore:
+      # the factory's sandbox ships the Chromium for one Playwright version; move both together
+      - dependency-name: "@playwright/test"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }

@@ -38,8 +38,16 @@ def _node_pack(tmp_path: Path) -> Path:
     return dst
 
 
+def _only_fastapi(cfg):
+    """The shipped config without the Next.js stack, so each test chooses its second stack."""
+    cfg.packs = [p for p in cfg.packs if not p.endswith("nextjs-web")]
+    cfg.blueprints.pop("nextjs-web", None)
+    return cfg
+
+
 @pytest.fixture
 def two_stacks(cfg, tmp_path):
+    _only_fastapi(cfg)
     cfg.packs.append(str(_node_pack(tmp_path)))  # absolute: joined onto the factory home as is
     api = cfg.blueprints["fastapi-service"]
     cfg.blueprints["node-web"] = Blueprint(
@@ -152,5 +160,18 @@ async def test_after_the_first_build_the_stack_no_longer_switches(two_stacks, ma
         await f.manager.switch_stack(second.id, "node-web", "ann")
 
 
-def test_without_another_stack_nothing_is_offered(make_factory):
+def test_without_another_stack_nothing_is_offered(cfg, make_factory):
+    _only_fastapi(cfg)
     assert [c.blueprint for c in get_config(make_factory()).stacks] == ["fastapi-service"]
+
+
+def test_the_shipped_stacks_offer_next_js_for_a_node_request(make_factory):
+    """ADR-0041 step 3: with the nextjs-web pack installed, a request that needs Node.js or Next.js
+    is offered that stack instead of only "build it in Python or cancel"."""
+    cards = {c.blueprint: c for c in get_config(make_factory()).stacks}
+    assert list(cards) == ["fastapi-service", "nextjs-web"]
+    web = cards["nextjs-web"]
+    assert (web.title, web.builds, web.pack) == ("Next.js web app", "web-app", "nextjs-web@1.0.0")
+    techs = {c.blueprint: c.technologies for c in cards.values()}
+    assert stack.switch_options(["Next.js"], techs) == stack.switch_options(["TypeScript"], techs) == ["nextjs-web"]
+    assert stack.switch_options(["FastAPI"], techs) == ["fastapi-service"]

@@ -209,6 +209,7 @@ class StationContext:
             output_schema=schema,
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
+            egress=list(self.blueprint.pack_egress),
         )
         call = AgentCall(
             self.ws.data_dir / "artifacts" / self.change.id,
@@ -624,7 +625,7 @@ async def implement(ctx: StationContext) -> StationResult:
 Read AGENTS.md first. Write tests alongside code. `{ctx.blueprint.verify_command}` must pass.
 Acceptance scenarios to satisfy: tests/acceptance/scenarios.yaml.
 Traceability: tag every test with the requirement ids it covers, e.g.
-`@pytest.mark.req("R1", "R3")` (ids from docs/requirements.yaml). Every requirement
+{_tag_hint(ctx)} (ids from docs/requirements.yaml). Every requirement
 needs at least one tagged test; the Quality gate station checks this.
 
 {_work_item(ctx)}{"## Fix this failure from a downstream station (evidence only):" + chr(10) + fix if fix else ""}"""
@@ -635,6 +636,19 @@ needs at least one tagged test; the Quality gate station checks this.
         return StationResult(StationOutcome.failed, "developer agent failed", res.error)
     await ctx.ws.commit_all(ctx.worktree, "feat: implementation" + (" (fix)" if fix else ""))
     return StationResult(StationOutcome.passed, "implementation committed")
+
+
+def _tags(ctx: StationContext) -> traceability.TagRule:
+    """How this product's stack tags tests with requirement ids (its pack's `requirement_tags`)."""
+    rules = ctx.blueprint.readiness_rules
+    return rules.tags if rules else traceability.PYTEST_TAGS
+
+
+def _tag_hint(ctx: StationContext) -> str:
+    tags = _tags(ctx)
+    if tags.example == traceability.PYTEST_TAGS.example:
+        return '`@pytest.mark.req("R1", "R3")`'  # the wording the evaluation suites measured
+    return f"`{tags.example}` (one tag per requirement id; a test may carry several)"
 
 
 # -------------------------------------------------------------------- test --
@@ -831,6 +845,8 @@ async def acceptance(ctx: StationContext) -> StationResult:
         return StationResult(
             StationOutcome.held, "no holdout scenarios found — cannot verify", "missing holdout evidence"
         )
+    if failed_e2e := await _run_e2e(ctx):
+        return failed_e2e
     prompt = f"""Independently verify the LIVE app at {internal_url(ctx)} against these holdout
 scenarios. Exercise each one with real HTTP calls (curl). Record concrete evidence
 (status codes, bodies). Do not read or trust the builder's code or claims first.
@@ -857,9 +873,28 @@ scenarios. Exercise each one with real HTTP calls (curl). Record concrete eviden
     )
 
 
+async def _run_e2e(ctx: StationContext) -> StationResult | None:
+    """The stack pack's own end-to-end suite against the deployed app (ADR-0041 §1), before the
+    independent verifier: the builder's tests, so their output may go back to the builder. In the
+    web packs it also runs the accessibility check (`a11y`). None: passed, or the pack has none."""
+    command = ctx.blueprint.e2e_command
+    if not command:
+        return None
+    res = await ctx.cmd(command.replace("{url}", internal_url(ctx)), timeout=900, untrusted=True)
+    if not res.ok:
+        await ctx.emit(EventKind.decision, "end-to-end tests failed against the live app", {"e2e": {"ok": False}})
+        return StationResult(
+            StationOutcome.failed,
+            "end-to-end tests failed against the live app",
+            f"`{res.command}` exited {res.returncode}:\n{res.output[-4000:]}",
+        )
+    await ctx.emit(EventKind.decision, "end-to-end tests passed against the live app", {"e2e": {"ok": True}})
+    return None
+
+
 async def _record_traceability(ctx: StationContext, holdout_file: Path, results: list[dict[str, Any]]) -> None:
     """Requirement -> scenarios -> tests -> live result, as evidence and as a file."""
-    rows = traceability.matrix(ctx.worktree, traceability.scenarios(holdout_file), results)
+    rows = traceability.matrix(ctx.worktree, traceability.scenarios(holdout_file), results, _tags(ctx))
     if not rows:
         return
     verified = [r for r in rows if r["holdout"] and all(h["passed"] for h in r["holdout"])]
@@ -932,7 +967,7 @@ You are observe-only: read files and use read-only git (`git diff main...HEAD`, 
 {earlier or "nothing: this is the first review of this iteration"}
 
 For each requirement report `implemented`, `partial` or `missing`, and `where`: the file
-and function that implement it and the test tagged @pytest.mark.req("<id>") that covers
+and function that implement it and the test tagged {traceability.tag_example(_tags(ctx), "<id>")} that covers
 it. Read docs/spec.md and docs/design.md for intent.
 Findings: `blocker` or `major` only for concrete defects that break a requirement, the
 design or the API contract (docs/openapi.yaml); style and nice-to-haves are `minor`.

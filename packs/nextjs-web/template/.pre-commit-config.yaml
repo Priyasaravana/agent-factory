@@ -1,0 +1,19 @@
+# Run `uvx pre-commit install` (or `pipx run pre-commit install`) once; the same checks run in CI
+# and in the factory.
+repos:
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npx eslint --max-warnings=0
+        language: system
+        files: \.(ts|tsx|mjs)$
+      - id: prettier
+        name: prettier
+        entry: npx prettier --check
+        language: system
+        types_or: [ts, tsx, javascript, json, css, markdown, yaml]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks

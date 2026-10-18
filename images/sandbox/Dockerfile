@@ -36,6 +36,21 @@ RUN set -e; \
     done; \
     chmod -R a+rX /opt/python && uv python list --only-installed
 
+# Optional layers (ADR-0041 §4): built only when an installed stack pack lists them in its
+# `toolchain`; the engine passes them as BROWSERS (agent_factory.sandbox.toolchain). Chromium is
+# installed for the Playwright version below, which a web pack's template pins exactly
+# (engine/tests/test_nextjs_pack.py checks they match).
+ARG BROWSERS=""
+ARG PLAYWRIGHT_VERSION="1.64.1"
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN set -e; \
+    case ",${BROWSERS}," in \
+      *,chromium,*) \
+        npx -y "playwright@${PLAYWRIGHT_VERSION}" install --with-deps --only-shell chromium \
+        && rm -rf /var/lib/apt/lists/* /root/.npm && chmod -R a+rX /opt/pw-browsers ;; \
+    esac
+
 COPY claude /usr/local/bin/claude
 COPY plugin /opt/factory/plugin
 COPY egress.py /opt/egress.py
