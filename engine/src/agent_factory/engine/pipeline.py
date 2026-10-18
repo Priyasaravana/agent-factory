@@ -927,7 +927,11 @@ class ChangeManager:
             await self.ws.ensure_product_repo(product.slug, blueprint.template or "", owner)
             worktree = await self.ws.create_worktree(product.slug, change.id)
             self._record_pack(change, blueprint)
-        deadline = change.created_at + timedelta(minutes=self.cfg.budgets.change_wall_clock_minutes)
+        # The budget is for this run of the change: it starts now, and again whenever a person
+        # approves, answers or resumes it. Time spent waiting for a person never counts against
+        # the agents (a change that waited longer than the budget could otherwise never run again).
+        budget = self.cfg.budgets.change_wall_clock_minutes
+        deadline = _now() + timedelta(minutes=budget)
 
         plan = flow.plan()
         if change.current_station:  # the plan and entry artifacts, once per change (ADR-0037 §2, §4)
@@ -962,7 +966,8 @@ class ChangeManager:
             sid = change.current_station
             station = flow.station(sid)
             if _now() > deadline and change.status != ChangeStatus.needs_input:
-                return self._hold(change, sid, "wall-clock budget exhausted")
+                why = f"this run used its {budget}-minute time budget; resume to give it another"
+                return self._hold(change, sid, why)
             change.attempts[sid] = change.attempts.get(sid, 0) + 1
             if change.attempts[sid] > self.cfg.budgets.max_attempts_per_station:
                 return self._hold(change, sid, f"station '{sid}' exceeded its attempt budget")

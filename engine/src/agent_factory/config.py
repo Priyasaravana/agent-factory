@@ -139,6 +139,7 @@ class Budgets(BaseModel):
     max_loops_per_change: int = Field(
         default=6, validation_alias=AliasChoices("max_loops_per_change", "max_loops_per_run")
     )
+    # time budget per run of a change; it restarts when a person approves, answers or resumes it
     change_wall_clock_minutes: int = Field(
         default=120, validation_alias=AliasChoices("change_wall_clock_minutes", "run_wall_clock_minutes")
     )
