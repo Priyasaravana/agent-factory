@@ -126,6 +126,23 @@ jobs:
             --tmpfs /tmp:rw,exec,mode=1777 --tmpfs /home/agent:rw,exec,uid=10001,gid=10001 \
             -e HOME=/home/agent -e UV_PYTHON_DOWNLOADS=never \
             -v "$work:/work" -w /work af-sandbox:ci make verify
+      - name: the Next.js template's image builds, runs as non-root and answers its health check
+        run: |
+          docker build -t af-nextjs-template:ci packs/nextjs-web/template
+          test "$(docker image inspect -f '{{.Config.User}}' af-nextjs-template:ci)" = nonroot
+          docker run -d --name nextjs-ci -p 3000:3000 af-nextjs-template:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:3000/api/healthz && break; sleep 1; done
+          curl -fsS http://localhost:3000/api/healthz && docker rm -f nextjs-ci
+      # The factory's Build station refuses an image with a fixable CRITICAL CVE. Advisory here: a new
+      # upstream CVE should show up as a warning on the next PR, not block unrelated work.
+      - name: the template images pass the factory's image scan (advisory)
+        continue-on-error: true
+        run: |
+          docker build -t af-fastapi-template:ci packs/fastapi-service/template
+          for img in af-nextjs-template:ci af-fastapi-template:ci; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+              --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed "$img"
+          done
       - name: the sandbox verifies the Next.js template and runs its e2e + accessibility tests with its Chromium
         run: |
           work=$(mktemp -d) && cp -r packs/nextjs-web/template/. "$work" && chmod -R a+rwX "$work"

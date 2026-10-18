@@ -168,7 +168,11 @@
   `tests/test_tools.py` on its real output format. Never keep or log a tool's raw output:
   only normalised findings, without matched text. Service tokens are references passed
   through the environment. Agent findings are judged by `checks.judge_agent` (real files,
-  capped at high).
+  capped at high). Every scanner (secret scan, scan stations, repo scan) reads
+  `stations.committed_files`: a copy of the tracked and new non-ignored files, never the worktree,
+  so dependencies and build output are not reported as the product's findings
+  (`tests/test_scan_scope.py`). A diff that adds or edits a scanner's exclusions (`.gitleaks.toml`,
+  `.trivyignore`, …: `risk.SCANNER_EXCLUSIONS`) is held for a person (category 2).
 - Model access goes through the gateway seam (ADR-0036, `gateway.py`): `ClaudeAgentRunner`
   opens a gateway session per agent call (a virtual key behind a gateway) and closes it in
   a `finally`. A sandbox never gets a credential the session withholds
