@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.1.0
+version: 1.1.1
 title: Next.js web app
 stack:
   builds: web-app
