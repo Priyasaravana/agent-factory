@@ -4492,6 +4492,20 @@
             "type": "string",
             "title": "Assessed At",
             "default": ""
+          },
+          "stack_packs": {
+            "items": {
+              "$ref": "#/components/schemas/StackMatch"
+            },
+            "type": "array",
+            "title": "Stack Packs"
+          },
+          "pack_signals": {
+            "items": {
+              "$ref": "#/components/schemas/PackAdvisory"
+            },
+            "type": "array",
+            "title": "Pack Signals"
           }
         },
         "type": "object",
@@ -7162,6 +7176,90 @@
         ],
         "title": "OutcomesView"
       },
+      "PackAdvisory": {
+        "properties": {
+          "pack": {
+            "type": "string",
+            "title": "Pack"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
+          "met": {
+            "type": "integer",
+            "title": "Met",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/PackAdvisorySignal"
+            },
+            "type": "array",
+            "title": "Signals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pack",
+          "version",
+          "title"
+        ],
+        "title": "PackAdvisory",
+        "description": "How one folder of a team repo measures against a detected pack's golden path (ADR-0041 \u00a75).\nAdvisory: never part of the repo's Level."
+      },
+      "PackAdvisorySignal": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "level": {
+            "type": "integer",
+            "title": "Level"
+          },
+          "pillar": {
+            "type": "string",
+            "title": "Pillar"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "level",
+          "pillar",
+          "ok"
+        ],
+        "title": "PackAdvisorySignal"
+      },
       "PhaseInfo": {
         "properties": {
           "id": {
@@ -7511,6 +7609,13 @@
               }
             ],
             "title": "Pack"
+          },
+          "stack_matches": {
+            "items": {
+              "$ref": "#/components/schemas/StackMatch"
+            },
+            "type": "array",
+            "title": "Stack Matches"
           }
         },
         "type": "object",
@@ -8531,6 +8636,49 @@
         ],
         "title": "StackCard",
         "description": "One choice on the create form's \"What are you building?\" (ADR-0041 \u00a72): a blueprint that\nbuilds new products, described by the stack pack it builds with."
+      },
+      "StackMatch": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": ""
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
+          "matched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched"
+          },
+          "egress": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Egress"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version"
+        ],
+        "title": "StackMatch",
+        "description": "A stack pack recognised in a team repo (ADR-0041 \u00a75): guidance for one folder, never rules."
       },
       "StartEvalInput": {
         "properties": {

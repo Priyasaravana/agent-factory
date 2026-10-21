@@ -904,6 +904,30 @@ def _issue_lines(items: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _where(folder: str) -> str:
+    return f"`{folder}/`" if folder else "the repository root"
+
+
+def _pack_lines(matches: list[dict[str, Any]], guidance: list[dict[str, Any]]) -> list[str]:
+    """Detected stack packs and how each folder measures against them (ADR-0041 §5): advisory."""
+    lines = ["", "## Stack packs (advisory)", ""]
+    if not matches:
+        return [*lines, "No installed stack pack matches: changes run in generic mode."]
+    lines += [
+        "Detected from the repo's files. Their skills guide this repo's changes; the repo's own CI and "
+        "conventions win. These signals are not part of the Level above.",
+        "",
+    ]
+    for g in guidance:
+        lines += [f"### {g['title']} ({g['pack']}@{g['version']}) in {_where(g['folder'])}: "
+                  f"{g['met']}/{g['total']} golden-path signals", ""]  # fmt: skip
+        lines += [
+            f"- {'✅' if s['ok'] else '❌'} {s['title']}" + ("" if s["ok"] else f": {s['hint']}") for s in g["signals"]
+        ]
+        lines.append("")
+    return lines
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     """The assessment as people read it (artifacts/<change>/assessment.md)."""
     r = report
@@ -930,6 +954,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     for s in card["signals"]:
         fix = "" if s["ok"] else s["hint"]
         lines.append(f"| {'✅' if s['ok'] else '❌'} | {s['title']} | {s['level']} | {s['pillar']} | {fix} |")
+    lines += _pack_lines(r.get("stack_packs", []), r.get("pack_signals", []))
     if "issues" in r:  # every station's findings, deduplicated (rollup.py)
         lines += _coverage_lines(r["coverage"]) + _issue_lines(r["issues"])
     else:

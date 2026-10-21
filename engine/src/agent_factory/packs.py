@@ -31,13 +31,15 @@ SHA-256 of its folder (`folder_sha256`) in its provenance and sealed evidence.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 from agent_factory.readiness import RuleError, StackRules, parse_stack_rules
 
@@ -84,8 +86,17 @@ class PackDetect(BaseModel):
     """How a team repo is recognised as this stack (ADR-0041 §5)."""
 
     model_config = ConfigDict(extra="forbid")
-    files: list[str] = Field(default_factory=list)
-    deps: list[str] = Field(default_factory=list)
+    files: list[str] = Field(default_factory=list)  # paths relative to the folder, e.g. package.json
+    deps: list[str] = Field(default_factory=list)  # declared in one of those files, e.g. next
+
+    @field_validator("files")
+    @classmethod
+    def _inside_repo(cls, v: list[str]) -> list[str]:
+        for f in v:
+            parts = PurePosixPath(f).parts
+            if not f or f.startswith(("/", "~")) or "\\" in f or ".." in parts or any(c in f for c in "*?["):
+                raise ValueError(f"detect.files: '{f}' must be a plain file path inside the repo")
+        return v
 
 
 class PackStack(BaseModel):
@@ -261,6 +272,7 @@ class PackBinding:
     e2e: str | None = None  # the pack's end-to-end command; {url}: the deployed app
     egress: tuple[str, ...] = ()  # added to this pack's products' sandboxes only (ADR-0041 §7)
     toolchain: tuple[str, ...] = ()  # what the sandbox image must provide (ADR-0041 §4)
+    detect: PackDetect = field(default_factory=PackDetect)  # how a team repo is recognised (§5)
 
     @property
     def source(self) -> str:
@@ -314,26 +326,32 @@ def bind(cfg: FactoryConfig, packs: list[Pack], home: Path) -> None:
                 overrides[key] = {"pack": value, "config": current}
             else:
                 setattr(bp, key, value)
-        skill = pack.path(pack.stack.skill) / "SKILL.md" if pack.stack.skill else None
-        bp.bind_pack(
-            PackBinding(
-                pack.id,
-                pack.version,
-                pack.sha256,
-                pack.title,
-                pack.stack.builds,
-                pack.skill_name,
-                skill,
-                pack.rules,
-                overrides,
-                pack.stack.summary,
-                pack.stack.health.live,
-                pack.stack.health.ready,
-                pack.stack.e2e,
-                tuple(pack.stack.egress),
-                tuple(pack.stack.toolchain),
-            )
-        )
+        bp.bind_pack(binding_of(pack, overrides))
+
+
+def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -> PackBinding:
+    """What the engine keeps of an installed stack pack at run time."""
+    stack = pack.stack
+    assert stack is not None  # noqa: S101 - stack packs only
+    skill = pack.path(stack.skill) / "SKILL.md" if stack.skill else None
+    return PackBinding(
+        pack.id,
+        pack.version,
+        pack.sha256,
+        pack.title,
+        stack.builds,
+        pack.skill_name,
+        skill,
+        pack.rules,
+        overrides or {},
+        stack.summary,
+        stack.health.live,
+        stack.health.ready,
+        stack.e2e,
+        tuple(stack.egress),
+        tuple(stack.toolchain),
+        stack.detect,
+    )
 
 
 def install(cfg: FactoryConfig, home: Path) -> list[Pack]:
@@ -344,4 +362,131 @@ def install(cfg: FactoryConfig, home: Path) -> list[Pack]:
     if dupes := sorted({i for i in ids if ids.count(i) > 1}):
         raise PackError(f"packs listed twice: {', '.join(dupes)}")
     bind(cfg, packs, home)
+    cfg.bind_stack_packs({p.id: binding_of(p) for p in packs if p.stack is not None})
     return packs
+
+
+# ------------------------------------------------- team repos (ADR-0041 §5) --
+# folders one level down that are never a stack's home
+_SKIP_FOLDERS = IGNORED | {"docs", "doc", "vendor", "dist", "build", "out", "target", "tmp"}
+MAX_FOLDERS = 60  # a repo with more top-level folders than this is scanned at the root and these
+
+
+@dataclass(frozen=True)
+class Match:
+    """A stack pack recognised in a team repo: guidance for the folder it was found in."""
+
+    id: str
+    version: str
+    title: str
+    folder: str  # "" = the repository root
+    matched: tuple[str, ...]  # the files and dependencies that matched
+    egress: tuple[str, ...] = ()  # what the repo's sandboxes may reach for this pack (§7)
+
+    def as_data(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "version": self.version,
+            "title": self.title,
+            "folder": self.folder,
+            "matched": list(self.matched),
+            "egress": list(self.egress),
+        }
+
+
+def _candidate_folders(root: Path) -> list[str]:
+    """The root, then each folder one level down (sorted), without caches, docs or build output."""
+    try:
+        subs = sorted(
+            d.name
+            for d in root.iterdir()
+            if d.is_dir() and not d.is_symlink() and not d.name.startswith(".") and d.name not in _SKIP_FOLDERS
+        )
+    except OSError:
+        subs = []
+    return ["", *subs[:MAX_FOLDERS]]
+
+
+def _declared(path: Path) -> str | set[str]:
+    """What a manifest declares: package names from a package.json, else its text (pyproject.toml,
+    requirements.txt and other manifests are searched for the name as a word)."""
+    text = path.read_text(errors="replace") if path.is_file() and not path.is_symlink() else ""
+    if path.name != "package.json":
+        return text.lower()
+    try:
+        data = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        return set()
+    names: set[str] = set()
+    for key in ("dependencies", "devDependencies", "peerDependencies"):
+        if isinstance(data, dict) and isinstance(data.get(key), dict):
+            names |= {str(k).lower() for k in data[key]}
+    return names
+
+
+def _declares(found: str | set[str], dep: str) -> bool:
+    dep = dep.lower()
+    if isinstance(found, set):
+        return dep in found
+    return re.search(rf"(?<![\w.-]){re.escape(dep)}(?![\w-])", found) is not None
+
+
+def detect(packs: list[PackBinding], root: Path) -> list[Match]:
+    """Which installed stack packs a team repo is built with (ADR-0041 §5), at the root and one
+    folder down. A pack matches a folder when every `detect.files` entry is there and every
+    `detect.deps` entry is declared in one of those files. A pack found at the root is not
+    looked for again below it. Pure: reads files, runs nothing."""
+    out: list[Match] = []
+    folders = _candidate_folders(root)
+    for pack in sorted(packs, key=lambda b: b.id):
+        rule = pack.detect
+        if not rule.files:
+            continue  # a pack that says nothing about how to recognise it is never guessed
+        for folder in folders:
+            base = root / folder if folder else root
+            manifests = [base / f for f in rule.files]
+            if not all(m.is_file() and not m.is_symlink() for m in manifests):
+                continue
+            declared = [_declared(m) for m in manifests]
+            if not all(any(_declares(d, dep) for d in declared) for dep in rule.deps):
+                continue
+            where = f"{folder}/" if folder else ""
+            matched = tuple([*(where + f for f in rule.files), *rule.deps])
+            out.append(Match(pack.id, pack.version, pack.title or pack.id, folder, matched, pack.egress))
+            if not folder:
+                break
+    return sorted(out, key=lambda m: (m.folder, m.id))
+
+
+def advisory(pack: PackBinding, root: Path, folder: str) -> dict[str, Any]:
+    """How one folder of a team repo measures against a detected pack's golden path: the pack's
+    stack-specific signals and its own (ADR-0041 §5). Advisory: never part of the repo's Level,
+    which stays stack-neutral (`assess.score`). Pure: reads files, runs nothing."""
+    from agent_factory.readiness import STACK_SIGNALS, score
+
+    rules = pack.rules
+    signals: list[dict[str, Any]] = []
+    if rules is not None:
+        base = root / folder if folder else root
+        own = set(STACK_SIGNALS) | {s.id for s in rules.extra}
+        signals = [
+            {
+                "id": s.id,
+                "title": s.title,
+                "level": s.level,
+                "pillar": s.pillar,
+                "ok": ok,
+                "hint": "" if ok else s.hint,
+            }
+            for s, ok in score(base, None, rules).results
+            if s.id in own
+        ]
+    return {
+        "pack": pack.id,
+        "version": pack.version,
+        "title": pack.title or pack.id,
+        "folder": folder,
+        "met": sum(1 for s in signals if s["ok"]),
+        "total": len(signals),
+        "signals": signals,
+    }

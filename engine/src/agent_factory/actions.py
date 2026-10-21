@@ -359,6 +359,8 @@ def get_change_assessment(f: Factory, change_id: str) -> AssessmentView:
         agents_md=d.get("agents_md", ""),
         markdown=md.read_text() if md.is_file() else "",
         assessed_at=d.get("assessed_at", ""),
+        stack_packs=d.get("stack_packs", []),
+        pack_signals=d.get("pack_signals", []),
     )
 
 

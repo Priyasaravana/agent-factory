@@ -108,10 +108,22 @@ The config may override a pack field. An override is recorded in the change's ev
 - Preflight refuses a pack whose toolchain the sandbox image lacks.
 
 ### 5. Team repos
-- **Detection:** on onboarding, the pack is detected from its `detect` rules, using `assess.detect_stack`.
+- **Detection** (settled 2026-10-21): the onboard station matches every installed stack pack's
+  `detect` rules (`packs.detect`, pure) **at the repo root and one folder down** (`web/`, `api/`;
+  hidden folders, `docs/`, dependency and build folders are skipped). A pack matches a folder when
+  every `detect.files` entry is a regular file there (symlinks are not read) and every `detect.deps`
+  entry is declared in one of them. A pack found at the root is not looked for below it.
+  `detect.files` are plain paths inside the repo, checked at pack load.
+- **Every match is kept, by folder** (`Product.stack_matches`): a monorepo with Next.js in `web/`
+  and FastAPI in `api/` gets both. Detected again **at every assessment**; a change from last time
+  is a decision event. The product names no `pack`: the repo's build stays its own.
 - **A match gives guidance, not rules:**
-  - the change's agents get the pack's skill, but the repo's own CI, AGENTS.md and conventions win;
-  - the pack's signals appear in the assessment as advisory.
+  - the design, develop (`repo-implement`) and fix agents get each matched pack's skill, labelled
+    with its folder and "the repository's own CI, AGENTS.md and conventions win";
+  - the pack's stack-specific signals and its own (e.g. `a11y`) are scored per folder as
+    **advisory** (`packs.advisory`, pure): shown in the assessment's Stack packs tab and report,
+    never part of the repo's Level, which stays stack-neutral;
+  - the matched packs' `egress` is added to **that product's** sandboxes only, and shown on its page.
 - **No match:** the change runs in generic mode, as today.
 - **The pack replaces nothing** in a team repo's build.
 
@@ -152,7 +164,7 @@ Mapped to [practices.md](../practices.md).
 | §1 Code quality | Stack logic leaves `readiness.py`; the engine keeps a small rule interpreter. |
 | §2 DORA: quality internal platform | One golden path per stack: template, skill and checks together. |
 | §3 OWASP agentic: supply chain | Admin install, version + SHA-256 in evidence, pinned skills. |
-| §3 OWASP agentic: tool misuse | Pack egress is per product, shown at install. |
+| §3 OWASP agentic: tool misuse | Pack egress is per product, shown at install; a team repo gets only its detected packs' egress, shown on its page. |
 | §4 SLSA | Pack id, version and hash are part of each change's provenance. |
 | §5 Evaluation harness | Per-pack suites; pack versions gated like workflow versions; workflow versions cover every pack. |
 | §7 Quality pillars: usability uncovered | `a11y` with axe in Playwright, in packs 2 and 3. |

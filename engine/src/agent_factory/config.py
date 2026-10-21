@@ -415,6 +415,17 @@ class FactoryConfig(BaseModel):
     # pack.yaml, relative to the factory home. `phases.packs` is read as an alias.
     packs: list[str] = Field(default_factory=list)
 
+    _stack_packs: dict[str, PackBinding] = PrivateAttr(default_factory=dict)
+
+    def bind_stack_packs(self, packs: dict[str, PackBinding]) -> None:
+        """Set by `packs.install`: every installed stack pack, by id, for team repos (ADR-0041 §5)."""
+        self._stack_packs = dict(packs)
+
+    @property
+    def stack_packs(self) -> dict[str, PackBinding]:
+        """The installed stack packs by id (empty until `packs.install` runs)."""
+        return self._stack_packs
+
     @model_validator(mode="after")
     def _fold_pack_alias(self) -> FactoryConfig:
         if self.phases.packs:

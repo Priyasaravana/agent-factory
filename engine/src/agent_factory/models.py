@@ -93,6 +93,17 @@ class EventKind(StrEnum):
 
 
 # ---------------------------------------------------------------- records --
+class StackMatch(BaseModel):
+    """A stack pack recognised in a team repo (ADR-0041 §5): guidance for one folder, never rules."""
+
+    id: str
+    version: str
+    title: str = ""
+    folder: str = ""  # "" = the repository root
+    matched: list[str] = Field(default_factory=list)  # the files and dependencies that matched
+    egress: list[str] = Field(default_factory=list)  # what the repo's sandboxes may reach for it
+
+
 class Product(BaseModel):
     id: str
     title: str
@@ -121,6 +132,9 @@ class Product(BaseModel):
     workflows: dict[str, str] = Field(default_factory=dict)
     # the stack pack it builds with, as `id@version` (ADR-0041 §2); None: a blueprint without a pack
     pack: str | None = None
+    # a team repo (target repo): the stack packs detected at its last assessment, per folder
+    # (ADR-0041 §5). Guidance for its changes' agents and advisory signals; never its build.
+    stack_matches: list[StackMatch] = Field(default_factory=list)
 
 
 class Change(BaseModel):
@@ -853,6 +867,28 @@ class AssessmentSignal(BaseModel):
     hint: str = ""
 
 
+class PackAdvisorySignal(BaseModel):
+    id: str
+    title: str
+    level: int
+    pillar: str
+    ok: bool
+    hint: str = ""
+
+
+class PackAdvisory(BaseModel):
+    """How one folder of a team repo measures against a detected pack's golden path (ADR-0041 §5).
+    Advisory: never part of the repo's Level."""
+
+    pack: str
+    version: str
+    title: str
+    folder: str = ""
+    met: int = 0
+    total: int = 0
+    signals: list[PackAdvisorySignal] = Field(default_factory=list)
+
+
 class AssessmentView(BaseModel):
     """An existing repo's assessment (ADR-0031): engine facts, plus what the assessor reported
     and the engine kept."""
@@ -884,6 +920,9 @@ class AssessmentView(BaseModel):
     agents_md: str = ""
     markdown: str = ""
     assessed_at: str = ""
+    # stack packs detected in the repo, per folder, and how each folder measures against them
+    stack_packs: list[StackMatch] = Field(default_factory=list)
+    pack_signals: list[PackAdvisory] = Field(default_factory=list)
 
 
 class ChangeDetail(BaseModel):

@@ -65,6 +65,13 @@
   `tests/test_nextjs_pack.py`). A web pack's template pins `@playwright/test` to the sandbox's
   `PLAYWRIGHT_VERSION`.
   Adding a stack is adding a folder: change the engine only for a new rule kind or toolchain.
+  Team repos (§5): the onboard station detects packs by their `detect` rules at the root and one
+  folder down (`packs.detect`, pure; every match kept per folder on `Product.stack_matches`,
+  re-detected at every assessment). A match is guidance only: matched skills are preloaded for
+  `STACK_SKILL_HANDLERS` with their folder and "the repo's conventions win"
+  (`StationContext.guidance_scope`), their signals are advisory per folder (`packs.advisory`, never in
+  the Level), and their egress reaches only that product's sandboxes (`StationContext.pack_egress`).
+  Tests in `tests/test_team_repo_packs.py`.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
   `undeploy()` (archive) besides its capability methods. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
