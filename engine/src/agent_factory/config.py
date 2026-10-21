@@ -14,7 +14,7 @@ import yaml
 from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 if TYPE_CHECKING:
-    from agent_factory.packs import PackBinding
+    from agent_factory.packs import PackBinding, PackPreview
     from agent_factory.readiness import StackRules
 
 PolicyMode = Literal["auto", "manual", "off"]
@@ -95,6 +95,11 @@ class Blueprint(BaseModel):
     def e2e_command(self) -> str | None:
         """The pack's end-to-end command against the deployed app ({url}), if it has one."""
         return self._pack.e2e if self._pack else None
+
+    @property
+    def preview(self) -> PackPreview | None:
+        """How the pack runs the app inside the sandbox for e2e before deploy (ADR-0043 §5)."""
+        return self._pack.preview if self._pack else None
 
     @property
     def pack_egress(self) -> tuple[str, ...]:

@@ -136,7 +136,7 @@ The lane and every change's timeline group them by phase:
 |---|---|---|
 | Plan | `requirements` (agent), `design` (agent) | the request becomes a spec, numbered requirements, scenarios and a design |
 | Code | `implement` (agent) | writes the code and its tests |
-| Test | `test`, `quality-gate` (checks), `code-review` (agent), `change-risk` (check) | tests, lint and coverage; agent-readiness Level 3 and a secret scan; review of the change against the spec; rules over the diff ([change risk](#change-risk)) |
+| Test | `test`, `preview-e2e`, `quality-gate` (checks), `code-review` (agent), `change-risk` (check) | tests, lint and coverage; the pack's e2e suite against a preview in the sandbox, before any image (ADR-0043); agent-readiness Level 3 and a secret scan; review of the change against the spec; rules over the diff ([change risk](#change-risk)) |
 | Release | `build` (check) | builds, scans and pushes the image, with SBOM and provenance |
 | Deploy | `deploy` (check), `deploy-repair` (agent, repair only) | deploys to the blueprint's environment; repairs a failed deploy |
 | Validate | `acceptance` (agent) | runs the hidden scenarios against the live app |
@@ -151,7 +151,7 @@ them. They resolve to today's handlers, and the UI shows today's names. Note tha
 `build` used to be the coding agent; a check named `build` is the image build.
 To adopt the new ids, start a draft from the `default` template ("template updated").
 
-- `kind: check` stations are implemented by the engine: `test`, `quality-gate`,
+- `kind: check` stations are implemented by the engine: `test`, `preview-e2e`, `quality-gate`,
   `build`, `deploy`, `handover`.
 - Agent stations named like a built-in handler (`requirements`, `design`, `implement`,
   `code-review`, `deploy-repair`, `acceptance`) use that handler. Any other agent station uses the

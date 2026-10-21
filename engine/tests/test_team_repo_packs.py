@@ -53,7 +53,7 @@ def test_a_nextjs_repo_is_recognised_at_its_root(tmp_path, installed):
     root = _tree(tmp_path, {"package.json": NEXT, "web/package.json": NEXT})
     matches = packs.detect(installed, root)
     assert _found(matches) == [("nextjs-web", "")], "found at the root: not looked for again below it"
-    assert matches[0].matched == ("package.json", "next") and matches[0].version == "1.0.1"
+    assert matches[0].matched == ("package.json", "next") and matches[0].version == "1.1.0"
 
 
 def test_a_monorepo_gets_one_match_per_folder(tmp_path, installed):
@@ -132,7 +132,7 @@ async def test_assessment_records_matches_and_advisory_signals(make_factory, tmp
     ]
     assert {s["id"] for s in report["readiness"]["signals"]}.isdisjoint({"a11y"}), "advisory only: not in the Level"
     md = (out / "assessment.md").read_text()
-    assert "## Stack packs (advisory)" in md and "### Next.js web app (nextjs-web@1.0.1) in `web/`" in md
+    assert "## Stack packs (advisory)" in md and "### Next.js web app (nextjs-web@1.1.0) in `web/`" in md
 
     # detected again at every assessment: dropping Next.js is a decision, and the match goes
     (origin / "web" / "package.json").write_text(PLAIN_NODE)

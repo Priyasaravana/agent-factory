@@ -238,6 +238,10 @@ async def _report(ref: ArtifactRef, ctx: StationContext, summary: str) -> tuple[
             files = ["repo-test.json"]
             got = _json(out, "repo-test.json")
             data = {"ok": got.get("ok"), "command": got.get("command")}
+        elif handler == "preview-e2e":  # ADR-0043 §5: ran against the preview, or why it didn't
+            files = ["preview-e2e.json"]
+            got = _json(out, "preview-e2e.json")
+            data = {"ok": got.get("ok"), "command": got.get("command"), "ran": got.get("ran")}
         else:  # the factory's own verify command; its output stays in the event log
             data = {"ok": True, "command": ctx.blueprint.verify_command}
     elif kind == "scan":

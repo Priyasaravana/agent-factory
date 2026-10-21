@@ -905,6 +905,39 @@ async def run_tests(ctx: StationContext) -> StationResult:
     return StationResult(StationOutcome.passed, "lint, tests, coverage and security checks passed")
 
 
+# ------------------------------------------------------------- preview-e2e --
+async def preview_e2e(ctx: StationContext) -> StationResult:
+    """The pack's e2e suite against the app running inside the sandbox, before any image is built
+    (ADR-0043 §5): most e2e failures are found here in seconds instead of after build and deploy.
+    Acceptance still runs the suite and the hidden scenarios against the live app."""
+    bp = ctx.blueprint
+    preview, e2e = bp.preview, bp.e2e_command
+    pack = bp.pack_binding.source if bp.pack_binding else ctx.product.blueprint
+    if preview is None or not e2e:
+        note = f"not run: {pack} declares no preview, so its e2e suite runs only against the live app"
+        _write_json(ctx, "preview-e2e.json", {"ok": True, "ran": False, "command": None, "reason": note})
+        await ctx.emit(EventKind.decision, f"end-to-end before deploy {note}", {"preview_e2e": {"ran": False}})
+        return StationResult(StationOutcome.passed, note)
+    script = packs.preview_e2e_script(preview, e2e, bp.health_path)
+    res = await ctx.cmd(script, timeout=preview.ready_seconds + 900, untrusted=True)
+    command = e2e.replace("{url}", preview.url)
+    record = {"ok": res.ok, "ran": True, "command": command, "url": preview.url, "preview": preview.command}
+    _write_json(ctx, "preview-e2e.json", record)
+    await ctx.emit(
+        EventKind.decision,
+        f"end-to-end tests {'passed' if res.ok else 'failed'} against the preview",
+        {"preview_e2e": {"ok": res.ok, "ran": True}},
+    )
+    if res.ok:
+        return StationResult(StationOutcome.passed, f"end-to-end tests passed against the preview ({pack})")
+    if packs.PREVIEW_NOT_READY in res.output:
+        summary = f"the preview did not start: `{preview.command}` never answered on {preview.url}"
+    else:
+        summary = "end-to-end tests failed against the preview"
+    hint = f"Reproduce it in the sandbox: run `{preview.command}` in the background, then `{command}`."
+    return StationResult(StationOutcome.failed, summary, f"{hint}\n\n{res.output[-4000:]}")
+
+
 # ------------------------------------------------------------ scan scope --
 @asynccontextmanager
 async def committed_files(ctx: StationContext) -> AsyncIterator[Path]:
@@ -2168,6 +2201,7 @@ STATIONS: dict[str, Station] = {
     "design": design,
     "implement": implement,
     "test": run_tests,
+    "preview-e2e": preview_e2e,
     "quality-gate": quality_gate,
     "code-review": code_review,
     "change-risk": change_risk,

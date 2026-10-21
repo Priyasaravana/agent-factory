@@ -376,6 +376,17 @@ STATION_TYPES: dict[str, StationType] = {
             floor=["test"],
             uses=["read-repo", "run-sandbox"],
         ),
+        # the pack's e2e suite against the app in the sandbox, before any image (ADR-0043 §5);
+        # team repos: their CI is theirs
+        _t(
+            "preview-e2e",
+            "verify",
+            ["branch@1"],
+            ["report.test@1"],
+            "preview-e2e",
+            None,
+            uses=["read-repo", "run-sandbox"],
+        ),
         # agent-readiness Level 3 plus the blueprint's secret scan (quality_gate)
         _t(
             "quality-gate",

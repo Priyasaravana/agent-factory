@@ -1,6 +1,6 @@
 ---
 name: nextjs-golden-path
-description: Use when designing, implementing or repairing a web app on the nextjs-web stack pack. Covers layout, data access, testing, accessibility and the checks `make verify` and `make e2e` run.
+description: Use when designing, implementing or repairing a web app on the nextjs-web stack pack. Covers layout, data access, testing, accessibility and the checks `make verify`, `make preview` and `make e2e` run.
 ---
 
 # Next.js Golden Path
@@ -32,8 +32,13 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
 - `make verify`: eslint (`--max-warnings=0`), `prettier --check`, `tsc --noEmit`, vitest with
   80% coverage thresholds, `npm audit --audit-level=high`, `next build`. Run `npx prettier
   --write .` before you finish.
-- `make e2e BASE_URL=…` (the factory runs it after deploy): smoke tests plus axe on every route;
-  any serious or critical violation fails the change.
+- `make e2e BASE_URL=…`: smoke tests plus axe on every route; any serious or critical
+  violation fails the change. The factory runs it against `make preview` before it builds an
+  image, and against the live app after deploy.
+- Before you report done, run it yourself the same way: `make preview > /tmp/preview.log 2>&1 &`,
+  wait until `curl -fs http://127.0.0.1:3000/api/healthz` answers, run
+  `make e2e BASE_URL=http://127.0.0.1:3000`, then `kill %1`. The preview starts on an empty
+  in-memory database each time, so every e2e test creates the data it needs.
 
 ## Pitfalls
 - pg-mem in tests vs Postgres in the cluster: stick to standard SQL (no extensions, no

@@ -310,8 +310,8 @@ def test_a_type_picks_its_handler_per_target() -> None:
 @pytest.mark.parametrize(
     "lane, works_on, kinds, stations",
     [
-        ("new-product", "factory", ["new"], ["requirements", "design", "implement", "test", "quality-gate",
-         "code-scan", "dependency-scan", "config-scan", "code-review", "change-risk", "build", "deploy",
+        ("new-product", "factory", ["new"], ["requirements", "design", "implement", "test", "preview-e2e",
+         "quality-gate", "code-scan", "dependency-scan", "config-scan", "code-review", "change-risk", "build", "deploy",
          "acceptance", "handover"]),
         ("product-change", "factory", ["feature", "bug", "upkeep"], None),
         ("repo-assessment", "repo", ["assess"], ["onboard", "repo-scan", "assess", "code-scan",
@@ -378,7 +378,7 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
     assert {"ledger.json", "plan.json"} <= {x["path"] for x in manifest["files"]}
     plan = json.loads((folder / "plan.json").read_text())  # the lane's plan
     assert plan["target"] == "factory" and plan["skipped"] == []
-    assert any(e.message.startswith("lane new-product: 14 stations") for e in f.store.list_events(change.id))
+    assert any(e.message.startswith("lane new-product: 15 stations") for e in f.store.list_events(change.id))
     assert manifest["artifacts"]["entries"] == len(ledger.entries())
 
 
