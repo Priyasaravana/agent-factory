@@ -1,4 +1,4 @@
-.PHONY: install verify lint test security build e2e run
+.PHONY: install verify lint test security build e2e preview run
 
 # npm ci only when the lockfile changed since the last install
 node_modules/.package-lock.json: package-lock.json
@@ -26,6 +26,16 @@ verify: lint test security build
 #   make e2e BASE_URL=http://localhost:3000
 e2e: install
 	BASE_URL=$(BASE_URL) npx playwright test
+
+# the app on this machine, without the cluster, on an in-memory database (stays in the foreground).
+# The factory runs the e2e suite against it before it builds an image; so can you:
+#   make preview &   then   make e2e BASE_URL=http://127.0.0.1:3000
+# It runs the standalone server the image runs, with the same static files.
+preview: build
+	rm -rf .next/standalone/.next/static .next/standalone/public
+	cp -r .next/static .next/standalone/.next/static
+	cp -r public .next/standalone/public
+	PREVIEW_DATABASE=memory PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js
 
 run: install
 	npx next dev --port 3000

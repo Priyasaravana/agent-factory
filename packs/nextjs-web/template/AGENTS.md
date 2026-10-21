@@ -21,8 +21,10 @@ and Acceptance stations depend on them.
   is `docs/spec.md`, the technical design `docs/design.md`, the API contract `docs/openapi.yaml`.
 - `tests/acceptance/scenarios.yaml` — acceptance scenarios from Intake, each listing the
   requirements it `covers`. Turn each into at least one test in `tests/acceptance.test.ts(x)`.
-- `e2e/` — Playwright tests against a running deployment (`make e2e BASE_URL=…`), run by the
-  factory after every deploy. `e2e/a11y.spec.ts` scans every route in `e2e/routes.ts` with axe.
+- `e2e/` — Playwright tests (`make e2e BASE_URL=…`). The factory runs them twice: against
+  `make preview` (the standalone server on an in-memory database, `PREVIEW_DATABASE=memory`)
+  before it builds an image, and against the live app after every deploy. `e2e/a11y.spec.ts` scans
+  every route in `e2e/routes.ts` with axe.
 - `.github/` — CI (same checks as the factory), CODEOWNERS, Dependabot.
 - `deploy/chart/` — Helm chart (Deployment + Service + optional Ingress + Postgres).
 
@@ -34,6 +36,9 @@ and Acceptance stations depend on them.
 - Accessibility (WCAG 2.1 AA): every page has `<main>`, one `<h1>`, labelled form controls,
   `alt` on images, enough contrast and visible focus. Add each new page to `e2e/routes.ts`;
   never exclude an axe rule or element to make the check pass.
+- Before you report done, run the e2e suite yourself: `make preview &`, then
+  `make e2e BASE_URL=http://127.0.0.1:3000`, then stop the preview. The e2e tests must pass on an
+  empty database: create the data a test needs inside the test.
 - `make verify` must pass: eslint, prettier, `tsc --noEmit`, vitest with coverage >= 80%,
   `npm audit` (high), `next build`.
 - This repo starts at agent-readiness Level 3. The factory's Readiness station fails the change

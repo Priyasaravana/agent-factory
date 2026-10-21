@@ -17,7 +17,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 |---|---|---|
 | Style & validation | ✅ ruff lint + format, pre-commit config | ✅ ruff, mypy, tsc |
 | Build | ✅ uv.lock, Dockerfile, deterministic build | ✅ |
-| Testing | ✅ pytest, coverage ≥ 80%, acceptance tests, e2e smoke suite (holdout stays hidden by design) | ✅ engine + auth tests, Playwright |
+| Testing | ✅ pytest, coverage ≥ 80%, acceptance tests, e2e smoke suite, run against a preview in the sandbox before any image (Next.js, ADR-0043) and against the live app (holdout stays hidden by design) | ✅ engine + auth tests, Playwright |
 | Docs & instructions | ✅ AGENTS.md, README | ✅ AGENTS.md, ADRs, runbook |
 | Environment & sandbox | ✅ reproducible; agents and `make verify` run in a sandbox (ADR-0014) | ✅ compose; sandbox per agent session |
 | Code quality | ✅ small golden-path modules | 🟡 `actions.py` is ~1,800 lines |

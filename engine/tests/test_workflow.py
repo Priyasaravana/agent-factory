@@ -34,8 +34,8 @@ def test_default_blueprint_is_valid_and_matches_the_mvp_line() -> None:
     assert (doc.works_on, doc.kinds) == ("factory", ["new"])
     plan = doc.plan()  # the New product lane runs every station it shows
     assert plan.stations == [
-        "requirements", "design", "implement", "test", "quality-gate", "code-scan", "dependency-scan",
-        "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "handover",
+        "requirements", "design", "implement", "test", "preview-e2e", "quality-gate", "code-scan",
+        "dependency-scan", "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "handover",
     ]  # fmt: skip
     assert plan.repairs == ["deploy-repair"] and doc.next_in(plan, "deploy") == "acceptance"
     assert doc.station("deploy-repair").next == "test"  # a branch change re-enters verify (ADR-0037 §5)

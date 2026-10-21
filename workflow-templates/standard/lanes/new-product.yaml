@@ -24,6 +24,7 @@ stations:
   # verify: does it work, is it safe. Scans are named after their check; who answers each one
   # (open-source tool, GitHub, Snyk, or the checker agent) is set under `checks:` in the config.
   - {id: test,            type: test,         on_fail: implement}
+  - {id: preview-e2e,     type: preview-e2e,  on_fail: implement}   # the pack's e2e against a preview, before any image (ADR-0043)
   - {id: quality-gate,    type: quality-gate, on_fail: implement}   # agent-readiness Level 3 + secret scan
   - {id: code-scan,       type: scan, check: code,         fail_on: critical, on_fail: implement, agent: checker}
   - {id: dependency-scan, type: scan, check: dependencies, fail_on: critical, on_fail: implement, agent: checker}

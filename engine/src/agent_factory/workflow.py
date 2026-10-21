@@ -77,6 +77,7 @@ AGENT_HANDLERS = {
 }
 CHECK_HANDLERS = {
     "test",
+    "preview-e2e",
     "quality-gate",
     "change-risk",
     "build",
@@ -125,6 +126,12 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     "design": HandlerInfo(kind="agent", label="Design", phase="design", hint="writes the design docs and API contract"),
     "implement": HandlerInfo(kind="agent", label="Implement", phase="develop", hint="writes the code and its tests"),
     "test": HandlerInfo(kind="check", label="Test", phase="verify", hint="runs the tests, linters and coverage gate"),
+    "preview-e2e": HandlerInfo(
+        kind="check",
+        label="E2E preview",
+        phase="verify",
+        hint="runs the pack's end-to-end tests against the app in the sandbox, before any image is built (ADR-0043)",
+    ),
     "quality-gate": HandlerInfo(
         kind="check", label="Quality gate", phase="verify", hint="agent-readiness Level 3 and a secret scan"
     ),

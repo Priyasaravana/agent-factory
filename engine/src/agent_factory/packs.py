@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
@@ -82,6 +83,17 @@ class PackHealth(BaseModel):
     ready: str = "/readyz"
 
 
+class PackPreview(BaseModel):
+    """How the app runs inside the sandbox, without the cluster (ADR-0043 §5): the factory starts
+    `command` in the background, waits for `url` + the liveness path, and runs the pack's e2e
+    command against `url` before any image is built."""
+
+    model_config = ConfigDict(extra="forbid")
+    command: str = Field(min_length=1)  # stays in the foreground; the engine backgrounds it
+    url: str = Field(pattern=r"^http://(127\.0\.0\.1|localhost):[0-9]{2,5}$")  # inside the sandbox only
+    ready_seconds: int = Field(default=300, ge=10, le=900)  # build + start, before the liveness path answers
+
+
 class PackDetect(BaseModel):
     """How a team repo is recognised as this stack (ADR-0041 §5)."""
 
@@ -111,6 +123,7 @@ class PackStack(BaseModel):
     toolchain: list[str] = Field(default_factory=list)  # what the sandbox image must provide
     verify: str = "make verify"
     e2e: str | None = None  # {url}: the deployed app
+    preview: PackPreview | None = None  # e2e before deploy (ADR-0043 §5); needs `e2e`
     port: int = Field(ge=1, le=65535)
     health: PackHealth = PackHealth()
     chart: str = "deploy/chart"
@@ -210,6 +223,8 @@ def _check_stack(pack: Pack) -> StackRules:
         skill = _inside(pack, stack.skill, "stack.skill", is_dir=True)
         if not (skill / "SKILL.md").is_file():
             raise PackError(f"pack {pack.source}: stack.skill '{stack.skill}' has no SKILL.md")
+    if stack.preview and not stack.e2e:
+        raise PackError(f"pack {pack.source}: stack.preview needs stack.e2e, the suite it runs against the preview")
     if stack.evals:
         _check_evals(pack, _inside(pack, stack.evals, "stack.evals", is_dir=False))
     file = _inside(pack, stack.readiness, "stack.readiness", is_dir=False)
@@ -273,6 +288,7 @@ class PackBinding:
     egress: tuple[str, ...] = ()  # added to this pack's products' sandboxes only (ADR-0041 §7)
     toolchain: tuple[str, ...] = ()  # what the sandbox image must provide (ADR-0041 §4)
     detect: PackDetect = field(default_factory=PackDetect)  # how a team repo is recognised (§5)
+    preview: PackPreview | None = None  # the app inside the sandbox, for e2e before deploy (ADR-0043 §5)
 
     @property
     def source(self) -> str:
@@ -351,6 +367,7 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         tuple(stack.egress),
         tuple(stack.toolchain),
         stack.detect,
+        stack.preview,
     )
 
 
@@ -490,3 +507,44 @@ def advisory(pack: PackBinding, root: Path, folder: str) -> dict[str, Any]:
         "total": len(signals),
         "signals": signals,
     }
+
+
+PREVIEW_NOT_READY = "PREVIEW NOT READY"
+
+
+def preview_e2e_script(preview: PackPreview, e2e: str, live_path: str) -> str:
+    """One shell script for the sandbox (ADR-0043 §5): start the pack's preview in the background,
+    wait until its liveness path answers, run the e2e suite against it, stop the preview. Pure.
+    Exit codes: the e2e suite's, or 3 when the preview never answered (it prints PREVIEW_NOT_READY
+    and the preview's output). When e2e fails, the preview's output follows the test output: a
+    server error is often the reason."""
+    probe = preview.url.rstrip("/") + live_path
+    return "\n".join(
+        [
+            "set -u",
+            'log="$(mktemp)"',
+            f'setsid bash -c {shlex.quote(preview.command)} >"$log" 2>&1 &',
+            "pid=$!",
+            "stop() {",
+            '  kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true',
+            "}",
+            "trap stop EXIT",
+            f"deadline=$((SECONDS + {preview.ready_seconds}))",
+            "up=0",
+            'while [ "$SECONDS" -lt "$deadline" ]; do',
+            f"  if curl -fs -o /dev/null --max-time 5 {shlex.quote(probe)}; then up=1; break; fi",
+            '  kill -0 "$pid" 2>/dev/null || break',
+            "  sleep 2",
+            "done",
+            'if [ "$up" != 1 ]; then',
+            f"  echo {shlex.quote(f'{PREVIEW_NOT_READY}: {probe} did not answer')}",
+            '  echo "--- preview output (last 80 lines) ---"',
+            '  tail -n 80 "$log"',
+            "  exit 3",
+            "fi",
+            f"( {e2e.replace('{url}', preview.url)} )",
+            "rc=$?",
+            'if [ "$rc" != 0 ]; then echo "--- preview output (last 60 lines) ---"; tail -n 60 "$log"; fi',
+            'exit "$rc"',
+        ]
+    )

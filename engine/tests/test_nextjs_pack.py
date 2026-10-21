@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_a11y_signal():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.0.1" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.1.0" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -300,7 +300,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.0.1"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.1.0"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)
@@ -310,7 +310,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
 
 
 async def test_failing_e2e_goes_back_to_the_builder_before_the_verifier_runs(make_factory):
-    ex = FakeExecutor(fail_on=["make e2e"])
+    ex = FakeExecutor(fail_on=["make e2e BASE_URL=http://dind"])  # the live run, not the preview
     f = make_factory(ex)
     change = f.manager.start_change(f.manager.create_product(WEB))
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback  # fixed on the second pass

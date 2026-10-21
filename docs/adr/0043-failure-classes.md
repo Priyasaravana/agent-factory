@@ -1,6 +1,6 @@
 # ADR-0043: Failure classes, and end-to-end tests before deploy
 
-**Status:** accepted · 2026-10-21 (§1–§4, §6, §7 delivered in PR 1; §5 is PR 2) · builds on [ADR-0019](0019-outcome-metrics.md) (outcomes),
+**Status:** accepted · 2026-10-21 (§1–§4, §6, §7 delivered in PR 1; §5 in PR 2, `nextjs-web` first) · builds on [ADR-0019](0019-outcome-metrics.md) (outcomes),
 [ADR-0022](0022-agent-observability.md) (agent calls), [ADR-0036](0036-model-gateway.md) (gateway),
 [ADR-0041](0041-stack-packs.md) (stack packs) and [ADR-0042](0042-image-findings.md) (image findings)
 
@@ -136,6 +136,10 @@ Autonomy is unchanged: a retry is not a human touch. Each metric gets a definiti
   type with its contract entry and collector, both packs' `make preview`, skill guidance, and the
   two lanes. Measured by the evaluation harness (ADR-0025): loops to deliver and cost per
   delivered change on the Next.js cases.
+  - **As delivered:** `nextjs-web` 1.1.0 only. Its `make preview` runs the standalone server the
+    image runs, on an in-memory Postgres (`PREVIEW_DATABASE=memory`; pg-mem is never bundled into
+    the image). `fastapi-service` declares no preview yet, so the station passes and records
+    "not run" with that reason; its preview comes with its next minor version.
 
 ## Consequences
 - A failure the developer can't fix no longer reaches the developer. Guestbook's two expired keys

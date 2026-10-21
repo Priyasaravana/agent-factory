@@ -40,7 +40,7 @@ def test_the_default_lane_reads_in_phase_order() -> None:
     assert validate_workflow(doc, SKILLS, default_skill_names()) == []
     phases = doc.phases()
     assert [phases[s] for s in doc.plan().stations] == [
-        "design", "design", "develop", "verify", "verify", "verify", "verify", "verify", "verify", "verify",
+        "design", "design", "develop", "verify", "verify", "verify", "verify", "verify", "verify", "verify", "verify",
         "deliver", "deliver", "deliver", "deliver",
     ]  # fmt: skip
     assert PHASE_IDS == ["discover", "design", "plan", "develop", "verify", "deliver", "operate"]
