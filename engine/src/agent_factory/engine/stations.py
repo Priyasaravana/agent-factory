@@ -7,13 +7,16 @@ is FAILED or HELD — never a plausible PASS.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import shlex
 import shutil
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +40,16 @@ from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
-from agent_factory.models import Change, EventKind, Product, ProductTarget, StackMatch, StationOutcome
+from agent_factory.failures import Failure, FailureClass, backoff, classify_agent, classify_command
+from agent_factory.models import (
+    Change,
+    EventKind,
+    Product,
+    ProductTarget,
+    RequiredAction,
+    StackMatch,
+    StationOutcome,
+)
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
@@ -61,6 +73,23 @@ class StationResult:
     resets_at: int | None = None
     approval_digest: str | None = None  # needs_approval: what an approval must cover (ADR-0027)
     approval_findings: int = 0  # needs_approval: how many findings wait
+    required: RequiredAction | None = None  # held: what a person must do before resuming (ADR-0043 §4)
+
+
+@dataclass(frozen=True)
+class Stop:
+    """Why a station must hold rather than route its failure to `on_fail` (ADR-0043): an infra
+    failure that retries didn't cure, a person's decision, or a time limit. Set by `ctx.agent` and
+    `ctx.cmd`, read by the pipeline."""
+
+    cls: FailureClass
+    why: str
+    evidence: str = ""
+    rule: str = ""
+
+
+# where retries wait; tests replace it
+_sleep = asyncio.sleep
 
 
 def _local_set() -> ProviderSet:
@@ -91,6 +120,9 @@ class StationContext:
     # what this station may do (ADR-0039 §4 layer 3): its uses inside its phase's allows. None:
     # an engine step outside any station (archive, readiness), which the station boundary doesn't cover
     grant: frozenset[str] | None = None
+    # the run's time budget, on the monotonic clock (agent time: it stops while the host sleeps)
+    deadline: float | None = None
+    stop: Stop | None = None  # set when this station must hold (ADR-0043)
 
     @property
     def blueprint(self) -> Blueprint:
@@ -207,17 +239,84 @@ class StationContext:
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
         untrusted: bool = False,
+        retry: bool = True,
     ) -> CommandResult:
         """Run a command. `untrusted=True` for code the agents wrote (tests, the
-        app's Makefile): it runs in the sandbox, never next to engine secrets."""
+        app's Makefile): it runs in the sandbox, never next to engine secrets.
+        A privileged command that fails for an infra reason is retried in place with backoff
+        (ADR-0043); `retry=False` for a step that is not safe to repeat. Its timeout never runs
+        past the change's time budget."""
         ex = (self.untrusted_ex or self.ex) if untrusted else self.ex
-        res = await ex.run(command, cwd=cwd or self.worktree, timeout=timeout, env=env)
-        await self.emit(
-            EventKind.command,
-            f"{'✓' if res.ok else '✗'} {command}",
-            {"returncode": res.returncode, "output": res.output[-3000:]},
+        attempt = 0
+        while True:
+            left = self.time_left()
+            if left is not None and left <= 0:
+                self._out_of_time(f"before `{command[:80]}`")
+                return CommandResult(command, -1, "the change's time budget is used up", timed_out=True)
+            res = await ex.run(command, cwd=cwd or self.worktree, timeout=_cap(timeout, left), env=env)
+            await self.emit(
+                EventKind.command,
+                f"{'✓' if res.ok else '✗'} {command}",
+                {"returncode": res.returncode, "output": res.output[-3000:]},
+            )
+            if res.ok:
+                return res
+            if res.timed_out and left is not None and timeout > left:
+                self._out_of_time(f"during `{command[:80]}`")
+                return res
+            f = classify_command(command, res.returncode, res.output, res.timed_out, untrusted=untrusted)
+            if f.cls != FailureClass.infra:
+                return res
+            if not (retry and f.retryable) or attempt >= self.cfg.budgets.infra_retries:
+                self._stop_infra(f, attempt, res.output[-3000:])
+                return res
+            attempt += 1
+            if not await self._wait_to_retry(f, attempt, f"`{command[:80]}`"):
+                return res
+
+    def time_left(self) -> float | None:
+        return None if self.deadline is None else self.deadline - time.monotonic()
+
+    def _out_of_time(self, where: str) -> None:
+        budget = self.cfg.budgets.change_wall_clock_minutes
+        self.stop = Stop(
+            FailureClass.work,
+            f"this run used its {budget}-minute time budget ({where}); resume to give it another",
+            rule="time_budget",
         )
-        return res
+
+    def _stop_infra(self, f: Failure, retries: int, evidence: str) -> None:
+        if f.cls == FailureClass.decision:
+            self.stop = Stop(f.cls, f.cause, evidence, f.rule)
+            return
+        tried = f" after {retries} retr{'y' if retries == 1 else 'ies'}" if retries else ""
+        then = "resume to try again" if f.retryable else "fix the factory's setup, then resume"
+        self.stop = Stop(f.cls, f"infrastructure: {f.cause}{tried}; {then}", evidence, f.rule)
+
+    async def _wait_to_retry(self, f: Failure, attempt: int, what: str) -> bool:
+        """Record the retry and wait for it. False when the wait would run past the time budget."""
+        b = self.cfg.budgets
+        wait = 0.0 if f.immediate and attempt == 1 else backoff(attempt, b.infra_backoff_seconds)
+        left = self.time_left()
+        if left is not None and wait >= left:
+            self._out_of_time(f"waiting to retry {what}")
+            return False
+        await self.emit(
+            EventKind.decision,
+            f"retrying {what} in {round(wait)}s ({attempt}/{b.infra_retries}): {f.cause}",
+            {
+                "retry": {
+                    **f.data(),
+                    "station": self.station_id,
+                    "attempt": attempt,
+                    "of": b.infra_retries,
+                    "wait_s": round(wait, 1),
+                    "what": what,
+                }
+            },
+        )
+        await _sleep(wait)
+        return True
 
     async def agent(
         self,
@@ -273,22 +372,98 @@ class StationContext:
             subagent_model=self.cfg.models.fast,
             egress=list(self.pack_egress),
         )
-        call = AgentCall(
-            self.ws.data_dir / "artifacts" / self.change.id,
-            self.station_id,
-            spec.id,
-            req.model,
-            self._emit,
-            skills=spec.skills,
-            preloaded=preload,
-        )
-        res = await self.agents.run(req, call.wrap(sink))
-        self.change.cost_usd += res.cost_usd
-        await call.finish(res)
-        return res
+        attempt = 0
+        while True:
+            call = AgentCall(
+                self.ws.data_dir / "artifacts" / self.change.id,
+                self.station_id,
+                spec.id,
+                req.model,
+                self._emit,
+                skills=spec.skills,
+                preloaded=preload,
+            )
+            res = await self._watched(req, call.wrap(sink))
+            self.change.cost_usd += res.cost_usd
+            await call.finish(res)
+            if res.ok or res.rate_limited or self.stop is not None:
+                return res
+            f = classify_agent(res.error, res.text)
+            if f.cls == FailureClass.work:
+                return res
+            if f.cls == FailureClass.decision or not f.retryable or attempt >= self.cfg.budgets.infra_retries:
+                self._stop_infra(f, attempt, "\n".join(x for x in (res.error or "", res.text[-1500:]) if x))
+                return res
+            attempt += 1
+            if not await self._wait_to_retry(f, attempt, f"the {spec.id} agent call"):
+                return res
+            if attempt == 1:
+                req = replace(req, prompt=RETRY_NOTE + req.prompt)
+
+    async def _watched(self, req: AgentRequest, sink: Callable[[str, dict[str, Any]], Awaitable[None]]) -> AgentResult:
+        """One agent call under its time limits (ADR-0043 §3), in agent time: the monotonic clock
+        stops while the host sleeps. Over `agent_call_minutes` (or past the change's time budget)
+        it is cancelled and the change held; sending nothing for `agent_stall_minutes`, it is
+        cancelled as stalled (infra, retried)."""
+        b = self.cfg.budgets
+        limit, by_budget = b.agent_call_minutes * 60, False
+        if (left := self.time_left()) is not None and left < limit:
+            limit, by_budget = max(0.0, left), True
+        stall = b.agent_stall_minutes * 60
+        start = last = time.monotonic()
+
+        async def tracked(kind: str, data: dict[str, Any]) -> None:
+            nonlocal last
+            last = time.monotonic()
+            await sink(kind, data)
+
+        task = asyncio.ensure_future(self.agents.run(req, tracked))
+        tick = max(0.01, min(5.0, stall / 4, limit / 4 if limit > 0 else 5.0))
+        why = "agent call cancelled"
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=tick)
+                if done:
+                    return task.result()
+                now = time.monotonic()
+                if now - start >= limit:
+                    if by_budget:
+                        self._out_of_time(f"during the {req.role} agent call")
+                    else:
+                        self.stop = Stop(
+                            FailureClass.work,
+                            f"the {req.role} agent call ran past its {_minutes(b.agent_call_minutes)} limit "
+                            "(agent time); read its transcript, then resume to run it again",
+                            rule="agent_call_limit",
+                        )
+                    why = "agent call over its time limit"
+                    break
+                if now - last >= stall:
+                    why = f"agent call stalled: nothing for {b.agent_stall_minutes:g} minutes"
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        return AgentResult(ok=False, error=why)
 
     async def _emit(self, kind: EventKind, message: str, data: dict[str, Any]) -> None:
         await self.emit(kind, message, data)
+
+
+RETRY_NOTE = (
+    "(The factory retried this call: the previous one was cut off by an infrastructure error, not by "
+    "anything in this repository. Work it already did is kept in the working directory; check it "
+    "before redoing anything.)\n\n"
+)
+
+
+def _cap(timeout: float, left: float | None) -> float:
+    return timeout if left is None else max(1.0, min(timeout, left))
+
+
+def _minutes(m: float) -> str:
+    return f"{m:g}-minute"
 
 
 def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
@@ -737,14 +912,30 @@ async def committed_files(ctx: StationContext) -> AsyncIterator[Path]:
     ignore. Scanners read this, never the worktree, so dependencies and build output a verify run
     leaves behind (node_modules, .next, .venv) are not reported as the product's own findings.
     It lives under the data dir, which dind sees at the same path, and is removed afterwards."""
-    listed = await ctx.ws.git("ls-files -z --cached --others --exclude-standard", ctx.worktree)
-    if not listed.ok:  # never scan less than asked: fall back to the whole worktree
+    dest = ctx.ws.data_dir / "scan" / f"{ctx.change.id}-{ctx.station_id}-{uuid.uuid4().hex[:6]}"
+    # the listing goes to a file: command output is tail-truncated (executor.TAIL_CHARS), and a
+    # truncated listing would silently scan only the last files of a large repo
+    listing = dest.with_suffix(".files")
+    listing.parent.mkdir(parents=True, exist_ok=True)
+    listed = await ctx.ws.git(
+        f"ls-files -z --cached --others --exclude-standard > {shlex.quote(str(listing))}", ctx.worktree
+    )
+    if not listed.ok or not listing.is_file():  # never scan less than asked: the whole worktree
+        listing.unlink(missing_ok=True)
+        why = (listed.output.strip() or "no listing").splitlines()[-1][:300]
+        if (emit := getattr(ctx, "emit", None)) is not None:  # it must never be silent (ADR-0043 §6)
+            await emit(
+                EventKind.decision,
+                f"scan scope: the whole worktree, not the committed files (git ls-files failed: {why}); "
+                "dependencies and build output may be reported as findings",
+                {"scan_scope": {"scope": "worktree", "why": why}},
+            )
         yield ctx.worktree
         return
-    dest = ctx.ws.data_dir / "scan" / f"{ctx.change.id}-{ctx.station_id}-{uuid.uuid4().hex[:6]}"
     root = ctx.worktree.resolve()
     try:
-        for rel in filter(None, listed.output.split("\0")):
+        names = listing.read_bytes().decode(errors="surrogateescape").split("\0")
+        for rel in filter(None, names):
             src = ctx.worktree / rel
             if not src.is_file() or root not in src.resolve().parents:  # deleted, or a link out of the repo
                 continue
@@ -753,6 +944,7 @@ async def committed_files(ctx: StationContext) -> AsyncIterator[Path]:
         dest.mkdir(parents=True, exist_ok=True)
         yield dest
     finally:
+        listing.unlink(missing_ok=True)
         shutil.rmtree(dest, ignore_errors=True)
 
 
@@ -916,8 +1108,36 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
     if verdict.action == "fix":
         return StationResult(StationOutcome.failed, headline, image_scan.developer_brief(verdict, sorted(locks))), ""
     if verdict.action == "hold":
-        return StationResult(StationOutcome.held, headline, image_scan.person_brief(verdict, base)), ""
+        held = StationResult(StationOutcome.held, headline, image_scan.person_brief(verdict, base))
+        held.required = _accept_image_risk(ctx, verdict.base_fixes + verdict.no_fix)
+        return held, ""
     return None, headline.removeprefix("image scan: ")
+
+
+def _accept_image_risk(ctx: StationContext, blocking: list[image_scan.ImageFinding]) -> RequiredAction | None:
+    """The action a base-image or no-fix hold needs (ADR-0043 §4): a person accepts these findings'
+    risk on the work ledger. None when nothing there can unblock it (a repeated app fix, or an
+    evaluation product, which keeps no ledger)."""
+    if not blocking or ctx.product.eval_run_id:
+        return None
+    wanted = {ledger.image_fingerprint(f.key) for f in blocking}
+    ids = [
+        it.id
+        for it in ctx.store.list_work_items(ctx.product.id)
+        if it.category == ledger.IMAGE and it.fingerprint in wanted
+    ]
+    if not ids:
+        return None
+    n = len(ids)
+    return RequiredAction(
+        kind="accept_risk",
+        items=ids,
+        text=(
+            f"Accept the risk of the {n} blocking image finding{'s' if n > 1 else ''} on the product's work "
+            "ledger, with an expiry, then resume. To move to a patched base image instead, cancel this change "
+            "and start an upkeep change once the pack or Dockerfile is updated."
+        ),
+    )
 
 
 def artifacts_dir(ctx: StationContext) -> Path:
@@ -1695,7 +1915,6 @@ the changed files; style and suggestions are `minor`. Each finding names the fil
 async def pull_request(ctx: StationContext) -> StationResult:
     """Push the change's branch and open a pull request with its evidence. The token is a
     reference, resolved for this step and passed through the environment only."""
-    import shlex
 
     ref = assess.parse_repo_url(ctx.product.repo_url or "", ctx.cfg.existing_repos.allowed_hosts)
     files = await _changed_files(ctx)
@@ -1754,6 +1973,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
         f"--title {shlex.quote(title)} --body-file {shlex.quote(str(body_file))}",
         env=env,
         timeout=120,
+        retry=False,  # a create that timed out may have opened the PR (ADR-0043)
     )
     if not pr.ok:
         return StationResult(

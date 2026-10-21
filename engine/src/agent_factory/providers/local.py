@@ -168,7 +168,9 @@ class LocalProvider:
         name = f"{owner}/{ctx.product.slug}" if owner else ctx.product.slug
         if not (await ws.git("remote get-url origin", repo)).ok:
             vis = "--private" if visibility == "private" else "--public"
-            c = await ctx.cmd(f"gh repo create {name} {vis} --source . --remote origin", env=env, cwd=repo, timeout=120)
+            c = await ctx.cmd(  # not safe to repeat: a create that timed out may have created it (ADR-0043)
+                f"gh repo create {name} {vis} --source . --remote origin", env=env, cwd=repo, timeout=120, retry=False
+            )
             if not c.ok:
                 return StepResult(False, "GitHub repo creation failed", c.output)
         p = await ctx.cmd(

@@ -668,9 +668,9 @@ function Effort({ o }: { o: Outcomes }) {
         <div>
           <CardTitle>Agent effort by station</CardTitle>
           <CardDescription>
-            Every agent call in this window: where the money and time go, and
-            what the guardrails refused. Open a change's Agent calls for
-            transcripts.
+            Every agent call in this window: where the money and time go, what
+            the guardrails refused, and the infrastructure failures retried in
+            place. Open a change's Agent calls for transcripts.
           </CardDescription>
         </div>
         <span className={cn("pill", o.guardrail_denials ? "bad" : "ok")}>
@@ -690,6 +690,9 @@ function Effort({ o }: { o: Outcomes }) {
               <td>median time</td>
               <td>tool calls</td>
               <td>denied</td>
+              <td title="Infrastructure failures retried in place (ADR-0043), with the time spent waiting">
+                retries
+              </td>
             </tr>
           </thead>
           <tbody>
@@ -703,6 +706,11 @@ function Effort({ o }: { o: Outcomes }) {
                 <Num>{r.tool_calls}</Num>
                 <Num>
                   {r.denied ? <span className="text-bad">{r.denied}</span> : 0}
+                </Num>
+                <Num>
+                  {r.retries
+                    ? `${r.retries} (${duration(r.retry_wait_s)})`
+                    : 0}
                 </Num>
               </tr>
             ))}

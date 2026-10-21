@@ -1922,6 +1922,9 @@ export interface components {
             pr_url?: string | null;
             /** Last Failure */
             last_failure?: string | null;
+            /** Hold Class */
+            hold_class?: string | null;
+            required_action?: components["schemas"]["RequiredAction"] | null;
             /** Questions */
             questions?: string[];
             /** Answers */
@@ -3154,6 +3157,21 @@ export interface components {
             /** Order */
             order: string[];
         };
+        /**
+         * RequiredAction
+         * @description What a person must do before a held change can resume (ADR-0043 §4).
+         */
+        RequiredAction: {
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "accept_risk";
+            /** Text */
+            text: string;
+            /** Items */
+            items?: string[];
+        };
         /** RequirementView */
         RequirementView: {
             /** Id */
@@ -3560,6 +3578,16 @@ export interface components {
              * @default 0
              */
             denied: number;
+            /**
+             * Retries
+             * @default 0
+             */
+            retries: number;
+            /**
+             * Retry Wait S
+             * @default 0
+             */
+            retry_wait_s: number;
         };
         /**
          * StationTemplateView

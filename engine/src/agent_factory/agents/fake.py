@@ -35,6 +35,10 @@ class FakeAgentRunner:
     scan_findings: list[dict[str, Any]] = field(default_factory=list)
     # skills a role opens through the Skill tool (simulates an agent using what it was given)
     use_skills: dict[str, list[str]] = field(default_factory=dict)
+    # what a role's calls end with, in turn, before it works: an infra error each (ADR-0043)
+    infra_fail: dict[str, list[str]] = field(default_factory=dict)
+    # roles whose next call goes silent for this many seconds (a stalled or long call, ADR-0043)
+    hang: dict[str, float] = field(default_factory=dict)
     calls: list[AgentRequest] = field(default_factory=list)
     _risky_state: str = "pending"  # pending -> written -> removed
 
@@ -57,6 +61,11 @@ class FakeAgentRunner:
             await sink("denied", {"tool": "Bash", "input": "git push origin main", "reason": reason})
             await sink("transcript", {"type": "denied", "tool": "Bash", "input": "git push", "reason": reason})
         await asyncio.sleep(0.05)
+        if req.role in self.hang:
+            await asyncio.sleep(self.hang.pop(req.role))
+        if self.infra_fail.get(req.role):
+            text = self.infra_fail[req.role].pop(0)
+            return AgentResult(ok=False, text=text, error="agent returned no structured output (missing evidence)")
 
         if self.rate_limit_once:
             self.rate_limit_once = False

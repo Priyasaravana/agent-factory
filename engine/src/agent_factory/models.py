@@ -160,6 +160,10 @@ class Change(BaseModel):
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     last_failure: str | None = None  # evidence handed to the repair station
+    # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
+    # the action a person must take before resuming
+    hold_class: str | None = None
+    required_action: RequiredAction | None = None
     questions: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)
     # a stack conflict before the first build: blueprints whose pack builds what was asked for, so
@@ -184,6 +188,14 @@ class Change(BaseModel):
         if isinstance(data, dict) and "kind" not in data and "iteration" in data:
             data = {**data, "kind": ChangeKind.new if data["iteration"] == 1 else ChangeKind.feature}
         return data
+
+
+class RequiredAction(BaseModel):
+    """What a person must do before a held change can resume (ADR-0043 §4)."""
+
+    kind: Literal["accept_risk"]
+    text: str  # the instruction, shown on the change page and when a resume is refused
+    items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
 
 
 class RiskHold(BaseModel):
@@ -282,6 +294,9 @@ class StationEffort(BaseModel):
     duration_median_s: float | None = None
     tool_calls: int = 0
     denied: int = 0
+    # infra failures retried in place (ADR-0043): effort, like fix loops, never a person's touch
+    retries: int = 0
+    retry_wait_s: float = 0.0
 
 
 class PillarScore(BaseModel):

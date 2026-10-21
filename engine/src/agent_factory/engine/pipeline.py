@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -16,7 +17,7 @@ from agent_factory import ledger
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
-from agent_factory.engine.stations import STATIONS, StationContext, StationResult
+from agent_factory.engine.stations import STATIONS, StationContext, StationResult, Stop
 from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
@@ -499,8 +500,13 @@ class ChangeManager:
         change = self._get(change_id)
         if change.status not in RESUMABLE or self.is_active(change_id):
             raise FactoryError(f"change in status '{change.status}' cannot be resumed")
+        if change.required_action is not None:
+            if not self._action_done(change):  # resuming would only hold again (Guestbook, 2026-10-19)
+                raise FactoryError(f"not yet: {change.required_action.text}")
+            change.required_action = None
         change.attempts = {}  # a human resume authorises a fresh budget
         change.loops = 0
+        change.hold_class = None
         change.status = ChangeStatus.queued
         self.store.save_change(change)
         self.store.add_event(change.id, EventKind.decision, "change resumed by human", station=change.current_station)
@@ -931,7 +937,8 @@ class ChangeManager:
         # approves, answers or resumes it. Time spent waiting for a person never counts against
         # the agents (a change that waited longer than the budget could otherwise never run again).
         budget = self.cfg.budgets.change_wall_clock_minutes
-        deadline = _now() + timedelta(minutes=budget)
+        # agent time (ADR-0043 §3): the monotonic clock stops while the host sleeps, as Outcomes does
+        deadline = time.monotonic() + budget * 60
 
         plan = flow.plan()
         if change.current_station:  # the plan and entry artifacts, once per change (ADR-0037 §2, §4)
@@ -965,7 +972,7 @@ class ChangeManager:
         while change.current_station:
             sid = change.current_station
             station = flow.station(sid)
-            if _now() > deadline and change.status != ChangeStatus.needs_input:
+            if time.monotonic() > deadline and change.status != ChangeStatus.needs_input:
                 why = f"this run used its {budget}-minute time budget; resume to give it another"
                 return self._hold(change, sid, why)
             change.attempts[sid] = change.attempts.get(sid, 0) + 1
@@ -983,6 +990,7 @@ class ChangeManager:
             if self.sandbox is not None:
                 ctx.untrusted_ex = self.sandbox.executor(change.id, sid, ctx.pack_egress)
             ctx.secrets = self.secrets
+            ctx.deadline = deadline
             ctx.grant = flow.grant(sid, self.workflows.phases)  # the capability boundary (ADR-0039 §4)
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
@@ -997,6 +1005,10 @@ class ChangeManager:
                 raise
             except Exception as exc:  # noqa: BLE001
                 result = StationResult(StationOutcome.failed, f"station crashed: {exc}", traceback.format_exc()[-3000:])
+            if ctx.stop is not None and result.outcome != StationOutcome.passed:
+                # an infra failure retries didn't cure, a decision or a time limit (ADR-0043): never
+                # the repair station's to fix
+                return self._hold_stop(change, sid, ctx.stop, result)
             if result.outcome == StationOutcome.passed and (bad := await handoff.record_gives(ctx, result.summary)):
                 # an output that fails its schema fails its station (ADR-0037 §2)
                 result = StationResult(
@@ -1107,6 +1119,16 @@ class ChangeManager:
                 self._wake_later(change)
                 return None
 
+            if result.required is not None:  # a person's decision, with the action named (ADR-0043 §4)
+                change.required_action = result.required
+                change.hold_class = "decision"
+                self.store.add_event(
+                    change.id,
+                    EventKind.decision,
+                    f"waiting for a person: {result.required.text}",
+                    station=sid,
+                    data={"required_action": result.required.model_dump()},
+                )
             return self._hold(change, sid, result.summary, result.failure_evidence)
         return None
 
@@ -1125,6 +1147,34 @@ class ChangeManager:
 
     def _target(self, blueprint: str) -> str:
         return target_of(self.cfg.blueprints[blueprint].target) if blueprint in self.cfg.blueprints else "factory"
+
+    def _action_done(self, change: Change) -> bool:
+        need = change.required_action
+        if need is None:
+            return True
+        if need.kind == "accept_risk":
+            now = _now()
+            items = {i.id: i for i in self.store.list_work_items(change.product_id)}
+            return all(
+                (it := items.get(i)) is not None
+                and it.status == "accepted_risk"
+                and (it.accepted_until is None or it.accepted_until > now)
+                for i in need.items
+            )
+        return False
+
+    def _hold_stop(self, change: Change, sid: str, stop: Stop, result: StationResult) -> None:
+        self.store.add_event(
+            change.id,
+            EventKind.station_finished,
+            f"{sid}: held — {stop.why}",
+            station=sid,
+            data={"outcome": StationOutcome.held, "failure": {"class": str(stop.cls), "rule": stop.rule}},
+        )
+        change.hold_class = str(stop.cls)
+        change.attempts[sid] = max(0, change.attempts.get(sid, 1) - 1)  # the factory's failure, not an attempt
+        evidence = "\n".join(x for x in (stop.evidence, result.failure_evidence or "") if x)
+        return self._hold(change, sid, stop.why, evidence)
 
     def _hold(self, change: Change, sid: str, why: str, evidence: str | None = None) -> None:
         change.status = ChangeStatus.held

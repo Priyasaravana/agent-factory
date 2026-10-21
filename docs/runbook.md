@@ -79,8 +79,25 @@ asked to choose your own. Create a product and watch all 8 stations pass. The ge
   volume. Pin the image to a digest you have verified.
 - **A change is held at build with "base image" or "no fix released".** The image
   scan found a critical CVE the developer can't bump (ADR-0042). The hold names
-  the package and the base image. Either move to a patched base image, or accept
-  the risk with an expiry on the product's work ledger, then resume the change.
+  the package and the base image. Accept the risk with an expiry on the product's
+  work ledger, then resume: until you do, Resume is refused with the same
+  instruction (ADR-0043 §4). To move to a patched base image instead, cancel the
+  change and start an upkeep change once the pack or Dockerfile is updated.
+- **A change is held with "infrastructure: …".** The factory failed, not the
+  product (ADR-0043): an expired or refused model key, the model API or gateway
+  down, Docker or the cluster unreachable, an image pull. The engine already
+  retried it (`infra_retries`, see the change's "retrying …" events) and sent
+  nothing to the developer. Fix what the hold names (`make status`, the readiness
+  pills, `docker compose logs`), then resume: the step runs again with a fresh
+  attempt budget. "not set up" holds (gateway admin key, sandbox) are never
+  retried: fix the setup first.
+- **A change is held with "ran past its … limit" or "time budget".** One agent
+  call ran longer than `agent_call_minutes`, or the run used
+  `change_wall_clock_minutes` (both in agent time: host sleep doesn't count).
+  Read the call's transcript (Agent calls) for a loop, then resume.
+- **A scan says "scan scope: the whole worktree".** The committed-files copy
+  couldn't be listed (the event gives git's error), so the scanner read the
+  worktree, dependencies and build output included: expect extra findings.
   If the scan says "image findings not read", `scan_command` lacks `--format json`.
 - **Image build fails downloading a tool.** Each tool has its own `RUN` line in
   `images/factory/Dockerfile`, so the failing layer names the tool. Bump that

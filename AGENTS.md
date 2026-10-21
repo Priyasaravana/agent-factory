@@ -189,6 +189,15 @@
   the work ledger (`ledger.fold_image_scan`, category `image`) so a person can accept a risk with an
   expiry and resume. Output that isn't Trivy JSON falls back to the exit code, and says so. Tests in
   `tests/test_image_scan.py`.
+- Failure classes (ADR-0043): a failed step is `work`, `infra` or `decision` (`failures.py`, pure
+  rule tables; anything unrecognised is `work`). `ctx.agent` and privileged `ctx.cmd` retry infra
+  failures in place with backoff (`budgets.infra_*`) and set `ctx.stop` when retries don't cure
+  them, so the pipeline holds instead of routing to `on_fail`; agent-written (`untrusted`) commands
+  are never classified. Pass `retry=False` for a step that isn't safe to repeat (`gh repo create`,
+  `gh pr create`). A new rule gets a case in `tests/test_failures.py` with an ordinary work failure
+  that doesn't match it. A hold that a person must unblock sets `StationResult.required`; resume
+  refuses until it is done (`ChangeManager._action_done`). Agent calls run under
+  `agent_call_minutes` / `agent_stall_minutes` and the change's time budget, all in agent time.
 - Model access goes through the gateway seam (ADR-0036, `gateway.py`): `ClaudeAgentRunner`
   opens a gateway session per agent call (a virtual key behind a gateway) and closes it in
   a `finally`. A sandbox never gets a credential the session withholds

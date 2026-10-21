@@ -4,6 +4,7 @@ without a model; `build_hooks` adapts them to the Agent SDK hook API."""
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,107 @@ VERIFIER_BASH_PREFIXES = (
     "git status",
     "git ls-files",
     "git blame",
+    # reading helpers (ADR-0043 §6: Guestbook's reviewer was denied 16 of these); each is checked
+    # below for the options that would let it write
+    "cd",
+    "pwd",
+    "sed",
+    "sort",
+    "uniq",
+    "wc",
+    "cut",
+    "find",
 )
+
+_SEPARATORS = {"&&", "||", ";", "|", "&", "|&", ";;"}
+_OUT_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
+_FIND_WRITES = {"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
+# sed scripts that only print: a line range (`66,100p`), a pattern (`/x/p`), or a substitution
+# without the `w` (write) or `e` (execute) flags
+_SED_PRINT = re.compile(r"^(?:(?:\d+|\$)(?:,(?:\d+|\$))?|/(?:[^/\\]|\\.)*/(?:,/(?:[^/\\]|\\.)*/)?)p$")
+_SED_SUB = re.compile(r"^s(?P<d>[^\w\s\\])(?:(?!(?P=d))[^\\]|\\.)*(?P=d)(?:(?!(?P=d))[^\\]|\\.)*(?P=d)[gpiI0-9]*$")
+
+
+def _segments(cmd: str) -> list[list[str]] | None:
+    """Split a command line into its steps, the way a shell does: a quoted `\\|` or `;` inside a
+    grep pattern is not a pipe. None when it can't be parsed (unbalanced quotes)."""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>")
+    lex.whitespace_split = True
+    lex.commenters = ""
+    try:
+        tokens = list(lex)
+    except ValueError:
+        return None
+    segs: list[list[str]] = [[]]
+    for t in tokens:
+        if t in _SEPARATORS:
+            segs.append([])
+        else:
+            segs[-1].append(t)
+    return [s for s in segs if s]
+
+
+def _sed_reads_only(args: list[str]) -> bool:
+    scripts, rest, it = [], [], iter(args)
+    for a in it:
+        if a in ("-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended"):
+            continue
+        if a in ("-e", "--expression"):
+            scripts.append(next(it, ""))
+        elif a.startswith("-"):
+            return False  # -i (in place), -f (script file), -s, … : not observing
+        else:
+            rest.append(a)
+    if not scripts and rest:
+        scripts.append(rest.pop(0))
+    return bool(scripts) and all(_SED_PRINT.match(x) or _SED_SUB.match(x) for x in scripts)
+
+
+def _observe_denial(role: str, cmd: str) -> str | None:
+    """Why an observe-only agent may not run this, or None."""
+    segs = _segments(cmd)
+    if segs is None:
+        return f"'{role}' is observe-only; the command could not be parsed"
+    if "$(" in cmd or "`" in cmd:
+        return f"'{role}' is observe-only; command substitution is not allowed"
+    for words in segs:
+        argv: list[str] = []
+        i = 0
+        while i < len(words):
+            w, nxt = words[i], words[i + 1] if i + 1 < len(words) else ""
+            if w.isdigit() and nxt in _OUT_REDIRECTS | {">&", "<"}:
+                i += 1  # the `2` of `2>/dev/null`
+                continue
+            if w in _OUT_REDIRECTS:
+                if nxt != "/dev/null":
+                    return f"'{role}' is observe-only; writing output to a file is not allowed"
+                i += 2
+                continue
+            if w in (">&", "<"):
+                i += 2  # 2>&1 joins streams; < reads a file
+                continue
+            argv.append(w)
+            i += 1
+        if argv[:2] == ["git", "-C"] and len(argv) > 3:
+            argv = ["git", *argv[3:]]  # reading another checkout's history is still reading
+        line = " ".join(argv)
+        if not line:
+            continue
+        if not any(line == p or line.startswith(p + " ") for p in VERIFIER_BASH_PREFIXES):
+            return f"'{role}' is observe-only; '{line[:60]}' is not allowed"
+        tool, args = argv[0], argv[1:]
+        if tool == "git" and any(re.match(r"^(--output|-o)(=|$)", a) for a in args):
+            return f"'{role}' is observe-only; git output to a file is not allowed"
+        if tool == "sed" and not _sed_reads_only(args):
+            return f"'{role}' is observe-only; sed may only print (-n with a range or pattern, or s///)"
+        if tool == "sort" and any(re.match(r"^(-o|--output)", a) or re.match(r"^-[a-zA-Z]*o", a) for a in args):
+            return f"'{role}' is observe-only; sort -o writes a file"
+        if tool == "uniq" and len([a for a in args if not a.startswith("-")]) > 1:
+            return f"'{role}' is observe-only; uniq with an output file is not allowed"
+        if tool == "find" and any(a in _FIND_WRITES for a in args):
+            return f"'{role}' is observe-only; find may only list"
+    return None
+
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
@@ -77,12 +178,7 @@ def evaluate(
             if re.search(pattern, cmd):
                 return f"blocked: {why}"
         if observe_only:
-            for part in re.split(r"&&|\|\||;|\|", cmd):
-                part = part.strip()
-                if part and not part.startswith(VERIFIER_BASH_PREFIXES):
-                    return f"'{role}' is observe-only; '{part[:60]}' is not allowed"
-                if part.startswith("git ") and re.search(r"(^|\s)(--output|-o)(=|\s|$)|>", part):
-                    return f"'{role}' is observe-only; git output to a file is not allowed"
+            return _observe_denial(role, cmd)
         return None
 
     if tool_name in WRITE_TOOLS:

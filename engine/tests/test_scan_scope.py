@@ -47,13 +47,38 @@ async def test_the_scan_copy_holds_what_would_be_committed_and_is_removed(tmp_pa
     assert (wt / "node_modules").is_dir(), "the worktree itself is untouched"
 
 
-async def test_without_git_the_whole_worktree_is_scanned(tmp_path):
+async def test_without_git_the_whole_worktree_is_scanned_and_it_says_so(tmp_path):
+    """Guestbook (2026-10-19): a scan fell back to the worktree silently, and one code scan went
+    from 7 medium findings to 1 high and 48 medium (ADR-0043 §6)."""
     wt = tmp_path / "plain"
     wt.mkdir()
     ws = Workspace(tmp_path / "data", tmp_path, "t", "t@t")
-    ctx = SimpleNamespace(ws=ws, worktree=wt, change=SimpleNamespace(id="c1"), station_id="scan")
+    said: list[tuple[str, dict]] = []
+
+    async def emit(kind, message, data=None):
+        said.append((message, data or {}))
+
+    ctx = SimpleNamespace(ws=ws, worktree=wt, change=SimpleNamespace(id="c1"), station_id="scan", emit=emit)
     async with committed_files(ctx) as scope:  # type: ignore[arg-type]
         assert scope == wt, "never scan less than asked"
+    assert said and said[0][1]["scan_scope"]["scope"] == "worktree"
+    assert "not a git repository" in said[0][1]["scan_scope"]["why"]
+    assert not list((ws.data_dir / "scan").glob("*.files")), "the listing is removed"
+
+
+async def test_a_large_repo_is_copied_whole(tmp_path):
+    """The listing is read from a file: command output is cut to its last 6000 characters, which
+    used to drop the first files of a large repo from every scan."""
+    wt = _repo(tmp_path)
+    many = [f"src/feature_{i:04d}/component_with_a_long_name.ts" for i in range(400)]  # ~20,000 chars
+    for rel in many:
+        (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+        (wt / rel).write_text("export {};\n")
+    ws = Workspace(tmp_path / "data", tmp_path, "t", "t@t")
+    ctx = SimpleNamespace(ws=ws, worktree=wt, change=SimpleNamespace(id="c1"), station_id="code-scan")
+    async with committed_files(ctx) as scope:  # type: ignore[arg-type]
+        files = {p.relative_to(scope).as_posix() for p in scope.rglob("*") if p.is_file()}
+    assert set(many) | {".gitignore", "src/app.ts", "src/new.ts"} == files
 
 
 async def test_the_quality_gate_and_scans_read_the_copy_not_the_worktree(make_factory):
