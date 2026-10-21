@@ -1794,6 +1794,10 @@ export interface components {
              * @default
              */
             assessed_at: string;
+            /** Stack Packs */
+            stack_packs?: components["schemas"]["StackMatch"][];
+            /** Pack Signals */
+            pack_signals?: components["schemas"]["PackAdvisory"][];
         };
         /**
          * AssignWorkflowInput
@@ -2906,6 +2910,54 @@ export interface components {
             weekly?: components["schemas"]["WeekPoint"][];
         };
         /**
+         * PackAdvisory
+         * @description How one folder of a team repo measures against a detected pack's golden path (ADR-0041 §5).
+         *     Advisory: never part of the repo's Level.
+         */
+        PackAdvisory: {
+            /** Pack */
+            pack: string;
+            /** Version */
+            version: string;
+            /** Title */
+            title: string;
+            /**
+             * Folder
+             * @default
+             */
+            folder: string;
+            /**
+             * Met
+             * @default 0
+             */
+            met: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /** Signals */
+            signals?: components["schemas"]["PackAdvisorySignal"][];
+        };
+        /** PackAdvisorySignal */
+        PackAdvisorySignal: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Level */
+            level: number;
+            /** Pillar */
+            pillar: string;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Hint
+             * @default
+             */
+            hint: string;
+        };
+        /**
          * PhaseInfo
          * @description One column of the phase registry (ADR-0039 §2).
          */
@@ -3040,6 +3092,8 @@ export interface components {
             };
             /** Pack */
             pack?: string | null;
+            /** Stack Matches */
+            stack_matches?: components["schemas"]["StackMatch"][];
         };
         /** ProductDetail */
         ProductDetail: {
@@ -3446,6 +3500,30 @@ export interface components {
             technologies?: string[];
             /** Pack */
             pack?: string | null;
+        };
+        /**
+         * StackMatch
+         * @description A stack pack recognised in a team repo (ADR-0041 §5): guidance for one folder, never rules.
+         */
+        StackMatch: {
+            /** Id */
+            id: string;
+            /** Version */
+            version: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Folder
+             * @default
+             */
+            folder: string;
+            /** Matched */
+            matched?: string[];
+            /** Egress */
+            egress?: string[];
         };
         /** StartEvalInput */
         StartEvalInput: {

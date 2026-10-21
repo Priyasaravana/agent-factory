@@ -981,7 +981,7 @@ class ChangeManager:
             )
             ctx.providers = self.providers.for_blueprint(product.blueprint)
             if self.sandbox is not None:
-                ctx.untrusted_ex = self.sandbox.executor(change.id, sid, ctx.blueprint.pack_egress)
+                ctx.untrusted_ex = self.sandbox.executor(change.id, sid, ctx.pack_egress)
             ctx.secrets = self.secrets
             ctx.grant = flow.grant(sid, self.workflows.phases)  # the capability boundary (ADR-0039 §4)
             if self.workflows.library:

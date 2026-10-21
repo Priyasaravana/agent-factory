@@ -130,6 +130,18 @@ export default function ProductPage() {
         <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
           {product.pack && <span className="block text-xs font-normal text-muted-foreground">stack pack {product.pack}</span>}
+          {product.target === "repo" && (
+            <span className="block whitespace-normal text-xs font-normal text-muted-foreground" data-testid="stack-guidance">
+              {(product.stack_matches ?? []).length === 0
+                ? "no stack pack detected: generic mode"
+                : (product.stack_matches ?? []).map((m) => (
+                    <span key={`${m.id}:${m.folder}`} className="block">
+                      {m.title || m.id} guidance in {m.folder ? `${m.folder}/` : "root"}
+                      {(m.egress ?? []).length > 0 && ` · egress ${(m.egress ?? []).join(", ")}`}
+                    </span>
+                  ))}
+            </span>
+          )}
         </Fact>
         {product.target === "repo" ? (
           <Fact icon={<GitBranch />} label="Branch">

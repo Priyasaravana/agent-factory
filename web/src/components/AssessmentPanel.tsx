@@ -7,7 +7,7 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
 
-type Tab = "findings" | "risks" | "tests" | "next" | "coverage" | "signals" | "agents";
+type Tab = "findings" | "risks" | "tests" | "next" | "coverage" | "signals" | "packs" | "agents";
 
 const SEV: Record<string, string> = { critical: "bad", high: "bad", medium: "warn", low: "muted", info: "muted" };
 
@@ -91,6 +91,8 @@ export default function AssessmentPanel({
     level: d.level ?? 0,
     points: d.points ?? 0,
     max_points: d.max_points ?? 0,
+    stack_packs: d.stack_packs ?? [],
+    pack_signals: d.pack_signals ?? [],
   };
   const failing = v.signals.filter((s) => !s.ok);
   // every station's issues when the report consolidated them (rollup), else the rules' findings
@@ -106,6 +108,7 @@ export default function AssessmentPanel({
     ["next", `Next changes ${v.recommendations.length}`],
     ...(rolled ? ([["coverage", gaps.length ? "Coverage ⚠" : "Coverage"]] as [Tab, string][]) : []),
     ["signals", `Signals ${v.signals.length - failing.length}/${v.signals.length}`],
+    ["packs", `Stack packs ${v.stack_packs.length}`],
     ...(v.agents_md ? ([["agents", "AGENTS.md"]] as [Tab, string][]) : []),
   ];
   const download = () => {
@@ -295,6 +298,49 @@ export default function AssessmentPanel({
             </li>
           ))}
         </ul>
+      )}
+      {tab === "packs" && (
+        <div className="grid gap-3 text-sm" data-testid="stack-packs">
+          {v.stack_packs.length === 0 ? (
+            <p className="m-0 text-muted-foreground">
+              No installed stack pack matches this repository, so its changes run in generic mode.
+            </p>
+          ) : (
+            <p className="m-0 text-xs text-muted-foreground">
+              Detected from the repo's files at the root and one folder down. Each pack's skill guides changes to its
+              folder; the repo's own CI, AGENTS.md and conventions win. Advisory: not part of the Level above.
+            </p>
+          )}
+          {v.pack_signals.map((g) => (
+            <div key={`${g.pack}:${g.folder}`} className="grid gap-1 rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{g.title}</span>
+                <span className="pill muted">
+                  {g.pack}@{g.version}
+                </span>
+                <span className="pill info">{g.folder ? `${g.folder}/` : "repo root"}</span>
+                <span className={cn("pill ml-auto", g.met === g.total ? "ok" : "warn")}>
+                  golden path {g.met}/{g.total}
+                </span>
+              </div>
+              <ul className="m-0 grid list-none gap-1 p-0">
+                {(g.signals ?? []).map((s) => (
+                  <li key={s.id} className="flex items-start gap-2">
+                    {s.ok ? (
+                      <Check className="mt-0.5 size-4 shrink-0 text-ok" aria-label="met" />
+                    ) : (
+                      <X className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-label="not met" />
+                    )}
+                    <span>
+                      {s.title} <span className="text-xs text-muted-foreground">{s.pillar}</span>
+                      {!s.ok && s.hint && <span className="block text-xs text-muted-foreground">{s.hint}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
       {tab === "agents" && (
         <div className="grid gap-2">

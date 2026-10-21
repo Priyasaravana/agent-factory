@@ -245,19 +245,25 @@ def parse_rule(raw: Any, where: str = "rule") -> Rule:
     raise RuleError(f"{where}: unknown rule kind '{kind}' (one of {', '.join([*_LEAF, 'all', 'any'])})")
 
 
+def _real_file(p: Path) -> bool:
+    """A regular file, not a symlink: rules also run on team repos (ADR-0041 §5), and a link
+    could point outside the repository."""
+    return p.is_file() and not p.is_symlink()
+
+
 def _files(root: Path, rule: Rule) -> list[Path]:
     if not rule.glob:
         p = root / rule.target
-        return [p] if p.is_file() else []
-    return [p for p in sorted(root.glob(rule.target)) if p.is_file()]
+        return [p] if _real_file(p) else []
+    return [p for p in sorted(root.glob(rule.target)) if _real_file(p)]
 
 
 def holds(rule: Rule, root: Path) -> bool:
     """Whether the repo at `root` satisfies the rule. Pure: reads files, runs nothing."""
     if rule.kind == "file":
-        return (root / rule.target).is_file()
+        return _real_file(root / rule.target)
     if rule.kind == "glob":
-        return any(p.is_file() for p in root.glob(rule.target))
+        return any(_real_file(p) for p in root.glob(rule.target))
     if rule.kind == "contains":
         return any(rule.text in p.read_text(errors="replace") for p in _files(root, rule))
     if rule.kind == "matches":

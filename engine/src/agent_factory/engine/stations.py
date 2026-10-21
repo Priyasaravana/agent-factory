@@ -25,6 +25,7 @@ from agent_factory import (
     contract,
     image_scan,
     ledger,
+    packs,
     repo_change,
     risk,
     rollup,
@@ -36,7 +37,7 @@ from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
-from agent_factory.models import Change, EventKind, Product, ProductTarget, StationOutcome
+from agent_factory.models import Change, EventKind, Product, ProductTarget, StackMatch, StationOutcome
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
@@ -100,19 +101,64 @@ class StationContext:
         """The station contract's target (ADR-0037): `factory` or `repo`."""
         return target_of(self.blueprint.target)
 
+    @property
+    def stack_guides(self) -> list[tuple[packs.PackBinding, list[str]]]:
+        """A team repo's detected stack packs that are still installed, each with the folders it
+        was found in (ADR-0041 §5). Empty for a factory product: its pack is its blueprint's."""
+        if self.target != "repo":
+            return []
+        folders: dict[str, list[str]] = {}
+        for m in self.product.stack_matches:
+            if m.id in self.cfg.stack_packs:
+                folders.setdefault(m.id, []).append(m.folder)
+        return [(self.cfg.stack_packs[pid], where) for pid, where in folders.items()]
+
+    @property
+    def pack_egress(self) -> tuple[str, ...]:
+        """What this product's sandboxes may reach beyond `sandbox.egress`: its blueprint's pack, or
+        a team repo's detected packs (ADR-0041 §5, §7). Never factory-wide."""
+        hosts = list(self.blueprint.pack_egress)
+        for pack, _ in self.stack_guides:
+            hosts += [h for h in pack.egress if h not in hosts]
+        return tuple(hosts)
+
+    def stack_skills(self) -> list[str]:
+        """The stack-pack skills this product's design, develop and fix agents get: its own pack's
+        (ADR-0041 §1), or every pack detected in a team repo, as guidance (§5)."""
+        if self.target == "repo":
+            return list(dict.fromkeys(p.skill for p, _ in self.stack_guides if p.skill))
+        pack = self.blueprint.pack_binding
+        return [pack.skill] if pack is not None and pack.skill else []
+
+    def stack_skill_file(self, name: str) -> Path | None:
+        packs_here = [p for p, _ in self.stack_guides] + [p for p in [self.blueprint.pack_binding] if p]
+        return next((p.skill_file for p in packs_here if p.skill == name and p.skill_file), None)
+
+    def guidance_scope(self, name: str) -> str | None:
+        """For a team repo, where a detected pack's skill applies (None: not repo guidance)."""
+        where = [f for p, folders in self.stack_guides if p.skill == name for f in folders]
+        if not where:
+            return None
+        places = ", ".join(f"`{f}/`" if f else "the repository root" for f in where)
+        return (
+            f"guidance for {places}, detected from the repo's files. Where this repository's own CI, "
+            "AGENTS.md or conventions differ, follow the repository; never restructure it to fit this skill"
+        )
+
     def preloaded_skills(self, spec: AgentSpec) -> list[str]:
         """The skills whose text goes into this agent's prompt: the spec's `preload_skills`, plus the
         product's stack-pack skill for the agents that design, write or repair its code (ADR-0041 §1),
-        so lanes stay stack-neutral and each product gets its own stack's golden path."""
+        so lanes stay stack-neutral and each product gets its own stack's golden path. A team repo's
+        agents get the skills of the packs detected in it, as guidance (§5)."""
         names = list(spec.preload_skills)
-        pack = self.blueprint.pack_binding
-        if pack is None or pack.skill is None or pack.skill in names:
+        extra = [k for k in self.stack_skills() if k not in names]
+        if not extra:
             return names
         try:
             handler = self.workflow_doc.station(self.station_id).handler_for(self.workflow_doc.works_on)
         except (KeyError, ValueError):
             return names
-        return [*names, pack.skill] if handler in STACK_SKILL_HANDLERS else names
+        return [*names, *extra] if handler in STACK_SKILL_HANDLERS else names
 
     @property
     def spec(self) -> AgentSpec:
@@ -225,7 +271,7 @@ class StationContext:
             output_schema=schema,
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
-            egress=list(self.blueprint.pack_egress),
+            egress=list(self.pack_egress),
         )
         call = AgentCall(
             self.ws.data_dir / "artifacts" / self.change.id,
@@ -259,7 +305,7 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
     if preloaded:
         parts.append(
             "## Skills for this station (follow them; already loaded, no need to invoke)\n\n"
-            + "\n\n".join(f"### Skill: {name}\n{text}" for name, text in preloaded)
+            + "\n\n".join(_skill_block(ctx, name, text) for name, text in preloaded)
         )
     if spec.learnings.strip():
         parts.append("## Learnings from earlier changes (human-approved)\n" + spec.learnings.strip())
@@ -270,9 +316,15 @@ def compose_system_prompt(ctx: StationContext, spec: AgentSpec) -> str:
     return "\n\n".join(parts)
 
 
+def _skill_block(ctx: StationContext, name: str, text: str) -> str:
+    scope = ctx.guidance_scope(name)
+    return f"### Skill: {name}\n" + (f"_Stack pack {scope}._\n\n" if scope else "") + text
+
+
 MAX_PRELOAD_CHARS = 15_000
-# the agents that get the product's stack-pack skill (ADR-0041 §1): design, develop and fix
-STACK_SKILL_HANDLERS = frozenset({"design", "implement", "deploy-repair"})
+# the agents that get the product's stack-pack skill (ADR-0041 §1): design, develop and fix; in a
+# team repo the developer is `repo-implement` (§5)
+STACK_SKILL_HANDLERS = frozenset({"design", "implement", "repo-implement", "deploy-repair"})
 
 
 def skill_text(ctx: StationContext, name: str) -> str:
@@ -281,9 +333,8 @@ def skill_text(ctx: StationContext, name: str) -> str:
     candidates = [ctx.ws.factory_home / "plugin" / "skills" / name / "SKILL.md"]
     if ctx.imported_plugin:
         candidates.insert(0, ctx.imported_plugin / "skills" / name / "SKILL.md")
-    pack = ctx.blueprint.pack_binding
-    if pack is not None and pack.skill == name and pack.skill_file is not None:
-        candidates.insert(0, pack.skill_file)
+    if (pack_skill := ctx.stack_skill_file(name)) is not None:
+        candidates.insert(0, pack_skill)
     for path in candidates:
         if path.exists():
             body = re.sub(r"^---\s*\n.*?\n---\s*\n?", "", path.read_text(), count=1, flags=re.DOTALL)
@@ -1282,6 +1333,8 @@ async def onboard(ctx: StationContext) -> StationResult:
     head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
     commit = head.output.strip().splitlines()[-1] if head.ok and head.output.strip() else "unknown"
     found = assess.detect_stack(ctx.worktree, paths)
+    matches = packs.detect(list(ctx.cfg.stack_packs.values()), ctx.worktree)
+    await _record_stack_matches(ctx, matches)
     repo = {
         "slug": "/".join((ctx.product.repo_url or "").rstrip("/").split("/")[-2:]),
         "url": ctx.product.repo_url,
@@ -1290,10 +1343,46 @@ async def onboard(ctx: StationContext) -> StationResult:
         "files": len(paths),
         "truncated": len(paths) >= assess.MAX_FILES,
     }
-    _write_json(ctx, "repo.json", {"repo": repo, "stack": found.as_data(), "stack_summary": found.summary()})
+    _write_json(
+        ctx,
+        "repo.json",
+        {
+            "repo": repo,
+            "stack": found.as_data(),
+            "stack_summary": found.summary(),
+            "packs": [m.as_data() for m in matches],
+        },
+    )
     summary = f"{repo['slug']} at {commit[:12]}: {len(paths)} files · {found.summary()}"
     await ctx.emit(EventKind.decision, f"onboarded {summary}", {"onboard": {"repo": repo, "stack": found.as_data()}})
     return StationResult(StationOutcome.passed, summary)
+
+
+def _where(folder: str) -> str:
+    return f"{folder}/" if folder else "the repository root"
+
+
+async def _record_stack_matches(ctx: StationContext, matches: list[packs.Match]) -> None:
+    """The stack packs this team repo is built with, kept on the product for its changes
+    (ADR-0041 §5). Detected again at every assessment; a change from last time is a decision."""
+    before = {(m.id, m.folder) for m in ctx.product.stack_matches}
+    after = {(m.id, m.folder) for m in matches}
+    ctx.product.stack_matches = [StackMatch(**m.as_data()) for m in matches]
+    ctx.store.save_product(ctx.product)
+    found = "; ".join(f"{m.title} ({m.id}@{m.version}) in {_where(m.folder)}" for m in matches)
+    data = {"stack_packs": [m.as_data() for m in matches]}
+    if not matches:
+        if before:
+            await ctx.emit(EventKind.decision, "no stack pack matches any more: changes run in generic mode", data)
+        else:
+            await ctx.emit(EventKind.decision, "no stack pack matches: changes run in generic mode", data)
+        return
+    if before and before != after:
+        await ctx.emit(EventKind.decision, f"stack packs changed since the last assessment: {found}", data)
+    else:
+        await ctx.emit(
+            EventKind.decision, f"stack pack guidance: {found} (the repo's own CI and conventions win)", data
+        )
 
 
 async def repo_scan(ctx: StationContext) -> StationResult:
@@ -1311,7 +1400,18 @@ async def repo_scan(ctx: StationContext) -> StationResult:
         await ctx.emit(EventKind.decision, "secret scan NOT run: no secret_scan_command configured")
     card = assess.score(ctx.worktree, found, paths, scan_ok).as_data()
     rules = [f.as_data() for f in assess.findings(ctx.worktree, found, paths)]
-    _write_json(ctx, "repo-scan.json", {"readiness": card, "findings": rules, "secret_scan_ok": scan_ok})
+    # each detected pack's golden path, per folder: advisory, never in the Level (ADR-0041 §5)
+    by_id = ctx.cfg.stack_packs
+    guidance = [
+        packs.advisory(by_id[m["id"]], ctx.worktree, m["folder"])
+        for m in facts.get("packs", [])
+        if m.get("id") in by_id
+    ]
+    _write_json(
+        ctx,
+        "repo-scan.json",
+        {"readiness": card, "findings": rules, "secret_scan_ok": scan_ok, "pack_signals": guidance},
+    )
     high = sum(1 for f in rules if f["severity"] == "high")
     headline = (
         f"readiness Level {card['level']} ({card['points']}/{card['max_points']} points) · "
@@ -1393,6 +1493,8 @@ async def report(ctx: StationContext) -> StationResult:
         "readiness": scan["readiness"],
         "findings": scan["findings"],
         "secret_scan_ok": scan.get("secret_scan_ok"),
+        "stack_packs": facts.get("packs", []),
+        "pack_signals": scan.get("pack_signals", []),
         "summary": j.get("summary", ""),
         "risks": j.get("risks", []),
         "test_gaps": j.get("test_gaps", []),
