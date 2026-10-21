@@ -89,6 +89,8 @@ class FakeExecutor:
     # what a command prints, by a substring of it: scanners answer like a clean scan (ADR-0034).
     # A list answers in turn, its last entry from then on (a scan before and after a fix).
     scan_outputs: dict[str, str | list[str]] = field(default_factory=lambda: dict(CLEAN_SCANS))
+    # what a failing command prints, by its `fail_on` needle (simulates an infra error, ADR-0043)
+    fail_with: dict[str, str] = field(default_factory=dict)
 
     async def run(
         self,
@@ -101,7 +103,9 @@ class FakeExecutor:
         for needle in list(self.fail_on):
             if needle in command:
                 self.fail_on.remove(needle)
-                return CommandResult(command, 1, f"[dry-run] simulated failure for '{needle}'")
+                return CommandResult(
+                    command, 1, self.fail_with.get(needle, f"[dry-run] simulated failure for '{needle}'")
+                )
         await asyncio.sleep(0.05)
         for needle, output in self.scan_outputs.items():
             if needle in command:

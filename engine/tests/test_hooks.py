@@ -73,6 +73,54 @@ def test_reviewers_cannot_change_anything_with_git(cmd: str) -> None:
     assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True)
 
 
+# Guestbook's reviewer (change df3bdaaeb306) was denied all of these: harmless reads, or a quoted
+# `\|` in a grep pattern split as a pipe (ADR-0043 §6).
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "cd /data/runs/df3bdaaeb306",
+        'cat docs/openapi.yaml | head -210; grep -n "it(\\|test(" tests/*.ts tests/*.tsx e2e/*.ts',
+        'grep -n "ADR\\|limit\\|pagination" docs/design.md',
+        "sed -n 66,100p docs/design.md",
+        "sed -n '/## API/,/## Data/p' docs/design.md",
+        "git diff main...HEAD -- src | sed 's/^\\(.\\{160\\}\\).*/\\1/'",
+        "git -C /data/runs/df3bdaaeb306 show HEAD:src/app/api/readyz/route.ts",
+        "grep -rn readyz src | sort | uniq -c | sort -rn | head",
+        "wc -l src/*.ts; cut -d: -f1 notes.txt",
+        "find src -name '*.test.ts' -type f",
+        "ls missing 2>/dev/null || echo none",
+        "grep -c x f 2>&1 | head -1",
+    ],
+)
+def test_reviewers_may_read_with_ordinary_tools(cmd: str) -> None:
+    assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True) is None
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "sed -i 's/a/b/' src/app.ts",
+        "sed -n '1w /tmp/out' src/app.ts",
+        "sed 's/a/b/w /tmp/out' src/app.ts",
+        "sed 's/x/date/e' src/app.ts",
+        "sed -f script.sed src/app.ts",
+        "sort -o sorted.txt notes.txt",
+        "uniq notes.txt out.txt",
+        "find . -name '*.ts' -delete",
+        "find . -exec rm {} ;",
+        "cat src/app.ts > copy.ts",
+        "grep x src >> notes.txt",
+        "echo $(touch hacked)",
+        "echo `touch hacked`",
+        "cd src && touch x",
+        "git -C /data/runs/x commit -am x",
+        "grep 'unbalanced",
+    ],
+)
+def test_reading_tools_still_cannot_write(cmd: str) -> None:
+    assert evaluate("reviewer", "Bash", {"command": cmd}, CWD, [], True)
+
+
 async def test_every_denial_is_reported() -> None:
     """ADR-0022: a refusal is run evidence, not only something the agent sees."""
     from agent_factory.agents.hooks import build_hooks

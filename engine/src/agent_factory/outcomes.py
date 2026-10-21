@@ -83,6 +83,7 @@ class Facts:
     traceability: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # run id -> matrix rows
     calls: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, agent_call)
     denials: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, denied)
+    retries: list[tuple[str, datetime, dict[str, Any]]] = field(default_factory=list)  # (run, time, retry)
     pauses: list[tuple[datetime, datetime]] = field(default_factory=list)  # host suspended (hostclock.py)
 
     @property
@@ -159,10 +160,21 @@ def _split(change: Change, f: Facts, start: datetime, end: datetime) -> TimeSpli
     return out
 
 
-def _owner(product: Product | None, status: ChangeStatus) -> str:
-    if status in SYSTEM:
-        return "system"
+def _owner(product: Product | None, status: ChangeStatus, hold_class: str | None = None) -> str:
+    if status in SYSTEM or (status == ChangeStatus.held and hold_class == "infra"):
+        return "system"  # the factory's own failure (ADR-0043): its operator acts, not the requester
     return (product.created_by if product and product.created_by else None) or "an admin"
+
+
+def _action(change: Change) -> str:
+    """What to do about a waiting change: the held change's own required action or failure class
+    first (ADR-0043), else what its status asks for."""
+    if change.status == ChangeStatus.held:
+        if change.required_action is not None:
+            return change.required_action.text
+        if change.hold_class == "infra":
+            return "The factory failed, not the product: check what the hold names, then resume"
+    return ACTIONS[change.status]
 
 
 # ------------------------------------------------------------------ compute --
@@ -240,8 +252,8 @@ def compute(f: Facts) -> OutcomesView:
                     status=r.status,
                     since=since_state,
                     waiting_s=max(0.0, (now - since_state).total_seconds()),
-                    owner=_owner(product, r.status),
-                    action=ACTIONS[r.status],
+                    owner=_owner(product, r.status, r.hold_class),
+                    action=_action(r),
                 )
             )
     waiting.sort(key=lambda w: (w.owner == "system", -w.waiting_s))
@@ -368,17 +380,23 @@ def _effort(f: Facts) -> list[StationEffort]:
     for _, ts, c in f.calls:
         if f.since <= ts <= f.now:
             by.setdefault(str(c.get("station", "?")), []).append(c)
+    retried: dict[str, list[dict[str, Any]]] = {}
+    for _, ts, r in f.retries:  # infra retries (ADR-0043), agent calls and commands alike
+        if f.since <= ts <= f.now:
+            retried.setdefault(str(r.get("station", "?")), []).append(r)
     out = [
         StationEffort(
             station=st,
-            calls=len(cs),
+            calls=len(cs := by.get(st, [])),
             cost_usd=round(sum(float(c.get("cost_usd", 0)) for c in cs), 4),
             turns_median=_stat(float(c.get("turns", 0)) for c in cs).median_s,
             duration_median_s=_stat(float(c.get("duration_s", 0)) for c in cs).median_s,
             tool_calls=sum(int(c.get("tool_calls", 0)) for c in cs),
             denied=sum(int(c.get("denied", 0)) for c in cs),
+            retries=len(rs := retried.get(st, [])),
+            retry_wait_s=round(sum(float(r.get("wait_s", 0)) for r in rs), 1),
         )
-        for st, cs in by.items()
+        for st in dict.fromkeys([*by, *retried])
     ]
     return sorted(out, key=lambda e: -e.cost_usd)
 
@@ -406,6 +424,7 @@ def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
     active = [r.id for r in changes if r.created_at >= f.since or r.updated_at >= f.since]
     f.calls = store.events_with_key(active, "agent_call")
     f.denials = store.events_with_key(active, "denied")
+    f.retries = store.events_with_key(active, "retry")
     f.pauses = merge(store.host_pauses(f.since))
     for r in latest.values():
         if got := store.last_event_data(r.id, "readiness"):

@@ -140,9 +140,17 @@ class Budgets(BaseModel):
         default=6, validation_alias=AliasChoices("max_loops_per_change", "max_loops_per_run")
     )
     # time budget per run of a change; it restarts when a person approves, answers or resumes it
-    change_wall_clock_minutes: int = Field(
+    change_wall_clock_minutes: float = Field(
         default=120, validation_alias=AliasChoices("change_wall_clock_minutes", "run_wall_clock_minutes")
     )
+    # failure classes (ADR-0043): an infra failure is retried in place, with full jitter under each
+    # step of the schedule (the last step repeats), and never counted as an attempt or a fix loop
+    infra_retries: int = Field(default=3, ge=0, le=10)
+    infra_backoff_seconds: list[float] = Field(default_factory=lambda: [20.0, 90.0, 300.0])
+    # one agent call, in agent time (host sleep excluded): over the limit it is cancelled and the
+    # change held; sending nothing for the stall time, it is cancelled and retried as infra
+    agent_call_minutes: float = Field(default=45, gt=0, le=24 * 60)
+    agent_stall_minutes: float = Field(default=15, gt=0, le=24 * 60)
 
 
 class Limits(BaseModel):

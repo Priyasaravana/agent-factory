@@ -43,6 +43,7 @@ own work with evidence, which *is* autonomy working. It shows up as effort
 |---|---|
 | **Cost per delivered change** | All model spend of iterations started in the window, **failed ones included**, divided by deliveries. Failed attempts are part of what a delivered change really costs. |
 | **Fix loops per delivery** | Average repair loops of delivered iterations. |
+| **Infra retries** (effort by station) | Infrastructure failures retried in place in the window, per station, with the seconds spent waiting before them (ADR-0043). Commands count as well as agent calls. Like fix loops, they're effort, never a person's touch: autonomy is unchanged. |
 
 ## Where the time goes
 
@@ -53,6 +54,12 @@ Each change's time in the window is split by who it was waiting on:
 | **Agents working** | queued, running |
 | **Waiting on a person** | needs answers, held, spec ready for review, interrupted |
 | **Waiting on the system** | paused for the model usage window |
+
+On the "waiting on" board, a change held for an **infra** failure (ADR-0043) is the
+factory's to fix, so it shows as waiting on the system, not on the requester; a
+change held for a **decision** shows the action a person must take. The time split
+above still counts any held time as waiting on a person: the transition log
+records statuses, not why a change was held.
 | **Host asleep** | any state, while the machine running the factory was suspended (a laptop slept, Docker Desktop paused). Nothing ran, so this time is moved out of the other buckets |
 
 The factory notices host sleep by itself: the monotonic clock stops while the

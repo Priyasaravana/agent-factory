@@ -4825,6 +4825,27 @@
             ],
             "title": "Last Failure"
           },
+          "hold_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Class"
+          },
+          "required_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "questions": {
             "items": {
               "type": "string"
@@ -7773,6 +7794,33 @@
         ],
         "title": "ReorderStationsInput"
       },
+      "RequiredAction": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "accept_risk",
+            "title": "Kind"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "RequiredAction",
+        "description": "What a person must do before a held change can resume (ADR-0043 \u00a74)."
+      },
       "RequirementView": {
         "properties": {
           "id": {
@@ -8755,6 +8803,16 @@
             "type": "integer",
             "title": "Denied",
             "default": 0
+          },
+          "retries": {
+            "type": "integer",
+            "title": "Retries",
+            "default": 0
+          },
+          "retry_wait_s": {
+            "type": "number",
+            "title": "Retry Wait S",
+            "default": 0.0
           }
         },
         "type": "object",

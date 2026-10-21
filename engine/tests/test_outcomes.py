@@ -245,3 +245,42 @@ def test_agent_effort_by_station():
     assert (build.tool_calls, build.denied) == (90, 1)
     assert (review.station, review.calls, review.cost_usd) == ("code-review", 1, 0.25), "most expensive station first"
     assert o.guardrail_denials == 1
+
+
+def test_infra_retries_are_effort_per_station():
+    """ADR-0043: retries count as effort where they happened, commands included; outside the window
+    they don't count."""
+    f = _facts()
+    at = T0 + timedelta(seconds=10)
+    f.calls = [("A", at, {"station": "code-review", "turns": 4, "duration_s": 40.0, "cost_usd": 0.25})]
+    f.retries = [
+        ("A", at, {"station": "code-review", "rule": "key_expired", "wait_s": 0.0}),
+        ("A", at, {"station": "code-review", "rule": "key_expired", "wait_s": 47.25}),
+        ("A", at, {"station": "deploy", "rule": "cluster_unreachable", "wait_s": 12.0}),
+        ("A", NOW - timedelta(days=40), {"station": "deploy", "wait_s": 99.0}),
+    ]
+    review, deploy = compute(f).effort_by_station
+    assert (review.station, review.calls, review.retries, review.retry_wait_s) == ("code-review", 1, 2, 47.2)
+    assert (deploy.station, deploy.calls, deploy.cost_usd, deploy.retries, deploy.retry_wait_s) == (
+        "deploy", 0, 0.0, 1, 12.0,
+    )  # fmt: skip
+
+
+def test_an_infra_hold_waits_on_the_factory_and_a_decision_names_its_action():
+    from agent_factory.models import RequiredAction
+
+    f = _facts()
+    infra = _run("I", "oA", S.held)
+    infra.hold_class = "infra"
+    decision = _run("J", "oB", S.held)
+    decision.hold_class = "decision"
+    decision.required_action = RequiredAction(kind="accept_risk", items=["w1"], text="Accept the risk of the 1 …")
+    f.changes += [infra, decision]
+    f.transitions["I"] = [_t("I", 0, None, S.queued), _t("I", 100, S.running, S.held)]
+    f.transitions["J"] = [_t("J", 0, None, S.queued), _t("J", 50, S.running, S.held)]
+    board = {w.change_id: w for w in compute(f).waiting}
+    assert (board["I"].owner, board["I"].action) == (
+        "system",
+        "The factory failed, not the product: check what the hold names, then resume",
+    )
+    assert (board["J"].owner, board["J"].action) == ("priya", "Accept the risk of the 1 …")

@@ -1,6 +1,6 @@
 # ADR-0043: Failure classes, and end-to-end tests before deploy
 
-**Status:** proposed · 2026-10-21 · builds on [ADR-0019](0019-outcome-metrics.md) (outcomes),
+**Status:** accepted · 2026-10-21 (§1–§4, §6, §7 delivered in PR 1; §5 is PR 2) · builds on [ADR-0019](0019-outcome-metrics.md) (outcomes),
 [ADR-0022](0022-agent-observability.md) (agent calls), [ADR-0036](0036-model-gateway.md) (gateway),
 [ADR-0041](0041-stack-packs.md) (stack packs) and [ADR-0042](0042-image-findings.md) (image findings)
 
@@ -63,26 +63,33 @@ time out are `work`: a hung test is the product's fault.
 - After the last retry the change is **held**, naming the class and the cause ("model gateway
   unreachable after 3 retries"), with the provider's `check()` result attached. Resuming retries
   the step.
-- Every retry is a `retry` event (class, cause, attempt, wait). The retro is told which failures
-  were infra, so it doesn't learn lessons from them.
+- Every retry is a `retry` event (class, cause, attempt, wait). Infra failures never become a
+  change's failure evidence, so the retro doesn't learn code lessons from them.
 
 ### 3. Time limits that hold inside a station
-- **Model keys follow agent time.** The gateway still issues a key per agent call, but the
-  runner renews it when it expires or when the host wakes from sleep (`hostclock`), so a sleeping
-  Mac can't end a call. `key_minutes` stays as the hard ceiling for a key that is never renewed.
+- **An expired key is renewed, not reported.** The gateway still issues a key per agent call
+  for `key_minutes` of wall-clock time, which a sleeping Mac can use up. An expired or refused key
+  is `infra` (`key_expired`, `auth_failed`): the call is retried, and every retry opens a new
+  gateway session with a fresh key; an expired one is retried at once, without backoff. *(As built:
+  renewing the key inside a running call, on host wake, was dropped: the CLI session can't take a
+  new key mid-call, and the immediate retry gives the same result.)*
 - **An agent call has a time limit:** `budgets.agent_call_minutes` (default 45) of agent time,
-  host sleep excluded. A call that sends nothing for `budgets.agent_stall_minutes` (default 10) is
-  stalled: it is cancelled and retried as `infra`. A call that keeps working past its limit is
+  host sleep excluded. A call that sends nothing for `budgets.agent_stall_minutes` (default 15, as built:
+  above the CLI's 10-minute ceiling for a single Bash tool call, so a long `make verify` inside the
+  call isn't taken for a stall) is stalled: it is cancelled and retried as `infra`. A call that keeps working past its limit is
   cancelled and the change held: running the same agent again would not help.
 - **The change's time budget holds inside a station.** The deadline is passed to the station:
   `ctx.agent` and `ctx.cmd` cap their timeouts to what is left, and at the deadline the running
-  call is cancelled and the change held, resumable, as today between stations.
+  call is cancelled and the change held, resumable, as today between stations. The budget itself
+  moves to agent time (the monotonic clock), so host sleep no longer uses it up either.
 
 ### 4. Decision holds say what to do, and resume checks it was done
-A `decision` hold records a **required action**: accept these ledger items' risk, approve this
-risky diff, provide this secret reference. The change page shows it as the button to press. A
-resume whose action isn't done is refused with the same instruction; it does not start the
-station again or seal new evidence.
+A `decision` hold records a **required action** (`Change.required_action`). The change page
+shows it ("Before you resume: …"). A resume whose action isn't done is refused with the same
+instruction; it does not start the station again or seal new evidence. *(As built: the one kind
+is `accept_risk`, for the image holds of ADR-0042 that the work ledger can unblock. Risky diffs
+already wait in their own state for a second admin (ADR-0027), and no station holds for a missing
+secret today. A repeated app fix holds without an action: a person looks, then resumes.)*
 
 ### 5. End-to-end tests run before deploy
 - A stack pack may declare `preview`: a command that starts the app inside the sandbox, without
@@ -102,8 +109,11 @@ station again or seal new evidence.
 
 ### 6. Smaller fixes from the same run
 - **Scanner scope is never silent.** If the committed-files copy can't be made, the scan still
-  reads the whole worktree (never less than asked), but says so in the events and the findings
-  are marked `scope: worktree`. The PR also finds why `git ls-files` failed in that run.
+  reads the whole worktree (never less than asked), and says so in a `scan_scope` event with git's
+  error. *(As built: looking for the cause found a worse bug. The file listing was read from the
+  command's output, which the executor cuts to its last 6,000 characters, so a large repo's scans
+  silently skipped its first files. The listing now goes to a file. Guestbook's own fallback left
+  no trace of git's error; the event will name it next time.)*
 - **The observe-only guardrail parses commands properly.** Commands are split with a shell-aware
   parser (a quoted `\|` is not a pipe), and reviewers may also use `cd` inside the worktree,
   `sed -n` (no `-i`, no `w`), `sort`, `uniq`, `wc`, `cut` and `find` (no `-exec`, `-delete` or
@@ -111,7 +121,9 @@ station again or seal new evidence.
 
 ### 7. Outcomes
 Retries are effort, like fix loops: Outcomes shows infra retries and the time they took per
-station. Changes held for `infra` are counted in "waiting on the factory", not "waiting on you".
+station. On the "waiting on" board, changes held for `infra` wait on the system, not the
+requester, and a decision hold shows its required action. *(As built: the time split still counts
+all held time as waiting on a person; the transition log records statuses, not hold classes.)*
 Autonomy is unchanged: a retry is not a human touch. Each metric gets a definition in
 `docs/outcomes.md` and an exact-value test.
 
@@ -139,10 +151,11 @@ Autonomy is unchanged: a retry is not a human touch. Each metric gets a definiti
   with the next pack release.
 
 ## Open questions
-1. Retry defaults: 3 retries over ~7 minutes, or fewer and faster?
-2. Agent call limit: 45 minutes of agent time, the same for every role?
-3. Should a resumed `infra` hold run the provider's `check()` first, and refuse to resume while
-   it fails?
+Decided with the defaults for PR 1 (2026-10-21), each a setting under `budgets:`:
+1. Retry defaults: 3 retries, with full jitter under 20 s, 90 s and 300 s (at most ~7 minutes).
+2. Agent call limit: 45 minutes of agent time, the same for every role.
+3. A resumed `infra` hold does not run the provider's `check()` first: the readiness pills already
+   show it, and the step's own retries test the same thing.
 
 ## Best practices
 Mapped to [practices.md](../practices.md).

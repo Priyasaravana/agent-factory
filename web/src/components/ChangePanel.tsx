@@ -203,6 +203,19 @@ export default function ChangePanel({
             {r.summary}
           </p>
         )}
+        {r.status === "held" && r.hold_class === "infra" && (
+          <p className="note m-0" data-testid="hold-infra">
+            The factory failed here, not the product: retries didn't cure it, and
+            nothing was sent to the developer. Check what the hold names, then
+            resume.
+          </p>
+        )}
+        {r.status === "held" && r.required_action && (
+          <p className="note m-0" data-testid="required-action">
+            <span className="font-medium">Before you resume:</span>{" "}
+            {r.required_action.text}
+          </p>
+        )}
         {r.status === "held" && r.last_failure && (
           <details open>
             <summary className="font-medium">Evidence</summary>

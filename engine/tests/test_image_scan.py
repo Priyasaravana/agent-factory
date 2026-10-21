@@ -15,6 +15,7 @@ from conftest import PRODUCT, wait_run
 
 from agent_factory import image_scan, ledger
 from agent_factory.agents import FakeAgentRunner
+from agent_factory.engine.pipeline import FactoryError
 from agent_factory.executor import FakeExecutor
 from agent_factory.image_scan import ImageFinding, judge
 from agent_factory.models import ChangeStatus, EventKind
@@ -284,6 +285,12 @@ async def test_base_image_cve_holds_then_an_accepted_risk_lets_it_through(make_f
     items = fac.store.list_work_items(product.id)
     pip = next(i for i in items if i.category == "image")
     assert pip.status == "open" and "pip 24.0" in pip.title
+    assert held.hold_class == "decision" and held.required_action.items == [pip.id]
+
+    # Guestbook resumed twice into the same hold: a resume before the risk is accepted is refused
+    with pytest.raises(FactoryError, match="not yet: Accept the risk of the 1 blocking image finding"):
+        fac.manager.resume(change.id)
+    assert fac.store.get_change(change.id).status == ChangeStatus.held
 
     ledger.decide(
         items,
@@ -296,6 +303,7 @@ async def test_base_image_cve_holds_then_an_accepted_risk_lets_it_through(make_f
     )
     fac.store.save_work_items(items)
     fac.manager.resume(change.id)
+    assert fac.store.get_change(change.id).required_action is None
     assert await wait_run(fac, change.id) == ChangeStatus.awaiting_feedback
     assert _image_events(fac, change.id)[-1].data["image_scan"]["accepted"] == [
         image_scan.parse(report([], [PIP]))[0].key
@@ -319,7 +327,9 @@ async def test_a_fix_that_changes_nothing_holds_after_one_loop(make_factory):
     change = fac.manager.start_change(fac.manager.create_product(PRODUCT))
     assert await wait_run(fac, change.id) == ChangeStatus.held
     assert len([c for c in agents.calls if c.role == "developer"]) == 2, "one fix loop, then a person"
-    assert "another loop is unlikely to help" in fac.store.get_change(change.id).last_failure
+    held = fac.store.get_change(change.id)
+    assert "another loop is unlikely to help" in held.last_failure
+    assert held.required_action is None, "nothing on the ledger unblocks it: a person looks, then resumes"
 
 
 async def test_high_cves_are_recorded_without_blocking(make_factory):

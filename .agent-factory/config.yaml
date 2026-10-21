@@ -242,7 +242,14 @@ gates:
 budgets:
   max_attempts_per_station: 3     # then HOLD for a human
   max_loops_per_change: 6         # total fail->retry transitions per change
-  change_wall_clock_minutes: 120
+  change_wall_clock_minutes: 120  # agent time per run: host sleep and waiting for people don't count
+  # failure classes (ADR-0043): an infra failure (expired key, model API down, cluster unreachable)
+  # is retried in place, never sent to the developer, and not counted above
+  infra_retries: 3
+  infra_backoff_seconds: [20, 90, 300]  # full jitter under each step; the last repeats
+  agent_call_minutes: 45     # one agent call, in agent time; past it the change is held
+  agent_stall_minutes: 15    # a call that sends nothing this long is cancelled and retried
+                             # (above Claude Code's 10-minute ceiling for one Bash tool call)
 
 limits:
   # stay-within-limits, enforced natively by the engine from the SDK's
