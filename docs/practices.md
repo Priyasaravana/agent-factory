@@ -52,7 +52,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 - **Identity & privilege abuse:** ✅ agents hold no credentials beyond the model token and cannot reach the engine · ✅ with the LiteLLM gateway, a virtual key per agent call instead of the model token (ADR-0036; `direct` stays the default) · ✅ each station gets only its phase's capabilities (ADR-0039).
 - **Supply chain (skills, templates, packages):** ✅ pinned commits, consent for scripts, SBOM + provenance · ⬜ pack id, version and hash in provenance (ADR-0041) · ⬜ image signing (with a registry).
 - **Memory/context poisoning:** 🟡 earlier-iteration docs are fed back. Keep holdout scenarios out of builder context (✅).
-- **Cascading failures & rogue agents:** ✅ deterministic ChangeManager, loop limits, usage limits, HOLD on missing evidence.
+- **Cascading failures & rogue agents:** ✅ deterministic ChangeManager, loop limits, usage limits, HOLD on missing evidence · ⬜ failures classed as work, infra or decision: infra retried in place with backoff and a cap, never sent to the developer; time limits per agent call and inside a station (ADR-0043).
 - **Human-agent trust:** ✅ evidence shown for every decision; people approve publish.
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
@@ -111,7 +111,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Pillar | State | Notes |
 |---|---|---|
 | Security | ✅ | secret refs + redaction, auth + audit, access rules, sandbox + egress allowlist, no root, threat model, model gateway with a virtual key per call (ADR-0036, optional), capability grants per station (ADR-0039) |
-| Reliability | 🟡 | `make backup` / `restore` / `upgrade`, loop and usage limits, SQLite reads under the lock · ⬜ single node, no HA, Postgres deferred |
+| Reliability | 🟡 | `make backup` / `restore` / `upgrade`, loop and usage limits, SQLite reads under the lock · ⬜ failure classes with retries and backoff, model keys on agent time (ADR-0043) · ⬜ single node, no HA, Postgres deferred |
 | Performance & scalability | ⬜ | no measured capacity · parallel tasks (DAG) later |
 | Operability & observability | 🟡 | event log, per-call records, transcripts, Outcomes, runbook · ⬜ OpenTelemetry GenAI export |
 | Cost | ✅ | cost per delivered change (failed changes included), usage limits, model tiers per agent |
@@ -149,7 +149,8 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
     - station contract (ADR-0037);
     - lanes, phase registry, capability boundaries and the builder (ADR-0039);
     - product work ledger (ADR-0040).
-- **Next:** stack packs (ADR-0041):
+- **Next:** failure classes, then end-to-end tests before deploy (ADR-0043, from the Guestbook run).
+- **After that:** stack packs (ADR-0041):
   - ✅ FastAPI extracted as pack #1;
   - ✅ Next.js web app with `a11y`;
   - React SPA;
