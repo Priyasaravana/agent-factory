@@ -36,7 +36,8 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
   violation fails the change. The factory runs it against `make preview` before it builds an
   image, and against the live app after deploy.
 - Before you report done, run it yourself the same way: `make preview > /tmp/preview.log 2>&1 &`,
-  wait until `curl -fs http://127.0.0.1:3000/api/healthz` answers, run
+  wait until `curl -fs --noproxy '*' http://127.0.0.1:3000/api/healthz` answers (the sandbox's
+  proxy refuses loopback; `make e2e` already bypasses it), run
   `make e2e BASE_URL=http://127.0.0.1:3000`, then `kill %1`. The preview starts on an empty
   in-memory database each time, so every e2e test creates the data it needs.
 

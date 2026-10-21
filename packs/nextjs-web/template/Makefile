@@ -24,8 +24,9 @@ verify: lint test security build
 
 # end-to-end tests against a running deployment, accessibility included:
 #   make e2e BASE_URL=http://localhost:3000
+# loopback (make preview) never goes through a proxy; any other BASE_URL is unaffected
 e2e: install
-	BASE_URL=$(BASE_URL) npx playwright test
+	NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost BASE_URL=$(BASE_URL) npx playwright test
 
 # the app on this machine, without the cluster, on an in-memory database (stays in the foreground).
 # The factory runs the e2e suite against it before it builds an image; so can you:

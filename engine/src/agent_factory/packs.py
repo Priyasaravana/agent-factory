@@ -522,6 +522,9 @@ def preview_e2e_script(preview: PackPreview, e2e: str, live_path: str) -> str:
     return "\n".join(
         [
             "set -u",
+            # the preview is on this sandbox's own loopback: never through the egress proxy, which
+            # refuses it (the sandbox sets NO_PROXY empty so everything else still goes through it)
+            "export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost",
             'log="$(mktemp)"',
             f'setsid bash -c {shlex.quote(preview.command)} >"$log" 2>&1 &',
             "pid=$!",

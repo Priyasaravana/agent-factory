@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -75,6 +76,30 @@ def test_the_script_runs_e2e_against_a_live_preview_then_stops_it(tmp_path):
     assert "E2E-RAN" in res.stdout and "preview output" not in res.stdout
     with socket.socket() as s, pytest.raises(ConnectionRefusedError):  # stopped: nothing answers
         s.connect(("127.0.0.1", port))
+
+
+def test_loopback_bypasses_the_sandbox_proxy(tmp_path):
+    """The sandbox routes all HTTP through its egress proxy with NO_PROXY empty, and the proxy
+    refuses loopback (first live run, 2026-10-21): the probe and the suite must not use it."""
+    port, dead = _free_port(), _free_port()
+    (tmp_path / "healthz").write_text("ok")
+    preview = PackPreview(
+        command=f"{sys.executable} -m http.server {port} --bind 127.0.0.1",
+        url=f"http://127.0.0.1:{port}",
+        ready_seconds=15,  # a regression fails fast instead of waiting out the default
+    )
+    script = preview_e2e_script(preview, "curl -fs {url}/healthz && echo E2E-RAN", "/healthz")
+    proxy = f"http://127.0.0.1:{dead}"  # nothing listens: any request through it fails
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "NO_PROXY": "", "no_proxy": ""}
+    env |= {k: proxy for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy")}
+    res = subprocess.run(["bash", "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)  # noqa: S603, S607
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "E2E-RAN" in res.stdout
+
+
+def test_the_template_e2e_target_bypasses_the_proxy_for_loopback():
+    make = (REPO / "packs" / "nextjs-web" / "template" / "Makefile").read_text()
+    assert "NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost BASE_URL=$(BASE_URL) npx playwright test" in make
 
 
 def test_a_failing_suite_shows_its_output_and_the_previews(tmp_path):
