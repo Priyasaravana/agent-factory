@@ -66,8 +66,27 @@ class Workspace:
     def holdout_dir(self, slug: str) -> Path:
         return self.data_dir / "holdout" / slug
 
+    def git_env_for(self, cwd: Path) -> dict[str, str]:
+        """The git environment for a repository the engine made under its data dir: also trusted
+        whoever the filesystem says owns it. A host bind mount (Docker Desktop, Rancher/Lima on a
+        Mac) can report another owner at times, and git then refuses the repo ("dubious
+        ownership"); the scan scope fell back to the whole worktree that way (2026-10-22). Command
+        line config, so it never touches a global file; repositories elsewhere keep git's check."""
+        try:
+            inside = cwd.resolve().is_relative_to(self.data_dir.resolve())
+        except OSError:
+            inside = False
+        if not inside:
+            return dict(self.git_env)
+        return {
+            **self.git_env,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "safe.directory",
+            "GIT_CONFIG_VALUE_0": str(cwd.resolve()),
+        }
+
     async def git(self, args: str, cwd: Path) -> CommandResult:
-        return await self.ex.run(f"git {args}", cwd=cwd, timeout=120, env=self.git_env)
+        return await self.ex.run(f"git {args}", cwd=cwd, timeout=120, env=self.git_env_for(cwd))
 
     async def ensure_product_repo(self, slug: str, template: str, owner: str = "") -> Path:
         repo = self.product_dir(slug)
