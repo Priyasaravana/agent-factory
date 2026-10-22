@@ -120,3 +120,26 @@ async def test_the_time_budget_holds_inside_a_station(make_factory):
     assert await wait_run(f, change.id, timeout=10) == ChangeStatus.held
     held = f.store.get_change(change.id)
     assert "time budget (during the intake agent call)" in held.summary
+
+
+TRIVY_DB_CUT = (
+    "2026-10-22T15:19:21Z\tFATAL\tFatal error\trun error: init error: DB error: failed to download vulnerability "
+    "DB: OCI artifact error: failed to download artifact from mirror.gcr.io/aquasec/trivy-db:2: oci download "
+    "error: copy error: unexpected EOF"
+)
+
+
+async def test_a_cut_off_scanner_db_download_is_retried_not_sent_to_the_developer(make_factory):
+    """Book list (change 43be36b68aaf, 2026-10-22): the Mac slept during the image scan, Trivy's
+    DB download ended in "unexpected EOF", the build went to implement as a code failure and the
+    change held on implement's attempt budget. The scan now goes through ctx.cmd: retried in place."""
+    needle = "aquasec/trivy:latest image"
+    ex = FakeExecutor(fail_on=[needle], fail_with={needle: TRIVY_DB_CUT})
+    f = _quick(make_factory(ex))
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert "implement" not in _stations(f, change.id)[3:], "no fix loop"
+    assert [r["rule"] for r in _retries(f, change.id)] == ["scanner_db"]
+    scans = [e for e in f.store.list_events(change.id) if e.kind == EventKind.command and needle in e.message]
+    assert len(scans) == 1 and scans[0].message.startswith("✓"), "one summary, the retried scan's"
+    assert not any("> " in e.message and needle in e.message for e in scans), "no report path or raw output"

@@ -106,6 +106,21 @@ def test_network_words_in_the_agents_text_are_not_infra() -> None:
             False,
             "docker_run_daemon",
         ),
+        (  # book list, 2026-10-22: the Mac slept during Trivy's DB download
+            "docker run --rm -v trivy-cache:/root/.cache aquasec/trivy:latest image --format json a:1 > /tmp/r.json",
+            1,
+            "FATAL\tFatal error\trun error: init error: DB error: failed to download vulnerability DB: OCI artifact "
+            "error: failed to download artifact from mirror.gcr.io/aquasec/trivy-db:2: copy error: unexpected EOF",
+            False,
+            "scanner_db",
+        ),
+        (
+            "docker run --rm aquasec/trivy:latest image a:1",
+            1,
+            "Error response from daemon: toomanyrequests",
+            False,
+            "image_pull",
+        ),
         ("helm upgrade --install a deploy/chart", -1, "timed out after 420s", True, "command_timeout"),
         ("git push origin main", 128, "fatal: unable to access: Could not resolve host: github.com", False, "network"),
     ],
@@ -125,6 +140,13 @@ def test_command_rules(command: str, rc: int, output: str, timed_out: bool, rule
         # a scanner's findings, whatever its JSON says
         ("docker run --rm osv-scanner --format json /src", 1, '{"summary": "unexpected EOF ... i/o timeout"}', False),
         ("docker run --rm zricethezav/gitleaks:v8 detect --exit-code 1", 1, "leaks found: 3", False),
+        # Trivy found vulnerabilities (exit 1): the product's, even with a DB note in its log
+        (
+            "docker run --rm aquasec/trivy:latest image --exit-code 1 a:1",
+            1,
+            "INFO Need to update DB\nTotal: 3 (HIGH: 3)",
+            False,
+        ),
         # the health-check loop: the app not answering is the product's
         (
             "for i in $(seq 1 30); do curl -fsS http://dind:8081/api/healthz && exit 0; sleep 2; done; exit 1",

@@ -88,7 +88,11 @@ class LocalProvider:
         # is never kept, only normalised findings.
         with tempfile.TemporaryDirectory(prefix="image-scan-") as tmp:
             report_file = Path(tmp) / "report.json"
-            res = await ctx.ex.run(f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=1500)
+            # through ctx.cmd so an infra failure is retried in place (ADR-0043): live run 2026-10-22,
+            # Trivy's vulnerability DB download was cut off ("unexpected EOF") while the Mac slept,
+            # and the failure went to the developer, who could not fix it. The report stays in the
+            # file; this provider records its own summary below.
+            res = await ctx.cmd(f"{cmd} > {shlex.quote(str(report_file))}", timeout=1500, record=False)
             stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
         report = stdout if stdout.strip() else res.output  # a fake executor answers on its output
         await ctx.emit(

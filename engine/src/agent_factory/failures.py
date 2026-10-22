@@ -182,6 +182,24 @@ COMMAND_RULES: tuple[Rule, ...] = (
     ),
 )
 
+# A tool run in a container (`docker run`, a scanner) reports on the product, so its output is
+# read only for failures to get going: Docker's own, pulling the tool's image, and a scanner's
+# database download (live run 2026-10-22: Trivy's DB download was cut off while the Mac slept,
+# "unexpected EOF", and the build went to the developer as a code failure). Generic network words
+# stay work here: a scanner's report can contain them.
+SCANNER_DB = Rule(
+    "scanner_db",
+    r"failed to download (the )?vulnerability db|db error: failed to download|"
+    r"failed to (download|update) (the )?(vulnerability )?database",
+    FailureClass.infra,
+    "the scanner could not download its vulnerability database",
+)
+CONTAINER_RULES: tuple[Rule, ...] = (
+    COMMAND_RULES[0],  # docker_daemon
+    COMMAND_RULES[1],  # image_pull
+    SCANNER_DB,
+)
+
 # tools whose own errors are about the factory, not the product
 INFRA_TOOLS = frozenset({"docker", "kind", "kubectl", "helm", "git", "gh", "skopeo", "crane", "oras"})
 DOCKER_DAEMON_EXIT = 125  # `docker run`: the daemon failed, the container never ran
@@ -219,12 +237,12 @@ def classify_command(command: str, returncode: int, output: str, timed_out: bool
     tail = output[-COMMAND_TAIL:]
     if re.search(r"\bdocker\s+run\b", command):
         # a tool run in a container (a scanner): its output is about the product, its non-zero
-        # exits are findings; only Docker's own failure to run it is the factory's
+        # exits are findings; only failures to get the tool going are the factory's
         if returncode == DOCKER_DAEMON_EXIT:
             return Failure(FailureClass.infra, "docker_run_daemon", "Docker could not start the container", True)
-        daemon = COMMAND_RULES[0]
-        if re.search(daemon.pattern, tail, re.IGNORECASE):
-            return Failure(daemon.cls, daemon.id, daemon.cause, True)
+        for r in CONTAINER_RULES:
+            if re.search(r.pattern, tail, re.IGNORECASE):
+                return Failure(r.cls, r.id, r.cause, True)
         return WORK
     for r in COMMAND_RULES:
         if re.search(r.pattern, tail, re.IGNORECASE):
