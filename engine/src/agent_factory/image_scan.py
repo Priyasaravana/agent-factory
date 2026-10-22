@@ -289,8 +289,9 @@ def person_brief(v: Verdict, base: str = "") -> str:
         lines.append(f"The base image{src} carries fixed CVE(s) the app can't bump:")
         lines += [f"- {f.line()}" for f in v.base_fixes[:MAX_LISTED]]
         lines.append(
-            "Move to a patched base image (a new pack version, or the product's Dockerfile), or accept"
-            " the risk with an expiry on the product's work ledger, then resume."
+            "The build pulls the base image's latest version, so its publisher hasn't shipped these fixes"
+            " yet. Move to a patched base image (a new pack version, or the product's Dockerfile), or"
+            " accept the risk with an expiry on the product's work ledger, then resume."
         )
     if v.no_fix:
         lines.append("No fix is released yet for:")

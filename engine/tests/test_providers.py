@@ -149,3 +149,14 @@ async def test_delivery_is_visible_over_the_api(make_factory):
         )
         assert (await c.get("/api/workflows")).json()[0]["blueprints"] == ["fastapi-service", "nextjs-web"]
     await ctx.__aexit__(None, None, None)
+
+
+async def test_every_build_pulls_the_latest_base_image(make_factory):
+    """Live run 2026-10-22: dind kept the distroless base it first pulled, and the image scan held
+    on a libssl3 CVE Debian had fixed six months earlier. The build now refreshes the base."""
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    builds = [c for c in ex.calls if c.startswith("docker build") and "--progress=plain" not in c]  # not the sandbox
+    assert builds and all(c.startswith("docker build --pull -t ") for c in builds)

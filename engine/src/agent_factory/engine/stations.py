@@ -1037,7 +1037,11 @@ async def build_image(ctx: StationContext) -> StationResult:
     p = ctx.providers
     sha = await ctx.ws.head_sha(ctx.worktree)
     local_image = f"{ctx.product.slug}:{sha}"
-    build = f"docker build -t {local_image} ."
+    # --pull: the base image is refreshed on every build. Without it dind keeps the first copy it
+    # pulled for good, and the image scan holds on base-image CVEs its publisher fixed long ago
+    # (live run 2026-10-22: libssl3 in a distroless base cached since the first Next.js build,
+    # fixed in Debian six months earlier). Layers that didn't change still come from the cache.
+    build = f"docker build --pull -t {local_image} ."
     res = await ctx.cmd(build, timeout=1500)
     if not res.ok:
         return StationResult(
