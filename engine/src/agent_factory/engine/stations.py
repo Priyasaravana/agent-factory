@@ -240,12 +240,15 @@ class StationContext:
         cwd: Path | None = None,
         untrusted: bool = False,
         retry: bool = True,
+        record: bool = True,
     ) -> CommandResult:
         """Run a command. `untrusted=True` for code the agents wrote (tests, the
         app's Makefile): it runs in the sandbox, never next to engine secrets.
         A privileged command that fails for an infra reason is retried in place with backoff
-        (ADR-0043); `retry=False` for a step that is not safe to repeat. Its timeout never runs
-        past the change's time budget."""
+        (ADR-0043); `retry=False` for a step that is not safe to repeat. `record=False` keeps the
+        command and its output out of the event log (a scanner's report can hold secrets): the
+        caller records its own summary; retries are still recorded. Its timeout never runs past
+        the change's time budget."""
         ex = (self.untrusted_ex or self.ex) if untrusted else self.ex
         attempt = 0
         while True:
@@ -254,11 +257,12 @@ class StationContext:
                 self._out_of_time(f"before `{command[:80]}`")
                 return CommandResult(command, -1, "the change's time budget is used up", timed_out=True)
             res = await ex.run(command, cwd=cwd or self.worktree, timeout=_cap(timeout, left), env=env)
-            await self.emit(
-                EventKind.command,
-                f"{'✓' if res.ok else '✗'} {command}",
-                {"returncode": res.returncode, "output": res.output[-3000:]},
-            )
+            if record:
+                await self.emit(
+                    EventKind.command,
+                    f"{'✓' if res.ok else '✗'} {command}",
+                    {"returncode": res.returncode, "output": res.output[-3000:]},
+                )
             if res.ok:
                 return res
             if res.timed_out and left is not None and timeout > left:
@@ -1085,9 +1089,12 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
     try:
         findings = image_scan.parse(str(report), image_scan.locked_packages(locks))
     except image_scan.NotAnImageReport as exc:
-        # an older `scan_command` without `--format json`: its exit code decides, as before
-        await ctx.emit(EventKind.decision, f"image findings not read ({exc}); the scan's exit code decides")
-        if scan.data.get("returncode", 0) != 0:
+        # an older `scan_command` without `--format json`: its exit code decides, as before.
+        # A failed scan with no report never ran to the end: say that, not "set --format json"
+        failed = scan.data.get("returncode", 0) != 0
+        why = "the scan failed before writing a report" if failed and not str(report).strip().startswith("{") else exc
+        await ctx.emit(EventKind.decision, f"image findings not read ({why}); the scan's exit code decides")
+        if failed:
             return StationResult(StationOutcome.failed, "packaging failed at: image scan", scan.detail), ""
         return None, "scanned (exit code only)"
     out = artifacts_dir(ctx)
@@ -2140,10 +2147,9 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
         cmd = tool.command.format(image=tool.image, path=scope, repo=shlex.quote(repo) if repo else "")
         with tempfile.TemporaryDirectory(prefix="scan-") as tmp:
             report_file = Path(tmp) / "report.json"
-            # not ctx.cmd: the raw output stays out of the event log (a scanner's report can hold secrets)
-            res = await ctx.ex.run(
-                f"{cmd} > {shlex.quote(str(report_file))}", cwd=ctx.worktree, timeout=900, env=env or None
-            )
+            # record=False: the raw output stays out of the event log (a scanner's report can hold
+            # secrets); an infra failure (a database download cut off) is still retried (ADR-0043)
+            res = await ctx.cmd(f"{cmd} > {shlex.quote(str(report_file))}", timeout=900, env=env or None, record=False)
             stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
     text = stdout if stdout.strip() else res.output  # a fake executor answers on its output
     await ctx.emit(
