@@ -4,10 +4,12 @@ reported 14 "leaks" in third-party code, and the developer agent spent two loops
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from conftest import PRODUCT, wait_run
 
 from agent_factory.engine.stations import committed_files
@@ -64,6 +66,37 @@ async def test_without_git_the_whole_worktree_is_scanned_and_it_says_so(tmp_path
     assert said and said[0][1]["scan_scope"]["scope"] == "worktree"
     assert "not a git repository" in said[0][1]["scan_scope"]["why"]
     assert not list((ws.data_dir / "scan").glob("*.files")), "the listing is removed"
+
+
+def test_engine_repos_are_trusted_whoever_the_mount_says_owns_them(tmp_path):
+    ws = Workspace(tmp_path / "data", tmp_path, "t", "t@t")
+    inside = ws.git_env_for(ws.change_dir("c1"))
+    assert inside["GIT_CONFIG_KEY_0"] == "safe.directory"
+    assert inside["GIT_CONFIG_VALUE_0"] == str(ws.change_dir("c1").resolve()), "exactly this repo, never '*'"
+    assert inside["GIT_AUTHOR_NAME"] == "t"
+    assert "GIT_CONFIG_COUNT" not in ws.git_env_for(tmp_path / "elsewhere"), "other repos keep git's check"
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="needs root to give the worktree another owner")
+async def test_a_worktree_with_another_owner_is_still_listed_not_scanned_whole(tmp_path):
+    """Live run 2026-10-22 (Mac bind mount): git refused the worktree as "dubious ownership", the
+    scan fell back to the whole worktree and gitleaks reported 14 findings in `.next/`."""
+    data = tmp_path / "data"
+    wt = _repo(data)
+    for p in [wt, *wt.rglob("*")]:
+        os.lchown(p, 65534, 65534)
+    plain = subprocess.run(["git", "-C", str(wt), "ls-files"], capture_output=True, text=True)  # noqa: ASYNC221, S603, S607
+    assert "dubious ownership" in plain.stderr, "the setup reproduces the refusal"
+    ws = Workspace(data, tmp_path, "t", "t@t")
+    said: list[str] = []
+
+    async def emit(kind, message, data=None):
+        said.append(message)
+
+    ctx = SimpleNamespace(ws=ws, worktree=wt, change=SimpleNamespace(id="c1"), station_id="quality-gate", emit=emit)
+    async with committed_files(ctx) as scope:  # type: ignore[arg-type]
+        files = sorted(p.relative_to(scope).as_posix() for p in scope.rglob("*") if p.is_file())
+    assert files == [".gitignore", "src/app.ts", "src/new.ts"] and not said
 
 
 async def test_a_large_repo_is_copied_whole(tmp_path):

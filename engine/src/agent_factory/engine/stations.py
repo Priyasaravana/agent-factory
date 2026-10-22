@@ -1993,7 +1993,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
             f"Set {token_ref or 'existing_repos.write_token_ref'} (a fine-grained GitHub token with Contents "
             f"and Pull requests read/write on {ref.slug}), restart, then resume this change.",
         )
-    env = {"GH_TOKEN": token, **ctx.ws.git_env}
+    env = {"GH_TOKEN": token, **ctx.ws.git_env_for(ctx.worktree)}
     push = await ctx.cmd(
         f"gh auth setup-git && git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
         env=env,

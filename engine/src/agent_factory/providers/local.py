@@ -175,7 +175,7 @@ class LocalProvider:
                 return StepResult(False, "GitHub repo creation failed", c.output)
         p = await ctx.cmd(
             "gh auth setup-git && git push -u origin main --tags --force-with-lease",
-            env={**env, **ws.git_env},
+            env={**env, **ws.git_env_for(repo)},
             cwd=repo,
             timeout=300,
         )
