@@ -50,6 +50,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          # npm's download cache: a dropped registry connection (ECONNRESET) no longer fails the job
+          cache: npm
+          cache-dependency-path: packs/nextjs-web/template/package-lock.json
       - run: cd packs/fastapi-service/template && make verify
       - run: helm lint packs/fastapi-service/template/deploy/chart
       - run: helm template t packs/fastapi-service/template/deploy/chart > /dev/null
