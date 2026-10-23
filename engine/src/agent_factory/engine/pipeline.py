@@ -11,6 +11,7 @@ import time
 import traceback
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_factory import ledger
@@ -522,6 +523,8 @@ class ChangeManager:
 
     def approve_spec(self, change_id: str, by: str) -> Change:
         change = self._awaiting_spec(change_id)
+        if change.decisions_pending and (problems := self.decision_problems(change)):
+            raise FactoryError("answer every design decision first: " + "; ".join(problems))
         change.spec_approved_by = by
         change.status = ChangeStatus.queued
         change.summary = None
@@ -567,6 +570,84 @@ class ChangeManager:
             self.store.add_event(
                 change.id, EventKind.decision, f"spec edited by {by}: {', '.join(changed)}", data={"files": changed}
             )
+        return change
+
+    # ------------------------------------------------- design decisions ---
+    def _design_context(self, change: Change) -> tuple[Any, Any, Path]:
+        """The change's lane, its product's decision catalogue (None: the pack asks no questions)
+        and its worktree (ADR-0044 §1)."""
+        product = self.store.get_product(change.product_id)
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+        bp = self.cfg.blueprints.get(product.blueprint) if product else None
+        pack = bp.pack_binding if bp else None
+        return flow, (pack.decisions if pack else None), self.ws.change_dir(change.id)
+
+    def decision_problems(self, change: Change) -> list[str]:
+        from agent_factory.engine.design_station import sheet_errors
+
+        flow, cat, wt = self._design_context(change)
+        return sheet_errors(wt, cat, flow, "ask") if cat is not None else []
+
+    async def answer_decisions(self, change_id: str, by: str, answers: list[Any]) -> Change:
+        """A person's answers to the decision sheet on the review page (ADR-0044 §1, ask mode). Saved
+        only when the whole sheet then passes, within the lane's constraints; "other" needs its text."""
+        from agent_factory import decisions
+
+        change = self._awaiting_spec(change_id)
+        if not change.decisions_pending:
+            raise FactoryError("this change's design decisions are not waiting for a person")
+        flow, cat, wt = self._design_context(change)
+        if cat is None:
+            raise FactoryError("this product's stack asks no design questions")
+        path = wt / decisions.SHEET
+        sheet, errors = decisions.parse_sheet(path.read_text() if path.is_file() else None)
+        if sheet is None:
+            raise FactoryError("; ".join(errors))
+        unknown = sorted({a.question for a in answers} - {q.id for q in cat.questions})
+        if unknown:
+            raise InvalidRequestError(f"not design questions of this stack: {', '.join(unknown)}")
+        new = decisions.apply_answers(sheet, answers, by)
+        if problems := decisions.judge(cat, new, flow.decision_constraints, "ask"):
+            raise InvalidRequestError("; ".join(problems))
+        path.write_text(decisions.dump_sheet(new))
+        for rel, body in decisions.render_adrs(cat, new).items():
+            (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+            (wt / rel).write_text(body)
+        changed = decisions.diff(sheet, new)["changed"]
+        await self.ws.commit_all(wt, f"docs: design decisions answered by {by}")
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"design decisions answered by {by}" + (f": changed {', '.join(changed)}" if changed else ": confirmed"),
+            data={"decisions": {"by": by, "changed": changed, "answers": [a.model_dump() for a in answers]}},
+        )
+        return change
+
+    def discuss(self, change_id: str, by: str, message: str) -> Change:
+        """A person's message to the architect on the review page (ADR-0044 §1). The design station
+        runs once in discussion mode: the architect replies and may update the design documents, then
+        the change comes back to the review page."""
+        from agent_factory.models import DiscussTurn
+
+        if self._get(change_id).discuss_pending:
+            raise FactoryError("the architect is still answering your last message")
+        change = self._awaiting_spec(change_id)
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+        design = next((s.id for s in flow.stations if s.resolved_handler() == "design"), None)
+        if design is None:
+            raise FactoryError("this lane has no design station to discuss")
+        text = message.strip()
+        change.discussion.append(DiscussTurn(role="person", by=by, text=text, at=datetime.now(UTC)))
+        change.discuss_pending = text
+        change.attempts.pop(design, None)  # a discussion turn is not a retry of the design
+        change.current_station = design
+        change.status = ChangeStatus.queued
+        self.store.save_change(change)
+        self._sync_product(change)
+        self.store.add_event(
+            change.id, EventKind.decision, f"{by} wrote to the architect", data={"discussion": {"by": by}}
+        )
+        self._schedule(change.id)
         return change
 
     # ------------------------------------------------------- change risk ---
@@ -1035,16 +1116,21 @@ class ChangeManager:
                     self.store.add_event(change.id, EventKind.status, "delivered — feedback gate open", station=sid)
                 elif (
                     station.resolved_handler() == "design"
-                    and flow.spec_gate_applies(change.iteration)
+                    and (flow.spec_gate_applies(change.iteration) or change.decisions_pending)
                     and not change.spec_approved_by
                 ):
+                    # one review page for the spec gate and the decision sheet (ADR-0017, ADR-0044 §1)
+                    spec = flow.spec_gate_applies(change.iteration)
+                    what = " and ".join(
+                        w for w, on in (("spec", spec), ("design decisions", change.decisions_pending)) if on
+                    )
                     change.status = ChangeStatus.awaiting_approval
-                    change.summary = "specification ready for your review"
+                    change.summary = f"{what} ready for your review"
                     self.store.save_change(change)
                     self.store.add_event(
                         change.id,
                         EventKind.status,
-                        "spec review gate: waiting for a person to approve the spec before build",
+                        f"review gate: waiting for a person to approve the {what} before build",
                         station=sid,
                     )
                     return None

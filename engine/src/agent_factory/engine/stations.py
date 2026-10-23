@@ -841,27 +841,11 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
 
 # ------------------------------------------------------------------ design --
 async def design(ctx: StationContext) -> StationResult:
-    prompt = f"""Design the implementation for the spec in docs/spec.md and the numbered
-requirements in docs/requirements.yaml, following the golden path already in this
-repo (read AGENTS.md first).
+    """The architect's design, the decision sheet and the pillar roadmap (ADR-0044), or one turn of
+    the discussion on the review page."""
+    from agent_factory.engine import design_station
 
-Write:
-  docs/design.md   — architecture, data model, key decisions (ADR style); cite the
-                     requirement ids (R1, …) each decision serves
-  docs/openapi.yaml — the HTTP contract
-  docs/tasks.md    — ordered implementation tasks, each with its test and the
-                     requirement ids it implements
-
-Change request this iteration: {_asked(ctx, "none")}
-{_work_item(ctx)}{_review_notes(ctx)}"""
-    res = await ctx.agent(prompt)
-    if lim := _limit_result(res):
-        return lim
-    missing = _missing_outputs(ctx)
-    if not res.ok or missing:
-        return StationResult(StationOutcome.failed, "design incomplete", res.error or f"missing artifacts: {missing}")
-    await ctx.ws.commit_all(ctx.worktree, "docs: design, API contract and task plan")
-    return StationResult(StationOutcome.passed, "design, openapi and tasks written")
+    return await design_station.run(ctx)
 
 
 # --------------------------------------------------------------- implement --

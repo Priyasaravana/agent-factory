@@ -26,6 +26,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agent_factory import checks, contract
+from agent_factory.decisions import Catalogue, constraint_errors
 
 # --------------------------------------------------------------- tools ----
 # A preset is the ceiling of what an agent may do. Guardrail hooks still apply
@@ -484,6 +485,11 @@ class WorkflowDoc(BaseModel):
     # spec review gate (ADR-0017): pause after design until a person approves the spec
     #   off: never · first: the first iteration of a product · always: every iteration
     spec_review: Literal["off", "first", "always"] = "off"
+    # design decisions (ADR-0044 §1): who answers the decision sheet. autonomous: the architect, within
+    # the constraints · ask: a person, on the review page after design (with spec review when it applies)
+    decisions: Literal["autonomous", "ask"] = "autonomous"
+    # options a lane allows per question ({question id: [option ids]}); one option fixes the answer
+    decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
     # after a change that needed help, suggest learnings for an admin to accept (ADR-0021)
     learn_from_runs: bool = True
     # evaluation harness (ADR-0025): fixed products run against a new version before it
@@ -635,6 +641,7 @@ def validate_workflow(
     imported_skills: Collection[str] = (),
     roles: Collection[str] = tuple(contract.BUILTIN_ROLES),
     phases: contract.PhaseRegistry = contract.BUILTIN_REGISTRY,
+    catalogues: Collection[Catalogue] = (),
 ) -> list[str]:
     """Return blocking problems; an empty list means the workflow is runnable.
     Non-blocking advice comes from `workflow_warnings`."""
@@ -710,6 +717,10 @@ def validate_workflow(
         )
     elif doc.eval_gate != "off" and not doc.evals:
         errors.append(f"eval_gate '{doc.eval_gate}' needs at least one evaluation case")
+    if doc.decision_constraints:
+        if not any(s.resolved_handler() == "design" for s in doc.stations):
+            errors.append("decision_constraints need a design station, where the decision sheet is answered")
+        errors += constraint_errors(list(catalogues), doc.decision_constraints)
     return errors
 
 
@@ -1044,6 +1055,12 @@ def export_workflow_dir(doc: WorkflowDoc, path: Path) -> None:
         data["scope"] = list(doc.scope)
     if doc.eval_gate != "off":
         data["eval_gate"] = doc.eval_gate
+    if doc.spec_review != "off":
+        data["spec_review"] = doc.spec_review
+    if doc.decisions != "autonomous":
+        data["decisions"] = doc.decisions
+    if doc.decision_constraints:
+        data["decision_constraints"] = {k: list(v) for k, v in doc.decision_constraints.items()}
     if doc.skill_pins:
         data["skill_pins"] = dict(doc.skill_pins)  # imported skills this version was published with
     (path / "workflow.yaml").write_text(yaml.safe_dump(data, sort_keys=False))

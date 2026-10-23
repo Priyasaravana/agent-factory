@@ -40,7 +40,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
   - ✅ → Outcomes page, from a status transition log (ADR-0019, [definitions](outcomes.md)).
 - **Small batches:** ✅ feedback iterations are small changes. Keep them small (cap the change-request scope).
 - **Strong version control:** ✅ versioned workflows and pinned skills · ⬜ every generated app gets its own repo history by default.
-- **Quality internal platform:** ✅ golden path and blueprint workflows · ✅ one golden path per stack: FastAPI service and Next.js web app (ADR-0041) · ⬜ React SPA and full-stack packs.
+- **Quality internal platform:** ✅ golden path and blueprint workflows · ✅ one golden path per stack: FastAPI service and Next.js web app (ADR-0041) · ✅ design decisions as a pack catalogue the engine checks, one ADR per answer in the product, and a pillar roadmap whose deferrals become ledger items (ADR-0044) · ⬜ React SPA and full-stack packs.
 - **Clear AI policy:** 🟡 guardrail hooks. Write down which actions agents may never take (see §3).
 
 ## 3. OWASP Top 10 for Agentic Applications (2026)
@@ -97,9 +97,9 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 |---|---|---|---|
 | Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
 | Reliability | 🟡 | liveness and readiness endpoints | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
-| Performance & scalability | ⬜ | — | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
+| Performance & scalability | ⬜ | deferrals stated per product with a trigger, in `docs/roadmap.md` and the work ledger (ADR-0044) | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
-| Cost | ⬜ | factory-side cost per change only | `resource_requests` (runtime cost estimable) → phase 5 |
+| Cost | ⬜ | factory-side cost per change only; deferrals stated per product with a trigger (ADR-0044) | `resource_requests` (runtime cost estimable) → phase 5 |
 | Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
 | Usability | 🟡 | `a11y` in the Next.js pack: axe in the Playwright e2e suite, run against every deployment (ADR-0041) · services have no UI, so it stays uncovered there | `a11y` in the React SPA pack |
 | Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules | — |

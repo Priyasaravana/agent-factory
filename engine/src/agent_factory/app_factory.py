@@ -118,6 +118,7 @@ def build_factory(
         cfg.role_ids(),
         phases,
         pack_templates,
+        [p.catalogue for p in installed if p.catalogue is not None],
     )
     # default skills first: the default workflow template uses them
     skill_problems = library.ensure_defaults(

@@ -926,7 +926,8 @@ async def edit_spec(f: Factory, change_id: str, body: SpecEditInput) -> SpecView
 
 @action(
     "set_workflow_settings",
-    "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, "
+    "Workflow settings in the draft: spec review gate (off | first | always), design decisions "
+    "(autonomous | ask, constraints per question), learn from runs, "
     "evaluation gate (off | warn | block)",
     "PATCH",
     "/api/workflows/{workflow_id}/draft/settings",
@@ -935,6 +936,8 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
     draft = f.workflows[workflow_id].draft
     if body.spec_review is not None:
         draft.set_spec_review(body.spec_review)
+    if body.decisions is not None or body.decision_constraints is not None:
+        draft.set_decisions(body.decisions, body.decision_constraints)
     if body.learn_from_runs is not None:
         draft.set_learn_from_runs(body.learn_from_runs)
     if body.eval_gate is not None:
@@ -1185,6 +1188,8 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         docs=list(doc.docs.values()),
         warnings=workflow_warnings(doc),
         spec_review=doc.spec_review,
+        decisions=doc.decisions,
+        decision_constraints=dict(doc.decision_constraints),
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -1443,6 +1448,8 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         agents=_agent_views(f, doc),
         docs=list(doc.docs.values()),
         spec_review=doc.spec_review,
+        decisions=doc.decisions,
+        decision_constraints=dict(doc.decision_constraints),
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -1895,3 +1902,6 @@ def agent_tools_server(f: Factory) -> Any:
 
         tools.append(make())
     return create_sdk_mcp_server(name="factory", version="1.0.0", tools=tools)
+
+
+from agent_factory import decision_actions as _decision_actions  # noqa: E402, F401 - registers its actions

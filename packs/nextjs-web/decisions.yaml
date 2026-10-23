@@ -1,0 +1,81 @@
+# Design questions every Next.js product answers (ADR-0044 §1). The architect answers each one in
+# the product's docs/decisions.yaml with a recommendation and a rationale naming its pillar; the
+# engine checks every question is answered and writes one ADR per answer into docs/adr/.
+# A lane may narrow the options (`decision_constraints`); in ask mode a person may answer "Other…".
+questions:
+  - id: authentication
+    title: Who can sign in, and how?
+    pillar: security
+    hint: >-
+      Any write that changes data another person relies on needs a signed-in user. Choose none only
+      when the product has no such writes, or the spec says it runs on a private network.
+    options:
+      - id: none
+        title: No sign-in
+        consequences: Every page and write is open to anyone who can reach the app. Fine for read-only products; protected writes are then impossible.
+      - id: local
+        title: Local accounts with sessions
+        consequences: Email and password accounts stored in Postgres (scrypt hashes), an httpOnly session cookie, sign-in and sign-out pages. The first admin comes from the deployment's secret.
+
+  - id: sign-up
+    title: How do new users get an account?
+    pillar: security
+    hint: >-
+      Recommend admin-created accounts unless the spec says members of the public use the product.
+      Only meaningful with local accounts; with no sign-in, choose admin (nothing is created).
+    options:
+      - id: admin
+        title: An admin creates accounts
+        consequences: No public sign-up page. The admin adds users from an admin page; nobody can create an account they weren't given.
+      - id: open
+        title: Open sign-up
+        consequences: Anyone can create an account from a sign-up page. Needs rate limits once the app is public (a roadmap item), and new accounts get the least-privileged role.
+
+  - id: authorisation
+    title: What may a signed-in user do?
+    pillar: security
+    hint: >-
+      Recommend roles when the spec names different kinds of user (an admin, a reviewer), or when
+      some actions must be limited to a few people; otherwise any signed-in user.
+    options:
+      - id: signed-in
+        title: Any signed-in user may do everything
+        consequences: One kind of user. Simple; every signed-in user can change every record.
+      - id: roles
+        title: Roles (admin, member)
+        consequences: Each user has a role; admin-only actions are checked on the server for every request. Members can't reach admin pages or routes.
+
+  - id: data-store
+    title: Where does the product keep its data?
+    pillar: reliability
+    hint: >-
+      Recommend Postgres in the chart for a new product; an existing database only when the spec
+      names one.
+    options:
+      - id: postgres-chart
+        title: Postgres deployed with the app's chart
+        consequences: One Postgres per product, created by the chart with its own secret. Simple to run; backups are a roadmap item.
+      - id: postgres-external
+        title: An existing Postgres, by URL
+        consequences: The app reads DATABASE_URL from a secret reference; the chart deploys no database. Backups and capacity belong to whoever runs that database.
+
+  - id: look
+    title: What should the product look like?
+    pillar: usability
+    hint: >-
+      Pick the theme that suits the product's users and purpose (neutral for tools and admin work,
+      warm for consumer and community products, bold for marketing-led products). Every theme has
+      light and dark modes and the same accessible components.
+    options:
+      - id: neutral
+        title: Neutral, comfortable spacing
+        consequences: Greys with one accent colour, generous spacing. Calm and familiar; suits tools and back-office work.
+      - id: neutral-compact
+        title: Neutral, compact
+        consequences: The neutral theme with tighter spacing and smaller type, so tables and dense data fit on one screen.
+      - id: warm
+        title: Warm
+        consequences: Soft warm neutrals, rounded corners and a friendly accent. Suits consumer and community products.
+      - id: bold
+        title: Bold
+        consequences: High-contrast surfaces, a strong accent and larger headings. Suits products that need to stand out.

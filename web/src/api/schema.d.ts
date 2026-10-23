@@ -586,8 +586,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)
-         * @description Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)
+         * Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)
+         * @description Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)
          */
         patch: operations["set_workflow_settings"];
         trace?: never;
@@ -1440,6 +1440,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The change's design decisions: the stack's questions, the answers and who decided them, what changed this iteration, the pillar roadmap and the discussion with the architect
+         * @description The change's design decisions: the stack's questions, the answers and who decided them, what changed this iteration, the pillar roadmap and the discussion with the architect
+         */
+        get: operations["get_change_decisions"];
+        /**
+         * Review page: answer or confirm the design decisions (within the lane's constraints, or Other… with its text); saved only when every question then has an answer
+         * @description Review page: answer or confirm the design decisions (within the lane's constraints, or Other… with its text); saved only when every question then has an answer
+         */
+        put: operations["answer_change_decisions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/decisions/discuss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page
+         * @description Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page
+         */
+        post: operations["discuss_change_design"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/stream": {
         parameters: {
             query?: never;
@@ -1948,6 +1992,15 @@ export interface components {
             /** Review Notes */
             review_notes?: string[];
             /**
+             * Decisions Pending
+             * @default false
+             */
+            decisions_pending: boolean;
+            /** Discussion */
+            discussion?: components["schemas"]["DiscussTurn"][];
+            /** Discuss Pending */
+            discuss_pending?: string | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -2156,6 +2209,50 @@ export interface components {
             /** @default new */
             target: components["schemas"]["ProductTarget"];
         };
+        /**
+         * DecisionAnswer
+         * @description One answer a person gives on the review page.
+         */
+        DecisionAnswer: {
+            /** Question */
+            question: string;
+            /** Choice */
+            choice: string;
+            /** Other */
+            other?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** DecisionAnswerView */
+        DecisionAnswerView: {
+            /** Question */
+            question: string;
+            /** Choice */
+            choice: string;
+            /** Other */
+            other?: string | null;
+            /** Recommended */
+            recommended: string;
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Requirements */
+            requirements?: string[];
+            /**
+             * Decided By
+             * @default architect
+             */
+            decided_by: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** DecisionAnswersInput */
+        DecisionAnswersInput: {
+            /** Answers */
+            answers: components["schemas"]["DecisionAnswer"][];
+        };
         /** DecisionInput */
         DecisionInput: {
             /** Change Id */
@@ -2169,6 +2266,63 @@ export interface components {
              * @default
              */
             rationale: string;
+        };
+        /** DecisionOptionView */
+        DecisionOptionView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Consequences */
+            consequences: string;
+            /** Allowed */
+            allowed: boolean;
+        };
+        /** DecisionQuestionView */
+        DecisionQuestionView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Pillar */
+            pillar: string;
+            /**
+             * Hint
+             * @default
+             */
+            hint: string;
+            /** Options */
+            options: components["schemas"]["DecisionOptionView"][];
+        };
+        /**
+         * DecisionsView
+         * @description A change's design decisions (ADR-0044): the questions, the answers, who decided, what changed
+         *     this iteration, the pillar roadmap, and the discussion with the architect.
+         */
+        DecisionsView: {
+            /** Mode */
+            mode: string;
+            /** Pending */
+            pending: boolean;
+            /** Asked */
+            asked: boolean;
+            /** Questions */
+            questions?: components["schemas"]["DecisionQuestionView"][];
+            /** Answers */
+            answers?: components["schemas"]["DecisionAnswerView"][];
+            /** Changed */
+            changed?: string[];
+            /** Problems */
+            problems?: string[];
+            /** Roadmap */
+            roadmap?: components["schemas"]["RoadmapRowView"][];
+            /** Discussion */
+            discussion?: components["schemas"]["DiscussTurn"][];
+            /**
+             * Discuss Pending
+             * @default false
+             */
+            discuss_pending: boolean;
         };
         /** DeliveryBinding */
         DeliveryBinding: {
@@ -2203,6 +2357,34 @@ export interface components {
              * Format: date-time
              */
             at: string;
+        };
+        /** DiscussInput */
+        DiscussInput: {
+            /** Message */
+            message: string;
+        };
+        /**
+         * DiscussTurn
+         * @description One message in the discussion with the architect on the review page (ADR-0044 §1). A
+         *     person's text is their input to the product's design, never instructions to the factory.
+         */
+        DiscussTurn: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "person" | "architect";
+            /** By */
+            by: string;
+            /** Text */
+            text: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Files */
+            files?: string[];
         };
         /** DraftTemplatesView */
         DraftTemplatesView: {
@@ -2251,6 +2433,15 @@ export interface components {
              * @default off
              */
             spec_review: string;
+            /**
+             * Decisions
+             * @default autonomous
+             */
+            decisions: string;
+            /** Decision Constraints */
+            decision_constraints?: {
+                [key: string]: string[];
+            };
             /**
              * Learn From Runs
              * @default true
@@ -3327,6 +3518,19 @@ export interface components {
             /** Requested By */
             requested_by?: string | null;
         };
+        /** RoadmapRowView */
+        RoadmapRowView: {
+            /** Pillar */
+            pillar: string;
+            /** Now */
+            now: string;
+            /** Deferred */
+            deferred: string;
+            /** Why */
+            why: string;
+            /** Trigger */
+            trigger: string;
+        };
         /** ScanFallbackView */
         ScanFallbackView: {
             /** Provider */
@@ -4124,6 +4328,12 @@ export interface components {
         WorkflowSettingsInput: {
             /** Spec Review */
             spec_review?: ("off" | "first" | "always") | null;
+            /** Decisions */
+            decisions?: ("autonomous" | "ask") | null;
+            /** Decision Constraints */
+            decision_constraints?: {
+                [key: string]: string[];
+            } | null;
             /** Learn From Runs */
             learn_from_runs?: boolean | null;
             /** Eval Gate */
@@ -4244,6 +4454,15 @@ export interface components {
              * @default off
              */
             spec_review: string;
+            /**
+             * Decisions
+             * @default autonomous
+             */
+            decisions: string;
+            /** Decision Constraints */
+            decision_constraints?: {
+                [key: string]: string[];
+            };
             /**
              * Learn From Runs
              * @default true
@@ -6746,6 +6965,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_decisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_change_decisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionAnswersInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discuss_change_design: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscussInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
                 };
             };
             /** @description Validation Error */
