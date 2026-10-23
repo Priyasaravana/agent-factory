@@ -169,6 +169,11 @@ class Redactor:
             with self._lock:
                 self._values.add(value)
 
+    def knows(self, value: str) -> bool:
+        """True for a value the engine resolved or read as a secret (masked wherever it is stored)."""
+        with self._lock:
+            return value in self._values
+
     def text(self, s: str) -> str:
         for v in sorted(self._values, key=len, reverse=True):  # longest first
             if v in s:

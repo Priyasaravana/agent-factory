@@ -94,6 +94,9 @@ class SandboxSpec:
     cache_volume: str | None = CACHE_VOLUME
     # engine variables this session must not inherit, e.g. the model credential behind a gateway
     withhold_env: list[str] = field(default_factory=list)
+    # secrets this one session is given on purpose (e.g. the app's test admin for the verifier,
+    # ADR-0044 §3): inherited by name like pass_env, even though their names look secret
+    allow_env: list[str] = field(default_factory=list)
 
     def argv(self, command: list[str], interactive: bool = False) -> list[str]:
         a = ["docker", "run", "--rm", "--init", "--name", self.name]

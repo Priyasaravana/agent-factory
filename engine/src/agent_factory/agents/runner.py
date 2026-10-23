@@ -54,6 +54,9 @@ class AgentRequest:
     readable_extra_dirs: list[Path] = field(default_factory=list)
     subagent_model: str = "haiku"  # efficient-frontier: cheap model for mechanical work
     egress: list[str] = field(default_factory=list)  # the product's stack pack's extra egress (ADR-0041 §7)
+    # credentials this session needs on purpose, passed through the environment by name (ADR-0044 §3:
+    # the deployed app's admin, for the verifier). Values are redacted; never put them in the prompt.
+    secret_env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -159,7 +162,7 @@ class ClaudeAgentRunner:
     async def _sandboxed(self, req: AgentRequest, sink: EventSink, session: GatewaySession) -> AgentResult:
         if self.sandbox is None:
             # development only: the CLI inherits the engine's environment, so blank the withheld credentials
-            env = {**session.env, **dict.fromkeys(session.withhold, "")}
+            env = {**session.env, **dict.fromkeys(session.withhold, ""), **req.secret_env}
             return await self._run(req, sink, {"env": env} if env else {})
         ready = await self.sandbox.ready()
         if ready.state != "ready":
@@ -171,6 +174,7 @@ class ClaudeAgentRunner:
             return AgentResult(ok=False, error=f"agent sandbox egress for this stack not ready: {problem}")
         spec = self.sandbox.agent_spec(req)
         spec.withhold_env = list(session.withhold)  # e.g. the engine's model credential behind a gateway
+        spec.allow_env = sorted(req.secret_env)
         path = self.sandbox.write_spec(spec)
         await sink(
             "sandbox",
@@ -186,7 +190,7 @@ class ClaudeAgentRunner:
             return await self._run(
                 req,
                 sink,
-                {"cli_path": cli, "env": {"AF_SANDBOX_SPEC": str(path), **session.env}},
+                {"cli_path": cli, "env": {"AF_SANDBOX_SPEC": str(path), **session.env, **req.secret_env}},
                 plugin_home=SANDBOX_HOME_DIR,
             )
         finally:

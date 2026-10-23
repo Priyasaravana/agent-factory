@@ -9,7 +9,9 @@ export default defineConfig({
     // route handlers and libraries run in Node; a component test opts in to jsdom with
     // `// @vitest-environment jsdom` as its first line
     environment: "node",
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    env: { LOGGING: "silent" }, // no log lines between test results
+    // tests/ for the app; each module's contract tests sit beside its adapters (src/modules/*/)
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],

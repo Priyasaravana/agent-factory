@@ -5,3 +5,4 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: agent-factory
 {{- end -}}
 {{- define "app.dbSecret" -}}{{ include "app.name" . }}-db{{- end -}}
+{{- define "app.adminSecret" -}}{{ include "app.name" . }}-admin{{- end -}}

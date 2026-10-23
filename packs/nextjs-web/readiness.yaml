@@ -22,12 +22,16 @@ signals:
   lockfile:
     check: {file: package-lock.json}
     hint: commit package-lock.json
+  # From 1.3.0 logs, metrics and traces are modules (ADR-0044 §3); products built from an earlier
+  # template keep src/lib/ until an upkeep change moves them, so both layouts count.
   structured_logs:
     check:
       all:
         - {contains: {file: package.json, text: '"pino"'}}
-        - {contains: {file: src/lib/logger.ts, text: "pino("}}
-    hint: keep src/lib/logger.ts (pino JSON logs)
+        - any:
+            - {contains: {file: src/modules/logging/adapters/pino.ts, text: "pino("}}
+            - {contains: {file: src/lib/logger.ts, text: "pino("}}
+    hint: keep the logging module's pino adapter (src/modules/logging/adapters/pino.ts)
   coverage_gate:
     check: {matches: {file: vitest.config.mts, regex: 'thresholds:\s*\{[^}]*lines:\s*([89]\d|100)\b'}}
     hint: keep coverage thresholds of 80 or more in vitest.config.mts
@@ -50,11 +54,21 @@ signals:
         - {file: src/app/api/readyz/route.ts}
     hint: keep /api/healthz and /api/readyz
   metrics:
-    check: {contains: {file: src/app/api/metrics/route.ts, text: registry.metrics()}}
-    hint: keep /api/metrics (src/lib/metrics.ts)
+    check:
+      any:
+        - all:
+            - {contains: {file: src/app/api/metrics/route.ts, text: metrics.scrape()}}
+            - {contains: {file: src/modules/metrics/adapters/prometheus.ts, text: registry.metrics()}}
+        - {contains: {file: src/app/api/metrics/route.ts, text: registry.metrics()}}
+    hint: keep /api/metrics and the metrics module's Prometheus adapter
   tracing:
-    check: {contains: {file: src/instrumentation.ts, text: registerOTel}}
-    hint: keep OpenTelemetry setup (src/instrumentation.ts)
+    check:
+      any:
+        - all:
+            - {contains: {file: src/instrumentation.ts, text: startTracing()}}
+            - {contains: {file: src/modules/tracing/adapters/otel.ts, text: registerOTel}}
+        - {contains: {file: src/instrumentation.ts, text: registerOTel}}
+    hint: keep the tracing module (src/modules/tracing) started from src/instrumentation.ts
 
   # this pack's own signal (counts for its products only): the first usability check
   a11y:
@@ -68,6 +82,39 @@ signals:
         - {matches: {file: e2e/a11y.spec.ts, regex: 'impact === "(serious|critical)"'}}
         - {file: e2e/routes.ts}
     hint: keep e2e/a11y.spec.ts (axe on every route in e2e/routes.ts, failing on serious or critical)
+
+  # cross-cutting concerns as modules (ADR-0044 §3): ports, adapters and contract tests. A product
+  # built before 1.3.0 (src/lib/logger.ts, no src/modules/) passes until an upkeep change adopts them.
+  modules_isolated:
+    level: 3
+    pillar: maintainability
+    title: modules reached only through their ports
+    check:
+      any:
+        - all:
+            - {contains: {file: .dependency-cruiser.cjs, text: '"^src/modules/[^/]+/adapters/"'}}
+            - {contains: {file: .dependency-cruiser.cjs, text: "adapters-are-private"}}
+            - {contains: {file: Makefile, text: "npx depcruise src tests e2e --config .dependency-cruiser.cjs"}}
+            - {file: src/modules/config.ts}
+        - {file: src/lib/logger.ts}
+    hint: keep .dependency-cruiser.cjs (adapters are private to their module) and `depcruise` in `make lint`
+  module_contracts:
+    level: 3
+    pillar: reliability
+    title: every module's adapters pass its contract tests
+    check:
+      any:
+        - all:
+            - {contains: {file: src/modules/auth/auth.contract.test.ts, text: "describe.each(Object.entries(ADAPTERS))"}}
+            - {contains: {file: src/modules/authz/authz.contract.test.ts, text: "describe.each(Object.entries(ADAPTERS))"}}
+            - {contains: {file: src/modules/logging/logging.contract.test.ts, text: "describe.each(Object.entries(ADAPTERS))"}}
+            - {contains: {file: src/modules/metrics/metrics.contract.test.ts, text: "describe.each(Object.entries(ADAPTERS))"}}
+            - {contains: {file: src/modules/tracing/tracing.contract.test.ts, text: "describe.each(Object.entries(ADAPTERS))"}}
+            - {contains: {file: vitest.config.mts, text: '"src/**/*.test.ts"'}}
+        - {file: src/lib/logger.ts}
+    hint: >-
+      keep a contract test in each module (src/modules/<name>/<name>.contract.test.ts) that runs
+      against every adapter, the no-op included, and keep src/**/*.test.ts in vitest's include
 
 # How tests name the requirements they cover (traceability, ADR-0017): `@R1` in the test title
 # (vitest, Playwright). `requirements_traced` and the traceability matrix use it.

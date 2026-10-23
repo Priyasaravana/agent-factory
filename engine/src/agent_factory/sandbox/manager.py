@@ -40,6 +40,7 @@ from agent_factory.sandbox.spec import (
     git_mounts,
     proxy_env,
 )
+from agent_factory.secret_refs import REDACTOR
 
 if TYPE_CHECKING:
     from agent_factory.agents.runner import AgentRequest
@@ -370,9 +371,13 @@ class SandboxExecutor:
         name = container_name(self.change_id or "exec", self.station, uuid.uuid4().hex[:6])
         labels = {"af.run": self.change_id or "exec", "af.station": self.station}
         spec = self.mgr.base_spec(name, workdir, labels, self.egress)
-        spec.env.update(env or {})  # explicit, non-secret values only
+        # literal values go on docker's command line; a secret (a value the redactor knows, such as
+        # the app's test admin password, ADR-0044 §3) is inherited by name, never written into argv
+        secret = {k: v for k, v in (env or {}).items() if REDACTOR.knows(v)}
+        spec.env.update({k: v for k, v in (env or {}).items() if k not in secret})
+        spec.pass_env += sorted(secret)
         argv = spec.argv(["bash", "-lc", command])
-        res = await self.mgr.ex.run(shlex.join(argv), timeout=timeout)
+        res = await self.mgr.ex.run(shlex.join(argv), timeout=timeout, env=secret or None)
         if res.timed_out:
             await self.mgr.remove(name)
         return CommandResult(command, res.returncode, res.output, res.timed_out)

@@ -81,13 +81,13 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Pillar | Signals |
 |---|---|
 | security | `secret_scan`, `container_nonroot`, `codeowners`, `dependency_updates` |
-| reliability | `health_endpoints` |
+| reliability | `health_endpoints`, `module_contracts` (pack signal: Next.js; every module's adapters pass its contract tests, ADR-0044) |
 | performance | — uncovered |
 | operability | `structured_logs`, `metrics`, `tracing` |
 | cost | — uncovered |
 | interoperability | `design_docs` (spec, design, OpenAPI contract) |
 | usability | `a11y` (pack signal: Next.js; axe on every route, serious or critical fails) |
-| maintainability | `readme`, `linter`, `formatter`, `unit_tests`, `agents_md`, `verify_target`, `precommit`, `ci`, `coverage_gate` |
+| maintainability | `readme`, `linter`, `formatter`, `unit_tests`, `agents_md`, `verify_target`, `precommit`, `ci`, `coverage_gate`, `modules_isolated` (pack signal: Next.js; adapters private to their module, checked by dependency-cruiser in `make lint`, ADR-0044) |
 | portability | `lockfile` |
 | compliance | `acceptance_tests`, `requirements_traced`, `e2e_tests` |
 
@@ -95,14 +95,14 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 
 | Pillar | State | Have | Next signals (proposed ids) → phase |
 |---|---|---|---|
-| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
-| Reliability | 🟡 | liveness and readiness endpoints | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
+| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; sign-in and roles on protected writes in Next.js products whose decisions call for them (local accounts, scrypt, httpOnly session cookie, first admin from a generated Secret, ADR-0044); Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
+| Reliability | 🟡 | liveness and readiness endpoints · `module_contracts` in the Next.js pack: auth, authz, logging, metrics and tracing behind ports, each adapter (no-op included) passing the module's contract tests (ADR-0044) | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
 | Performance & scalability | ⬜ | deferrals stated per product with a trigger, in `docs/roadmap.md` and the work ledger (ADR-0044) | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
 | Cost | ⬜ | factory-side cost per change only; deferrals stated per product with a trigger (ADR-0044) | `resource_requests` (runtime cost estimable) → phase 5 |
 | Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
 | Usability | 🟡 | `a11y` in the Next.js pack: axe in the Playwright e2e suite, run against every deployment (ADR-0041) · services have no UI, so it stays uncovered there | `a11y` in the React SPA pack |
-| Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules | — |
+| Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules · ports and adapters in the Next.js pack, `modules_isolated` enforced by lint (ADR-0044) | modules in the FastAPI pack (after J5) |
 | Portability | 🟡 | lockfile, Dockerfile, app chooses its Python, Helm chart to any cluster (ADR-0026) · two stacks: FastAPI and Next.js (ADR-0041) | `chart_lint`; more stacks → React SPA, full-stack packs |
 | Compliance & evidence | ✅ | acceptance tests, traceability, e2e, review evidence, SBOM, provenance, sealed evidence with a pillar index (ADR-0023) | — |
 

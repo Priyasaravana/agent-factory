@@ -105,7 +105,7 @@ stays public; a guestbook post may be open if the sheet says so, with its reason
   | Module | Adapters | No-op |
   |---|---|---|
   | `auth` (authentication) | local accounts: scrypt hashes, an httpOnly `SameSite=Lax` session cookie, sessions in Postgres, sign-in and sign-out pages, origin check on mutating route handlers | `none`: every request is anonymous |
-  | `authz` (authorisation) | roles from the session (`requireRole`) | `allow-all` |
+  | `authz` (authorisation) | `signed-in` (any signed-in user) or `roles` from the session (`authorize(request, role)`, `authorizePage(path, role)`) | `allow-all` |
   | `logging` | pino JSON to stdout (moved from `src/lib/logger.ts`) | silent |
   | `metrics` | Prometheus (moved from `src/lib/metrics.ts`) | no-op registry |
   | `tracing` | OpenTelemetry (moved from `src/instrumentation.ts`) | off |
@@ -116,11 +116,23 @@ stays public; a guestbook post may be open if the sheet says so, with its reason
   admin so the e2e suite can sign in.
 - **Hidden scenarios and live e2e sign in** with the deployment's admin account, passed to the verifier
   and to `make e2e` as a secret reference, redacted in transcripts.
+  *As built (PR 2):* the pack names the Secret (`stack.admin_secret`: `{release}-admin`, its keys and a
+  sign-in how-to for the verifier). After deploy the acceptance station reads it through the deploy
+  provider (`read_secret`, `kubectl get secret`, not recorded); every value goes to the redactor, and
+  reaches the e2e sandbox and the verifier's session only through the environment, by name
+  (`E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`; `SandboxSpec.allow_env`, never in argv or the prompt). No
+  Secret (an app built before 1.3.0, or a target that can't read Secrets) means signed-out checks.
+- **Which adapter runs** follows the sheet: the developer sets `DEFAULTS` in `src/modules/config.ts`
+  (`authentication: local` → `auth: "local"`; `authorisation` → `authz: "signed-in" | "roles"`); the
+  environment can override each (`AUTH`, `AUTHZ`, `LOGGING`, `METRICS`, `TRACING`), and an impossible
+  combination (roles without sign-in) stops the app at start.
 - **Two pack signals** (ADR-0041 §3), level 3, counted for this pack's products only:
   - `modules_isolated` (maintainability): `.dependency-cruiser.cjs` forbids imports of
     `src/modules/*/adapters/**` from outside the module, and `make lint` runs it;
   - `module_contracts` (reliability): every module folder has a contract test that runs against each of
     its adapters, the no-op included (`make verify` runs them).
+  Products built from an earlier template (`src/lib/logger.ts`, no `src/modules/`) pass both, and the
+  moved logs, metrics and tracing signals accept either layout, until an upkeep change adopts modules.
 - Resource requests and limits are already in the chart; probes stay as they are.
 - **FastAPI** gets modules after J5 (deferred list), so `fastapi-service` is unchanged.
 
@@ -174,7 +186,7 @@ change bringing earlier products onto modules ("upgradable selections").
   attributable design decisions, each recorded as an ADR in its own repo.
 - The template grows (Tailwind, shadcn/ui components, five modules). No-op adapters keep a read-only v0
   as light as today.
-- `nextjs-web` becomes 1.2.0. New products and new changes to existing ones pin it; Guestbook and Book
+- `nextjs-web` becomes 1.3.0 (PR 2). New products and new changes to existing ones pin it; Guestbook and Book
   keeping keep the template they were built from (adopting modules is a later upkeep change).
 - The design station spends one more agent call (the designer) and each discuss turn is one architect
   call. Both show on the product's Spend card under design.

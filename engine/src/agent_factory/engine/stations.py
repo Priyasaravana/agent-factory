@@ -327,6 +327,7 @@ class StationContext:
         prompt: str,
         schema: dict[str, Any] | None = None,
         protect_holdout: bool = True,
+        secret_env: dict[str, str] | None = None,
     ) -> AgentResult:
         spec = self.spec
         protected = [str(self.ws.data_dir / "holdout")] if protect_holdout else []
@@ -375,6 +376,7 @@ class StationContext:
             protected_paths=protected,
             subagent_model=self.cfg.models.fast,
             egress=list(self.pack_egress),
+            secret_env=dict(secret_env or {}),
         )
         attempt = 0
         while True:
@@ -1305,15 +1307,18 @@ async def acceptance(ctx: StationContext) -> StationResult:
         return StationResult(
             StationOutcome.held, "no holdout scenarios found — cannot verify", "missing holdout evidence"
         )
-    if failed_e2e := await _run_e2e(ctx):
+    admin = await _app_admin(ctx)
+    where = ctx.blueprint.admin_secret
+    sign_in = sign_in_note(where.sign_in) if admin and where else ""
+    if failed_e2e := await _run_e2e(ctx, admin):
         return failed_e2e
     prompt = f"""Independently verify the LIVE app at {internal_url(ctx)} against these holdout
 scenarios. Exercise each one with real HTTP calls (curl). Record concrete evidence
-(status codes, bodies). Do not read or trust the builder's code or claims first.
+(status codes, bodies). Do not read or trust the builder's code or claims first.{sign_in}
 
 ## Holdout scenarios
 {scenarios}"""
-    res = await ctx.agent(prompt, VERDICT_SCHEMA, protect_holdout=False)
+    res = await ctx.agent(prompt, VERDICT_SCHEMA, protect_holdout=False, secret_env=admin)
     if lim := _limit_result(res):
         return lim
     if not res.ok or not isinstance(res.structured, dict):
@@ -1333,14 +1338,51 @@ scenarios. Exercise each one with real HTTP calls (curl). Record concrete eviden
     )
 
 
-async def _run_e2e(ctx: StationContext) -> StationResult | None:
+ADMIN_EMAIL_ENV, ADMIN_PASSWORD_ENV = "E2E_ADMIN_EMAIL", "E2E_ADMIN_PASSWORD"
+
+
+def sign_in_note(how: str) -> str:
+    """What the verifier is told when the app has sign-in (ADR-0044 §3); `how` is the pack's."""
+    return f"""
+
+The app has sign-in. Its admin account is in your environment: ${ADMIN_EMAIL_ENV} and
+${ADMIN_PASSWORD_ENV}. {how.strip()}
+Use the variables in the shell; never print, echo or write the password, and never put it in your
+evidence. Where a scenario protects an action, check it is refused without signing in, too."""
+
+
+async def _app_admin(ctx: StationContext) -> dict[str, str]:
+    """The deployed app's first admin (ADR-0044 §3), read from the Secret the stack pack's chart
+    makes, for the e2e suite and the verifier to sign in with. Empty when the pack declares none,
+    the deploy target can't read Secrets, or the app has none (built before it had sign-in).
+    The values are redacted (`secret_data`) and reach sandboxes only through the environment."""
+    where = ctx.blueprint.admin_secret
+    read = getattr(ctx.providers.deploy, "read_secret", None)
+    if where is None or read is None:
+        return {}
+    name = where.secret_name(ctx.product.slug)
+    data = await read(ctx, name)
+    email, password = (data or {}).get(where.email), (data or {}).get(where.password)
+    if not email or not password:
+        await ctx.emit(EventKind.log, f"no admin account in Secret {name}: e2e and the verifier run signed out")
+        return {}
+    await ctx.emit(
+        EventKind.decision,
+        f"e2e and the verifier sign in as the app's admin from Secret {name} (redacted)",
+        {"sign_in": {"secret": name, "keys": [where.email, where.password]}},
+    )
+    return {ADMIN_EMAIL_ENV: email, ADMIN_PASSWORD_ENV: password}
+
+
+async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> StationResult | None:
     """The stack pack's own end-to-end suite against the deployed app (ADR-0041 §1), before the
     independent verifier: the builder's tests, so their output may go back to the builder. In the
-    web packs it also runs the accessibility check (`a11y`). None: passed, or the pack has none."""
+    web packs it also runs the accessibility check (`a11y`). None: passed, or the pack has none.
+    `admin`: the app's admin account, for the suite's sign-in (ADR-0044 §3), by environment."""
     command = ctx.blueprint.e2e_command
     if not command:
         return None
-    res = await ctx.cmd(command.replace("{url}", internal_url(ctx)), timeout=900, untrusted=True)
+    res = await ctx.cmd(command.replace("{url}", internal_url(ctx)), timeout=900, untrusted=True, env=admin or None)
     if not res.ok:
         await ctx.emit(EventKind.decision, "end-to-end tests failed against the live app", {"e2e": {"ok": False}})
         return StationResult(

@@ -1,6 +1,6 @@
 import { dbReady } from "@/lib/db";
-import { logger } from "@/lib/logger";
-import { count } from "@/lib/metrics";
+import { logger } from "@/modules/logging";
+import { count } from "@/modules/metrics";
 
 export const dynamic = "force-dynamic";
 

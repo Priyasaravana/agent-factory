@@ -1,10 +1,9 @@
-import { registry } from "@/lib/metrics";
+import { metrics } from "@/modules/metrics";
 
 export const dynamic = "force-dynamic";
 
-// Prometheus scrape endpoint.
+// Prometheus scrape endpoint (the metrics module's adapter decides what it holds).
 export async function GET(): Promise<Response> {
-  return new Response(await registry.metrics(), {
-    headers: { "content-type": registry.contentType },
-  });
+  const { body, contentType } = await metrics.scrape();
+  return new Response(body, { headers: { "content-type": contentType } });
 }

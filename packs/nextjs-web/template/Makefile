@@ -10,6 +10,7 @@ lint: install
 	npx eslint . --max-warnings=0
 	npx prettier --check .
 	npx tsc --noEmit
+	npx depcruise src tests e2e --config .dependency-cruiser.cjs
 
 test: install
 	npx vitest run --coverage
@@ -21,6 +22,13 @@ build: install
 	NEXT_TELEMETRY_DISABLED=1 npx next build
 
 verify: lint test security build
+
+# The preview's first admin, so the e2e suite can sign in (e2e/auth.ts uses the same values when
+# E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD are unset). A throw-away account on an in-memory
+# database: never the deployment's admin, whose password is in the chart's Secret. Low entropy
+# on purpose, so the secret scan never mistakes it for a credential.
+PREVIEW_ADMIN_EMAIL ?= admin@preview.test
+PREVIEW_ADMIN_PASSWORD ?= preview-preview
 
 # end-to-end tests against a running deployment, accessibility included:
 #   make e2e BASE_URL=http://localhost:3000
@@ -36,7 +44,8 @@ preview: build
 	rm -rf .next/standalone/.next/static .next/standalone/public
 	cp -r .next/static .next/standalone/.next/static
 	cp -r public .next/standalone/public
-	PREVIEW_DATABASE=memory PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js
+	PREVIEW_DATABASE=memory ADMIN_EMAIL=$(PREVIEW_ADMIN_EMAIL) ADMIN_PASSWORD=$(PREVIEW_ADMIN_PASSWORD) \
+	  PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js
 
 run: install
 	npx next dev --port 3000

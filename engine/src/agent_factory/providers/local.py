@@ -9,13 +9,14 @@ publish   `gh` with GITHUB_TOKEN from .env (moves to secret references in phase 
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
-from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult
+from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
@@ -133,6 +134,13 @@ class LocalProvider:
                 return StepResult(True, f"deployed {image} to {ns}; {ctx.blueprint.health_path.lstrip('/')} ok")
             res = smoke
         return StepResult(False, "deployment failed", res.output[-2500:])
+
+    async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
+        """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""
+        res = await ctx.cmd(
+            f"kubectl -n {namespace(ctx.product)} get secret {shlex.quote(name)} -o json", timeout=60, record=False
+        )
+        return secret_data(res.output) if res.ok else None
 
     async def diagnostics(self, ctx: StationContext) -> str:
         ns, slug = namespace(ctx.product), ctx.product.slug

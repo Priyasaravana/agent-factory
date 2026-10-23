@@ -239,6 +239,14 @@
   of the design station (`Change.discuss_pending`) where the architect may change only the design docs;
   a requirements change it reports (`Change.rework_requirements`) goes back to intake, then design.
   Tests in `tests/test_decisions.py`.
+  Modules (ADR-0044 §3, `nextjs-web` 1.3.0): the template's auth, authz, logging, metrics and tracing are
+  ports with adapters and contract tests under `src/modules/`; `modules_isolated` and `module_contracts`
+  are the pack's own signals. The pack's `admin_secret` names the Secret holding the deployment's first
+  admin; the acceptance station reads it through the deploy provider's optional `read_secret` (not
+  recorded, values redacted) and passes it to e2e and the verifier only by environment name
+  (`E2E_ADMIN_*`; a sandboxed command inherits a redacted value by name, an agent session through
+  `AgentRequest.secret_env` / `SandboxSpec.allow_env`). Never put a credential in a prompt or argv.
+  Tests in `tests/test_app_sign_in.py`.
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

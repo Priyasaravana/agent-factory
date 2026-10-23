@@ -26,7 +26,12 @@ resources:
   requests: {cpu: 50m, memory: 128Mi}
   limits: {cpu: 500m, memory: 512Mi}
 
-env: {}   # extra non-secret env vars
+env: {}   # extra non-secret env vars (e.g. LOGGING: silent; the modules' defaults are in src/modules/config.ts)
+
+# the first admin account (used when the app has local accounts); the password is generated into
+# the <name>-admin Secret, never set here
+admin:
+  email: admin@example.com
 
 # turn off when the app stores nothing (DATABASE_URL is then unset)
 postgres:
