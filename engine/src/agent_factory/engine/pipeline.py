@@ -586,66 +586,86 @@ class ChangeManager:
         from agent_factory.engine.design_station import sheet_errors
 
         flow, cat, wt = self._design_context(change)
-        return sheet_errors(wt, cat, flow, "ask") if cat is not None else []
+        return sheet_errors(wt, cat, flow, "ask")
 
-    async def answer_decisions(self, change_id: str, by: str, answers: list[Any]) -> Change:
-        """A person's answers to the decision sheet on the review page (ADR-0044 §1, ask mode). Saved
-        only when the whole sheet then passes, within the lane's constraints; "other" needs its text."""
+    async def align(
+        self,
+        change_id: str,
+        by: str,
+        answers: list[Any],
+        open_answers: list[tuple[str, str]],
+        message: str,
+    ) -> Change:
+        """The person's input on the review page, sent to the architect together (ADR-0044 §1): their
+        design choices and answers to open questions are saved in the sheet first (judged as a whole,
+        within the lane's constraints), then the architect gets one alignment turn with all of it plus
+        their comments and questions. The change comes back to the review page with its reply."""
         from agent_factory import decisions
-
-        change = self._awaiting_spec(change_id)
-        if not change.decisions_pending:
-            raise FactoryError("this change's design decisions are not waiting for a person")
-        flow, cat, wt = self._design_context(change)
-        if cat is None:
-            raise FactoryError("this product's stack asks no design questions")
-        path = wt / decisions.SHEET
-        sheet, errors = decisions.parse_sheet(path.read_text() if path.is_file() else None)
-        if sheet is None:
-            raise FactoryError("; ".join(errors))
-        unknown = sorted({a.question for a in answers} - {q.id for q in cat.questions})
-        if unknown:
-            raise InvalidRequestError(f"not design questions of this stack: {', '.join(unknown)}")
-        new = decisions.apply_answers(sheet, answers, by)
-        if problems := decisions.judge(cat, new, flow.decision_constraints, "ask"):
-            raise InvalidRequestError("; ".join(problems))
-        path.write_text(decisions.dump_sheet(new))
-        for rel, body in decisions.render_adrs(cat, new).items():
-            (wt / rel).parent.mkdir(parents=True, exist_ok=True)
-            (wt / rel).write_text(body)
-        changed = decisions.diff(sheet, new)["changed"]
-        await self.ws.commit_all(wt, f"docs: design decisions answered by {by}")
-        self.store.add_event(
-            change.id,
-            EventKind.decision,
-            f"design decisions answered by {by}" + (f": changed {', '.join(changed)}" if changed else ": confirmed"),
-            data={"decisions": {"by": by, "changed": changed, "answers": [a.model_dump() for a in answers]}},
-        )
-        return change
-
-    def discuss(self, change_id: str, by: str, message: str) -> Change:
-        """A person's message to the architect on the review page (ADR-0044 §1). The design station
-        runs once in discussion mode: the architect replies and may update the design documents, then
-        the change comes back to the review page."""
+        from agent_factory.engine.design_station import needs_sheet, open_questions
         from agent_factory.models import DiscussTurn
 
         if self._get(change_id).discuss_pending:
             raise FactoryError("the architect is still answering your last message")
         change = self._awaiting_spec(change_id)
-        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+        flow, cat, wt = self._design_context(change)
         design = next((s.id for s in flow.stations if s.resolved_handler() == "design"), None)
         if design is None:
-            raise FactoryError("this lane has no design station to discuss")
+            raise FactoryError("this lane has no design station to align with")
         text = message.strip()
-        change.discussion.append(DiscussTurn(role="person", by=by, text=text, at=datetime.now(UTC)))
-        change.discuss_pending = text
-        change.attempts.pop(design, None)  # a discussion turn is not a retry of the design
+        lines: list[str] = []
+        saved: dict[str, Any] = {}
+        if answers or open_answers:
+            if not needs_sheet(wt, cat):
+                raise InvalidRequestError("this change has no design questions or open questions to answer")
+            path = wt / decisions.SHEET
+            sheet, errors = decisions.parse_sheet(path.read_text() if path.is_file() else None)
+            if sheet is None:
+                raise FactoryError("; ".join(errors))
+            known = {q.id for q in cat.questions} if cat else set()
+            if unknown := sorted({a.question for a in answers} - known):
+                raise InvalidRequestError(f"not design questions of this stack: {', '.join(unknown)}")
+            asked = open_questions(wt)
+            if unknown := sorted({qid for qid, _ in open_answers} - {q["id"] for q in asked}):
+                raise InvalidRequestError(f"not open questions of this change: {', '.join(unknown)}")
+            new = decisions.apply_answers(sheet, answers, by)
+            new, answered = decisions.apply_open_answers(new, open_answers, by)
+            if problems := decisions.judge(cat, new, flow.decision_constraints, "ask", asked):
+                raise InvalidRequestError("; ".join(problems))
+            chosen = decisions.diff(sheet, new)["changed"]
+            for qid in chosen:
+                a = new.answer(qid)
+                assert a is not None  # noqa: S101
+                q = cat.question(qid) if cat else None
+                option = q.option(a.choice) if q else None
+                what = a.other if a.choice == decisions.OTHER else (option.title if option else a.choice)
+                lines.append(f"- Decision {qid}: {what}" + (f" (reason: {a.reason})" if a.reason else ""))
+            for qid in answered:
+                oq = new.open_answer(qid)
+                assert oq is not None  # noqa: S101
+                lines.append(f"- Open question {qid} ({oq.question}): {oq.answer}")
+            if chosen or answered:
+                path.write_text(decisions.dump_sheet(new))
+                for rel, body in decisions.render_adrs(cat, new).items():
+                    (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (wt / rel).write_text(body)
+                await self.ws.commit_all(wt, f"docs: design decisions answered by {by}")
+                saved = {"decisions": chosen, "open_questions": answered}
+        if not lines and not text:
+            raise InvalidRequestError("nothing to send: change a decision, answer a question or write a message")
+        body = ("I decided:\n" + "\n".join(lines) if lines else "") + (("\n\n" if lines else "") + text if text else "")
+        change.discussion.append(DiscussTurn(role="person", by=by, text=body, at=datetime.now(UTC)))
+        change.discuss_pending = body
+        change.attempts.pop(design, None)  # an alignment turn is not a retry of the design
         change.current_station = design
         change.status = ChangeStatus.queued
         self.store.save_change(change)
         self._sync_product(change)
         self.store.add_event(
-            change.id, EventKind.decision, f"{by} wrote to the architect", data={"discussion": {"by": by}}
+            change.id,
+            EventKind.decision,
+            f"{by} sent their input to the architect"
+            + (f" (decided {', '.join(saved['decisions'] + saved['open_questions'])})" if saved else ""),
+            data={"alignment": {"by": by, **saved, "message": bool(text)}},
         )
         self._schedule(change.id)
         return change
@@ -1108,6 +1128,21 @@ class ChangeManager:
             if result.outcome == StationOutcome.passed:
                 if sid in flow.repair_targets() or station.only_on_fail:
                     change.last_failure = None  # the station that consumed the evidence succeeded
+                if change.rework_requirements and station.resolved_handler() == "design":
+                    # an alignment turn agreed a change to the requirements (ADR-0044 §1): intake updates
+                    # the spec with it, design runs again, and the change comes back to the review page
+                    note, change.rework_requirements = change.rework_requirements, None
+                    change.review_notes.append(note)
+                    for s_id in plan.stations:
+                        change.attempts.pop(s_id, None)
+                        if s_id == sid:
+                            break
+                    change.current_station = plan.stations[0]
+                    self.store.save_change(change)
+                    self.store.add_event(
+                        change.id, EventKind.decision, f"requirements change agreed in alignment: {note}", station=sid
+                    )
+                    continue
                 nxt = flow.next_in(plan, sid)
                 change.current_station = nxt
                 if nxt is None:

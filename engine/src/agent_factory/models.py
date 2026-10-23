@@ -181,7 +181,9 @@ class Change(BaseModel):
     # (decisions: ask), and the discussion with the architect on the review page
     decisions_pending: bool = False
     discussion: list[DiscussTurn] = Field(default_factory=list)
-    discuss_pending: str | None = None  # a person's message the architect hasn't answered yet
+    discuss_pending: str | None = None  # a person's input the architect hasn't answered yet
+    # an alignment turn found the requirements must change: back to intake, then design (ADR-0044 §1)
+    rework_requirements: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -245,10 +247,11 @@ class DecisionsView(BaseModel):
     this iteration, the pillar roadmap, and the discussion with the architect."""
 
     mode: str  # autonomous | ask
-    pending: bool  # waiting for a person on the review page
+    pending: bool  # waiting for a person on the review page (decisions or spec review)
     asked: bool  # the product's stack has design questions
     questions: list[DecisionQuestionView] = Field(default_factory=list)
     answers: list[DecisionAnswerView] = Field(default_factory=list)
+    open_questions: list[OpenQuestionView] = Field(default_factory=list)  # intake's, answered by the architect
     changed: list[str] = Field(default_factory=list)  # questions added or changed this iteration
     problems: list[str] = Field(default_factory=list)  # what keeps the sheet from passing
     roadmap: list[RoadmapRowView] = Field(default_factory=list)
@@ -265,12 +268,25 @@ class DecisionAnswer(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
 
-class DecisionAnswersInput(BaseModel):
-    answers: list[DecisionAnswer] = Field(min_length=1, max_length=30)
+class OpenQuestionAnswer(BaseModel):
+    id: str = Field(min_length=2, max_length=10)
+    answer: str = Field(min_length=2, max_length=2000)
 
 
-class DiscussInput(BaseModel):
-    message: str = Field(min_length=2, max_length=4000)
+class AlignInput(BaseModel):
+    """Everything a person sends the architect at once from the review page (ADR-0044 §1)."""
+
+    answers: list[DecisionAnswer] = Field(default_factory=list, max_length=30)
+    open_answers: list[OpenQuestionAnswer] = Field(default_factory=list, max_length=30)
+    message: str = Field(default="", max_length=4000)
+
+
+class OpenQuestionView(BaseModel):
+    id: str
+    question: str
+    answer: str = ""
+    rationale: str = ""
+    decided_by: str = "architect"
 
 
 class RequiredAction(BaseModel):

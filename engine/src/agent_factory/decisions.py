@@ -20,6 +20,7 @@ from agent_factory import pillars
 OTHER = "other"  # "Other…": free text the architect turns into a concrete choice (ask mode only)
 SHEET = "docs/decisions.yaml"
 ROADMAP = "docs/roadmap.md"
+OPEN_QUESTIONS = "docs/open-questions.yaml"  # intake's open questions, for the architect to answer
 ADR_DIR = "docs/adr"
 Mode = Literal["autonomous", "ask"]
 _SLUG = r"^[a-z][a-z0-9-]{1,40}$"
@@ -141,12 +142,49 @@ class Answer(BaseModel):
     reason: str | None = None  # a person's reason when they changed or confirmed an answer
 
 
+class OpenAnswer(BaseModel):
+    """The answer to one of intake's open questions: the architect proposes it, a person may change it."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str  # Q1, Q2, … as intake numbered them
+    question: str = ""
+    answer: str = ""
+    rationale: str = ""
+    decided_by: str = "architect"
+
+
 class Sheet(BaseModel):
     model_config = ConfigDict(extra="ignore")
     answers: list[Answer] = Field(default_factory=list)
+    open_questions: list[OpenAnswer] = Field(default_factory=list)
 
     def answer(self, qid: str) -> Answer | None:
         return next((a for a in self.answers if a.question == qid), None)
+
+    def open_answer(self, qid: str) -> OpenAnswer | None:
+        return next((a for a in self.open_questions if a.id == qid), None)
+
+
+def parse_open_questions(text: str | None) -> list[dict[str, str]]:
+    """Intake's open questions (`docs/open-questions.yaml`): [{id, question}]. Anything unreadable is none."""
+    try:
+        raw = yaml.safe_load(text) if text else None
+    except yaml.YAMLError:
+        return []
+    out = []
+    for q in raw if isinstance(raw, list) else []:
+        if isinstance(q, dict) and str(q.get("id", "")).strip() and str(q.get("question", "")).strip():
+            out.append({"id": str(q["id"]).strip(), "question": str(q["question"]).strip()})
+    return out
+
+
+def dump_open_questions(questions: Sequence[str]) -> str:
+    return yaml.safe_dump(
+        [{"id": f"Q{n}", "question": q.strip()} for n, q in enumerate(questions, start=1) if q.strip()],
+        sort_keys=False,
+        allow_unicode=True,
+        width=100,
+    )
 
 
 def parse_sheet(text: str | None) -> tuple[Sheet | None, list[str]]:
@@ -161,6 +199,7 @@ def parse_sheet(text: str | None) -> tuple[Sheet | None, list[str]]:
         raw = {"answers": raw}
     if not isinstance(raw, dict):
         return None, [f"{SHEET} must be a mapping with `answers:` (a list, one per question)"]
+    raw = {**raw, "answers": raw.get("answers") or [], "open_questions": raw.get("open_questions") or []}
     try:
         return Sheet.model_validate(raw), []
     except ValidationError as exc:
@@ -172,18 +211,33 @@ def dump_sheet(sheet: Sheet) -> str:
     for a in data["answers"]:
         if not a.get("requirements"):
             a.pop("requirements", None)
+    if sheet.open_questions:
+        data["open_questions"] = [q.model_dump() for q in sheet.open_questions]
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
 
 
-def judge(cat: Catalogue, sheet: Sheet, constraints: dict[str, list[str]], mode: Mode) -> list[str]:
+def judge(
+    cat: Catalogue | None,
+    sheet: Sheet,
+    constraints: dict[str, list[str]],
+    mode: Mode,
+    asked: Sequence[dict[str, str]] = (),
+) -> list[str]:
     """Whether the sheet is complete and inside the lane's constraints. Empty means it passes.
 
     - every catalogue question has exactly one answer, and no answer names an unknown question;
     - `recommended` is one of the question's options, and every answer has a rationale;
     - `choice` is an allowed option, or "other" with its text, which only ask mode accepts
       (it leaves the approved options, so a person must see it);
-    - in autonomous mode the architect takes its recommendation when the lane allows it."""
+    - in autonomous mode the architect takes its recommendation when the lane allows it;
+    - every open question intake `asked` has an answer (ADR-0044 §1: they go to the architect)."""
     errors: list[str] = []
+    for oq in asked:
+        got = sheet.open_answer(oq["id"])
+        if got is None or len(got.answer.strip()) < 2:
+            errors.append(f"{oq['id']}: open question not answered ({oq['question'][:120]})")
+    if cat is None:
+        return errors
     ids = [a.question for a in sheet.answers]
     for qid in sorted({i for i in ids if ids.count(i) > 1}):
         errors.append(f"{qid}: answered more than once")
@@ -216,11 +270,21 @@ def judge(cat: Catalogue, sheet: Sheet, constraints: dict[str, list[str]], mode:
     return errors
 
 
-def stamp(sheet: Sheet, constraints: dict[str, list[str]], cat: Catalogue) -> Sheet:
+def stamp(
+    sheet: Sheet, constraints: dict[str, list[str]], cat: Catalogue | None, asked: Sequence[dict[str, str]] = ()
+) -> Sheet:
     """Who decided each answer, for the record. The architect's own answers say whether they are its
     recommendation or the lane's constraint; a person's answers keep their name."""
     out = sheet.model_copy(deep=True)
+    texts = {q["id"]: q["question"] for q in asked}
+    out.open_questions = [q for q in out.open_questions if not texts or q.id in texts]
+    for oq in out.open_questions:
+        oq.question = texts.get(oq.id, oq.question)
+        if oq.decided_by.startswith("architect") or not oq.decided_by.strip():
+            oq.decided_by = "architect (proposed)"
     for a in out.answers:
+        if cat is None:
+            break
         if a.decided_by.startswith("architect") or not a.decided_by.strip():
             q = cat.question(a.question)
             constrained = q is not None and a.recommended not in allowed_options(q, constraints)
@@ -253,6 +317,20 @@ def apply_answers(sheet: Sheet, answers: Sequence[PersonAnswer], by: str) -> She
     return out
 
 
+def apply_open_answers(sheet: Sheet, answers: Sequence[tuple[str, str]], by: str) -> tuple[Sheet, list[str]]:
+    """A person's own answers to open questions (id, text). Returns the sheet and the ids they changed."""
+    out = sheet.model_copy(deep=True)
+    changed: list[str] = []
+    for qid, text in answers:
+        oq = out.open_answer(qid)
+        text = text.strip()
+        if oq is None or not text or text == oq.answer:
+            continue
+        oq.answer, oq.decided_by = text, by
+        changed.append(qid)
+    return out, changed
+
+
 def diff(old: Sheet | None, new: Sheet) -> dict[str, list[str]]:
     """Which answers this iteration added or changed (by question id), for the review page."""
     before = {a.question: (a.choice, a.other) for a in (old.answers if old else [])}
@@ -264,10 +342,20 @@ def diff(old: Sheet | None, new: Sheet) -> dict[str, list[str]]:
     }
 
 
-def render_adrs(cat: Catalogue, sheet: Sheet) -> dict[str, str]:
-    """One short ADR per answer, numbered by the catalogue's order, so they always match the sheet."""
+def render_adrs(cat: Catalogue | None, sheet: Sheet) -> dict[str, str]:
+    """One short ADR per answer, numbered by the catalogue's order, so they always match the sheet;
+    the answered open questions follow as one record."""
     out: dict[str, str] = {}
-    for n, q in enumerate(cat.questions, start=1):
+    questions = cat.questions if cat else []
+    if sheet.open_questions:
+        n = len(questions) + 1
+        lines = [f"# {n:04d}. Open questions from the specification", ""]
+        for oq in sheet.open_questions:
+            lines += [f"## {oq.id}. {oq.question}", "", f"**Answer** ({oq.decided_by}): {oq.answer}", ""]
+            if oq.rationale:
+                lines += [f"Why: {oq.rationale}", ""]
+        out[f"{ADR_DIR}/{n:04d}-open-questions.md"] = "\n".join(lines).rstrip() + "\n"
+    for n, q in enumerate(questions, start=1):
         a = sheet.answer(q.id)
         if a is None:
             continue

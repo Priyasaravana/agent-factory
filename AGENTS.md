@@ -232,9 +232,13 @@
   The lane's `decisions` (autonomous | ask) and `decision_constraints` (allowed options per question,
   checked at publish against installed packs) say who answers; ask mode waits on the same review page as
   the spec gate (`Change.decisions_pending`). The engine renders one ADR per answer (`render_adrs`) and
-  folds deferred roadmap rows into the work ledger (`ledger.fold_roadmap`). A discussion turn re-runs the
-  design station in discussion mode (`Change.discuss_pending`); its text is the person's design input and
-  the architect may change only the design docs. Tests in `tests/test_decisions.py`.
+  folds deferred roadmap rows into the work ledger (`ledger.fold_roadmap`). Intake's open questions
+  (`docs/open-questions.yaml`) go to the architect, who answers them in the sheet; intake stops only when
+  a request can't be specified. On the review page everything a person says goes through
+  `ChangeManager.align` (choices, open-question answers and comments, sent together): one alignment turn
+  of the design station (`Change.discuss_pending`) where the architect may change only the design docs;
+  a requirements change it reports (`Change.rework_requirements`) goes back to intake, then design.
+  Tests in `tests/test_decisions.py`.
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

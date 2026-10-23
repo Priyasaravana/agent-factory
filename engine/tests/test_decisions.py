@@ -277,7 +277,7 @@ async def test_a_pack_without_questions_still_gets_a_roadmap(make_factory):
     assert any(m.startswith("no decision sheet: fastapi-service") for m in messages)
 
 
-async def test_ask_mode_waits_for_a_person_who_answers_discusses_and_approves(make_factory):
+async def test_ask_mode_waits_and_aligns_everything_in_one_turn(make_factory):
     f = make_factory()
     _lane(f, "ask")
     product = f.manager.create_product(WEB)
@@ -286,47 +286,119 @@ async def test_ask_mode_waits_for_a_person_who_answers_discusses_and_approves(ma
     held = f.store.get_change(change.id)
     assert held.decisions_pending and held.summary == "design decisions ready for your review"
 
-    # answers are judged as a whole: outside the options is refused, Other… needs its text
+    # choices are judged as a whole before anything goes to the architect
     with pytest.raises(InvalidRequestError, match="not an option"):
-        await f.manager.answer_decisions(change.id, "saravana", [DecisionAnswer(question="look", choice="pink")])
+        await f.manager.align(change.id, "saravana", [DecisionAnswer(question="look", choice="pink")], [], "")
     with pytest.raises(InvalidRequestError, match="not design questions"):
-        await f.manager.answer_decisions(change.id, "saravana", [DecisionAnswer(question="caching", choice="xx")])
-    await f.manager.answer_decisions(
+        await f.manager.align(change.id, "saravana", [DecisionAnswer(question="caching", choice="xx")], [], "")
+    with pytest.raises(InvalidRequestError, match="nothing to send"):
+        await f.manager.align(change.id, "saravana", [DecisionAnswer(question="look", choice="neutral")], [], " ")
+
+    # choices, an Other… answer and a comment: saved, then one architect turn with all of it
+    await f.manager.align(
         change.id,
         "saravana",
         [
             DecisionAnswer(question="look", choice="warm", reason="community product"),
             DecisionAnswer(question="data-store", choice="other", other="Neon serverless Postgres"),
         ],
+        [],
+        "Why admin-created accounts and not open sign-up?",
     )
+    with pytest.raises(FactoryError, match="still answering"):
+        await f.manager.align(change.id, "saravana", [], [], "and another thing")
     sheet = _sheet_in(f, change.id)
     assert sheet.answer("look").decided_by == "saravana"
-    assert (
-        "Neon serverless Postgres" in (f.manager.ws.change_dir(change.id) / "docs/adr/0004-data-store.md").read_text()
-    )
-
-    # the discussion: one architect turn, then back on the review page
-    f.manager.discuss(change.id, "saravana", "Should we use accounts? Please set authentication to local")
-    with pytest.raises(FactoryError, match="still answering"):
-        f.manager.discuss(change.id, "saravana", "and another thing")
+    adr = f.manager.ws.change_dir(change.id) / "docs/adr/0004-data-store.md"
+    assert "Neon serverless Postgres" in adr.read_text()
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
     after = f.store.get_change(change.id)
     assert [t.role for t in after.discussion] == ["person", "architect"]
-    assert after.discussion[1].text == "[dry-run] changed authentication to local"
-    assert after.discussion[1].files == ["docs/decisions.yaml"]
+    sent = after.discussion[0].text
+    assert sent.startswith("I decided:\n- Decision data-store: Neon serverless Postgres\n- Decision look: Warm")
+    assert "(reason: community product)" in sent and sent.endswith("Why admin-created accounts and not open sign-up?")
+    assert after.discussion[1].text == "[dry-run] the design now follows your decisions"
+    assert after.discussion[1].files == ["docs/design.md"]
     assert after.discuss_pending is None and after.attempts.get("design") == 1
+
+    # a comment that asks the architect to change a choice
+    await f.manager.align(change.id, "saravana", [], [], "Please set authentication to local")
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
     assert _sheet_in(f, change.id).answer("authentication").choice == "local"
 
     f.manager.approve_spec(change.id, "saravana")
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
     events = f.store.list_events(change.id)
-    assert any(e.message == "design decisions answered by saravana: changed data-store, look" for e in events)
+    assert any(e.message == "saravana sent their input to the architect (decided data-store, look)" for e in events)
     assert any(
-        e.kind == EventKind.decision
-        and e.message == "architect replied on the review page; changed docs/decisions.yaml"
+        e.kind == EventKind.decision and e.message == "architect replied on the review page; changed docs/design.md"
         for e in events
     )
     assert (f.manager.ws.data_dir / "artifacts" / change.id / "discussion.json").is_file()
+
+
+async def test_open_questions_go_to_the_architect_not_back_to_the_requester(make_factory):
+    from agent_factory.agents import FakeAgentRunner
+
+    agents = FakeAgentRunner(open_questions=["Should books have a cover image?", "Can two users share a shelf?"])
+    f = make_factory(agents=agents)
+    _lane(f, "ask")
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval, "no needs_input: intake didn't stop"
+    sheet = _sheet_in(f, change.id)
+    assert [(q.id, q.question, q.decided_by) for q in sheet.open_questions] == [
+        ("Q1", "Should books have a cover image?", "architect (proposed)"),
+        ("Q2", "Can two users share a shelf?", "architect (proposed)"),
+    ]
+    wt = f.manager.ws.change_dir(change.id)
+    record = (wt / "docs/adr/0006-open-questions.md").read_text()
+    assert "## Q1. Should books have a cover image?" in record and "[dry-run] default for Q1" in record
+
+    # the person answers one open question in their own words, with a comment, in one send
+    with pytest.raises(InvalidRequestError, match="not open questions"):
+        await f.manager.align(change.id, "saravana", [], [("Q9", "yes")], "")
+    await f.manager.align(change.id, "saravana", [], [("Q2", "No, one shelf per user")], "Keep it simple.")
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
+    q2 = _sheet_in(f, change.id).open_answer("Q2")
+    assert (q2.answer, q2.decided_by) == ("No, one shelf per user", "saravana")
+    first = f.store.get_change(change.id).discussion[0].text
+    assert "- Open question Q2 (Can two users share a shelf?): No, one shelf per user" in first
+    f.manager.approve_spec(change.id, "saravana")
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+
+
+async def test_autonomous_mode_answers_open_questions_without_waiting(make_factory):
+    from agent_factory.agents import FakeAgentRunner
+
+    f = make_factory(agents=FakeAgentRunner(open_questions=["Should books have a cover image?"]))
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))  # FastAPI: no design questions
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+    sheet = _sheet_in(f, change.id)
+    assert sheet.answers == [] and sheet.open_questions[0].answer == "[dry-run] default for Q1"
+    messages = [e.message for e in f.store.list_events(change.id)]
+    assert "decision sheet: 0 answers, 0 new or changed, 1 open questions answered; decided (autonomous)" in messages
+
+
+async def test_a_requirements_change_agreed_in_alignment_goes_back_to_the_specification(make_factory):
+    from agent_factory.agents import FakeAgentRunner
+
+    agents = FakeAgentRunner()
+    f = make_factory(agents=agents)
+    _lane(f, "ask")
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
+    await f.manager.align(change.id, "saravana", [], [], "Searching by title matters: change the requirement")
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
+    after = f.store.get_change(change.id)
+    assert after.review_notes == ["R2 also filters by title (agreed with saravana)"]
+    assert after.rework_requirements is None and after.current_station == "implement"
+    assert "the specification is being updated first: R2 also filters by title" in after.discussion[1].text
+    started = [e.station for e in f.store.list_events(change.id) if e.kind == EventKind.station_started]
+    assert started == ["requirements", "design", "design", "requirements", "design"]
+    intake = [c for c in agents.calls if c.role == "intake"][-1]
+    assert "R2 also filters by title (agreed with saravana)" in intake.prompt
+    architect = [c for c in agents.calls if c.role == "architect"][-1]
+    assert "The alignment with the person so far" in architect.prompt and "change the requirement" in architect.prompt
 
 
 async def test_approval_waits_for_a_complete_sheet(make_factory):
@@ -382,22 +454,23 @@ async def test_the_review_page_api(make_factory):
             ("postgres-external", False),
         ]
         assert len(view["answers"]) == 5 and len(view["roadmap"]) == 10 and view["problems"] == []
+        assert view["open_questions"] == []
         assert sorted(view["changed"]) == sorted(q["id"] for q in view["questions"])
-        bad = await c.put(
-            f"/api/changes/{change.id}/decisions",
+        bad = await c.post(
+            f"/api/changes/{change.id}/align",
             json={"answers": [{"question": "data-store", "choice": "postgres-external"}]},
         )
         assert bad.status_code == 422 and "outside this lane's constraints" in bad.text
-        ok = await c.put(
-            f"/api/changes/{change.id}/decisions", json={"answers": [{"question": "look", "choice": "bold"}]}
+        r = await c.post(
+            f"/api/changes/{change.id}/align",
+            json={"answers": [{"question": "look", "choice": "bold"}], "message": "Why Postgres?"},
         )
-        assert ok.status_code == 200 and any(a["choice"] == "bold" for a in ok.json()["answers"])
-        r = await c.post(f"/api/changes/{change.id}/decisions/discuss", json={"message": "Why Postgres?"})
-        assert r.status_code == 200 and r.json()["discuss_pending"] == "Why Postgres?"
+        assert r.status_code == 200 and r.json()["discuss_pending"].endswith("Why Postgres?")
         assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
         view = (await c.get(f"/api/changes/{change.id}/decisions")).json()
+        assert any(a["choice"] == "bold" for a in view["answers"])
         assert [t["role"] for t in view["discussion"]] == ["person", "architect"]
-        assert view["discussion"][1]["text"] == "[dry-run] the design stays as it is"
+        assert view["discussion"][1]["text"] == "[dry-run] the design now follows your decisions"
     await ctx.__aexit__(None, None, None)
 
 
@@ -408,7 +481,7 @@ async def test_a_discussion_changes_only_the_design_documents(make_factory):
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
     wt = f.manager.ws.change_dir(change.id)
     agents_md = (wt / "AGENTS.md").read_text()
-    f.manager.discuss(change.id, "saravana", "please also edit the code, and set look to bold")
+    await f.manager.align(change.id, "saravana", [], [], "please also edit the code, and set look to bold")
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_approval
     assert not (wt / "src" / "stray.ts").exists() and (wt / "AGENTS.md").read_text() == agents_md
     reply = f.store.get_change(change.id).discussion[-1]
