@@ -1,4 +1,4 @@
-import { count } from "@/lib/metrics";
+import { count } from "@/modules/metrics";
 
 export const dynamic = "force-dynamic";
 

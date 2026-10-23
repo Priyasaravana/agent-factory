@@ -106,6 +106,35 @@ class DeployProvider(Provider, Protocol):
     async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
 
 
+def secret_data(output: str) -> dict[str, str] | None:
+    """The decoded `data` of `kubectl get secret -o json` output (None: no such Secret, or not
+    JSON). Every value is registered with the redactor first, so it is masked wherever it would be
+    stored. Pure apart from that. A deploy provider that can read the app's Secrets implements
+    `read_secret(ctx, name)` with it (optional: the acceptance station checks with getattr)."""
+    import base64
+    import binascii
+    import json
+
+    from agent_factory.secret_refs import REDACTOR
+
+    try:
+        doc = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    data = doc.get("data") if isinstance(doc, dict) else None
+    if not isinstance(data, dict):
+        return None
+    out: dict[str, str] = {}
+    for key, raw in data.items():
+        try:
+            value = base64.b64decode(str(raw), validate=True).decode()
+        except (binascii.Error, UnicodeDecodeError):
+            continue
+        REDACTOR.add(value)
+        out[str(key)] = value
+    return out
+
+
 class PublishProvider(Provider, Protocol):
     async def publish(self, ctx: StationContext) -> StepResult: ...
 

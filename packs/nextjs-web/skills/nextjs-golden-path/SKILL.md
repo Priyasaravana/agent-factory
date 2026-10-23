@@ -12,12 +12,20 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
   `"use client"` components. Forms post to route handlers or server actions.
 - The app's own API is route handlers under `src/app/api/`; describe them in `docs/openapi.yaml`.
 - Plan one table per stored entity in `src/lib/schema.ts` (`create table if not exists`).
+- Logging, metrics, tracing, sign-in and permissions are modules (`src/modules/<name>`, see
+  AGENTS.md): name in `docs/design.md` which adapter each runs, from `docs/decisions.yaml`, and which
+  routes and pages need a signed-in user or a role. The user and session tables belong to the
+  `auth` module; don't add your own.
 
 ## Implementation checklist
 1. Data access in `src/lib/<entity>.ts`: functions taking plain values, using `await db()` and
    parameterised SQL. Validate input at the edge (route handler / server action) and return 400
    with a message for bad input, 404 for missing ids, 201 on create.
-2. Route handlers call `count(route, status)` and log with `logger`, never `console.log`.
+2. Route handlers call `count(route, status)` (`@/modules/metrics`) and log with `logger`
+   (`@/modules/logging`), never `console.log`. Set the adapters in `src/modules/config.ts`
+   (`DEFAULTS`) to match `docs/decisions.yaml`. Every protected route handler starts with
+   `const { user, denied } = await authorize(request, role); if (denied) return denied;`
+   (`@/modules/authz`); protected pages call `authorizePage(path, role)`.
 3. Pages read data on the server (`export const dynamic = "force-dynamic"` when they show
    stored data) and render semantic HTML: `<main>`, one `<h1>`, `<label htmlFor>` on every
    input, buttons for actions, lists for lists.
@@ -42,6 +50,13 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
   in-memory database each time, so every e2e test creates the data it needs.
 
 ## Pitfalls
+- Import a module's port (`@/modules/auth`), never its adapters: `make lint` fails on
+  `@/modules/*/adapters/*` outside the module. In tests use `setAuth(createAuth("local"))` with
+  `memoryDatabase()`, or a small fake `Auth`; never edit a contract test to make an adapter pass.
+- With sign-in on, `make preview` signs in as `admin@preview.test` (password in the Makefile, a
+  throw-away preview account); the live run gets the deployment's admin from the factory
+  (`E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`). Use `signIn(page)` / `signInApi(request)` from
+  `e2e/auth.ts`; never write a password into a test.
 - pg-mem in tests vs Postgres in the cluster: stick to standard SQL (no extensions, no
   `returning *` on multi-statement queries); `serial`/`text`/`integer`/`boolean`/`timestamptz`.
 - Never import `src/lib/db.ts` (or anything using `pg`, `pino`) from a `"use client"` file.

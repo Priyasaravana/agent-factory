@@ -52,9 +52,9 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 
 
 # ------------------------------------------------------------------ the pack --
-def test_the_pack_loads_with_its_stack_and_its_own_a11y_signal():
+def test_the_pack_loads_with_its_stack_and_its_own_signals():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.2.0" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.3.0" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -65,8 +65,13 @@ def test_the_pack_loads_with_its_stack_and_its_own_a11y_signal():
     assert stack.e2e == "make e2e BASE_URL={url}" and stack.egress == []
     assert set(stack.toolchain) == {"node@22", "npm", "chromium"}
     assert pack.rules is not None
-    [a11y] = pack.rules.extra
-    assert (a11y.id, a11y.level, a11y.pillar) == ("a11y", 3, "usability")
+    own = {s.id: (s.level, s.pillar) for s in pack.rules.extra}
+    assert own == {
+        "a11y": (3, "usability"),
+        "modules_isolated": (3, "maintainability"),  # ADR-0044 §3
+        "module_contracts": (3, "reliability"),
+    }
+    assert stack.admin_secret is not None and stack.admin_secret.secret_name("books") == "books-admin"
 
 
 def test_a_fresh_template_misses_only_what_the_agents_write(tmp_path):
@@ -77,7 +82,7 @@ def test_a_fresh_template_misses_only_what_the_agents_write(tmp_path):
     fastapi = load_pack(REPO / "packs" / "fastapi-service")
     py = score(_template_copy_fastapi(tmp_path), True, fastapi.rules)
     assert [s.id for s in py.missing(3)] == [s.id for s in card.missing(3)]
-    assert card.max_points == py.max_points + 4, "a11y is one more level-3 signal"
+    assert card.max_points == py.max_points + 3 * 4, "a11y and the two module signals are level 3"
 
 
 def _template_copy_fastapi(tmp_path: Path) -> Path:
@@ -100,6 +105,12 @@ def test_with_the_agents_work_the_template_reaches_level_3_with_usability_covere
         ("e2e/routes.ts", "a11y"),
         ("src/app/api/readyz/route.ts", "health_endpoints"),
         ("src/instrumentation.ts", "tracing"),
+        (".dependency-cruiser.cjs", "modules_isolated"),
+        ("src/modules/config.ts", "modules_isolated"),
+        ("src/modules/auth/auth.contract.test.ts", "module_contracts"),
+        ("src/modules/tracing/tracing.contract.test.ts", "module_contracts"),
+        ("src/modules/logging/adapters/pino.ts", "structured_logs"),
+        ("src/modules/metrics/adapters/prometheus.ts", "metrics"),
         ("package-lock.json", "lockfile"),
         ("playwright.config.ts", "e2e_tests"),
     ],
@@ -116,6 +127,27 @@ def test_an_a11y_check_weakened_to_minor_violations_only_does_not_count(tmp_path
     spec = root / "e2e" / "a11y.spec.ts"
     spec.write_text(spec.read_text().replace('"serious"', '"minor"').replace('"critical"', '"moderate"'))
     assert [s.id for s in score(root, True, load_pack(PACK).rules).missing(3)] == ["a11y"]
+
+
+def test_a_dependency_rule_dropped_from_make_lint_does_not_count(tmp_path):
+    """ADR-0044 §3: modules_isolated needs the rule AND the lint step that runs it."""
+    root = _agent_written(_template_copy(tmp_path))
+    mk = root / "Makefile"
+    mk.write_text(mk.read_text().replace("\tnpx depcruise src tests e2e --config .dependency-cruiser.cjs\n", ""))
+    assert [s.id for s in score(root, True, load_pack(PACK).rules).missing(3)] == ["modules_isolated"]
+
+
+def test_a_product_built_before_modules_keeps_its_level(tmp_path):
+    """Products from nextjs-web 1.2.0 (src/lib/logger.ts, no src/modules/) stay at Level 3 until an
+    upkeep change adopts the modules (ADR-0044 consequences): the new signals don't fail them."""
+    root = _agent_written(_template_copy(tmp_path))
+    shutil.rmtree(root / "src" / "modules")
+    (root / ".dependency-cruiser.cjs").unlink()
+    (root / "src" / "lib" / "logger.ts").write_text('import pino from "pino";\nexport const logger = pino({});\n')
+    (root / "src" / "app" / "api" / "metrics" / "route.ts").write_text("await registry.metrics()\n")
+    (root / "src" / "instrumentation.ts").write_text("registerOTel({ serviceName: 'app' })\n")
+    card = score(root, True, load_pack(PACK).rules)
+    assert card.level == 3 and card.missing(3) == []
 
 
 def test_a_coverage_gate_below_80_does_not_count(tmp_path):
@@ -155,7 +187,8 @@ def test_the_template_pins_the_playwright_the_sandbox_ships_a_browser_for():
 
 
 def test_the_template_needs_no_web_fonts_or_remote_assets():
-    sources = [p.read_text() for p in (TEMPLATE / "src").rglob("*.ts*")]
+    # what ships: the modules' contract tests sit in src/ but never reach the build
+    sources = [p.read_text() for p in (TEMPLATE / "src").rglob("*.ts*") if ".test." not in p.name]
     assert not any("next/font/google" in s or "https://" in s for s in sources)
 
 
@@ -300,7 +333,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.2.0"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.3.0"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)

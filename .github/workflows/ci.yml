@@ -60,7 +60,12 @@ jobs:
       - run: cd packs/nextjs-web/template && make verify
       - run: helm lint packs/nextjs-web/template/deploy/chart
       - run: |
-          helm template t packs/nextjs-web/template/deploy/chart | grep -q 'path: /api/healthz'
+          helm template t packs/nextjs-web/template/deploy/chart > /tmp/web.yaml
+          grep -q 'path: /api/healthz' /tmp/web.yaml
+          # the first admin (ADR-0044 §3): a generated password in its own Secret, read from it
+          grep -q 'name: t-admin' /tmp/web.yaml
+          grep -q 'key: password' /tmp/web.yaml
+          ! grep -qi 'admin_password: ' packs/nextjs-web/template/deploy/chart/values.yaml
       # the cluster target (helm provider, ADR-0026): ClusterIP + an Ingress with TLS and a pull secret
       - run: |
           helm template t packs/fastapi-service/template/deploy/chart --set service.type=ClusterIP \

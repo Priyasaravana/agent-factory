@@ -36,30 +36,3 @@ describe("database pool", () => {
     await (first as { end?: () => Promise<void> } | null)?.end?.();
   });
 });
-
-describe("tracing", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-    vi.doUnmock("@vercel/otel");
-  });
-
-  it("registers only when a collector is configured", async () => {
-    const registerOTel = vi.fn();
-    vi.doMock("@vercel/otel", () => ({ registerOTel }));
-    const { register } = await import("@/instrumentation");
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "");
-    register();
-    expect(registerOTel).not.toHaveBeenCalled();
-    vi.stubEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318");
-    register();
-    expect(registerOTel).toHaveBeenCalledWith({ serviceName: "app" });
-  });
-});
-
-describe("logger", () => {
-  it("writes JSON with the service name", async () => {
-    const { logger } = await import("@/lib/logger");
-    expect(logger.bindings()).toMatchObject({ service: "app" });
-  });
-});

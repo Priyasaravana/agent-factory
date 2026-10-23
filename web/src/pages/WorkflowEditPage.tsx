@@ -185,6 +185,59 @@ export default function WorkflowEditPage() {
         </div>
       </section>
 
+      {d.stations.some((s) => s.handler === "design") && (
+        <section className="card" data-testid="decisions-setting">
+          <h3>Design decisions</h3>
+          <p className="muted small">
+            Who answers the stack's design questions (sign-in, roles, data, look…). The architect always recommends an
+            answer for each. With <strong>Ask a person</strong> every change waits on the review page after design, where
+            you confirm or change the choices and talk them through with the architect, then approve.
+          </p>
+          <div
+            className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit"
+            role="radiogroup"
+            aria-label="Design decisions"
+          >
+            {(
+              [
+                ["autonomous", "Architect decides", "the architect's recommendations stand; the change doesn't wait"],
+                ["ask", "Ask a person", "wait on the review page until a person agrees the choices"],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={d.decisions === value}
+                title={hint}
+                className={`tab ${d.decisions === value ? "active" : ""}`}
+                disabled={m.isPending}
+                onClick={() =>
+                  m.mutate(() =>
+                    unwrap(
+                      api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                        params: { path: wid },
+                        body: { decisions: value },
+                      }),
+                    ),
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {Object.keys(d.decision_constraints ?? {}).length > 0 && (
+            <p className="muted small">
+              Allowed options are fixed for:{" "}
+              {Object.entries(d.decision_constraints ?? {})
+                .map(([q, opts]) => `${q} (${opts.join(", ")})`)
+                .join("; ")}
+              .
+            </p>
+          )}
+        </section>
+      )}
+
       {d.evaluable ? (
         <EvalSettings
           d={d}

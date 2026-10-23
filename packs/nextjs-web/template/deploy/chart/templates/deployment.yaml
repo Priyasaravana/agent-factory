@@ -31,6 +31,10 @@ spec:
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "app.dbSecret" . }}, key: database-url}}
             {{- end }}
+            - name: ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" . }}, key: email}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" . }}, key: password}}
             {{- range $k, $v := .Values.env }}
             - {name: {{ $k }}, value: {{ $v | quote }}}
             {{- end }}

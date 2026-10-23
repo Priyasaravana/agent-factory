@@ -11,9 +11,26 @@ and Acceptance stations depend on them.
   `/api/healthz` (liveness), `/api/readyz` (database check) and `/api/metrics` (Prometheus).
 - `src/lib/db.ts` — Postgres through `pg` from `DATABASE_URL`; `await db()` gives a pool with the
   tables from `src/lib/schema.ts` created. Plain parameterised SQL (`$1`, `$2`), no ORM.
-- `src/lib/logger.ts` — pino JSON logs; `logger.info({ ... }, "message")`, never `console.log`.
-- `src/lib/metrics.ts` — the Prometheus registry; `count(route, status)` in each route handler.
-- `src/instrumentation.ts` — OpenTelemetry tracing (on when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
+- `src/modules/<name>/` — cross-cutting concerns as **modules**: a port (the interface, exported
+  from `index.ts`), its adapters (`adapters/`, private to the module) and a contract test
+  (`<name>.contract.test.ts`) that every adapter passes, the no-op included. App code imports only
+  `@/modules/<name>`, never `@/modules/<name>/adapters/…` (`make lint` checks it with
+  dependency-cruiser). Which adapter runs is set in one place, `src/modules/config.ts`.
+  - `logging` — `logger.info({ ... }, "message")`, never `console.log` (pino JSON; `silent`).
+  - `metrics` — `count(route, status)` in each route handler; `/api/metrics` scrapes it
+    (Prometheus; `none`).
+  - `tracing` — OpenTelemetry, started from `src/instrumentation.ts` (on when
+    `OTEL_EXPORTER_OTLP_ENDPOINT` is set; `off`).
+  - `auth` — who is signed in: `userFrom(request)` in route handlers, `currentUser()` in server
+    components. `local` (email + password, scrypt, httpOnly `SameSite=Lax` session cookie,
+    sessions in Postgres, `/sign-in`, `/api/auth/sign-in`, `/api/auth/sign-out`) or `none`
+    (everyone is anonymous). The first admin comes from `ADMIN_EMAIL`/`ADMIN_PASSWORD` (the
+    chart's `<name>-admin` Secret; `make preview` sets a test admin). Add accounts with
+    `auth().createUser(email, password, role)` from an admin-only route.
+  - `authz` — what they may do: `const { user, denied } = await authorize(request, "admin");
+if (denied) return denied;` in every protected route handler (it also refuses cross-site
+    posts), `authorizePage(path, role)` in protected pages. `allow-all`, `signed-in` or `roles`
+    (`admin`, `member`).
 - `tests/` — vitest. Route handlers and libraries run in Node; a component test starts with
   `// @vitest-environment jsdom` and uses Testing Library. Database tests call
   `memoryDatabase()` from `tests/support/db.ts` (an in-memory Postgres, real SQL).
@@ -30,6 +47,12 @@ and Acceptance stations depend on them.
 
 ## Rules
 
+- Design decisions (`docs/decisions.yaml`) choose the adapters: set `DEFAULTS` in
+  `src/modules/config.ts` to match — `authentication: local` → `auth: "local"`;
+  `authorisation: signed-in` → `authz: "signed-in"`, `roles` → `authz: "roles"`. Protected writes
+  (data another person relies on) go through `authorize(...)` on the server, never only by hiding a
+  button. With sign-in on, e2e tests sign in with the helpers in `e2e/auth.ts`, and acceptance
+  tests show a protected action refused without signing in.
 - Traceability: put the requirement ids a test covers in its title, e.g.
   `it("lists open tasks first @R2 @R3", …)` or `test("adds a book @R1", …)`. Every requirement
   needs a scenario and a tagged test.
@@ -43,7 +66,8 @@ and Acceptance stations depend on them.
   `npm audit` (high), `next build`.
 - This repo starts at agent-readiness Level 3. The factory's Readiness station fails the change
   if a signal goes missing: keep README, AGENTS.md, package-lock.json, Dockerfile, CI workflow,
-  CODEOWNERS, pre-commit config, pino logging, `/api/metrics`, `src/instrumentation.ts`,
+  CODEOWNERS, pre-commit config, the five modules with their contract tests and
+  `.dependency-cruiser.cjs`, `/api/metrics`, `src/instrumentation.ts`,
   `/api/healthz` and `/api/readyz`, the coverage thresholds, acceptance tests, the e2e and a11y
   specs and the docs from Intake/Design. No secrets in the repo (a secret scan runs on every
   delivery).

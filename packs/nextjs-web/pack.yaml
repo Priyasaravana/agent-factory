@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.2.0
+version: 1.3.0
 title: Next.js web app
 stack:
   builds: web-app
@@ -29,3 +29,14 @@ stack:
   readiness: readiness.yaml          # how this stack proves the stack-specific signals, plus a11y
   evals: evals.yaml                  # this pack's evaluation cases (per-pack gating: ADR-0041 step 5)
   decisions: decisions.yaml          # the design questions every product answers (ADR-0044 §1)
+  # the deployment's first admin (ADR-0044 §3): the chart generates it into this Secret; the factory
+  # reads it after deploy to sign the live e2e suite and the hidden scenarios in, redacted
+  admin_secret:
+    name: "{release}-admin"
+    email: email
+    password: password
+    sign_in: >-
+      Sign in with `curl -c jar -H 'content-type: application/json' -d
+      "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\"}" <url>/api/auth/sign-in`
+      (200 and a session cookie), then send `-b jar` on later calls. A browser form posts to the
+      same route; cross-site posts are refused, so send no Origin header.

@@ -95,6 +95,23 @@ class PackPreview(BaseModel):
     ready_seconds: int = Field(default=300, ge=10, le=900)  # build + start, before the liveness path answers
 
 
+class PackAdminSecret(BaseModel):
+    """Where a deployment keeps its first admin account (ADR-0044 §3): a Kubernetes Secret the
+    pack's chart creates, with the email and password under these keys. The engine reads it after
+    deploy (privileged, never recorded) so the live e2e suite and the hidden scenarios can sign in;
+    the values are redacted everywhere and reach sandboxes only through the environment."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z0-9{}.-]{1,80}$")  # {release}: the product's Helm release (its slug)
+    email: str = Field(default="email", pattern=r"^[A-Za-z0-9._-]{1,60}$")
+    password: str = Field(default="password", pattern=r"^[A-Za-z0-9._-]{1,60}$")
+    # how a client signs in, for the verifier's prompt (the stack's own route and form)
+    sign_in: str = Field(default="Sign in before calling protected routes.", max_length=600)
+
+    def secret_name(self, release: str) -> str:
+        return self.name.replace("{release}", release)
+
+
 class PackDetect(BaseModel):
     """How a team repo is recognised as this stack (ADR-0041 §5)."""
 
@@ -133,6 +150,7 @@ class PackStack(BaseModel):
     readiness: str = "readiness.yaml"
     evals: str | None = None
     decisions: str | None = None  # the design questions every product of this stack answers (ADR-0044 §1)
+    admin_secret: PackAdminSecret | None = None  # the deployment's first admin, for live sign-in (§3)
 
 
 class Pack(BaseModel):
@@ -306,6 +324,7 @@ class PackBinding:
     detect: PackDetect = field(default_factory=PackDetect)  # how a team repo is recognised (§5)
     preview: PackPreview | None = None  # the app inside the sandbox, for e2e before deploy (ADR-0043 §5)
     decisions: Catalogue | None = None  # the decision sheet's questions (ADR-0044 §1)
+    admin_secret: PackAdminSecret | None = None  # the deployment's first admin (ADR-0044 §3)
 
     @property
     def source(self) -> str:
@@ -386,6 +405,7 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         stack.detect,
         stack.preview,
         pack.catalogue,
+        stack.admin_secret,
     )
 
 

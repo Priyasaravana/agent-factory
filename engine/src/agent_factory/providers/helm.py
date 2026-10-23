@@ -31,7 +31,7 @@ from __future__ import annotations
 import shlex
 from typing import TYPE_CHECKING, Any
 
-from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult
+from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
@@ -236,6 +236,21 @@ class HelmProvider:
                 smoke.output[-2500:],
             )
         return StepResult(True, f"deployed {image} to {ns}; {url}{ctx.blueprint.health_path} ok", data={"url": url})
+
+    async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
+        """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""
+        env = self._env(ctx, "acceptance sign-in")
+        if env is None:
+            return None
+        kenv, kfile = env
+        k = f"kubectl{self._flags('kubectl')}"
+        res = await ctx.cmd(
+            self._kube(f"{k} -n {self.namespace(ctx)} get secret {shlex.quote(name)} -o json", kfile),
+            timeout=60,
+            env=kenv,
+            record=False,
+        )
+        return secret_data(res.output) if res.ok else None
 
     async def diagnostics(self, ctx: StationContext) -> str:
         env = self._env(ctx, "diagnostics")
