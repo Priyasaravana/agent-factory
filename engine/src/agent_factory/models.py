@@ -177,6 +177,11 @@ class Change(BaseModel):
     risk_hold: RiskHold | None = None
     risk_approvals: list[RiskApproval] = Field(default_factory=list)
     review_notes: list[str] = Field(default_factory=list)  # requested spec changes, fed to intake/design
+    # design decisions (ADR-0044 §1): the design station asks a person to answer the decision sheet
+    # (decisions: ask), and the discussion with the architect on the review page
+    decisions_pending: bool = False
+    discussion: list[DiscussTurn] = Field(default_factory=list)
+    discuss_pending: str | None = None  # a person's message the architect hasn't answered yet
     created_at: datetime
     updated_at: datetime
 
@@ -188,6 +193,84 @@ class Change(BaseModel):
         if isinstance(data, dict) and "kind" not in data and "iteration" in data:
             data = {**data, "kind": ChangeKind.new if data["iteration"] == 1 else ChangeKind.feature}
         return data
+
+
+class DiscussTurn(BaseModel):
+    """One message in the discussion with the architect on the review page (ADR-0044 §1). A
+    person's text is their input to the product's design, never instructions to the factory."""
+
+    role: Literal["person", "architect"]
+    by: str
+    text: str
+    at: datetime
+    files: list[str] = Field(default_factory=list)  # docs the architect changed in its reply
+
+
+class DecisionOptionView(BaseModel):
+    id: str
+    title: str
+    consequences: str
+    allowed: bool  # within the lane's constraints
+
+
+class DecisionQuestionView(BaseModel):
+    id: str
+    title: str
+    pillar: str
+    hint: str = ""
+    options: list[DecisionOptionView]
+
+
+class DecisionAnswerView(BaseModel):
+    question: str
+    choice: str
+    other: str | None = None
+    recommended: str
+    rationale: str = ""
+    requirements: list[str] = Field(default_factory=list)
+    decided_by: str = "architect"
+    reason: str | None = None
+
+
+class RoadmapRowView(BaseModel):
+    pillar: str
+    now: str
+    deferred: str
+    why: str
+    trigger: str
+
+
+class DecisionsView(BaseModel):
+    """A change's design decisions (ADR-0044): the questions, the answers, who decided, what changed
+    this iteration, the pillar roadmap, and the discussion with the architect."""
+
+    mode: str  # autonomous | ask
+    pending: bool  # waiting for a person on the review page
+    asked: bool  # the product's stack has design questions
+    questions: list[DecisionQuestionView] = Field(default_factory=list)
+    answers: list[DecisionAnswerView] = Field(default_factory=list)
+    changed: list[str] = Field(default_factory=list)  # questions added or changed this iteration
+    problems: list[str] = Field(default_factory=list)  # what keeps the sheet from passing
+    roadmap: list[RoadmapRowView] = Field(default_factory=list)
+    discussion: list[DiscussTurn] = Field(default_factory=list)
+    discuss_pending: bool = False
+
+
+class DecisionAnswer(BaseModel):
+    """One answer a person gives on the review page."""
+
+    question: str = Field(min_length=2, max_length=60)
+    choice: str = Field(min_length=2, max_length=60)
+    other: str | None = Field(default=None, max_length=600)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class DecisionAnswersInput(BaseModel):
+    answers: list[DecisionAnswer] = Field(min_length=1, max_length=30)
+
+
+class DiscussInput(BaseModel):
+    message: str = Field(min_length=2, max_length=4000)
 
 
 class RequiredAction(BaseModel):
@@ -553,6 +636,9 @@ class WorkflowSettingsInput(BaseModel):
     """Draft settings; a field left out is unchanged."""
 
     spec_review: Literal["off", "first", "always"] | None = None
+    # design decisions (ADR-0044 §1): who answers the sheet, and the options allowed per question
+    decisions: Literal["autonomous", "ask"] | None = None
+    decision_constraints: dict[str, list[str]] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
     eval_gate: Literal["off", "warn", "block"] | None = None  # evaluation gate (ADR-0025)
     # the lane's scope (ADR-0039 §5): first and last phase; [] = what its stations cover
@@ -1043,6 +1129,8 @@ class WorkflowView(BaseModel):
     docs: list[RefDoc] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     spec_review: str = "off"  # off | first | always
+    decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
+    decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
@@ -1066,6 +1154,8 @@ class DraftView(BaseModel):
     agents: list[AgentView]
     docs: list[RefDoc]
     spec_review: str = "off"
+    decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
+    decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)

@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.1.1
+version: 1.2.0
 title: Next.js web app
 stack:
   builds: web-app
@@ -28,3 +28,4 @@ stack:
   detect: {files: [package.json], deps: [next]}
   readiness: readiness.yaml          # how this stack proves the stack-specific signals, plus a11y
   evals: evals.yaml                  # this pack's evaluation cases (per-pack gating: ADR-0041 step 5)
+  decisions: decisions.yaml          # the design questions every product answers (ADR-0044 §1)

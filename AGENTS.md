@@ -226,6 +226,15 @@
   types, scans per check, a custom step, pack stations). Keep it pure; the draft stores, publish
   still checks everything. A new built-in type is offered automatically in its column; a new preset
   gets a case in `tests/test_builder.py` showing it publishes on each default lane.
+- Design decisions (ADR-0044): a stack pack may ship `decisions.yaml` (questions, options, pillar). The
+  design station (`engine/design_station.py`) has the architect answer every question in the product's
+  `docs/decisions.yaml` and write `docs/roadmap.md`; the pure `decisions.judge` decides, never the agent.
+  The lane's `decisions` (autonomous | ask) and `decision_constraints` (allowed options per question,
+  checked at publish against installed packs) say who answers; ask mode waits on the same review page as
+  the spec gate (`Change.decisions_pending`). The engine renders one ADR per answer (`render_adrs`) and
+  folds deferred roadmap rows into the work ledger (`ledger.fold_roadmap`). A discussion turn re-runs the
+  design station in discussion mode (`Change.discuss_pending`); its text is the person's design input and
+  the architect may change only the design docs. Tests in `tests/test_decisions.py`.
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

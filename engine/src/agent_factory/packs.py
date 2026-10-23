@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
+from agent_factory.decisions import Catalogue, CatalogueError, load_catalogue
 from agent_factory.readiness import RuleError, StackRules, parse_stack_rules
 
 if TYPE_CHECKING:
@@ -131,6 +132,7 @@ class PackStack(BaseModel):
     detect: PackDetect = PackDetect()
     readiness: str = "readiness.yaml"
     evals: str | None = None
+    decisions: str | None = None  # the design questions every product of this stack answers (ADR-0044 §1)
 
 
 class Pack(BaseModel):
@@ -143,6 +145,7 @@ class Pack(BaseModel):
     folder: Path | None = None
     _sha256: str = PrivateAttr(default="")
     _rules: StackRules | None = PrivateAttr(default=None)
+    _catalogue: Catalogue | None = PrivateAttr(default=None)
 
     @property
     def source(self) -> str:
@@ -157,6 +160,11 @@ class Pack(BaseModel):
     def rules(self) -> StackRules | None:
         """How this stack proves the stack-specific readiness signals (stack packs only)."""
         return self._rules
+
+    @property
+    def catalogue(self) -> Catalogue | None:
+        """The decision sheet's questions (ADR-0044 §1); None when the pack asks none."""
+        return self._catalogue
 
     @property
     def skill_name(self) -> str | None:
@@ -227,6 +235,14 @@ def _check_stack(pack: Pack) -> StackRules:
         raise PackError(f"pack {pack.source}: stack.preview needs stack.e2e, the suite it runs against the preview")
     if stack.evals:
         _check_evals(pack, _inside(pack, stack.evals, "stack.evals", is_dir=False))
+    if stack.decisions:
+        cat_file = _inside(pack, stack.decisions, "stack.decisions", is_dir=False)
+        try:
+            pack._catalogue = load_catalogue(
+                yaml.safe_load(cat_file.read_text()), f"pack {pack.source} {stack.decisions}"
+            )
+        except (CatalogueError, yaml.YAMLError) as exc:
+            raise PackError(str(exc)) from exc
     file = _inside(pack, stack.readiness, "stack.readiness", is_dir=False)
     try:
         return parse_stack_rules(yaml.safe_load(file.read_text()), f"pack {pack.source} {stack.readiness}")
@@ -289,6 +305,7 @@ class PackBinding:
     toolchain: tuple[str, ...] = ()  # what the sandbox image must provide (ADR-0041 §4)
     detect: PackDetect = field(default_factory=PackDetect)  # how a team repo is recognised (§5)
     preview: PackPreview | None = None  # the app inside the sandbox, for e2e before deploy (ADR-0043 §5)
+    decisions: Catalogue | None = None  # the decision sheet's questions (ADR-0044 §1)
 
     @property
     def source(self) -> str:
@@ -368,6 +385,7 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         tuple(stack.toolchain),
         stack.detect,
         stack.preview,
+        pack.catalogue,
     )
 
 

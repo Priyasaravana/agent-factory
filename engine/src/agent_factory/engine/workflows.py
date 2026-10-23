@@ -10,6 +10,7 @@ from pathlib import Path
 from agent_factory import station_templates as tpl
 from agent_factory.checks import CHECKS, PROVIDERS
 from agent_factory.contract import BUILTIN_REGISTRY, BUILTIN_ROLES, PhaseRegistry, capability_problem, parse_ref
+from agent_factory.decisions import Catalogue
 from agent_factory.skills import SkillLibrary
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import (
@@ -52,6 +53,7 @@ class WorkflowService:
         library: SkillLibrary | None = None,
         roles: Collection[str] = tuple(BUILTIN_ROLES),
         phases: PhaseRegistry = BUILTIN_REGISTRY,
+        catalogues: Collection[Catalogue] = (),
     ) -> None:
         self.store = store
         self.workflow_id = workflow_id
@@ -60,6 +62,7 @@ class WorkflowService:
         self.library = library
         self.roles = tuple(roles)  # role ids a station may name as owner (ADR-0037)
         self.phases = phases  # the phase registry its columns come from (ADR-0039 §2)
+        self.catalogues = tuple(catalogues)  # installed packs' design questions (ADR-0044 §1)
         self._cache: dict[int, WorkflowDoc] = {}
         self.draft = Draft(self)
 
@@ -111,7 +114,7 @@ class WorkflowService:
         return doc if works_on in (None, doc.works_on) else None
 
     def validate(self, doc: WorkflowDoc) -> list[str]:
-        return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles, self.phases)
+        return validate_workflow(doc, self.skills_dir, self.imported_skills(), self.roles, self.phases, self.catalogues)
 
     def create_version(self, doc: WorkflowDoc, note: str, activate: bool = True) -> int:
         problems = self.validate(doc)
@@ -145,6 +148,7 @@ class WorkflowRegistry:
         roles: Collection[str] = tuple(BUILTIN_ROLES),
         phases: PhaseRegistry = BUILTIN_REGISTRY,
         pack_templates: Collection[tpl.StationTemplate] = (),
+        catalogues: Collection[Catalogue] = (),
     ) -> None:
         self.store = store
         self.templates_dir = templates_dir
@@ -156,16 +160,17 @@ class WorkflowRegistry:
         self.library = library
         self.roles = tuple(roles)
         self.phases = phases
+        self.catalogues = tuple(catalogues)
         self.factory_ids = list(workflows)
         self._services = {
-            wid: WorkflowService(store, wid, template, skills_dir, library, roles, phases)
+            wid: WorkflowService(store, wid, template, skills_dir, library, roles, phases, catalogues)
             for wid, template in workflows.items()
         }
         for wid in store.list_workflow_ids():
             if wid not in self._services:
                 doc = store.get_workflow_version(wid, store.active_workflow_version(wid) or 1)
                 path = self.template_path(doc.template if doc else None)
-                self._services[wid] = WorkflowService(store, wid, path, skills_dir, library, roles, phases)
+                self._services[wid] = WorkflowService(store, wid, path, skills_dir, library, roles, phases, catalogues)
 
     def is_factory(self, workflow_id: str) -> bool:
         return workflow_id in self.factory_ids
@@ -192,7 +197,14 @@ class WorkflowRegistry:
             raise WorkflowError(f"workflow '{new_id}' already exists")
         src = self[source_id]
         svc = WorkflowService(
-            self.store, new_id, src.template_dir, self.skills_dir, self.library, self.roles, self.phases
+            self.store,
+            new_id,
+            src.template_dir,
+            self.skills_dir,
+            self.library,
+            self.roles,
+            self.phases,
+            self.catalogues,
         )
         svc.create_version(src.get(), note)
         self._services[new_id] = svc
@@ -332,6 +344,15 @@ class Draft:
     def set_spec_review(self, mode: str) -> None:
         _, doc, _ = self.get()
         doc.spec_review = mode  # type: ignore[assignment]
+        self._save(doc)
+
+    def set_decisions(self, mode: str | None, constraints: dict[str, list[str]] | None = None) -> None:
+        """Who answers the decision sheet, and the options allowed per question (ADR-0044 §1)."""
+        _, doc, _ = self.get()
+        if mode is not None:
+            doc.decisions = mode  # type: ignore[assignment]
+        if constraints is not None:
+            doc.decision_constraints = {k: list(v) for k, v in constraints.items() if v}
         self._save(doc)
 
     def set_learn_from_runs(self, on: bool) -> None:

@@ -28,6 +28,7 @@ import ToolsPanel from "./ToolsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
+import DecisionsPanel from "./DecisionsPanel";
 import SpecPanel from "./SpecPanel";
 import IterationSummary from "./IterationSummary";
 import { buildsOf } from "./StackCards";
@@ -212,7 +213,10 @@ export default function ChangePanel({
             onRequested={refresh}
           />
         ) : (
-          <SpecPanel changeId={changeId} runStatus={r.status} />
+          <>
+            <DecisionsPanel changeId={changeId} runStatus={r.status} />
+            <SpecPanel changeId={changeId} runStatus={r.status} />
+          </>
         )}
         {risk && (
           <ChangeRiskPanel

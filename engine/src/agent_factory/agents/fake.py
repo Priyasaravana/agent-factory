@@ -102,8 +102,30 @@ class FakeAgentRunner:
                 )
             return AgentResult(ok=False, error=f"{req.role} simulated failure")
 
+        if req.role == "architect" and "on the review page" in req.prompt:
+            return AgentResult(ok=True, text=self._discuss(req), turns=1)
         self._write_artifacts(req)
         return AgentResult(ok=True, structured=self._structured(req), text="done", turns=1)
+
+    def _discuss(self, req: AgentRequest) -> str:
+        """The architect in a discussion (ADR-0044 §1): "set <question> to <option>" changes the sheet."""
+        message = req.prompt.rsplit("The person's new message:", 1)[-1]
+        sheet = req.cwd / "docs" / "decisions.yaml"
+        if "also edit the code" in message:  # a reply that strays outside the design documents
+            (req.cwd / "src").mkdir(exist_ok=True)
+            (req.cwd / "src" / "stray.ts").write_text("export const x = 1;\n")
+            agents = req.cwd / "AGENTS.md"
+            if agents.is_file():
+                agents.write_text(agents.read_text() + "\nstray edit\n")
+        m = re.search(r"set ([a-z][a-z0-9-]+) to ([a-z][a-z0-9-]+)", message)
+        if m and sheet.is_file():
+            data = yaml.safe_load(sheet.read_text()) or {}
+            for a in data.get("answers", []):
+                if a.get("question") == m.group(1):
+                    a["choice"], a["decided_by"] = m.group(2), "person"
+            sheet.write_text(yaml.safe_dump(data, sort_keys=False))
+            return f"[dry-run] changed {m.group(1)} to {m.group(2)}"
+        return "[dry-run] the design stays as it is"
 
     def _write_artifacts(self, req: AgentRequest) -> None:
         docs = req.cwd / "docs"
@@ -112,6 +134,9 @@ class FakeAgentRunner:
             (docs / "design.md").write_text("# Design (dry-run)\n")
             (docs / "openapi.yaml").write_text("openapi: 3.1.0\ninfo: {title: dry-run, version: 0.1.0}\npaths: {}\n")
             (docs / "tasks.md").write_text("1. dry-run task\n")
+            (docs / "roadmap.md").write_text(_ROADMAP)
+            if answers := _fake_answers(req.prompt):
+                (docs / "decisions.yaml").write_text(yaml.safe_dump({"answers": answers}, sort_keys=False))
         elif req.role not in ("intake", "verifier") and not req.observe_only:
             for rel in req.produces:  # custom agents: honour the spec's promised outputs
                 out = req.cwd / rel
@@ -283,3 +308,38 @@ _SPEC: dict[str, Any] = {
     "blocking_questions": [],
     "stack_required": [],
 }
+
+
+_ROADMAP = "# Roadmap (dry-run)\n\n| pillar | now | deferred | why | trigger |\n|---|---|---|---|---|\n" + "".join(
+    f"| {p} | basics | {'load test' if p == 'performance' else '—'} | "
+    f"{'no traffic yet' if p == 'performance' else ''} | {'first real users' if p == 'performance' else ''} |\n"
+    for p in (
+        "security",
+        "reliability",
+        "performance",
+        "operability",
+        "cost",
+        "interoperability",
+        "usability",
+        "maintainability",
+        "portability",
+        "compliance",
+    )
+)
+
+
+def _fake_answers(prompt: str) -> list[dict[str, Any]]:
+    """Answer every design question in the prompt with its first allowed option (ADR-0044 §1)."""
+    if "Design questions for this stack:" not in prompt:
+        return []
+    answers: list[dict[str, Any]] = []
+    for block in re.split(r"\n- `", prompt.split("Design questions for this stack:", 1)[1])[1:]:
+        qid = block.split("`", 1)[0]
+        options = re.findall(r"\n    - `([a-z0-9-]+)`:[^\n]*", block)
+        allowed = [o for o in options if f"`{o}`:" in block and not re.search(rf"`{o}`:[^\n]*not allowed", block)]
+        if options:
+            pick = (allowed or options)[0]
+            answers.append(
+                {"question": qid, "choice": pick, "recommended": pick, "rationale": "dry-run: security pillar default"}
+            )
+    return answers

@@ -1395,8 +1395,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)",
-        "description": "Workflow settings in the draft: spec review gate (off | first | always), learn from runs, evaluation gate (off | warn | block)",
+        "summary": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)",
+        "description": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)",
         "operationId": "set_workflow_settings",
         "parameters": [
           {
@@ -3709,6 +3709,153 @@
         }
       }
     },
+    "/api/changes/{change_id}/decisions": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The change's design decisions: the stack's questions, the answers and who decided them, what changed this iteration, the pillar roadmap and the discussion with the architect",
+        "description": "The change's design decisions: the stack's questions, the answers and who decided them, what changed this iteration, the pillar roadmap and the discussion with the architect",
+        "operationId": "get_change_decisions",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Review page: answer or confirm the design decisions (within the lane's constraints, or Other\u2026 with its text); saved only when every question then has an answer",
+        "description": "Review page: answer or confirm the design decisions (within the lane's constraints, or Other\u2026 with its text); saved only when every question then has an answer",
+        "operationId": "answer_change_decisions",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionAnswersInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/decisions/discuss": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page",
+        "description": "Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page",
+        "operationId": "discuss_change_design",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscussInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/stream": {
       "get": {
         "tags": [
@@ -4930,6 +5077,29 @@
             "type": "array",
             "title": "Review Notes"
           },
+          "decisions_pending": {
+            "type": "boolean",
+            "title": "Decisions Pending",
+            "default": false
+          },
+          "discussion": {
+            "items": {
+              "$ref": "#/components/schemas/DiscussTurn"
+            },
+            "type": "array",
+            "title": "Discussion"
+          },
+          "discuss_pending": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discuss Pending"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5413,6 +5583,133 @@
         ],
         "title": "CreateProductInput"
       },
+      "DecisionAnswer": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 2,
+            "title": "Question"
+          },
+          "choice": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 2,
+            "title": "Choice"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 600
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "choice"
+        ],
+        "title": "DecisionAnswer",
+        "description": "One answer a person gives on the review page."
+      },
+      "DecisionAnswerView": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "choice": {
+            "type": "string",
+            "title": "Choice"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          },
+          "recommended": {
+            "type": "string",
+            "title": "Recommended"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale",
+            "default": ""
+          },
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirements"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By",
+            "default": "architect"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "choice",
+          "recommended"
+        ],
+        "title": "DecisionAnswerView"
+      },
+      "DecisionAnswersInput": {
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionAnswer"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answers"
+        ],
+        "title": "DecisionAnswersInput"
+      },
       "DecisionInput": {
         "properties": {
           "change_id": {
@@ -5441,6 +5738,141 @@
           "decision"
         ],
         "title": "DecisionInput"
+      },
+      "DecisionOptionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "consequences": {
+            "type": "string",
+            "title": "Consequences"
+          },
+          "allowed": {
+            "type": "boolean",
+            "title": "Allowed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "consequences",
+          "allowed"
+        ],
+        "title": "DecisionOptionView"
+      },
+      "DecisionQuestionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "pillar": {
+            "type": "string",
+            "title": "Pillar"
+          },
+          "hint": {
+            "type": "string",
+            "title": "Hint",
+            "default": ""
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionOptionView"
+            },
+            "type": "array",
+            "title": "Options"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "pillar",
+          "options"
+        ],
+        "title": "DecisionQuestionView"
+      },
+      "DecisionsView": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          },
+          "asked": {
+            "type": "boolean",
+            "title": "Asked"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionQuestionView"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionAnswerView"
+            },
+            "type": "array",
+            "title": "Answers"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "roadmap": {
+            "items": {
+              "$ref": "#/components/schemas/RoadmapRowView"
+            },
+            "type": "array",
+            "title": "Roadmap"
+          },
+          "discussion": {
+            "items": {
+              "$ref": "#/components/schemas/DiscussTurn"
+            },
+            "type": "array",
+            "title": "Discussion"
+          },
+          "discuss_pending": {
+            "type": "boolean",
+            "title": "Discuss Pending",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "pending",
+          "asked"
+        ],
+        "title": "DecisionsView",
+        "description": "A change's design decisions (ADR-0044): the questions, the answers, who decided, what changed\nthis iteration, the pillar roadmap, and the discussion with the architect."
       },
       "DeliveryBinding": {
         "properties": {
@@ -5527,6 +5959,62 @@
           "at"
         ],
         "title": "DenialView"
+      },
+      "DiscussInput": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 2,
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "DiscussInput"
+      },
+      "DiscussTurn": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "person",
+              "architect"
+            ],
+            "title": "Role"
+          },
+          "by": {
+            "type": "string",
+            "title": "By"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "by",
+          "text",
+          "at"
+        ],
+        "title": "DiscussTurn",
+        "description": "One message in the discussion with the architect on the review page (ADR-0044 \u00a71). A\nperson's text is their input to the product's design, never instructions to the factory."
       },
       "DraftTemplatesView": {
         "properties": {
@@ -5642,6 +6130,21 @@
             "type": "string",
             "title": "Spec Review",
             "default": "off"
+          },
+          "decisions": {
+            "type": "string",
+            "title": "Decisions",
+            "default": "autonomous"
+          },
+          "decision_constraints": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Decision Constraints"
           },
           "learn_from_runs": {
             "type": "boolean",
@@ -8138,6 +8641,39 @@
         ],
         "title": "RiskHold"
       },
+      "RoadmapRowView": {
+        "properties": {
+          "pillar": {
+            "type": "string",
+            "title": "Pillar"
+          },
+          "now": {
+            "type": "string",
+            "title": "Now"
+          },
+          "deferred": {
+            "type": "string",
+            "title": "Deferred"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "trigger": {
+            "type": "string",
+            "title": "Trigger"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pillar",
+          "now",
+          "deferred",
+          "why",
+          "trigger"
+        ],
+        "title": "RoadmapRowView"
+      },
       "ScanFallbackView": {
         "properties": {
           "provider": {
@@ -10073,6 +10609,38 @@
             ],
             "title": "Spec Review"
           },
+          "decisions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "autonomous",
+                  "ask"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
+          },
+          "decision_constraints": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Constraints"
+          },
           "learn_from_runs": {
             "anyOf": [
               {
@@ -10372,6 +10940,21 @@
             "type": "string",
             "title": "Spec Review",
             "default": "off"
+          },
+          "decisions": {
+            "type": "string",
+            "title": "Decisions",
+            "default": "autonomous"
+          },
+          "decision_constraints": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Decision Constraints"
           },
           "learn_from_runs": {
             "type": "boolean",

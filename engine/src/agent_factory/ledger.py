@@ -476,6 +476,74 @@ def fold_image_scan(
     return sorted(changed.values(), key=sort_key), stats
 
 
+ROADMAP = "roadmap"  # deferred pillar work from a product's docs/roadmap.md (ADR-0044 §5)
+
+
+def fold_roadmap(
+    product_id: str,
+    items: list[WorkItem],
+    candidates: list[dict[str, str]],
+    *,
+    change_id: str,
+    iteration: int,
+    now: datetime,
+) -> tuple[list[WorkItem], dict[str, int]]:
+    """Fold the deferred rows of a product's pillar roadmap into the ledger (ADR-0044 §5).
+    `candidates` come from `decisions.roadmap_candidates` (`key`, `title`, `detail`, `pillar`).
+    A row the architect no longer defers was taken into the product: its item is fixed.
+    Returns the items that changed and what happened."""
+    changed: dict[str, WorkItem] = {}
+    stats = {"new": 0, "fixed": 0, "seen": 0}
+    by_fp = {it.fingerprint: it for it in items if it.category == ROADMAP}
+    ids = {it.id for it in items}
+    seen: set[str] = set()
+    for c in candidates:
+        fp = fingerprint("recommendation", "", f"roadmap:{c['key']}")
+        seen.add(fp)
+        it = by_fp.get(fp)
+        if it is None:
+            it = WorkItem(
+                id=item_id(product_id, fp),
+                product_id=product_id,
+                kind="recommendation",
+                fingerprint=fp,
+                title=c["title"],
+                severity="low",
+                category=ROADMAP,
+                change_kind="feature",
+                first_iteration=iteration,
+                created_at=now,
+                updated_at=now,
+            )
+            while it.id in ids:
+                it.id = it.id + "x"
+            ids.add(it.id)
+            by_fp[fp] = it
+            items.append(it)
+            stats["new"] += 1
+            _log(it, now, "found", "deferred in the product roadmap", iteration=iteration, change_id=change_id)
+        elif iteration in it.seen_in and it.detail == c["detail"]:
+            continue
+        else:
+            stats["seen"] += 1
+            _log(it, now, "seen", iteration=iteration, change_id=change_id)
+        it.title, it.detail = c["title"], c["detail"]
+        it.sources = [{"station": "design", "via": "product roadmap", "rule": c.get("pillar", "")}]
+        it.last_iteration = iteration
+        if iteration not in it.seen_in:
+            it.seen_in.append(iteration)
+        it.updated_at = now
+        changed[it.id] = it
+    for it in by_fp.values():
+        if it.fingerprint in seen or it.status not in OPEN:
+            continue
+        it.status, it.resolved_by = "fixed", change_id
+        stats["fixed"] += 1
+        _log(it, now, "fixed", "no longer deferred in the product roadmap", iteration=iteration, change_id=change_id)
+        changed[it.id] = it
+    return sorted(changed.values(), key=sort_key), stats
+
+
 def request_text(text: str, items: list[WorkItem]) -> str:
     """The change request with the items it addresses spelled out for the developer and the PR."""
     lines = [text.strip(), "", "Work items to address:"]
