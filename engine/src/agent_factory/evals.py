@@ -5,7 +5,7 @@ products before it serves real ones.
 - **An evaluation** runs every case as a hidden order pinned to the candidate
   version and, when no earlier result of the same suite exists for it, to the
   baseline version too. Human gates are handled by the engine: the spec gate is
-  approved "by evaluation" (a planned touch) and blocking questions get the case's
+  approved "by evaluation" (a planned touch) and questions intake stops for get the case's
   canned answers (an unplanned touch, counted against autonomy) or end the case.
 - **The verdict** is a pure function (`judge`) of the two summaries. Regressions
   block a gated activation; warnings never do.
@@ -240,7 +240,7 @@ def on_change_stopped(mgr: ChangeManager, change: Change, product: Product) -> N
             mgr.answer(change.id, case.answers, by="evaluation")
             mgr.store.save_eval(e)
             return
-        _final(mgr, res, change, "needed_input", "intake asked blocking questions the case has no answers for")
+        _final(mgr, res, change, "needed_input", "intake asked questions the case has no answers for")
     elif change.status in FINAL:
         _final(mgr, res, change, FINAL[change.status])
     else:

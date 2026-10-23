@@ -778,7 +778,8 @@ the requirement ids it checks; every requirement needs at least one acceptance s
 {_LIVE_AND_STACK.format(stack=", ".join(ctx.blueprint.stack) or "(not declared)")}
 Questions where a reasonable assumption exists but the customer may want a say go in open_questions:
 the architect proposes an answer to each, and the customer can change it before anything is built.
-Only put a question in blocking_questions if the request cannot be specified without the answer.
+Only put a question in blocking_questions if the request cannot be specified without the answer;
+the architect still answers it as a stated assumption, so specify the rest as fully as you can.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
     res = await ctx.agent(prompt, SPEC_SCHEMA)
     if lim := _limit_result(res):
@@ -808,8 +809,18 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
             questions=[asked, *questions],
             switch_to=switch_to,
         )
+    opened = [str(q) for q in spec.get("open_questions") or [] if str(q).strip()]
     if questions and not ctx.change.answers:
-        return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
+        if not any(st.resolved_handler() == "design" for st in ctx.workflow_doc.stations):
+            return StationResult(StationOutcome.needs_input, "intake needs answers", questions=questions)
+        # a lane with a design station never stops here (ADR-0044 §1): the architect answers these
+        # first, as stated assumptions; an ask lane shows them to a person on the review page
+        opened = [*questions, *opened]
+        await ctx.emit(
+            EventKind.decision,
+            f"{len(questions)} blocking question(s) go to the architect, who answers them as stated assumptions",
+            {"open_questions": {"blocking": questions}},
+        )
 
     (ctx.worktree / "docs").mkdir(exist_ok=True)
     spec_path.write_text(spec["spec_markdown"])
@@ -827,7 +838,7 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     (hold / "scenarios.yaml").write_text(yaml.safe_dump(spec["holdout_scenarios"], sort_keys=False))
     for a in spec.get("assumptions", []):
         await ctx.emit(EventKind.decision, f"assumption: {a}")
-    _write_open_questions(ctx, [q for q in spec.get("open_questions") or [] if str(q).strip()])
+    _write_open_questions(ctx, opened)
     spec_diff = traceability.diff(old_reqs, reqs)
     if old_reqs:
         parts = [f"+{', +'.join(spec_diff['added'])}" if spec_diff["added"] else ""]

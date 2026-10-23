@@ -202,10 +202,21 @@ async def test_warn_activates_at_once_and_reports(make_factory):
     await ctx.__aexit__(None, None, None)
 
 
+class _OneStackConflict(FakeAgentRunner):
+    """Intake's first call reports a technology the blueprint doesn't build (a stack conflict): the one
+    question intake still stops for in a lane with a design station (ADR-0044 §1)."""
+
+    def _structured(self, req):  # noqa: ANN001
+        out = super()._structured(req)
+        if req.role == "intake" and sum(c.role == "intake" for c in self.calls) == 1:
+            out = {**out, "stack_required": [{"technology": "Node.js", "quote": "build it in Node.js"}]}
+        return out
+
+
 async def test_human_gates_in_an_evaluation(make_factory):
-    """The spec gate is approved by the evaluation (planned); blocking questions get the
-    case's answers and count as an unplanned touch."""
-    f = make_factory(agents=FakeAgentRunner(intake_questions=["Which database?"]))
+    """The spec gate is approved by the evaluation (planned); a question intake stops for gets the
+    case's answers and counts as an unplanned touch."""
+    f = make_factory(agents=_OneStackConflict())
     w = f.workflows[WF]
     w.draft.set_spec_review("always")
     w.draft.publish("gate on")
@@ -221,13 +232,13 @@ async def test_human_gates_in_an_evaluation(make_factory):
 
 
 async def test_a_case_without_answers_ends_as_needed_input(make_factory):
-    f = make_factory(agents=FakeAgentRunner(intake_questions=["Which database?"]))
+    f = make_factory(agents=_OneStackConflict())
     w = f.workflows[WF]
     w.draft.set_evals([EvalCase(id="one", title="Only case", requirements="Save and tag bookmarks.")])
     w.draft.publish("one case, no answers")
     e = await _wait_eval(f, evals.start(f.manager, WF, 2, "saravana").id)
     [r] = e.candidate.results
-    assert r.status == "needed_input" and "blocking questions" in r.note
+    assert r.status == "needed_input" and "intake asked questions" in r.note
     assert e.candidate.summary.pass_rate == 0.0
     assert f.store.get_product(r.product_id).archived_at, "archived even though it stopped waiting"
 

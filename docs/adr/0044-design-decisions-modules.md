@@ -60,9 +60,12 @@ protected writes, a polished responsive UI, published, deployed, Level 3.
     the spec and the decisions together and approves once. When only `decisions: ask` applies, the page
     shows the decisions with the spec read-only.
 - **Intention → spec → plan → aligned, in one flow** (decided 2026-10-23, PR 1b):
-  - **Open questions go to the architect, not back to the requester.** Intake stops for answers only
-    when the request can't be specified at all (and on a stack conflict). Questions with a reasonable
-    default go in `docs/open-questions.yaml` (Q1, Q2, …). The architect proposes an answer to each in the
+  - **Start from intention or from a spec.** "I have a spec" on the create form still makes the
+    customer's spec the specification (wording and numbering kept); the architect plans from it and the
+    same conversation follows.
+  - **Open questions go to the architect, not back to the requester.** In a lane with a design station,
+    intake never stops for questions; it stops only on a stack conflict (a person picks the stack).
+    Every question, blocking ones included, goes in `docs/open-questions.yaml` (Q1, Q2, …). The architect proposes an answer to each in the
     sheet's `open_questions`, and the engine checks every one is answered, as it does the design
     questions. They are recorded with the ADRs (`docs/adr/NNNN-open-questions.md`).
   - **Align with the architect** on the review page (whenever the change waits there: `decisions: ask`
@@ -156,6 +159,10 @@ design station parses it; each deferred row becomes a product work ledger item i
 5. Intention becomes spec, spec becomes plan, and the person aligns with the architect in one flow:
    open questions go to the architect, and everything the person says is collected and sent to it
    together (PR 1b).
+6. Full autonomy means no stops for input: in an autonomous lane even blocking questions are answered by
+   the architect as stated assumptions. A change waits only when a person's authority is needed: a stack
+   conflict, risk approval, accepting a vulnerability, or a failure the factory can't fix. Spec text is
+   changed through the architect, not edited directly on the review page.
 
 ## Deferred until after J5
 Rate limits, caching and feature flags as modules; OIDC; chart modules (HPA, PDB); FastAPI modules and
