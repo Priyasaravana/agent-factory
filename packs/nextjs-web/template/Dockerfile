@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS build
