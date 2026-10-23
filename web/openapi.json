@@ -7319,6 +7319,36 @@
         "title": "PhaseInfo",
         "description": "One column of the phase registry (ADR-0039 \u00a72)."
       },
+      "PhaseSpend": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "stations": {
+            "items": {
+              "$ref": "#/components/schemas/StationSpend"
+            },
+            "type": "array",
+            "title": "Stations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phase",
+          "title",
+          "cost_usd"
+        ],
+        "title": "PhaseSpend"
+      },
       "PillarScore": {
         "properties": {
           "pillar": {
@@ -7668,6 +7698,9 @@
             },
             "type": "array",
             "title": "Feedback"
+          },
+          "spend": {
+            "$ref": "#/components/schemas/ProductSpend"
           }
         },
         "type": "object",
@@ -7677,6 +7710,30 @@
           "feedback"
         ],
         "title": "ProductDetail"
+      },
+      "ProductSpend": {
+        "properties": {
+          "total_usd": {
+            "type": "number",
+            "title": "Total Usd",
+            "default": 0.0
+          },
+          "changes": {
+            "type": "integer",
+            "title": "Changes",
+            "default": 0
+          },
+          "phases": {
+            "items": {
+              "$ref": "#/components/schemas/PhaseSpend"
+            },
+            "type": "array",
+            "title": "Phases"
+          }
+        },
+        "type": "object",
+        "title": "ProductSpend",
+        "description": "What the product has cost so far across all its changes (`spend.product_spend`): model\nspend; tests, scans, builds and deploys run locally at no extra cost."
       },
       "ProductTarget": {
         "type": "string",
@@ -8540,6 +8597,13 @@
             "type": "string",
             "title": "Status"
           },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Assumptions"
+          },
           "gate": {
             "type": "string",
             "title": "Gate"
@@ -8823,6 +8887,24 @@
         ],
         "title": "StationEffort",
         "description": "Agent effort per station over the Outcomes window (ADR-0022)."
+      },
+      "StationSpend": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "cost_usd"
+        ],
+        "title": "StationSpend"
       },
       "StationTemplateView": {
         "properties": {

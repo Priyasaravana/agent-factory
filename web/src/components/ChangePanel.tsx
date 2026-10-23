@@ -29,6 +29,7 @@ import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
 import SpecPanel from "./SpecPanel";
+import IterationSummary from "./IterationSummary";
 import { buildsOf } from "./StackCards";
 import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
@@ -51,7 +52,9 @@ export default function ChangePanel({
     queryKey: ["change", changeId],
     queryFn: () =>
       unwrap(
-        api.GET("/api/changes/{change_id}", { params: { path: { change_id: changeId } } }),
+        api.GET("/api/changes/{change_id}", {
+          params: { path: { change_id: changeId } },
+        }),
       ),
     refetchInterval: (q) =>
       q.state.data && ACTIVE.has(q.state.data.change.status) ? 2_000 : 8_000,
@@ -107,7 +110,12 @@ export default function ChangePanel({
             {KIND_LABEL[r.kind ?? "new"]}
           </span>
           {r.pr_url && (
-            <a className="pill ok" href={r.pr_url} target="_blank" rel="noreferrer">
+            <a
+              className="pill ok"
+              href={r.pr_url}
+              target="_blank"
+              rel="noreferrer"
+            >
               pull request ↗
             </a>
           )}
@@ -163,11 +171,17 @@ export default function ChangePanel({
           </p>
         )}
         <Problems error={resume.error} />
-        <StationStrip stations={stations.filter((s) => s.state !== "skipped")} />
+        <StationStrip
+          stations={stations.filter((s) => s.state !== "skipped")}
+        />
         {stations.some((s) => s.state === "skipped") && (
-          <details className="text-xs text-muted-foreground" data-testid="skipped-stations">
+          <details
+            className="text-xs text-muted-foreground"
+            data-testid="skipped-stations"
+          >
             <summary>
-              {stations.filter((s) => s.state === "skipped").length} stations skipped in this change
+              {stations.filter((s) => s.state === "skipped").length} stations
+              skipped in this change
             </summary>
             <ul className="mt-1 list-none p-0">
               {stations
@@ -181,6 +195,14 @@ export default function ChangePanel({
           </details>
         )}
         <ChangeOutcome changeId={changeId} runStatus={r.status} />
+        {r.kind !== "assess" && r.status === "awaiting_feedback" && (
+          <IterationSummary
+            changeId={changeId}
+            productId={productId}
+            runStatus={r.status}
+            iteration={r.iteration}
+          />
+        )}
         {r.kind === "assess" ? (
           <AssessmentPanel
             changeId={changeId}
@@ -192,7 +214,13 @@ export default function ChangePanel({
         ) : (
           <SpecPanel changeId={changeId} runStatus={r.status} />
         )}
-        {risk && <ChangeRiskPanel changeId={changeId} productId={productId} risk={risk} />}
+        {risk && (
+          <ChangeRiskPanel
+            changeId={changeId}
+            productId={productId}
+            risk={risk}
+          />
+        )}
         {r.summary && (
           <p
             className={cn(
@@ -205,9 +233,9 @@ export default function ChangePanel({
         )}
         {r.status === "held" && r.hold_class === "infra" && (
           <p className="note m-0" data-testid="hold-infra">
-            The factory failed here, not the product: retries didn't cure it, and
-            nothing was sent to the developer. Check what the hold names, then
-            resume.
+            The factory failed here, not the product: retries didn't cure it,
+            and nothing was sent to the developer. Check what the hold names,
+            then resume.
           </p>
         )}
         {r.status === "held" && r.required_action && (
@@ -231,7 +259,11 @@ export default function ChangePanel({
           />
         )}
         {r.status === "awaiting_feedback" && !archived && (
-          <FeedbackForm productId={productId} onDone={refresh} repo={target === "repo"} />
+          <FeedbackForm
+            productId={productId}
+            onDone={refresh}
+            repo={target === "repo"}
+          />
         )}
         {r.status === "awaiting_feedback" && !archived && target === "repo" && (
           <AssessAgain productId={productId} onDone={refresh} />
@@ -312,8 +344,12 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
   const q = query.trim().toLowerCase();
   const matching = events.filter(
     (e) =>
-      (filter === "all" || (filter === "decisions" ? e.kind === "decision" : e.kind.startsWith("station"))) &&
-      (!q || `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
+      (filter === "all" ||
+        (filter === "decisions"
+          ? e.kind === "decision"
+          : e.kind.startsWith("station"))) &&
+      (!q ||
+        `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
   );
   const shown = newestFirst ? [...matching].reverse() : matching;
   return (
@@ -328,8 +364,13 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
             </span>
           )}
         </h4>
-        <span className="text-xs text-muted-foreground" data-testid="activity-count">
-          {matching.length === events.length ? `${events.length} events` : `${matching.length} of ${events.length} events`}
+        <span
+          className="text-xs text-muted-foreground"
+          data-testid="activity-count"
+        >
+          {matching.length === events.length
+            ? `${events.length} events`
+            : `${matching.length} of ${events.length} events`}
         </span>
         <input
           type="search"
@@ -349,7 +390,11 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
         </button>
         <div className="flex gap-1 rounded-lg border bg-card p-0.5">
           {(["all", "decisions", "stations"] as const).map((f) => (
-            <button key={f} className={`tab ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
+            <button
+              key={f}
+              className={`tab ${filter === f ? "active" : ""}`}
+              onClick={() => setFilter(f)}
+            >
               {f}
             </button>
           ))}
@@ -372,7 +417,9 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
           </div>
         ))}
         {shown.length === 0 && (
-          <p className="m-0 p-3 text-muted-foreground">{q ? `Nothing matches “${query.trim()}”.` : "Nothing yet."}</p>
+          <p className="m-0 p-3 text-muted-foreground">
+            {q ? `Nothing matches “${query.trim()}”.` : "Nothing yet."}
+          </p>
         )}
       </div>
     </div>
@@ -410,7 +457,9 @@ function Questions({
       }}
     >
       <h4 className="m-0">Intake needs a decision from you</h4>
-      {switchTo.length > 0 && <SwitchStack changeId={changeId} switchTo={switchTo} onDone={onDone} />}
+      {switchTo.length > 0 && (
+        <SwitchStack changeId={changeId} switchTo={switchTo} onDone={onDone} />
+      )}
       {questions.map((q, i) => (
         <label key={i}>
           {q}
@@ -441,8 +490,13 @@ function SwitchStack({
   switchTo: string[];
   onDone: () => void;
 }) {
-  const config = useQuery({ queryKey: ["config"], queryFn: () => unwrap(api.GET("/api/config")) });
-  const cards = new Map((config.data?.stacks ?? []).map((c) => [c.blueprint, c]));
+  const config = useQuery({
+    queryKey: ["config"],
+    queryFn: () => unwrap(api.GET("/api/config")),
+  });
+  const cards = new Map(
+    (config.data?.stacks ?? []).map((c) => [c.blueprint, c]),
+  );
   const send = useMutation({
     mutationFn: (blueprint: string) =>
       unwrap(
@@ -462,22 +516,38 @@ function SwitchStack({
     <div className="grid gap-2 rounded-lg border bg-card p-3">
       <p className="m-0 text-sm">
         <span className="font-medium">Nothing has been built yet,</span>{" "}
-        <span className="text-muted-foreground">so this product can switch to a stack that builds what was asked:</span>
+        <span className="text-muted-foreground">
+          so this product can switch to a stack that builds what was asked:
+        </span>
       </p>
       <div className="grid gap-2">
         {switchTo.map((bp) => {
           const c = cards.get(bp);
-          const { label, icon: Icon } = c ? buildsOf(c) : { label: "", icon: Shuffle };
+          const { label, icon: Icon } = c
+            ? buildsOf(c)
+            : { label: "", icon: Shuffle };
           return (
             <div key={bp} className="flex flex-wrap items-center gap-3">
-              <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <span
+                aria-hidden
+                className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary"
+              >
                 <Icon className="size-4" />
               </span>
               <span className="grid min-w-0 flex-1">
                 <span className="text-sm font-semibold">
-                  {c?.title ?? bp} {label && <span className="font-normal text-muted-foreground">· {label}</span>}
+                  {c?.title ?? bp}{" "}
+                  {label && (
+                    <span className="font-normal text-muted-foreground">
+                      · {label}
+                    </span>
+                  )}
                 </span>
-                {c?.summary && <span className="text-xs text-muted-foreground">{c.summary}</span>}
+                {c?.summary && (
+                  <span className="text-xs text-muted-foreground">
+                    {c.summary}
+                  </span>
+                )}
               </span>
               <Button
                 type="button"
@@ -492,13 +562,21 @@ function SwitchStack({
         })}
       </div>
       <Problems error={send.error} />
-      <p className="m-0 text-xs text-muted-foreground">Or answer below to keep the current stack.</p>
+      <p className="m-0 text-xs text-muted-foreground">
+        Or answer below to keep the current stack.
+      </p>
     </div>
   );
 }
 
 /** An existing repo is assessed again on its latest commit (ADR-0031). */
-function AssessAgain({ productId, onDone }: { productId: string; onDone: () => void }) {
+function AssessAgain({
+  productId,
+  onDone,
+}: {
+  productId: string;
+  onDone: () => void;
+}) {
   const send = useMutation({
     mutationFn: () =>
       unwrap(
@@ -508,16 +586,23 @@ function AssessAgain({ productId, onDone }: { productId: string; onDone: () => v
         }),
       ),
     onSuccess: () => {
-      toast.success("Assessment started", { description: "The latest commit is fetched read-only." });
+      toast.success("Assessment started", {
+        description: "The latest commit is fetched read-only.",
+      });
       onDone();
     },
   });
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border p-4">
       <p className="m-0 flex-1 text-sm text-muted-foreground">
-        After the team merges changes, assess the repo again to see where it stands.
+        After the team merges changes, assess the repo again to see where it
+        stands.
       </p>
-      <Button variant="outline" disabled={send.isPending} onClick={() => send.mutate()}>
+      <Button
+        variant="outline"
+        disabled={send.isPending}
+        onClick={() => send.mutate()}
+      >
         <RefreshCw /> Assess again
       </Button>
       <Problems error={send.error} />
@@ -561,7 +646,10 @@ function FeedbackForm({
   const [text, setText] = useState("");
   const [kind, setKind] = useState<IterationKind>("feature");
   // entry artifacts from your own tools, when this product's lane starts after the phases that make them
-  const [provided, setProvided] = useState<Record<string, Record<string, unknown>> | null>({});
+  const [provided, setProvided] = useState<Record<
+    string,
+    Record<string, unknown>
+  > | null>({});
   const send = useMutation({
     mutationFn: () =>
       unwrap(
@@ -573,7 +661,9 @@ function FeedbackForm({
     onSuccess: () => {
       setText("");
       toast.success(`${ITERATION_KINDS[kind].title} requested`, {
-        description: repo ? "The factory will open a pull request." : "The next iteration is starting.",
+        description: repo
+          ? "The factory will open a pull request."
+          : "The next iteration is starting.",
       });
       onDone();
     },
@@ -611,7 +701,9 @@ function FeedbackForm({
         ))}
       </div>
       <p className="m-0 text-xs text-muted-foreground">
-        {repo && kind === "feature" ? "Add or change behaviour, with tests that prove it." : ITERATION_KINDS[kind].hint}
+        {repo && kind === "feature"
+          ? "Add or change behaviour, with tests that prove it."
+          : ITERATION_KINDS[kind].hint}
       </p>
       <textarea
         className="font-sans text-sm"
@@ -622,7 +714,11 @@ function FeedbackForm({
         required
         minLength={3}
       />
-      <ProvidedArtifacts productId={productId} kind={kind} onChange={setProvided} />
+      <ProvidedArtifacts
+        productId={productId}
+        kind={kind}
+        onChange={setProvided}
+      />
       <Button className="w-fit" disabled={send.isPending || provided === null}>
         <Send /> Request {ITERATION_KINDS[kind].title.toLowerCase()}
         {repo ? " as a pull request" : " & start next iteration"}
