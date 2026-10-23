@@ -602,6 +602,9 @@ SPEC_SCHEMA: dict[str, Any] = {
         "holdout_scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
         "assumptions": {"type": "array", "items": {"type": "string"}},
         "blocking_questions": {"type": "array", "items": {"type": "string"}},
+        # questions with a reasonable default the customer may want a say in: the architect proposes
+        # an answer to each, and a person may change it on the review page (ADR-0044 §1)
+        "open_questions": {"type": "array", "items": {"type": "string"}},
     },
     "$defs": {
         "scenario": {
@@ -773,7 +776,9 @@ Write the spec for a product reader (user journeys, behaviour, rules), not imple
 Number every requirement (R1, R2, …). Every acceptance and holdout scenario lists in `covers`
 the requirement ids it checks; every requirement needs at least one acceptance scenario.
 {_LIVE_AND_STACK.format(stack=", ".join(ctx.blueprint.stack) or "(not declared)")}
-Only put a question in blocking_questions if no reasonable assumption exists.
+Questions where a reasonable assumption exists but the customer may want a say go in open_questions:
+the architect proposes an answer to each, and the customer can change it before anything is built.
+Only put a question in blocking_questions if the request cannot be specified without the answer.
 Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios."""
     res = await ctx.agent(prompt, SPEC_SCHEMA)
     if lim := _limit_result(res):
@@ -822,6 +827,7 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
     (hold / "scenarios.yaml").write_text(yaml.safe_dump(spec["holdout_scenarios"], sort_keys=False))
     for a in spec.get("assumptions", []):
         await ctx.emit(EventKind.decision, f"assumption: {a}")
+    _write_open_questions(ctx, [q for q in spec.get("open_questions") or [] if str(q).strip()])
     spec_diff = traceability.diff(old_reqs, reqs)
     if old_reqs:
         parts = [f"+{', +'.join(spec_diff['added'])}" if spec_diff["added"] else ""]
@@ -837,6 +843,18 @@ Holdout scenarios must cover behaviour NOT restated in the acceptance scenarios.
         f"spec written; {len(reqs)} requirements, {len(spec['acceptance_scenarios'])} acceptance, "
         f"{len(spec['holdout_scenarios'])} holdout scenarios",
     )
+
+
+def _write_open_questions(ctx: StationContext, questions: list[str]) -> None:
+    """Intake's open questions go to the architect (ADR-0044 §1), never back to the requester: the
+    architect proposes an answer to each, and a person may change it on the review page."""
+    from agent_factory import decisions
+
+    path = ctx.worktree / decisions.OPEN_QUESTIONS
+    if questions:
+        path.write_text(decisions.dump_open_questions(questions))
+    elif path.exists():
+        path.unlink()
 
 
 # ------------------------------------------------------------------ design --

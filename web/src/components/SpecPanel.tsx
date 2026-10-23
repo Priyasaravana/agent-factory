@@ -1,24 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  FileCheck,
-  MessageSquareWarning,
-  Pencil,
-  Send,
-  X,
-} from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { FileCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { api, unwrap } from "../api/client";
 import { cn } from "../lib/utils";
-import Problems from "./Problems";
-import { Button } from "./ui/button";
 
 type Tab = "requirements" | "product" | "technical" | "api" | "trace";
 
 /** The change's specification: what the factory agreed to build, and how each
- * requirement is traced to scenarios, tests and live acceptance. When the spec
- * review gate is on, this is also where a person approves or sends it back. */
+ * requirement is traced to scenarios, tests and live acceptance. At the review
+ * gate, changes and approval go through "Align with the architect". */
 export default function SpecPanel({
   changeId,
   runStatus,
@@ -26,7 +16,6 @@ export default function SpecPanel({
   changeId: string;
   runStatus: string;
 }) {
-  const qc = useQueryClient();
   const reviewing = runStatus === "awaiting_approval";
   const spec = useQuery({
     queryKey: ["spec", changeId, runStatus],
@@ -42,47 +31,6 @@ export default function SpecPanel({
   useEffect(() => {
     if (reviewing) setTab("requirements");
   }, [reviewing]);
-  const [comment, setComment] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [editing, setEditing] = useState<{
-    product: string;
-    technical: string;
-  } | null>(null);
-  const done = (msg: string) => {
-    qc.invalidateQueries({ queryKey: ["change", changeId] });
-    qc.invalidateQueries({ queryKey: ["spec", changeId] });
-    qc.invalidateQueries({ queryKey: ["product"] });
-    toast.success(msg);
-  };
-  const path = { params: { path: { change_id: changeId } } };
-  const approve = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/changes/{change_id}/spec/approve", path)),
-    onSuccess: () => done("Spec approved — building"),
-  });
-  const changes = useMutation({
-    mutationFn: () =>
-      unwrap(
-        api.POST("/api/changes/{change_id}/spec/changes", {
-          ...path,
-          body: { comment },
-        }),
-      ),
-    onSuccess: () => {
-      setComment("");
-      setAsking(false);
-      done("Sent back to intake and design with your notes");
-    },
-  });
-  const save = useMutation({
-    mutationFn: () =>
-      unwrap(api.PUT("/api/changes/{change_id}/spec", { ...path, body: editing! })),
-    onSuccess: (s) => {
-      qc.setQueryData(["spec", changeId, runStatus], s);
-      setEditing(null);
-      toast.success("Spec saved");
-    },
-  });
-
   const raw = spec.data;
   if (!raw) return null;
   // optional arrays in the contract: normalise once
@@ -242,36 +190,16 @@ export default function SpecPanel({
           </tbody>
         </table>
       )}
-      {tab === "product" &&
-        (editing ? (
-          <textarea
-            aria-label="Product spec"
-            rows={18}
-            value={editing.product}
-            onChange={(e) =>
-              setEditing({ ...editing, product: e.target.value })
-            }
-          />
-        ) : (
-          <div className="pre font-sans text-sm">
-            {s.product || "not written yet"}
-          </div>
-        ))}
-      {tab === "technical" &&
-        (editing ? (
-          <textarea
-            aria-label="Technical design"
-            rows={18}
-            value={editing.technical}
-            onChange={(e) =>
-              setEditing({ ...editing, technical: e.target.value })
-            }
-          />
-        ) : (
-          <div className="pre font-sans text-sm">
-            {s.technical || "not written yet"}
-          </div>
-        ))}
+      {tab === "product" && (
+        <div className="pre font-sans text-sm">
+          {s.product || "not written yet"}
+        </div>
+      )}
+      {tab === "technical" && (
+        <div className="pre font-sans text-sm">
+          {s.technical || "not written yet"}
+        </div>
+      )}
       {tab === "api" && (
         <pre className="pre">{s.openapi || "not written yet"}</pre>
       )}
@@ -371,69 +299,12 @@ export default function SpecPanel({
       )}
 
       {reviewing && (
-        <div className="grid gap-2 border-t pt-3">
-          {editing ? (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => save.mutate()} disabled={save.isPending}>
-                <Check /> Save edits
-              </Button>
-              <Button variant="outline" onClick={() => setEditing(null)}>
-                <X /> Cancel
-              </Button>
-              <span className="self-center text-xs text-muted-foreground">
-                Edit the product spec and technical design here; to change
-                requirements, request changes so scenarios stay consistent.
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => approve.mutate()}
-                disabled={approve.isPending}
-              >
-                <Check /> Approve &amp; build
-              </Button>
-              <Button variant="outline" onClick={() => setAsking((v) => !v)}>
-                <MessageSquareWarning /> Request changes
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setEditing({ product: s.product, technical: s.technical });
-                  setTab("product");
-                }}
-              >
-                <Pencil /> Edit
-              </Button>
-            </div>
-          )}
-          {asking && !editing && (
-            <form
-              className="grid gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                changes.mutate();
-              }}
-            >
-              <textarea
-                aria-label="What should change"
-                rows={3}
-                className="font-sans text-sm"
-                placeholder="e.g. Tags must be case-insensitive; add pagination to the list endpoint"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                required
-                minLength={3}
-              />
-              <Button className="w-fit" disabled={changes.isPending}>
-                <Send /> Send back to intake &amp; design
-              </Button>
-            </form>
-          )}
-          <Problems
-            error={approve.error ?? changes.error ?? save.error ?? null}
-          />
-        </div>
+        <p className="m-0 border-t pt-3 text-sm text-muted-foreground">
+          To change anything here, tell the architect in “Align with the
+          architect” above: it updates the spec and plan, or sends a
+          requirements change back to the specification. Approve there when you
+          are aligned.
+        </p>
       )}
     </section>
   );

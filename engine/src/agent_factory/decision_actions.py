@@ -1,5 +1,6 @@
-"""Design decisions on the review page (ADR-0044 §1): read the sheet, answer it, discuss it with the
-architect. Registered with the other actions (`actions.REGISTRY`) when `actions` is imported.
+"""Design decisions on the review page (ADR-0044 §1): read the sheet, and align with the architect
+(choices, answers to open questions and comments, sent together). Registered with the other actions
+(`actions.REGISTRY`) when `actions` is imported.
 
 No `from __future__ import annotations` here: FastAPI resolves the endpoints' annotations from the
 `actions` module's globals, so these must be real types, not strings.
@@ -13,14 +14,14 @@ from agent_factory.actions import _may_steer, action
 from agent_factory.engine.pipeline import FactoryError
 from agent_factory.identity import current_identity
 from agent_factory.models import (
+    AlignInput,
     Change,
     ChangeStatus,
-    DecisionAnswersInput,
     DecisionAnswerView,
     DecisionOptionView,
     DecisionQuestionView,
     DecisionsView,
-    DiscussInput,
+    OpenQuestionView,
     RoadmapRowView,
 )
 
@@ -58,12 +59,19 @@ def get_change_decisions(f: "Factory", change_id: str) -> DecisionsView:
         sheet = decisions.Sheet.model_validate({"answers": recorded["answers"]})
     rows, _ = decisions.parse_roadmap(roadmap_file.read_text() if roadmap_file.is_file() else None)
     diff = recorded.get("diff") or {}
-    waiting = change.status == ChangeStatus.awaiting_approval and change.decisions_pending
-    problems = decisions.judge(cat, sheet, flow.decision_constraints, "ask") if cat and sheet and waiting else []
+    from agent_factory.engine.design_station import open_questions
+
+    asked = open_questions(wt)
+    reviewing = change.status == ChangeStatus.awaiting_approval or bool(change.discuss_pending)
+    problems = (
+        decisions.judge(cat, sheet, flow.decision_constraints, "ask", asked)
+        if sheet and (cat or asked) and reviewing and not change.discuss_pending
+        else []
+    )
     return DecisionsView(
         mode=flow.decisions,
-        pending=waiting,
-        asked=cat is not None,
+        pending=reviewing,
+        asked=cat is not None or bool(asked),
         questions=[
             DecisionQuestionView(
                 id=q.id,
@@ -83,6 +91,10 @@ def get_change_decisions(f: "Factory", change_id: str) -> DecisionsView:
             for q in (cat.questions if cat else [])
         ],
         answers=[DecisionAnswerView(**a.model_dump()) for a in (sheet.answers if sheet else [])],
+        open_questions=[
+            OpenQuestionView(**(oq.model_dump() if (oq := sheet.open_answer(q["id"]) if sheet else None) else q))
+            for q in asked
+        ],
         changed=sorted(set(diff.get("added", [])) | set(diff.get("changed", []))),
         problems=problems,
         roadmap=[RoadmapRowView(**r.model_dump()) for r in rows],
@@ -92,27 +104,20 @@ def get_change_decisions(f: "Factory", change_id: str) -> DecisionsView:
 
 
 @action(
-    "answer_change_decisions",
-    "Review page: answer or confirm the design decisions (within the lane's constraints, or Other… with "
-    "its text); saved only when every question then has an answer",
-    "PUT",
-    "/api/changes/{change_id}/decisions",
-)
-async def answer_change_decisions(f: "Factory", change_id: str, body: DecisionAnswersInput) -> DecisionsView:
-    change = _change(f, change_id)
-    _may_steer(f, change.product_id)
-    await f.manager.answer_decisions(change_id, current_identity().user, body.answers)
-    return get_change_decisions(f, change_id)
-
-
-@action(
-    "discuss_change_design",
-    "Review page: write to the architect about the design; it replies and may update the spec, design, "
-    "decisions and roadmap, then the change is back on the review page",
+    "align_with_architect",
+    "Review page: send the architect your design choices, answers to open questions and comments together; "
+    "choices and answers are saved first (within the lane's constraints), then it replies and updates the "
+    "spec, design and plan, or sends a requirements change back to the specification",
     "POST",
-    "/api/changes/{change_id}/decisions/discuss",
+    "/api/changes/{change_id}/align",
 )
-def discuss_change_design(f: "Factory", change_id: str, body: DiscussInput) -> Change:
+async def align_with_architect(f: "Factory", change_id: str, body: AlignInput) -> Change:
     change = _change(f, change_id)
     _may_steer(f, change.product_id)
-    return f.manager.discuss(change_id, current_identity().user, body.message)
+    return await f.manager.align(
+        change_id,
+        current_identity().user,
+        body.answers,
+        [(a.id, a.answer) for a in body.open_answers],
+        body.message,
+    )

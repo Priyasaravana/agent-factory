@@ -33,8 +33,7 @@ MEMBER_ACTIONS = {
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
-    "answer_change_decisions",
-    "discuss_change_design",
+    "align_with_architect",
     "send_back_risk",
     "archive_product",
     "decide_work_items",
@@ -50,8 +49,7 @@ STEERING = {
     "approve_spec",
     "request_spec_changes",
     "edit_spec",
-    "answer_change_decisions",
-    "discuss_change_design",
+    "align_with_architect",
     "send_back_risk",
     "archive_product",
     "decide_work_items",
@@ -121,8 +119,7 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
             ("POST", f"/api/changes/{change_id}/resume", None),
             ("POST", f"/api/changes/{change_id}/cancel", None),
             ("POST", f"/api/products/{oid}/archive", None),
-            ("PUT", f"/api/changes/{change_id}/decisions", {"answers": [{"question": "look", "choice": "warm"}]}),
-            ("POST", f"/api/changes/{change_id}/decisions/discuss", {"message": "why Postgres?"}),
+            ("POST", f"/api/changes/{change_id}/align", {"message": "why Postgres?"}),
         ]
         for method, url, body in attempts:
             r = await c.request(method, url, json=body, headers=OTHER)

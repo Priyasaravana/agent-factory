@@ -59,12 +59,26 @@ protected writes, a polished responsive UI, published, deployed, Level 3.
   - **One gate, one page.** When the spec review gate also applies to this iteration, the person reviews
     the spec and the decisions together and approves once. When only `decisions: ask` applies, the page
     shows the decisions with the spec read-only.
-- **Discuss with the architect**, on the review page only (when `decisions: ask` or the spec review gate holds the change). A thread on the review page: each message runs the
-  architect once, with document-writing tools only (`write-docs`), on the current spec, design and sheet.
-  It replies, and may update `docs/decisions.yaml`, `docs/design.md` or `docs/spec.md`; the engine
-  re-checks the sheet after each turn and shows the diff. The thread is stored per change and sealed
-  with the evidence (ADR-0023). Thread text is a member's input to the design, never instructions to the
-  factory: it can't change workflows, policies, checks or anything outside `docs/`.
+- **Intention → spec → plan → aligned, in one flow** (decided 2026-10-23, PR 1b):
+  - **Open questions go to the architect, not back to the requester.** Intake stops for answers only
+    when the request can't be specified at all (and on a stack conflict). Questions with a reasonable
+    default go in `docs/open-questions.yaml` (Q1, Q2, …). The architect proposes an answer to each in the
+    sheet's `open_questions`, and the engine checks every one is answered, as it does the design
+    questions. They are recorded with the ADRs (`docs/adr/NNNN-open-questions.md`).
+  - **Align with the architect** on the review page (whenever the change waits there: `decisions: ask`
+    or the spec gate). The person's design choices, their own answers to open questions, and their
+    comments or questions are collected as a draft and sent together. The engine saves the choices and
+    answers first (judged as a whole, within the lane's constraints), then runs the architect once on
+    all of it (`write-docs`, the design docs only; anything else it touches is undone). It replies,
+    makes the spec, design and plan consistent, and the change comes back to the page.
+  - **Requirements changes go back to the specification.** The architect can't edit the numbered
+    requirements or scenarios. When the person's input needs that, it says what must change; the
+    engine adds it to the review notes, intake updates the spec, design runs again with the whole
+    conversation, and the change returns to the page.
+  - **One approval.** Approve builds what was agreed; it is refused while the sheet is incomplete.
+    "Request changes" and direct spec edits leave the page: every change goes through the architect.
+  - The conversation is stored per change and sealed with the evidence (ADR-0023). Its text is the
+    member's input to the design, never instructions to the factory.
 - **Later changes** keep the sheet. The architect re-opens only questions the request touches, and the
   review page shows the decision diff next to the spec diff.
 
@@ -139,6 +153,9 @@ design station parses it; each deferred row becomes a product work ledger item i
 3. Live e2e and hidden scenarios sign in with the deployment's admin account, as a redacted secret
    reference.
 4. Discuss with the architect is part of J1 (PR 1).
+5. Intention becomes spec, spec becomes plan, and the person aligns with the architect in one flow:
+   open questions go to the architect, and everything the person says is collected and sent to it
+   together (PR 1b).
 
 ## Deferred until after J5
 Rate limits, caching and feature flags as modules; OIDC; chart modules (HPA, PDB); FastAPI modules and
@@ -171,13 +188,16 @@ Mapped to [practices.md](../practices.md).
 | §7 Reliability, operability | `module_contracts`; logging, metrics and tracing as modules with no-op adapters. |
 | §7 Performance and cost (uncovered) | Deferred with explicit triggers in the product roadmap and the ledger, not left silent. |
 
-## Delivery (~6 days, then the J1 live run)
+## Delivery (~7.5 days, then the J1 live run)
 1. **PR 1, decision sheet** (~2.5 days): `decisions.yaml` schema and loader in packs; the lane's
    `decisions` and `decision_constraints` (publish checks); architect prompt (baseline, sheet, roadmap);
    engine completeness and constraint check, ADR rendering; roadmap rows → ledger; the shared review page
    with the poll and "Other…"; the discuss thread; `nextjs-web` catalogue.
+1b. **PR 1b, align with the architect** (~1.5 days): intake's open questions go to the architect;
+   one batched alignment turn (choices, answers, comments); requirements changes go back to intake;
+   one approval on the align panel.
 2. **PR 2, modules and auth** (~2 days): the five modules with contract tests, sign-in pages, admin
-   bootstrap, the two signals, e2e and verifier sign-in; `nextjs-web` 1.2.0.
+   bootstrap, the two signals, e2e and verifier sign-in; `nextjs-web` 1.3.0.
 3. **PR 3, look and feel** (~1.5 days): Tailwind v4, shadcn/ui components and app shell, tokens by `look`,
    designer agent and `nextjs-ui-design` skill, screenshot evidence, report-only UI review.
 4. **J1 live run:** a new Next.js product from scratch, `decisions: ask`, decisions agreed in the poll,

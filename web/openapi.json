@@ -3750,67 +3750,16 @@
             }
           }
         }
-      },
-      "put": {
-        "tags": [
-          "factory"
-        ],
-        "summary": "Review page: answer or confirm the design decisions (within the lane's constraints, or Other\u2026 with its text); saved only when every question then has an answer",
-        "description": "Review page: answer or confirm the design decisions (within the lane's constraints, or Other\u2026 with its text); saved only when every question then has an answer",
-        "operationId": "answer_change_decisions",
-        "parameters": [
-          {
-            "name": "change_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Change Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DecisionAnswersInput"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DecisionsView"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
-    "/api/changes/{change_id}/decisions/discuss": {
+    "/api/changes/{change_id}/align": {
       "post": {
         "tags": [
           "factory"
         ],
-        "summary": "Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page",
-        "description": "Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page",
-        "operationId": "discuss_change_design",
+        "summary": "Review page: send the architect your design choices, answers to open questions and comments together; choices and answers are saved first (within the lane's constraints), then it replies and updates the spec, design and plan, or sends a requirements change back to the specification",
+        "description": "Review page: send the architect your design choices, answers to open questions and comments together; choices and answers are saved first (within the lane's constraints), then it replies and updates the spec, design and plan, or sends a requirements change back to the specification",
+        "operationId": "align_with_architect",
         "parameters": [
           {
             "name": "change_id",
@@ -3827,7 +3776,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DiscussInput"
+                "$ref": "#/components/schemas/AlignInput"
               }
             }
           }
@@ -4376,6 +4325,35 @@
           "used_by"
         ],
         "title": "AgentView"
+      },
+      "AlignInput": {
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionAnswer"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Answers"
+          },
+          "open_answers": {
+            "items": {
+              "$ref": "#/components/schemas/OpenQuestionAnswer"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Open Answers"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Message",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AlignInput",
+        "description": "Everything a person sends the architect at once from the review page (ADR-0044 \u00a71)."
       },
       "AnswersInput": {
         "properties": {
@@ -5100,6 +5078,17 @@
             ],
             "title": "Discuss Pending"
           },
+          "rework_requirements": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rework Requirements"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5692,24 +5681,6 @@
         ],
         "title": "DecisionAnswerView"
       },
-      "DecisionAnswersInput": {
-        "properties": {
-          "answers": {
-            "items": {
-              "$ref": "#/components/schemas/DecisionAnswer"
-            },
-            "type": "array",
-            "maxItems": 30,
-            "minItems": 1,
-            "title": "Answers"
-          }
-        },
-        "type": "object",
-        "required": [
-          "answers"
-        ],
-        "title": "DecisionAnswersInput"
-      },
       "DecisionInput": {
         "properties": {
           "change_id": {
@@ -5830,6 +5801,13 @@
             },
             "type": "array",
             "title": "Answers"
+          },
+          "open_questions": {
+            "items": {
+              "$ref": "#/components/schemas/OpenQuestionView"
+            },
+            "type": "array",
+            "title": "Open Questions"
           },
           "changed": {
             "items": {
@@ -5959,21 +5937,6 @@
           "at"
         ],
         "title": "DenialView"
-      },
-      "DiscussInput": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 2,
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "DiscussInput"
       },
       "DiscussTurn": {
         "properties": {
@@ -7501,6 +7464,61 @@
         ],
         "title": "OnboardRepoInput",
         "description": "An existing repository to assess (ADR-0031): public https URLs on allowed hosts."
+      },
+      "OpenQuestionAnswer": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 2,
+            "title": "Id"
+          },
+          "answer": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 2,
+            "title": "Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "answer"
+        ],
+        "title": "OpenQuestionAnswer"
+      },
+      "OpenQuestionView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer",
+            "default": ""
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale",
+            "default": ""
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By",
+            "default": "architect"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question"
+        ],
+        "title": "OpenQuestionView"
       },
       "OutcomesView": {
         "properties": {

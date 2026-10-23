@@ -1452,11 +1452,7 @@ export interface paths {
          * @description The change's design decisions: the stack's questions, the answers and who decided them, what changed this iteration, the pillar roadmap and the discussion with the architect
          */
         get: operations["get_change_decisions"];
-        /**
-         * Review page: answer or confirm the design decisions (within the lane's constraints, or Other… with its text); saved only when every question then has an answer
-         * @description Review page: answer or confirm the design decisions (within the lane's constraints, or Other… with its text); saved only when every question then has an answer
-         */
-        put: operations["answer_change_decisions"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1464,7 +1460,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/changes/{change_id}/decisions/discuss": {
+    "/api/changes/{change_id}/align": {
         parameters: {
             query?: never;
             header?: never;
@@ -1474,10 +1470,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page
-         * @description Review page: write to the architect about the design; it replies and may update the spec, design, decisions and roadmap, then the change is back on the review page
+         * Review page: send the architect your design choices, answers to open questions and comments together; choices and answers are saved first (within the lane's constraints), then it replies and updates the spec, design and plan, or sends a requirements change back to the specification
+         * @description Review page: send the architect your design choices, answers to open questions and comments together; choices and answers are saved first (within the lane's constraints), then it replies and updates the spec, design and plan, or sends a requirements change back to the specification
          */
-        post: operations["discuss_change_design"];
+        post: operations["align_with_architect"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1688,6 +1684,21 @@ export interface components {
             observe_only: boolean;
             /** Used By */
             used_by: string[];
+        };
+        /**
+         * AlignInput
+         * @description Everything a person sends the architect at once from the review page (ADR-0044 §1).
+         */
+        AlignInput: {
+            /** Answers */
+            answers?: components["schemas"]["DecisionAnswer"][];
+            /** Open Answers */
+            open_answers?: components["schemas"]["OpenQuestionAnswer"][];
+            /**
+             * Message
+             * @default
+             */
+            message: string;
         };
         /** AnswersInput */
         AnswersInput: {
@@ -2000,6 +2011,8 @@ export interface components {
             discussion?: components["schemas"]["DiscussTurn"][];
             /** Discuss Pending */
             discuss_pending?: string | null;
+            /** Rework Requirements */
+            rework_requirements?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2248,11 +2261,6 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
-        /** DecisionAnswersInput */
-        DecisionAnswersInput: {
-            /** Answers */
-            answers: components["schemas"]["DecisionAnswer"][];
-        };
         /** DecisionInput */
         DecisionInput: {
             /** Change Id */
@@ -2310,6 +2318,8 @@ export interface components {
             questions?: components["schemas"]["DecisionQuestionView"][];
             /** Answers */
             answers?: components["schemas"]["DecisionAnswerView"][];
+            /** Open Questions */
+            open_questions?: components["schemas"]["OpenQuestionView"][];
             /** Changed */
             changed?: string[];
             /** Problems */
@@ -2357,11 +2367,6 @@ export interface components {
              * Format: date-time
              */
             at: string;
-        };
-        /** DiscussInput */
-        DiscussInput: {
-            /** Message */
-            message: string;
         };
         /**
          * DiscussTurn
@@ -3010,6 +3015,35 @@ export interface components {
              * @description what the team wants to know
              */
             notes?: string | null;
+        };
+        /** OpenQuestionAnswer */
+        OpenQuestionAnswer: {
+            /** Id */
+            id: string;
+            /** Answer */
+            answer: string;
+        };
+        /** OpenQuestionView */
+        OpenQuestionView: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /**
+             * Answer
+             * @default
+             */
+            answer: string;
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /**
+             * Decided By
+             * @default architect
+             */
+            decided_by: string;
         };
         /** OutcomesView */
         OutcomesView: {
@@ -7009,7 +7043,7 @@ export interface operations {
             };
         };
     };
-    answer_change_decisions: {
+    align_with_architect: {
         parameters: {
             query?: never;
             header?: never;
@@ -7020,42 +7054,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DecisionAnswersInput"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DecisionsView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    discuss_change_design: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                change_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DiscussInput"];
+                "application/json": components["schemas"]["AlignInput"];
             };
         };
         responses: {
