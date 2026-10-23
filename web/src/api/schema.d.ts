@@ -2979,6 +2979,17 @@ export interface components {
              */
             source: string;
         };
+        /** PhaseSpend */
+        PhaseSpend: {
+            /** Phase */
+            phase: string;
+            /** Title */
+            title: string;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Stations */
+            stations?: components["schemas"]["StationSpend"][];
+        };
         /**
          * PillarScore
          * @description One quality pillar (ADR-0024): readiness signals passed out of applicable.
@@ -3105,6 +3116,26 @@ export interface components {
             changes: components["schemas"]["Change"][];
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
+            spend?: components["schemas"]["ProductSpend"];
+        };
+        /**
+         * ProductSpend
+         * @description What the product has cost so far across all its changes (`spend.product_spend`): model
+         *     spend; tests, scans, builds and deploys run locally at no extra cost.
+         */
+        ProductSpend: {
+            /**
+             * Total Usd
+             * @default 0
+             */
+            total_usd: number;
+            /**
+             * Changes
+             * @default 0
+             */
+            changes: number;
+            /** Phases */
+            phases?: components["schemas"]["PhaseSpend"][];
         };
         /**
          * ProductTarget
@@ -3462,6 +3493,8 @@ export interface components {
             change_id: string;
             /** Status */
             status: string;
+            /** Assumptions */
+            assumptions?: string[];
             /** Gate */
             gate: string;
             /** Approved By */
@@ -3588,6 +3621,13 @@ export interface components {
              * @default 0
              */
             retry_wait_s: number;
+        };
+        /** StationSpend */
+        StationSpend: {
+            /** Station */
+            station: string;
+            /** Cost Usd */
+            cost_usd: number;
         };
         /**
          * StationTemplateView

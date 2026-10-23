@@ -533,6 +533,8 @@ class ReviewView(BaseModel):
 class SpecView(BaseModel):
     change_id: str
     status: str
+    # what intake assumed where the request was silent: a person confirms or changes them next
+    assumptions: list[str] = Field(default_factory=list)
     gate: str  # off | first | always (the change's workflow version)
     approved_by: str | None = None
     product: str = ""  # docs/spec.md
@@ -947,10 +949,32 @@ class ChangeDetail(BaseModel):
     risk: ChangeRiskView | None = None
 
 
+class StationSpend(BaseModel):
+    station: str
+    cost_usd: float
+
+
+class PhaseSpend(BaseModel):
+    phase: str  # a column id (design, develop, verify, …), learn (the retro) or other
+    title: str
+    cost_usd: float
+    stations: list[StationSpend] = Field(default_factory=list)
+
+
+class ProductSpend(BaseModel):
+    """What the product has cost so far across all its changes (`spend.product_spend`): model
+    spend; tests, scans, builds and deploys run locally at no extra cost."""
+
+    total_usd: float = 0.0
+    changes: int = 0
+    phases: list[PhaseSpend] = Field(default_factory=list)
+
+
 class ProductDetail(BaseModel):
     product: Product
     changes: list[Change]
     feedback: list[Feedback]
+    spend: ProductSpend = Field(default_factory=ProductSpend)
 
 
 class HealthView(BaseModel):

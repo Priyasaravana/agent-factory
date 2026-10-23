@@ -84,6 +84,7 @@ from agent_factory.models import (
     PresetInput,
     Product,
     ProductDetail,
+    ProductSpend,
     ProvidedArtifactInfo,
     PublishInput,
     ReadinessView,
@@ -393,9 +394,27 @@ def get_product(f: Factory, product_id: str) -> ProductDetail:
     product = f.store.get_product(product_id)
     if not product:
         raise FactoryError("product not found")
+    changes = f.store.list_changes(product_id)
     return ProductDetail(
-        product=product, changes=f.store.list_changes(product_id), feedback=f.store.list_feedback(product_id)
+        product=product, changes=changes, feedback=f.store.list_feedback(product_id), spend=_product_spend(f, changes)
     )
+
+
+def _product_spend(f: Factory, changes: list[Change]) -> ProductSpend:
+    from agent_factory import spend
+
+    columns: dict[str, dict[str, str]] = {}
+    for c in changes:
+        try:
+            columns[c.id] = f.workflows[c.workflow_id or ""].get(c.workflow_version).columns()
+        except (WorkflowError, KeyError):
+            columns[c.id] = {}  # a lane version no longer installed: its stations show under Other
+    calls = [
+        (cid, str(v.get("station", "")), float(v.get("cost_usd") or 0.0))
+        for cid, _, v in f.store.events_with_key([c.id for c in changes], "agent_call")
+        if isinstance(v, dict)
+    ]
+    return ProductSpend.model_validate(spend.product_spend(calls, columns, {c.id: c.cost_usd for c in changes}))
 
 
 @action(
@@ -681,9 +700,12 @@ def get_change_spec(f: Factory, change_id: str) -> SpecView:
     trace = next((e.data["traceability"] for e in reversed(events) if "traceability" in e.data), None)
     rev = next((e.data["review"] for e in reversed(events) if isinstance(e.data.get("review"), dict)), None)
     holdout = f.manager.ws.holdout_dir(product.slug) / "scenarios.yaml" if product else None
+    prefix = "assumption: "
+    assumptions = [e.message[len(prefix) :] for e in events if e.message.startswith(prefix)]
     return SpecView(
         change_id=change.id,
         status=change.status,
+        assumptions=assumptions,
         gate=flow.spec_review,
         approved_by=change.spec_approved_by,
         product=read("docs/spec.md"),

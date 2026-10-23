@@ -14,6 +14,7 @@ import { ACTIVE, KIND_LABEL, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
 import WorkLedger from "../components/WorkLedger";
+import SpendCard from "../components/SpendCard";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
@@ -56,7 +57,7 @@ export default function ProductPage() {
   if (detail.isLoading)
     return <div className="h-40 animate-pulse rounded-xl bg-muted" />;
   if (detail.error) return <p className="error">{detail.error.message}</p>;
-  const { product, changes, feedback } = detail.data!;
+  const { product, changes, feedback, spend } = detail.data!;
   const changeId = selected ?? product.latest_change_id ?? changes[0]?.id;
 
   return (
@@ -81,7 +82,9 @@ export default function ProductPage() {
           {product.archived_at ? (
             <span className="pill muted">archived</span>
           ) : (
-            product.latest_status && <StatusPill status={product.latest_status} />
+            product.latest_status && (
+              <StatusPill status={product.latest_status} />
+            )
           )}
           {!product.archived_at && (
             <Button
@@ -89,7 +92,9 @@ export default function ProductPage() {
               size="sm"
               onClick={() => setConfirmArchive(true)}
               disabled={
-                product.latest_status ? ACTIVE.has(product.latest_status) : false
+                product.latest_status
+                  ? ACTIVE.has(product.latest_status)
+                  : false
               }
               title="Remove the app from the cluster and free its port"
             >
@@ -126,18 +131,27 @@ export default function ProductPage() {
         <Problems error={archive.error} />
       </ConfirmDialog>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
-          {product.pack && <span className="block text-xs font-normal text-muted-foreground">stack pack {product.pack}</span>}
+          {product.pack && (
+            <span className="block text-xs font-normal text-muted-foreground">
+              stack pack {product.pack}
+            </span>
+          )}
           {product.target === "repo" && (
-            <span className="block whitespace-normal text-xs font-normal text-muted-foreground" data-testid="stack-guidance">
+            <span
+              className="block whitespace-normal text-xs font-normal text-muted-foreground"
+              data-testid="stack-guidance"
+            >
               {(product.stack_matches ?? []).length === 0
                 ? "no stack pack detected: generic mode"
                 : (product.stack_matches ?? []).map((m) => (
                     <span key={`${m.id}:${m.folder}`} className="block">
-                      {m.title || m.id} guidance in {m.folder ? `${m.folder}/` : "root"}
-                      {(m.egress ?? []).length > 0 && ` · egress ${(m.egress ?? []).join(", ")}`}
+                      {m.title || m.id} guidance in{" "}
+                      {m.folder ? `${m.folder}/` : "root"}
+                      {(m.egress ?? []).length > 0 &&
+                        ` · egress ${(m.egress ?? []).join(", ")}`}
                     </span>
                   ))}
             </span>
@@ -145,7 +159,11 @@ export default function ProductPage() {
         </Fact>
         {product.target === "repo" ? (
           <Fact icon={<GitBranch />} label="Branch">
-            {product.repo_ref ?? <span className="text-muted-foreground">default (found on clone)</span>}
+            {product.repo_ref ?? (
+              <span className="text-muted-foreground">
+                default (found on clone)
+              </span>
+            )}
           </Fact>
         ) : (
           <Fact icon={<Globe />} label="App">
@@ -182,13 +200,16 @@ export default function ProductPage() {
             <span className="text-muted-foreground">local only</span>
           )}
         </Fact>
+        <SpendCard spend={spend} />
       </div>
 
       <Card>
         <CardContent className="grid gap-2 pt-4">
           <details>
             <summary className="font-medium">
-              {product.target === "repo" ? "What the team wants to know" : "Requirements"}
+              {product.target === "repo"
+                ? "What the team wants to know"
+                : "Requirements"}
             </summary>
             <pre className="pre mt-2">{product.requirements}</pre>
           </details>
@@ -207,11 +228,18 @@ export default function ProductPage() {
         </CardContent>
       </Card>
 
-      <WorkLedger
-        productId={product.id}
-        canChange={!product.archived_at && !ACTIVE.has(String(product.latest_status ?? ""))}
-        onChanged={() => qc.invalidateQueries({ queryKey: ["product", productId] })}
-      />
+      <div id="work-ledger" className="scroll-mt-4">
+        <WorkLedger
+          productId={product.id}
+          canChange={
+            !product.archived_at &&
+            !ACTIVE.has(String(product.latest_status ?? ""))
+          }
+          onChanged={() =>
+            qc.invalidateQueries({ queryKey: ["product", productId] })
+          }
+        />
+      </div>
 
       {changes.length > 1 && (
         <div
