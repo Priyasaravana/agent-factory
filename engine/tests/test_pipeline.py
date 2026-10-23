@@ -91,14 +91,17 @@ async def test_attempt_budget_holds_then_resume_continues(make_factory):
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
 
 
-async def test_intake_questions_open_needs_input(make_factory):
+async def test_blocking_questions_go_to_the_architect_instead_of_stopping(make_factory):
+    """ADR-0044 §1: a lane with a design station never stops at intake for questions; the architect
+    answers them as stated assumptions (an ask lane shows them on the review page)."""
     agents = FakeAgentRunner(intake_questions=["Should bookmarks be private per user?"])
     f = make_factory(agents=agents)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
-    assert await wait_run(f, change.id) == ChangeStatus.needs_input
-    assert f.store.get_change(change.id).questions == ["Should bookmarks be private per user?"]
-    f.manager.answer(change.id, ["No, single user for now."])
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    sheet = (f.manager.ws.change_dir(change.id) / "docs" / "decisions.yaml").read_text()
+    assert "Should bookmarks be private per user?" in sheet and "[dry-run] default for Q1" in sheet
+    messages = [e.message for e in f.store.list_events(change.id)]
+    assert "1 blocking question(s) go to the architect, who answers them as stated assumptions" in messages
 
 
 async def test_usage_limit_pauses_instead_of_failing(make_factory):

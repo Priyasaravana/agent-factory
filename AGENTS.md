@@ -233,8 +233,8 @@
   checked at publish against installed packs) say who answers; ask mode waits on the same review page as
   the spec gate (`Change.decisions_pending`). The engine renders one ADR per answer (`render_adrs`) and
   folds deferred roadmap rows into the work ledger (`ledger.fold_roadmap`). Intake's open questions
-  (`docs/open-questions.yaml`) go to the architect, who answers them in the sheet; intake stops only when
-  a request can't be specified. On the review page everything a person says goes through
+  (`docs/open-questions.yaml`), blocking ones included, go to the architect, who answers them in the sheet;
+  in a lane with a design station intake stops only on a stack conflict. On the review page everything a person says goes through
   `ChangeManager.align` (choices, open-question answers and comments, sent together): one alignment turn
   of the design station (`Change.discuss_pending`) where the architect may change only the design docs;
   a requirements change it reports (`Change.rework_requirements`) goes back to intake, then design.
