@@ -113,13 +113,35 @@ async def _wait_eval(f, eval_id: str, timeout: float = 60) -> EvalRun:  # noqa: 
     return await asyncio.wait_for(poll(), timeout)
 
 
+def _learnings(f, text: str) -> None:  # noqa: ANN001
+    d = f.workflows[WF].draft
+    doc = d.get()[1]
+    d.upsert_agent(doc.agents["developer"].model_copy(update={"learnings": text}))
+
+
+async def test_a_settings_only_publish_is_not_evaluated(make_factory):
+    """ADR-0045: who answers the design questions, spec review and learning change no prompt, and the
+    evaluations answer every question themselves, so the gate would measure nothing (live 2026-10-25)."""
+    f = make_factory()
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.patch(f"/api/workflows/{WF}/draft/settings", json={"decisions": "ask", "spec_review": "first"})
+        assert r.json()["eval_gate"] == "block"
+        pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "ask a person"})
+        assert pub.status_code == 201 and pub.json()["version"] == 2 and not pub.json().get("evaluation")
+        assert f.workflows[WF].active_version() == 2 and f.workflows[WF].get().decisions == "ask"
+        assert (await c.get(f"/api/workflows/{WF}/evals")).json() == []
+    await ctx.__aexit__(None, None, None)
+
+
 async def test_a_gated_publish_is_a_candidate_until_its_evaluation_passes(make_factory):
     f = make_factory()
     app, ctx, c = await _client(f)
     async with c:
-        r = await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})
+        _learnings(f, "Prefer small functions.")  # an agent prompt changes: the evaluation measures it
+        r = await c.get(f"/api/workflows/{WF}/draft")
         assert r.json()["eval_gate"] == "block" and len(r.json()["evals"]) == 3
-        pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "no learning"})
+        pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "developer learnings"})
         assert pub.status_code == 201 and pub.json()["version"] == 2
         assert pub.json()["evaluation"].startswith("evaluation ") and "against version 1" in pub.json()["evaluation"]
         versions = {v["version"]: v for v in (await c.get(f"/api/workflows/{WF}/versions")).json()}
@@ -143,8 +165,8 @@ async def test_a_gated_publish_is_a_candidate_until_its_evaluation_passes(make_f
         assert versions[2]["active"] and versions[2]["evaluation"] == "evaluation passed"
 
         # the next version reuses version 2's measured result as its baseline: 3 builds, not 6
-        await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": True})
-        pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "learning back on"})
+        _learnings(f, "Prefer small modules.")
+        pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "more learnings"})
         [nxt, _] = (await c.get(f"/api/workflows/{WF}/evals")).json()
         assert nxt["baseline_from"] == e.id and nxt["baseline"]["results"] == []
         e3 = await _wait_eval(f, nxt["id"])
@@ -194,6 +216,7 @@ async def test_warn_activates_at_once_and_reports(make_factory):
     app, ctx, c = await _client(f)
     async with c:
         await c.patch(f"/api/workflows/{WF}/draft/settings", json={"eval_gate": "warn"})
+        _learnings(f, "Prefer small functions.")
         pub = await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "warn only"})
         assert f.workflows[WF].active_version() == 2 and "running" in pub.json()["evaluation"]
         [e] = (await c.get(f"/api/workflows/{WF}/evals")).json()
@@ -305,8 +328,8 @@ async def test_a_gated_publish_that_cannot_evaluate_says_why(make_factory):
     f.manager.preflight.mapped_node_ports = set(f.cfg.blueprints["fastapi-service"].node_ports[:2])
     app, ctx, c = await _client(f)
     async with c:
-        await c.patch(f"/api/workflows/{WF}/draft/settings", json={"learn_from_runs": False})
-        pub = (await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "no learning"})).json()
+        _learnings(f, "Prefer small functions.")
+        pub = (await c.post(f"/api/workflows/{WF}/draft/publish", json={"note": "learnings"})).json()
         assert pub["evaluation"].startswith("evaluation not started: an evaluation needs 6 free app ports")
         states = {v["version"]: v["evaluation"] for v in (await c.get(f"/api/workflows/{WF}/versions")).json()}
         assert states[2].startswith("evaluation not started: an evaluation needs 6") and "reset-cluster" in states[2]

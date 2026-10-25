@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 // Signing in for e2e tests. Against the live app the factory passes the deployment's admin
@@ -8,6 +10,14 @@ export const ADMIN = {
   email: process.env.E2E_ADMIN_EMAIL || "admin@preview.test",
   password: process.env.E2E_ADMIN_PASSWORD || "preview-preview",
 };
+
+/** Credentials for an account a test creates itself (a member, a second user): a fresh random
+ * password every run, so no password is ever written into the repo (the change-risk check holds
+ * a change with a password literal). Create the account through the app's own admin route. */
+export function newCredentials(name = "user"): { email: string; password: string } {
+  const id = randomUUID();
+  return { email: `${name}-${id.slice(0, 8)}@example.test`, password: `pw-${id}` };
+}
 
 /** Whether this app has sign-in (the auth module's adapter is not `none`). */
 export async function authEnabled(request: APIRequestContext): Promise<boolean> {

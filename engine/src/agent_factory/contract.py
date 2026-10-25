@@ -125,6 +125,7 @@ CAPABILITIES: dict[str, str] = {
     "run-sandbox": "run commands in the sandbox",
     "run-scanners": "run security scanners and use their service tokens",
     "push-image": "push an image to the registry",
+    "pull-image": "sign in to a registry to pull approved base images (ADR-0045)",
     "deploy": "deploy to an environment (deploy:<env>, deploy:* for any)",
     "promote": "promote an image from one environment to the next",
     "open-pr": "push a branch and open a pull request (or tag a handover)",
@@ -200,7 +201,7 @@ BUILTIN_PHASES: list[Phase] = [
     _p(
         "deliver",
         "Deliver",
-        ["read-repo", "run-sandbox", "push-image", "deploy:*", "promote", "open-pr", "approve"],
+        ["read-repo", "run-sandbox", "pull-image", "push-image", "deploy:*", "promote", "open-pr", "approve"],
         ["image", "url", "pr", "report"],
     ),
     _p("operate", "Operate", ["read-repo", "read-metrics", "read-logs", "open-incident"], ["report"]),
@@ -434,7 +435,7 @@ STATION_TYPES: dict[str, StationType] = {
             ["image@1"],
             "build",
             None,
-            uses=["read-repo", "run-sandbox", "push-image"],
+            uses=["read-repo", "run-sandbox", "pull-image", "push-image"],
         ),
         _t("deploy", "deliver", ["image@1"], ["url@1"], "deploy", None, uses=["deploy:*"]),
         # repairs the chart, Dockerfile or app config: a branch change, so it re-enters verify

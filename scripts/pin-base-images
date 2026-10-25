@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Pin each stack pack's approved runtime images by digest (ADR-0045).
+#
+#   scripts/pin-base-images            resolve every pack's base_images and rewrite its template's
+#                                      `FROM <image> AS <stage>` lines as `<image>@sha256:…`
+#   scripts/pin-base-images --check    only report what would change (exit 1 if anything would)
+#
+# Run it where Docker can reach the registries: signed in to dhi.io for Docker Hardened Images
+# (`docker login dhi.io`). Review the diff, bump the pack's patch version, and commit. Dependabot
+# then proposes digest updates for each stage in every generated product.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CHECK="${1:-}"
+cd "$ROOT"
+python3 - "$CHECK" <<'PY'
+import re, subprocess, sys
+from pathlib import Path
+import yaml
+
+check = sys.argv[1] == "--check"
+changed = False
+for pack_yaml in sorted(Path("packs").glob("*/pack.yaml")):
+    pack = yaml.safe_load(pack_yaml.read_text())
+    stack = pack.get("stack") or {}
+    images = stack.get("base_images") or []
+    if not images:
+        continue
+    dockerfile = pack_yaml.parent / stack.get("template", "template") / "Dockerfile"
+    text = dockerfile.read_text()
+    for b in images:
+        image = b["image"].split("@", 1)[0]
+        digest = subprocess.run(
+            ["docker", "buildx", "imagetools", "inspect", image, "--format", "{{.Manifest.Digest}}"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            sys.exit(f"{image}: unexpected digest {digest!r}")
+        line = re.compile(rf"^FROM\s+\S+\s+AS\s+{re.escape(b['stage'])}\s*$", re.M | re.I)
+        new = f"FROM {image}@{digest} AS {b['stage']}"
+        if not line.search(text):
+            sys.exit(f"{dockerfile}: no `FROM … AS {b['stage']}` line")
+        before = text
+        text = line.sub(new, text)
+        if text != before:
+            changed = True
+            print(f"{dockerfile}: {b['stage']} -> {image}@{digest}")
+    if not check:
+        dockerfile.write_text(text)
+if check and changed:
+    sys.exit(1)
+print("pinned" if not check else "up to date")
+PY

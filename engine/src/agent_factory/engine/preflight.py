@@ -158,6 +158,7 @@ class Preflight:
             return self._view(pl, env.environment, checks, start)
         checks.append(await self._docker_disk(live))  # only products that are built need it
         checks.append(self._toolchain(pl))
+        checks.append(self._base_images(pl))
         # one check per distinct integration, reported under the capabilities it serves
         by_integration: dict[str, list[str]] = {}
         for cap in ("registry", "deploy", "scan", "publish"):
@@ -340,6 +341,33 @@ class Preflight:
             [f"{pack.source}: {', '.join(pack.toolchain)}"],
             blocks=[],
         )
+
+    def _base_images(self, pl: str) -> CheckView:
+        """The pack's approved base images and their registry sign-ins (ADR-0045). A missing sign-in
+        is degraded, not failed: Build starts on the next approved image."""
+        approved = self.m.cfg.blueprints[pl].base_images
+        if not approved:
+            return _check(
+                "base-images", "Base images", "build", "ready", ["the Dockerfile's own base image"], blocks=[]
+            )
+        reasons, state = [], "ready"
+        for b in approved:
+            login = self.m.cfg.registry_logins.get(b.login) if b.login else None
+            if b.login and login is None:
+                reasons.append(f"{b.image}: registry_logins.{b.login} is not configured, so Build skips it")
+                state = "degraded"
+                continue
+            if login is not None:
+                from agent_factory.engine.stations import _login_name
+
+                missing = [] if _login_name(login.username) else [login.username]
+                missing += [] if self.m.secrets.available(login.token)[0] else [login.token]
+                if missing:
+                    reasons.append(f"{b.image}: {', '.join(missing)} not available, so Build skips it")
+                    state = "degraded"
+                    continue
+            reasons.append(f"{b.image}: ready" + (f" (signed in to {login.registry})" if login else ""))
+        return _check("base-images", "Base images", "build", state, reasons, blocks=[])
 
     def _scanner(self, scan_command: str | None) -> CheckView:
         if scan_command:

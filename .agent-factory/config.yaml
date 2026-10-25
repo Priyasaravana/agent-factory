@@ -276,6 +276,12 @@ default_skills:
 # token for importing templates/skills from private GitHub repos (a reference)
 skills_github_token_ref: env://SKILLS_GITHUB_TOKEN
 
+# sign-ins for pulling a pack's approved base images (ADR-0045). Docker Hardened Images need a free
+# Docker Hub account: a personal access token with "Public Repo Read-only" in .env. Without it,
+# Build skips the hardened image and starts on the pack's next approved one.
+registry_logins:
+  dhi: {registry: dhi.io, username: env://DOCKERHUB_USERNAME, token: env://DOCKERHUB_TOKEN}
+
 skill_prompts:
   # Engineering standards skills (ADR-0032): apply them in proportion to the request.
   well-architected-standards: |

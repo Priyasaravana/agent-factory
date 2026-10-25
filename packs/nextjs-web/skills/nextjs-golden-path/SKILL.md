@@ -56,7 +56,10 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
 - With sign-in on, `make preview` signs in as `admin@preview.test` (password in the Makefile, a
   throw-away preview account); the live run gets the deployment's admin from the factory
   (`E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`). Use `signIn(page)` / `signInApi(request)` from
-  `e2e/auth.ts`; never write a password into a test.
+  `e2e/auth.ts`; never write a password into a test. For an account a test creates (a member, a
+  second user), take `newCredentials("member")` from `e2e/auth.ts` (a random password each run) and
+  create it through the app's admin route; in vitest, build the password the same way
+  (`` `pw-${crypto.randomUUID()}` ``). A password literal in a test is held by the change-risk check.
 - pg-mem in tests vs Postgres in the cluster: stick to standard SQL (no extensions, no
   `returning *` on multi-statement queries); `serial`/`text`/`integer`/`boolean`/`timestamptz`.
 - Never import `src/lib/db.ts` (or anything using `pg`, `pino`) from a `"use client"` file.

@@ -150,12 +150,20 @@ def parse(text: str, locked: Iterable[str] = ()) -> list[ImageFinding]:
     return sorted(out.values(), key=lambda f: (RANK[f.severity], f.origin, f.package, f.cve))
 
 
-def base_image(dockerfile: str) -> str:
-    """The image the final stage builds FROM, following stage names back to a real image."""
+def base_image(dockerfile: str, args: Mapping[str, str] | None = None) -> str:
+    """The image the final stage builds FROM, following stage names back to a real image. Global
+    `ARG name=default` before a FROM is expanded (`args` overrides it, like `--build-arg`), so a
+    Dockerfile whose runtime is `FROM ${RUNTIME}` resolves to the stage RUNTIME names (ADR-0045)."""
+    values = {m.group(1): m.group(2) or "" for m in re.finditer(r"^\s*ARG\s+(\w+)(?:=(\S*))?", dockerfile, re.M | re.I)}
+    values.update(args or {})
+
+    def expand(ref: str) -> str:
+        return re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: values.get(m.group(1) or m.group(2), ""), ref)
+
     stages: dict[str, str] = {}
     last = ""
     for m in re.finditer(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", dockerfile, re.M | re.I):
-        image, alias = m.group(1), m.group(2)
+        image, alias = expand(m.group(1)), m.group(2)
         image = stages.get(image.lower(), image)
         if alias:
             stages[alias.lower()] = image

@@ -393,6 +393,84 @@ def accepted_image_keys(items: list[WorkItem], keys: Iterable[str], now: datetim
     return {k for k in keys if image_fingerprint(k) in ok}
 
 
+def adopt_factory_decisions(
+    items: list[WorkItem], covered: dict[str, Any], *, now: datetime, change_id: str = ""
+) -> list[WorkItem]:
+    """Image items a factory-wide decision covers (ADR-0045 §3): `covered` maps a finding key to
+    its decision (with `until`, `reason`, `by`). An open item becomes an accepted risk that says so;
+    returns the items that changed."""
+    changed = []
+    by_fp = {image_fingerprint(k): d for k, d in covered.items()}
+    for it in items:
+        d = by_fp.get(it.fingerprint)
+        if it.category != IMAGE or d is None or it.status not in OPEN:
+            continue
+        it.status, it.accepted_until = "accepted_risk", d.until
+        it.decision_reason = f"factory decision for this base image: {d.reason}".strip()
+        it.decision_by, it.updated_at = d.by, now
+        _log(
+            it,
+            now,
+            "accepted",
+            "covered by a factory decision for this base image",
+            change_id=change_id or None,
+            by=d.by,
+        )
+        changed.append(it)
+    return changed
+
+
+BASE_IMAGE_UPKEEP = "base-image"  # category of "make this approved image the default" (ADR-0045 §2)
+
+
+def propose_base_image(
+    product_id: str,
+    items: list[WorkItem],
+    *,
+    image: str,
+    default: str,
+    why: str,
+    change_id: str,
+    iteration: int,
+    now: datetime,
+) -> list[WorkItem]:
+    """An upkeep item proposing that the pack default to the approved image a build fell back to.
+    One per image: seen again, it is updated; returns the items that changed."""
+    fp = fingerprint("recommendation", BASE_IMAGE_UPKEEP, image)
+    it = next((x for x in items if x.fingerprint == fp), None)
+    detail = (
+        f"Build fell back from {default} to the approved {image} ({why}). Make {image} the pack's default "
+        "runtime (a new pack version), or wait for the default's publisher to ship the fix: later builds "
+        "try the default first."
+    )
+    if it is None:
+        it = WorkItem(
+            id=item_id(product_id, fp),
+            product_id=product_id,
+            kind="recommendation",
+            fingerprint=fp,
+            title=f"pack upkeep: make {image} the default runtime",
+            severity="medium",
+            category=BASE_IMAGE_UPKEEP,
+            change_kind="upkeep",
+            first_iteration=iteration,
+            created_at=now,
+            updated_at=now,
+        )
+        items.append(it)
+        _log(it, now, "found", "a build used this approved fallback", iteration=iteration, change_id=change_id)
+    elif it.status not in OPEN:
+        it.status = "open"
+        _log(
+            it, now, "reappeared", "a build used this approved fallback again", iteration=iteration, change_id=change_id
+        )
+    it.detail, it.last_iteration, it.updated_at = detail, iteration, now
+    it.sources = [{"station": "build", "via": "base images", "rule": image}]
+    if iteration not in it.seen_in:
+        it.seen_in.append(iteration)
+    return [it]
+
+
 def fold_image_scan(
     product_id: str,
     items: list[WorkItem],
@@ -453,7 +531,11 @@ def fold_image_scan(
                 continue  # the same scan again within this iteration: nothing new to record
         it.title, it.severity, it.detail = f["title"], f["severity"], f["detail"]
         it.at = list(f.get("at") or [])[:20]
-        it.sources = [{"station": "build", "via": "image scan", "rule": f.get("rule", "")}]
+        it.sources = [
+            {"station": "build", "via": "image scan", "rule": f.get("rule", "")}
+            # which image and who can fix it (ADR-0045): a base-image risk is decided factory-wide
+            | {k: str(f[k]) for k in ("base_image", "origin", "key") if f.get(k)}
+        ]
         it.last_iteration = iteration
         if iteration not in it.seen_in:
             it.seen_in.append(iteration)

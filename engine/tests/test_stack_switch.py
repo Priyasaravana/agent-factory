@@ -171,7 +171,7 @@ def test_the_shipped_stacks_offer_next_js_for_a_node_request(make_factory):
     cards = {c.blueprint: c for c in get_config(make_factory()).stacks}
     assert list(cards) == ["fastapi-service", "nextjs-web"]
     web = cards["nextjs-web"]
-    assert (web.title, web.builds, web.pack) == ("Next.js web app", "web-app", "nextjs-web@1.3.0")
+    assert (web.title, web.builds, web.pack) == ("Next.js web app", "web-app", "nextjs-web@1.3.1")
     techs = {c.blueprint: c.technologies for c in cards.values()}
     assert stack.switch_options(["Next.js"], techs) == stack.switch_options(["TypeScript"], techs) == ["nextjs-web"]
     assert stack.switch_options(["FastAPI"], techs) == ["fastapi-service"]

@@ -52,7 +52,8 @@ if (denied) return denied;` in every protected route handler (it also refuses cr
   `authorisation: signed-in` → `authz: "signed-in"`, `roles` → `authz: "roles"`. Protected writes
   (data another person relies on) go through `authorize(...)` on the server, never only by hiding a
   button. With sign-in on, e2e tests sign in with the helpers in `e2e/auth.ts`, and acceptance
-  tests show a protected action refused without signing in.
+  tests show a protected action refused without signing in. Accounts a test creates get
+  `newCredentials()` (a random password each run): never write a password into the repo.
 - Traceability: put the requirement ids a test covers in its title, e.g.
   `it("lists open tasks first @R2 @R3", …)` or `test("adds a book @R1", …)`. Every requirement
   needs a scenario and a tagged test.
@@ -72,8 +73,9 @@ if (denied) return denied;` in every protected route handler (it also refuses cr
   specs and the docs from Intake/Design. No secrets in the repo (a secret scan runs on every
   delivery).
 - Config only from environment variables. No secrets in code or the chart values.
-- Keep the runtime image distroless and non-root (`USER nonroot`), `output: "standalone"` and
-  the port at 3000. It has no shell or npm: anything the app needs at run time ships in the build.
+- Keep the runtime stages of the Dockerfile as they are: the pack's approved images
+  (`runtime-hardened`, `runtime-distroless`), picked by `ARG RUNTIME` (the factory's Build station
+  chooses), non-root as uid 65532, `output: "standalone"` and the port at 3000. It has no shell or npm: anything the app needs at run time ships in the build.
 - Do not change the chart's `image.*`, `service.*`, `ingress.*` or `imagePullSecrets` value
   names: the Deploy station sets them (NodePort locally, ClusterIP + Ingress on a cluster).
 - Keep `@playwright/test` at the version in `package.json`: the factory's sandbox provides the

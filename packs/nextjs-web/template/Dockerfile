@@ -1,4 +1,9 @@
 # syntax=docker/dockerfile:1
+# The runtime image is chosen from the pack's approved list (ADR-0045): Docker Hardened first, then
+# distroless. The factory's Build station picks one with --build-arg RUNTIME=<stage>: the first that
+# scans clean and starts. Keep both stages; Dependabot proposes updates for each.
+ARG RUNTIME=runtime-hardened
+
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
@@ -11,17 +16,19 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx next build
 
-# Runtime: distroless Node.js, non-root. No shell, package manager, npm or perl: only what the
-# standalone server needs, so the image scan has little to find (a full node image carries Debian
-# packages such as perl-base, which fail the factory's CRITICAL scan whenever Debian is behind).
-FROM gcr.io/distroless/nodejs22-debian12:nonroot
+# Approved runtime images (no shell, no package manager, non-root): only the one RUNTIME names is
+# pulled and built. Pinned by Node version; `scripts/pin-base-images` in the factory adds digests.
+FROM dhi.io/node:22-alpine3.23 AS runtime-hardened
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime-distroless
+
+# Runtime: the standalone server and its static files, as uid 65532 on every approved image (the
+# chart's runAsUser). The image's entrypoint is node.
+FROM ${RUNTIME}
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
-COPY --from=build --chown=nonroot:nonroot /app/.next/standalone ./
-COPY --from=build --chown=nonroot:nonroot /app/.next/static ./.next/static
-COPY --from=build --chown=nonroot:nonroot /app/public ./public
-USER nonroot
+COPY --from=build --chown=65532:65532 /app/.next/standalone ./
+COPY --from=build --chown=65532:65532 /app/.next/static ./.next/static
+COPY --from=build --chown=65532:65532 /app/public ./public
+USER 65532:65532
 EXPOSE 3000
-HEALTHCHECK CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/api/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-# the image's entrypoint is node
 CMD ["server.js"]

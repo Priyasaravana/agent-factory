@@ -15,7 +15,7 @@ import pytest
 import yaml
 from conftest import PRODUCT, REPO, wait_run
 
-from agent_factory import traceability
+from agent_factory import image_scan, traceability
 from agent_factory.engine.preflight import Preflight
 from agent_factory.executor import FakeExecutor
 from agent_factory.models import ChangeStatus
@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_signals():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.3.0" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.3.1" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -164,9 +164,13 @@ def test_the_template_keeps_its_contract_with_the_pack_and_the_chart():
     values = yaml.safe_load((TEMPLATE / "deploy" / "chart" / "values.yaml").read_text())
     deployment = (TEMPLATE / "deploy" / "chart" / "templates" / "deployment.yaml").read_text()
     assert f"EXPOSE {pack.port}" in docker and values["containerPort"] == pack.port
-    assert re.search(r"^USER nonroot$", docker, re.M), "non-root"
-    runtime = re.findall(r"^FROM (\S+)", docker, re.M)[-1]
-    assert runtime.startswith("gcr.io/distroless/nodejs22-"), "no shell, npm or Debian extras in the runtime image"
+    assert re.search(r"^USER 65532:65532$", docker, re.M), "non-root, the same uid on every approved image"
+    # the runtime is one of the pack's approved images, picked by ARG RUNTIME (ADR-0045)
+    assert image_scan.base_image(docker) == pack.base_images[0].image == "dhi.io/node:22-alpine3.23"
+    for b in pack.base_images:
+        assert image_scan.base_image(docker, {"RUNTIME": b.stage}) == b.image
+    assert [b.stage for b in pack.base_images] == ["runtime-hardened", "runtime-distroless"]
+    assert pack.base_images[0].login == "dhi" and pack.base_images[1].login is None, "the fallback needs no sign-in"
     assert "runAsUser: 65532" in deployment, "the chart runs the image's own non-root user"
     assert f"path: {pack.health.live}" in deployment and f"path: {pack.health.ready}" in deployment
     assert 'output: "standalone"' in (TEMPLATE / "next.config.ts").read_text()
@@ -333,7 +337,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.3.0"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.3.1"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)

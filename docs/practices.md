@@ -95,7 +95,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 
 | Pillar | State | Have | Next signals (proposed ids) → phase |
 |---|---|---|---|
-| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; sign-in and roles on protected writes in Next.js products whose decisions call for them (local accounts, scrypt, httpOnly session cookie, first admin from a generated Secret, ADR-0044); Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
+| Security | ✅ | secret scan, non-root container, CODEOWNERS, Dependabot; hardened runtime images by default with approved fallbacks and factory-wide base-image risk decisions (ADR-0045); sign-in and roles on protected writes in Next.js products whose decisions call for them (local accounts, scrypt, httpOnly session cookie, first admin from a generated Secret, ADR-0044); Trivy findings routed by origin and kept in the work ledger (ADR-0042), SBOM + provenance in the package station | `image_signed`, `branch_protection` → phase 5 |
 | Reliability | 🟡 | liveness and readiness endpoints · `module_contracts` in the Next.js pack: auth, authz, logging, metrics and tracing behind ports, each adapter (no-op included) passing the module's contract tests (ADR-0044) | `probes`, `graceful_shutdown`, `resource_limits` → phase 5 (helm) |
 | Performance & scalability | ⬜ | deferrals stated per product with a trigger, in `docs/roadmap.md` and the work ledger (ADR-0044) | `load_smoke` (k6 in verify), `autoscaling` → phase 5 |
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
