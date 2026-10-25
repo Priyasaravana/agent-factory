@@ -214,7 +214,12 @@ class WorkflowRegistry:
         """Back to factory default: the shipped lane becomes the active version again."""
         if not self.is_factory(workflow_id):
             raise WorkflowError(f"'{workflow_id}' is an org workflow: activate an earlier version instead")
-        return self[workflow_id].import_dir(self[workflow_id].template_dir, "back to factory default")
+        svc = self[workflow_id]
+        version = svc.import_dir(svc.template_dir, "back to factory default")
+        # the draft was based on an older version: editing it would silently start from there and
+        # publishing it would undo this restore (live 2026-10-25: a draft from v2 behind v7)
+        svc.draft.discard()
+        return version
 
     def skill_users(self, name: str) -> list[str]:
         """Workflows whose active version or draft uses a skill."""

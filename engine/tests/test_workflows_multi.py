@@ -216,7 +216,9 @@ async def test_the_factory_default_is_always_one_step_away(make_factory):
     d.upsert_agent(doc.agents["developer"].model_copy(update={"learnings": "Use typed SQLAlchemy models."}))
     d.publish("developer learnings")  # an edit is a new version
     assert f.workflows[WF].active_version() == 2
+    f.workflows[WF].draft.set_spec_review("always")  # a draft left behind on version 2
     assert f.workflows.restore_factory(WF) == 3
+    assert f.store.get_workflow_draft(WF) is None, "the stale draft is gone: the next edit starts from v3"
     restored = f.workflows[WF].get()
     assert (
         restored.agents["developer"].learnings == "" and restored.template_hash == f.workflows[WF].get(1).template_hash

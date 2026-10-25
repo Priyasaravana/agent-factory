@@ -24,6 +24,7 @@ import yaml
 
 from agent_factory import (
     assess,
+    base_images,
     checks,
     contract,
     image_scan,
@@ -1048,28 +1049,79 @@ async def quality_gate(ctx: StationContext) -> StationResult:
 
 # ------------------------------------------------------------------- build --
 async def build_image(ctx: StationContext) -> StationResult:
-    """Build the image here, then scan and publish it through the environment's providers."""
+    """Build the image here, then scan and publish it through the environment's providers. With a
+    pack's approved base images (ADR-0045), a hold on the base image's own findings tries the next
+    approved image: rebuilt, scanned and started once; the first that passes ships."""
     p = ctx.providers
     sha = await ctx.ws.head_sha(ctx.worktree)
     local_image = f"{ctx.product.slug}:{sha}"
-    # --pull: the base image is refreshed on every build. Without it dind keeps the first copy it
-    # pulled for good, and the image scan holds on base-image CVEs its publisher fixed long ago
-    # (live run 2026-10-22: libssl3 in a distroless base cached since the first Next.js build,
-    # fixed in Debian six months earlier). Layers that didn't change still come from the cache.
-    build = f"docker build --pull -t {local_image} ."
-    res = await ctx.cmd(build, timeout=1500)
-    if not res.ok:
-        return StationResult(
-            StationOutcome.failed,
-            "packaging failed at: docker build",
-            failed_detail(build, res),
+    dockerfile = ctx.worktree / "Dockerfile"
+    text = dockerfile.read_text(errors="replace") if dockerfile.is_file() else ""
+    plan = await _base_image_plan(ctx, text)
+    attempts: list[dict[str, Any]] = []
+    result: StationResult | None = None
+    scanned = ""
+    for i, cand in enumerate(plan or [None]):
+        last = i == len(plan or [None]) - 1
+        base = cand.image if cand else image_scan.base_image(text)
+        build = (
+            f"docker build --pull -t {local_image} ."
+            if cand is None
+            else (f"docker build --pull --build-arg RUNTIME={cand.stage} -t {local_image} .")
         )
-    scan = await p.scan.scan(ctx, local_image)
-    if not scan.ok:
-        return StationResult(StationOutcome.failed, scan.summary, scan.detail)
-    stop, scanned = await _judge_image_scan(ctx, local_image, scan)
-    if stop is not None:
-        return stop
+        res = await _docker_build(ctx, build, cand)
+        if not res.ok:
+            attempts.append({"stage": cand and cand.stage, "image": base, "result": "build failed"})
+            if not last and not ctx.stop:
+                await ctx.emit(
+                    EventKind.decision, f"base image {base}: the build failed; trying the next approved image"
+                )
+                continue
+            result = StationResult(
+                StationOutcome.failed, "packaging failed at: docker build", failed_detail(build, res)
+            )
+            break
+        scan = await p.scan.scan(ctx, local_image)
+        if not scan.ok:
+            result = StationResult(StationOutcome.failed, scan.summary, scan.detail)
+            break
+        assessed = await _assess_image_scan(ctx, local_image, scan, base)
+        app_fix = assessed.verdict is not None and assessed.verdict.action == "fix"
+        if cand is not None and len(plan) > 1 and assessed.stop is None and not app_fix:
+            started = await _runtime_check(ctx, local_image)
+            if started:
+                attempts.append({"stage": cand.stage, "image": base, "result": f"does not start: {started}"})
+                if not last:
+                    await ctx.emit(
+                        EventKind.decision,
+                        f"base image {base}: the app did not start on it ({started}); trying the next approved image",
+                    )
+                    continue
+                result = StationResult(
+                    StationOutcome.held,
+                    "no approved base image runs this app",
+                    f"The app built on {base} but did not start: {started}. Review the pack's approved base images.",
+                )
+                break
+        v = assessed.verdict
+        if v is not None and not last and base_images.fallback_worth_trying(v):
+            attempts.append({"stage": cand and cand.stage, "image": base, "result": v.headline()})
+            await ctx.emit(
+                EventKind.decision,
+                f"base image {base}: {v.headline()}; its publisher hasn't shipped the fix, so trying the next "
+                "approved image",
+                {"base_image_fallback": {"from": base, "blocking": [f.key for f in [*v.base_fixes, *v.no_fix]]}},
+            )
+            continue
+        attempts.append(
+            {"stage": cand and cand.stage, "image": base, "result": v.headline() if v else assessed.scanned}
+        )
+        result = await _record_image_scan(ctx, assessed)
+        scanned = assessed.scanned
+        break
+    await _record_base_images(ctx, plan, attempts)
+    if result is not None:
+        return result
     sbom = await _sbom_and_provenance(ctx, local_image, sha)
     if sbom is not None and not sbom.ok:
         return StationResult(StationOutcome.failed, "packaging failed at: SBOM", failed_detail(sbom.command, sbom))
@@ -1080,6 +1132,132 @@ async def build_image(ctx: StationContext) -> StationResult:
     await ctx.emit(EventKind.decision, f"image built and {push.summary}: {ref}", {"image": str(ref)})
     extra = ", SBOM + provenance recorded" if sbom is not None else ""
     return StationResult(StationOutcome.passed, f"image {ref} built, {scanned}{extra} and {push.summary}")
+
+
+DOCKER_USER_ENV, DOCKER_TOKEN_ENV = "AF_REGISTRY_USER", "AF_REGISTRY_TOKEN"
+
+
+async def _base_image_plan(ctx: StationContext, dockerfile: str) -> list[base_images.BaseImage]:
+    """The approved images to try, in order (ADR-0045). Empty: the Dockerfile has none to choose
+    from (built before 1.3.1), so it builds as written. An image whose registry sign-in isn't
+    available is skipped, and that is said."""
+    cands = base_images.candidates(ctx.blueprint.base_images, dockerfile)
+    if not cands:
+        return []
+    ready = {c.login for c in cands if c.login and _registry_login(ctx, c.login) is not None}
+    plan = base_images.plan_fallback(cands, [], ready)
+    for c in cands:
+        if c not in plan:
+            await ctx.emit(
+                EventKind.decision,
+                f"base image {c.image} skipped: no sign-in for registry_logins.{c.login}; starting on the next "
+                "approved image",
+                {"base_image_skipped": {"image": c.image, "login": c.login}},
+            )
+    return plan
+
+
+def _registry_login(ctx: StationContext, name: str) -> tuple[str, str, str] | None:
+    """(registry, username, token) for a `registry_logins` entry, or None when it isn't usable."""
+    login = ctx.cfg.registry_logins.get(name)
+    if login is None:
+        return None
+    user = _login_name(login.username)
+    if not user:
+        return None
+    token = ctx.secret(login.token, f"sign in to {login.registry}", "pull-image")
+    return (login.registry, user, token) if token else None
+
+
+def _login_name(ref: str) -> str:
+    """A registry username: a literal, or read from the environment (`env://NAME`). It isn't a
+    secret, so it is not registered with the redactor: a username such as a person's name would
+    otherwise be masked in every event that mentions them."""
+    import os
+
+    if ref.startswith("env://"):
+        return os.environ.get(ref.removeprefix("env://"), "").strip()
+    return "" if "://" in ref else ref
+
+
+async def _docker_build(ctx: StationContext, build: str, cand: base_images.BaseImage | None) -> CommandResult:
+    """Build, signed in to the image's registry for just this step when it needs it: the token goes
+    on stdin, never argv (ADR-0026), and the client logs out again whatever the build did."""
+    creds = _registry_login(ctx, cand.login) if cand is not None and cand.login else None
+    if creds is None:
+        return await ctx.cmd(build, timeout=1500)
+    registry, user, token = creds
+    reg = shlex.quote(registry)
+    script = (
+        f'printf %s "${DOCKER_TOKEN_ENV}" | docker login {reg} -u "${DOCKER_USER_ENV}" --password-stdin >/dev/null '
+        f"&& {build}; rc=$?; docker logout {reg} >/dev/null 2>&1; exit $rc"
+    )
+    return await ctx.cmd(script, timeout=1500, env={DOCKER_USER_ENV: user, DOCKER_TOKEN_ENV: token})
+
+
+async def _runtime_check(ctx: StationContext, image: str) -> str:
+    """Start the image once and call the pack's liveness path (ADR-0045 §2): "" when it answered,
+    else why not. Dry-run simulates it."""
+    name = f"af-start-{uuid.uuid4().hex[:8]}"
+    port = ctx.blueprint.service_port
+    live = ctx.blueprint.health_path
+    run = await ctx.cmd(f"docker run -d --rm --name {name} -p {port} {image}", timeout=120)
+    try:
+        if not run.ok:
+            return f"`docker run` exited {run.returncode}"
+        mapped = await ctx.cmd(f"docker port {name} {port}", timeout=30)
+        host_port = base_images.published_port(mapped.output)
+        if host_port is None:
+            if getattr(ctx.settings, "factory_mode", "live") == "dry-run":
+                return ""
+            return "its port was not published"
+        url = f"http://{ctx.settings.dind_host}:{host_port}{live}"
+        probe = await ctx.cmd(f"for i in $(seq 1 20); do curl -fsS {url} && exit 0; sleep 2; done; exit 1", timeout=90)
+        if probe.ok:
+            return ""
+        logs = await ctx.cmd(f"docker logs --tail 20 {name}", timeout=30)
+        return f"{live} did not answer; last log lines: {logs.output[-600:]}"
+    finally:
+        await ctx.cmd(f"docker rm -f {name} >/dev/null 2>&1 || true", timeout=60)
+
+
+async def _record_base_images(
+    ctx: StationContext, plan: list[base_images.BaseImage], attempts: list[dict[str, Any]]
+) -> None:
+    """Evidence of the images tried (ADR-0045), and an upkeep item when a fallback shipped."""
+    if not plan:
+        return
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    approved = [b.model_dump() for b in ctx.blueprint.base_images]
+    (out / "base-images.json").write_text(json.dumps({"approved": approved, "attempts": attempts}, indent=2))
+    used = attempts[-1] if attempts else None
+    default = ctx.blueprint.base_images[0] if ctx.blueprint.base_images else None
+    if used is None or default is None or used.get("stage") in (None, default.stage) or len(attempts) < 2:
+        return
+    from datetime import UTC, datetime
+
+    if ctx.product.eval_run_id:
+        return
+    now = datetime.now(UTC)
+    why = "; ".join(f"{a['image']}: {a['result']}" for a in attempts[:-1])
+    changed = ledger.propose_base_image(
+        ctx.product.id,
+        ctx.store.list_work_items(ctx.product.id),
+        image=str(used["image"]),
+        default=default.image,
+        why=why,
+        change_id=ctx.change.id,
+        iteration=ctx.change.iteration,
+        now=now,
+    )
+    if changed:
+        ctx.store.save_work_items(changed)
+    await ctx.emit(
+        EventKind.decision,
+        f"shipped on the approved fallback {used['image']} ({why}); upkeep item proposes it as the default",
+        {"base_image": {"used": used, "default": default.image}},
+    )
 
 
 LOCKFILES = ("package-lock.json", "uv.lock", "poetry.lock")
@@ -1096,17 +1274,33 @@ def _lockfiles(root: Path) -> dict[str, str]:
     return out
 
 
-async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -> tuple[StationResult | None, str]:
-    """Image findings as evidence, routed by type (ADR-0042). Returns a result when the change
-    stops here (back to develop, or held for a person), else None and the scan's summary."""
+@dataclass
+class _Assessed:
+    """One image scan read and judged (ADR-0042), before anything is recorded."""
+
+    image: str
+    base: str
+    scanned: str = ""  # what to say when nothing more is recorded (no report, exit code only)
+    stop: StationResult | None = None  # the scan couldn't be read and failed
+    verdict: image_scan.Verdict | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    locks: dict[str, str] = field(default_factory=dict)
+    factory_covered: dict[str, base_images.ImageRisk] = field(default_factory=dict)
+
+
+async def _assess_image_scan(ctx: StationContext, image: str, scan: StepResult, base: str) -> _Assessed:
+    """Read and judge one image scan against the product's accepted risks and the factory's
+    decisions for this base image (ADR-0045 §3). Records nothing."""
     from datetime import UTC, datetime
 
+    a = _Assessed(image, base)
     report = scan.data.get("report")
     if report is None:  # nothing ran (no scan_command): the provider already said so
-        return None, scan.summary
-    locks = _lockfiles(ctx.worktree)
+        a.scanned = scan.summary
+        return a
+    a.locks = _lockfiles(ctx.worktree)
     try:
-        findings = image_scan.parse(str(report), image_scan.locked_packages(locks))
+        findings = image_scan.parse(str(report), image_scan.locked_packages(a.locks))
     except image_scan.NotAnImageReport as exc:
         # an older `scan_command` without `--format json`: its exit code decides, as before.
         # A failed scan with no report never ran to the end: say that, not "set --format json"
@@ -1114,12 +1308,12 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
         why = "the scan failed before writing a report" if failed and not str(report).strip().startswith("{") else exc
         await ctx.emit(EventKind.decision, f"image findings not read ({why}); the scan's exit code decides")
         if failed:
-            return StationResult(StationOutcome.failed, "packaging failed at: image scan", scan.detail), ""
-        return None, "scanned (exit code only)"
-    out = artifacts_dir(ctx)
-    out.mkdir(parents=True, exist_ok=True)
-    evidence = out / "image-scan.json"
+            a.stop = StationResult(StationOutcome.failed, "packaging failed at: image scan", scan.detail)
+        else:
+            a.scanned = "scanned (exit code only)"
+        return a
     previous: list[str] | None = None
+    evidence = artifacts_dir(ctx) / "image-scan.json"
     if evidence.is_file():
         try:
             prev = json.loads(evidence.read_text())
@@ -1128,15 +1322,48 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
         except (OSError, ValueError):
             previous = None
     now = datetime.now(UTC)
-    items = ctx.store.list_work_items(ctx.product.id)
-    accepted = ledger.accepted_image_keys(items, [f.key for f in findings], now)
-    verdict = image_scan.judge(findings, accepted=accepted, previous_fixes=previous, fail_on=ctx.blueprint.scan_fail_on)
-    dockerfile = ctx.worktree / "Dockerfile"
-    base = image_scan.base_image(dockerfile.read_text(errors="replace")) if dockerfile.is_file() else ""
-    data = {"image": image, "base_image": base, "lockfiles": sorted(locks), **verdict.as_data()}
-    evidence.write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023); no raw report
+    keys = [f.key for f in findings]
+    accepted = ledger.accepted_image_keys(ctx.store.list_work_items(ctx.product.id), keys, now)
+    risks = base_images.load_risks(ctx.store)
+    base_keys = [f.key for f in base_images.base_findings(findings)]
+    factory_ok = base_images.accepted_for(risks, base, base_keys, now) if base else set()
+    a.factory_covered = {r.key: r for r in risks if r.key in factory_ok and r.image == base_images.image_name(base)}
+    a.verdict = image_scan.judge(
+        findings, accepted=accepted | factory_ok, previous_fixes=previous, fail_on=ctx.blueprint.scan_fail_on
+    )
+    a.data = {"image": image, "base_image": base, "lockfiles": sorted(a.locks), **a.verdict.as_data()}
+    return a
+
+
+async def _record_image_scan(ctx: StationContext, a: _Assessed) -> StationResult | None:
+    """Record the scan of the image that ships (evidence, the work ledger, the factory's decisions)
+    and route it (ADR-0042): None to carry on, or the result that stops the change here."""
+    from datetime import UTC, datetime
+
+    if a.stop is not None:
+        return a.stop
+    verdict = a.verdict
+    if verdict is None:
+        return None
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    data = {**a.data, "factory_decisions": sorted(a.factory_covered)}
+    (out / "image-scan.json").write_text(json.dumps(data, indent=2))  # sealed evidence (ADR-0023); no raw report
+    now = datetime.now(UTC)
+    if a.base:  # a factory decision closes when this image no longer has the finding (ADR-0045 §3)
+        risks = base_images.load_risks(ctx.store)
+        present = [f.key for f in base_images.base_findings(verdict.findings)]
+        kept, closed = base_images.close_fixed(risks, a.base, present, now)
+        if closed:
+            base_images.save_risks(ctx.store, kept)
+            await ctx.emit(
+                EventKind.decision,
+                f"closed {len(closed)} factory decision(s): fixed in {a.base} or expired",
+                {"factory_decisions_closed": [r.key for r in closed]},
+            )
     stats: dict[str, int] = {}
     if not ctx.product.eval_run_id:  # evaluation products keep no ledger (ADR-0025)
+        items = ctx.store.list_work_items(ctx.product.id)
         changed, stats = ledger.fold_image_scan(
             ctx.product.id,
             items,
@@ -1148,6 +1375,8 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
                     "detail": image_scan.ledger_detail(f),
                     "at": [f.path or f.ecosystem],
                     "rule": f.cve,
+                    "origin": f.origin,
+                    "base_image": base_images.image_name(a.base) if a.base else "",
                 }
                 for f in verdict.findings
             ],
@@ -1155,22 +1384,27 @@ async def _judge_image_scan(ctx: StationContext, image: str, scan: StepResult) -
             iteration=ctx.change.iteration,
             now=now,
         )
-        if changed:
-            ctx.store.save_work_items(changed)
+        adopted = ledger.adopt_factory_decisions(items, a.factory_covered, now=now, change_id=ctx.change.id)
+        merged = {it.id: it for it in [*changed, *adopted]}
+        if merged:
+            ctx.store.save_work_items(list(merged.values()))
     headline = verdict.headline()
+    if a.factory_covered:
+        headline += f" · {len(a.factory_covered)} covered by factory decisions"
     keys = ("action", "fail_on", "repeated", "counts", "app_fixes", "base_fixes", "no_fix", "accepted")
     await ctx.emit(
         EventKind.decision,
         headline + (f" · work ledger: {stats['new']} new, {stats['fixed']} fixed" if stats else ""),
-        {"image_scan": {k: data[k] for k in keys} | {"base_image": base}, "work_ledger": stats},
+        {"image_scan": {k: data[k] for k in keys} | {"base_image": a.base}, "work_ledger": stats},
     )
     if verdict.action == "fix":
-        return StationResult(StationOutcome.failed, headline, image_scan.developer_brief(verdict, sorted(locks))), ""
+        return StationResult(StationOutcome.failed, headline, image_scan.developer_brief(verdict, sorted(a.locks)))
     if verdict.action == "hold":
-        held = StationResult(StationOutcome.held, headline, image_scan.person_brief(verdict, base))
+        held = StationResult(StationOutcome.held, headline, image_scan.person_brief(verdict, a.base))
         held.required = _accept_image_risk(ctx, verdict.base_fixes + verdict.no_fix)
-        return held, ""
-    return None, headline.removeprefix("image scan: ")
+        return held
+    a.scanned = headline.removeprefix("image scan: ")
+    return None
 
 
 def _accept_image_risk(ctx: StationContext, blocking: list[image_scan.ImageFinding]) -> RequiredAction | None:

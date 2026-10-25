@@ -42,6 +42,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
+from agent_factory import base_images
+from agent_factory.base_images import BaseImage
 from agent_factory.decisions import Catalogue, CatalogueError, load_catalogue
 from agent_factory.readiness import RuleError, StackRules, parse_stack_rules
 
@@ -151,6 +153,8 @@ class PackStack(BaseModel):
     evals: str | None = None
     decisions: str | None = None  # the design questions every product of this stack answers (ADR-0044 §1)
     admin_secret: PackAdminSecret | None = None  # the deployment's first admin, for live sign-in (§3)
+    # approved runtime images, default first (ADR-0045): stages of the template's Dockerfile
+    base_images: list[BaseImage] = Field(default_factory=list, max_length=6)
 
 
 class Pack(BaseModel):
@@ -249,6 +253,21 @@ def _check_stack(pack: Pack) -> StackRules:
         skill = _inside(pack, stack.skill, "stack.skill", is_dir=True)
         if not (skill / "SKILL.md").is_file():
             raise PackError(f"pack {pack.source}: stack.skill '{stack.skill}' has no SKILL.md")
+    if stack.base_images:
+        dockerfile = pack.path(stack.template) / "Dockerfile"
+        text = dockerfile.read_text() if dockerfile.is_file() else ""
+        if not base_images.has_runtime_arg(text):
+            raise PackError(
+                f"pack {pack.source}: stack.base_images needs the template's Dockerfile to pick its runtime "
+                "with `ARG RUNTIME` and `FROM ${RUNTIME}`"
+            )
+        have = base_images.stages_in(text)
+        if missing := [b.stage for b in stack.base_images if b.stage not in have]:
+            raise PackError(
+                f"pack {pack.source}: stack.base_images stages not in the template's Dockerfile: {', '.join(missing)}"
+            )
+        if len({b.stage for b in stack.base_images}) != len(stack.base_images):
+            raise PackError(f"pack {pack.source}: stack.base_images lists a stage twice")
     if stack.preview and not stack.e2e:
         raise PackError(f"pack {pack.source}: stack.preview needs stack.e2e, the suite it runs against the preview")
     if stack.evals:
@@ -325,6 +344,7 @@ class PackBinding:
     preview: PackPreview | None = None  # the app inside the sandbox, for e2e before deploy (ADR-0043 §5)
     decisions: Catalogue | None = None  # the decision sheet's questions (ADR-0044 §1)
     admin_secret: PackAdminSecret | None = None  # the deployment's first admin (ADR-0044 §3)
+    base_images: tuple[BaseImage, ...] = ()  # approved runtime images, default first (ADR-0045)
 
     @property
     def source(self) -> str:
@@ -406,6 +426,7 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         stack.preview,
         pack.catalogue,
         stack.admin_secret,
+        tuple(stack.base_images),
     )
 
 

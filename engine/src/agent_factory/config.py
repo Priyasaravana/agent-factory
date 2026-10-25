@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 if TYPE_CHECKING:
+    from agent_factory.base_images import BaseImage
     from agent_factory.packs import PackAdminSecret, PackBinding, PackPreview
     from agent_factory.readiness import StackRules
 
@@ -105,6 +106,11 @@ class Blueprint(BaseModel):
     def admin_secret(self) -> PackAdminSecret | None:
         """Where the pack's chart keeps the deployment's first admin (ADR-0044 §3), if it has one."""
         return self._pack.admin_secret if self._pack else None
+
+    @property
+    def base_images(self) -> tuple[BaseImage, ...]:
+        """The pack's approved runtime images, default first (ADR-0045); empty without a pack."""
+        return self._pack.base_images if self._pack else ()
 
     @property
     def pack_egress(self) -> tuple[str, ...]:
@@ -386,6 +392,23 @@ class PhasesConfig(BaseModel):
     packs: list[str] = Field(default_factory=list)
 
 
+class RegistryLogin(BaseModel):
+    """A sign-in for pulling base images (ADR-0045 §4): the token is a secret reference, passed to
+    `docker login --password-stdin` for the build step only, never written to config or argv."""
+
+    model_config = ConfigDict(extra="forbid")
+    registry: str = Field(pattern=r"^[a-z0-9.-]+(:[0-9]{2,5})?$")
+    username: str = Field(min_length=1, max_length=200)  # a literal, or env://NAME (not a secret: never masked)
+    token: str = Field(min_length=6, max_length=300)  # a secret reference, never a value
+
+    @field_validator("token")
+    @classmethod
+    def _a_reference(cls, v: str) -> str:
+        if "://" not in v:
+            raise ValueError("registry_logins.token must be a secret reference such as env://DOCKERHUB_TOKEN")
+        return v
+
+
 class FactoryConfig(BaseModel):
     version: int = 1
     timezone: str = "UTC"
@@ -410,6 +433,8 @@ class FactoryConfig(BaseModel):
     # tool stations (ADR-0034): add tools or override the built-in ones (image, command …),
     # e.g. pin a reviewed digest: {semgrep: {image: "semgrep/semgrep@sha256:…"}}
     tools: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # sign-ins for pulling approved base images (ADR-0045 §4), named by a pack's `base_images[].login`
+    registry_logins: dict[str, RegistryLogin] = Field(default_factory=dict)
     # which provider answers each check (ADR-0035): local tool, GitHub, Snyk or an agent
     checks: ChecksConfig = ChecksConfig()
     # where agents reach the model (ADR-0036): direct, or a gateway with a virtual key per call

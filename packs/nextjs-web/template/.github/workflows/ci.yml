@@ -23,7 +23,9 @@ jobs:
       - name: secret scan
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 detect --source /repo --no-banner
       - name: container image builds
-        run: docker build -t app:ci .
+        # the distroless runtime needs no registry sign-in; the factory builds the hardened one
+        # (dhi.io) with its own Docker Hub token (ADR-0045)
+        run: docker build --build-arg RUNTIME=runtime-distroless -t app:ci .
   e2e:
     runs-on: ubuntu-latest
     needs: verify

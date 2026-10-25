@@ -189,6 +189,15 @@
   the work ledger (`ledger.fold_image_scan`, category `image`) so a person can accept a risk with an
   expiry and resume. Output that isn't Trivy JSON falls back to the exit code, and says so. Tests in
   `tests/test_image_scan.py`.
+- Base images (ADR-0045): a pack lists its approved runtime images in order (`stack.base_images`: a
+  Dockerfile stage each, `login` naming a `registry_logins` entry); the template picks one with
+  `ARG RUNTIME`. A hold on the base image's own findings makes Build try the next one
+  (`--build-arg RUNTIME=<stage>`, scanned and started once: `_runtime_check`), keep the first that
+  passes, record `artifacts/<change>/base-images.json` and propose it as the default
+  (`ledger.propose_base_image`). Accepting a base-image risk is factory-wide (`base_images.record`,
+  meta `base_image_risks`): honoured for every product on that image, closed when a scan no longer finds
+  it. Registry tokens are secret references passed to `docker login --password-stdin` (capability
+  `pull-image`). Pure helpers in `base_images.py`; tests in `tests/test_base_images.py`.
 - Failure classes (ADR-0043): a failed step is `work`, `infra` or `decision` (`failures.py`, pure
   rule tables; anything unrecognised is `work`). `ctx.agent` and privileged `ctx.cmd` retry infra
   failures in place with backoff (`budgets.infra_*`) and set `ctx.stop` when retries don't cure

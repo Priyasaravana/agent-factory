@@ -499,7 +499,44 @@ def decide_work_items(f: Factory, product_id: str, body: WorkItemDecisionInput) 
     except ValueError as exc:
         raise InvalidRequestError(str(exc)) from exc
     f.store.save_work_items(changed)
+    if body.decision == "accepted_risk":
+        _record_base_image_risks(f, product_id, changed, body, datetime.now(UTC))
     return sorted(items, key=ledger.sort_key)
+
+
+def _record_base_image_risks(
+    f: Factory, product_id: str, accepted: list[WorkItem], body: WorkItemDecisionInput, now: Any
+) -> None:
+    """A base-image risk is decided once for every product on that image (ADR-0045 §3)."""
+    from agent_factory import base_images, ledger
+
+    by_image: dict[str, list[tuple[str, str, str]]] = {}
+    for it in accepted:
+        src = next((s for s in it.sources if s.get("via") == "image scan"), {})
+        if (
+            it.category != ledger.IMAGE
+            or src.get("origin") != "base"
+            or not src.get("base_image")
+            or not src.get("key")
+        ):
+            continue
+        by_image.setdefault(src["base_image"], []).append((src["key"], src.get("rule", ""), it.id))
+    if not by_image:
+        return
+    risks = base_images.load_risks(f.store)
+    for image, found in by_image.items():
+        risks = base_images.record(
+            risks,
+            image,
+            [(k, cve) for k, cve, _ in found],
+            until=body.until,
+            reason=body.reason,
+            by=current_identity().user,
+            now=now,
+            product_id=product_id,
+            item_id=",".join(i for _, _, i in found),
+        )
+    base_images.save_risks(f.store, risks)
 
 
 @action(
@@ -1678,10 +1715,14 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
     from agent_factory.engine.preflight import PreflightFailed
 
     w = f.workflows[workflow_id]
-    _, doc, _ = w.draft.get()
+    base, doc, _ = w.draft.get()
     # evaluations build new products: without a new-product blueprint there is nothing to evaluate on
     gate = doc.eval_gate if doc.evals and f.cfg.eval_blueprint(doc.works_on) else "off"
     before = w.active_version()
+    if gate != "off" and base == before and settings_only(w.get(before), doc):
+        # who decides, whether a person reviews, learning: no agent prompt or station changes, and the
+        # evaluations answer every question themselves, so they would measure nothing (ADR-0045)
+        gate = "off"
     who = current_identity().user
     info = w.draft.publish(f"{body.note} (by {who})", activate=gate != "block")
     if gate == "off":
@@ -1694,6 +1735,16 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
         note = f"evaluation not started: {exc}"
         evals.record_not_started(f.manager, workflow_id, info.version, who, str(exc))
     return info.model_copy(update={"evaluation": note})
+
+
+SETTINGS_ONLY = {"spec_review", "decisions", "decision_constraints", "learn_from_runs", "eval_gate", "evals"}
+
+
+def settings_only(active: Any, draft: Any) -> bool:
+    """True when a draft differs from the active version only in lane settings that no evaluation
+    measures: who answers the design questions, the spec review gate, learning and the gate itself."""
+    a, d = active.model_dump(exclude=SETTINGS_ONLY), draft.model_dump(exclude=SETTINGS_ONLY)
+    return a == d
 
 
 @action("discard_draft", "Throw the draft away", "DELETE", "/api/workflows/{workflow_id}/draft")

@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.3.0
+version: 1.3.1
 title: Next.js web app
 stack:
   builds: web-app
@@ -29,6 +29,12 @@ stack:
   readiness: readiness.yaml          # how this stack proves the stack-specific signals, plus a11y
   evals: evals.yaml                  # this pack's evaluation cases (per-pack gating: ADR-0041 step 5)
   decisions: decisions.yaml          # the design questions every product answers (ADR-0044 §1)
+  # approved runtime images, default first (ADR-0045): stages of the template's Dockerfile. When the
+  # default holds on base-image CVEs its publisher hasn't shipped a fix for, Build tries the next one
+  # (scan + a start-up check) and records which it used. `login` names a `registry_logins` entry.
+  base_images:
+    - {stage: runtime-hardened, image: "dhi.io/node:22-alpine3.23", login: dhi, title: Docker Hardened Node 22}
+    - {stage: runtime-distroless, image: "gcr.io/distroless/nodejs22-debian12:nonroot", title: Distroless Node 22}
   # the deployment's first admin (ADR-0044 §3): the chart generates it into this Secret; the factory
   # reads it after deploy to sign the live e2e suite and the hidden scenarios in, redacted
   admin_secret:
