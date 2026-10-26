@@ -70,15 +70,21 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   if (isAdmin) items.push({ to: "/admin", label: "Admin", icon: <Shield /> });
   return (
     <nav className="flex h-full flex-col gap-1 p-3" aria-label="Main">
-      <div className="mb-4 flex items-center gap-2.5 px-2 pt-1">
+      <NavLink
+        to="/"
+        onClick={onNavigate}
+        aria-label="Agent Software Factory: home"
+        className="mb-4 flex items-center gap-2.5 rounded-lg px-2 pt-1 pb-1 text-foreground no-underline hover:bg-muted/60 hover:no-underline"
+        data-testid="home-link"
+      >
         <div className="grid size-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-fuchsia-500 text-white shadow-md">
           <Factory className="size-4" />
         </div>
         <div className="leading-tight">
-          <div className="text-sm font-semibold">Agent Factory</div>
+          <div className="text-sm font-semibold">Agent Software Factory</div>
           <div className="text-[11px] text-muted-foreground">requirements → running software</div>
         </div>
-      </div>
+      </NavLink>
       {items.map((i) => (
         <NavLink
           key={i.to}

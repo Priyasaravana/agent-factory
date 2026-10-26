@@ -181,7 +181,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         await f.manager.shutdown()
 
     app = FastAPI(
-        title="Agent Factory API",
+        title="Agent Software Factory API",
         version="0.1.0",
         description="API-first control plane for the agent software factory. "
         "Every route is a shared action also available to agents.",

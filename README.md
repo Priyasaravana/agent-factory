@@ -1,4 +1,4 @@
-# Agent Factory
+# Agent Software Factory
 
 A local **software factory**. You give it requirements, and later feedback.
 AI agents do everything in between: they specify, design, build, test,
