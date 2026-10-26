@@ -101,7 +101,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Operability & observability | 🟡 | JSON logs, /metrics, OpenTelemetry hook | `runbook`, `slo_alerts` (starter SLOs and alert rules) |
 | Cost | ⬜ | factory-side cost per change only; deferrals stated per product with a trigger (ADR-0044) | `resource_requests` (runtime cost estimable) → phase 5 |
 | Interoperability | 🟡 | OpenAPI contract present (`design_docs`) | `openapi_valid` (spec published and valid) |
-| Usability | 🟡 | `a11y` in the Next.js pack: axe in the Playwright e2e suite, run against every deployment (ADR-0041) · services have no UI, so it stays uncovered there | `a11y` in the React SPA pack |
+| Usability | 🟡 | `a11y` in the Next.js pack: axe in the Playwright e2e suite, run against every deployment (ADR-0041) · design system (Tailwind v4 tokens per `look`, shadcn/ui components, app shell), a designer writing `docs/ui.md`, route screenshots (light/dark, desktop/phone) as evidence and a UI review against the pack's rubric, reported only (ADR-0044 §4, nextjs-web 1.4.0) · services have no UI, so it stays uncovered there | UI review blocking once the rubric is calibrated; `a11y` in the React SPA pack |
 | Maintainability | ✅ | ruff, pre-commit, coverage ≥ 80%, CI, AGENTS.md, small modules · ports and adapters in the Next.js pack, `modules_isolated` enforced by lint (ADR-0044) | modules in the FastAPI pack (after J5) |
 | Portability | 🟡 | lockfile, Dockerfile, app chooses its Python, Helm chart to any cluster (ADR-0026) · two stacks: FastAPI and Next.js (ADR-0041) | `chart_lint`; more stacks → React SPA, full-stack packs |
 | Compliance & evidence | ✅ | acceptance tests, traceability, e2e, review evidence, SBOM, provenance, sealed evidence with a pillar index (ADR-0023) | — |
@@ -116,7 +116,7 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
 | Operability & observability | 🟡 | event log, per-call records, transcripts, Outcomes, runbook · ⬜ OpenTelemetry GenAI export |
 | Cost | ✅ | cost per delivered change (failed changes included), usage limits, model tiers per agent |
 | Interoperability | 🟡 | OpenAPI-first API, API tokens · ⬜ MCP integrations, issue intake, Backstage/Port plugin |
-| Usability | 🟡 | new UI, themes, ⌘K · ⬜ accessibility check on the factory UI |
+| Usability | 🟡 | new UI, themes, ⌘K · product and change pages: a "Needs you" panel with the pending actions (engine-decided, `GET /api/attention`), collapsible panels with one-line summaries, events levelled error/warn/info/debug by the engine; no sideways scroll at 390 px · ⬜ accessibility check on the factory UI |
 | Maintainability | 🟡 | ruff, mypy (with a baseline), tsc, engine + e2e tests · `actions.py` is ~1,800 lines |
 | Portability | 🟡 | docker compose for the factory · ✅ generated apps to any registry and cluster (ADR-0026) · ⬜ live check on `local-ingress` |
 | Compliance & evidence | ✅ | audit log, versioned workflows, approvals, sealed evidence manifest (ADR-0023) · ⬜ SSDF / ISO 42001 mapping on demand |

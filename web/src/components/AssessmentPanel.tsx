@@ -6,6 +6,7 @@ import { api, unwrap } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
+import { Panel } from "./ui/panel";
 
 type Tab = "findings" | "risks" | "tests" | "next" | "coverage" | "signals" | "packs" | "agents";
 
@@ -121,22 +122,31 @@ export default function AssessmentPanel({
   };
 
   return (
-    <section className="grid gap-3 rounded-xl border bg-card p-4" data-testid="assessment" aria-label="Assessment">
-      <div className="flex flex-wrap items-center gap-2">
-        <ScanSearch className="size-4 text-primary" />
-        <h4 className="m-0">Assessment</h4>
-        <span className={cn("pill", v.level >= 3 ? "ok" : v.level >= 1 ? "warn" : "bad")}>
-          readiness Level {v.level}
-        </span>
-        <span className="pill muted">
-          {v.points}/{v.max_points} points
-        </span>
-        {high > 0 && <span className="pill bad">{high} critical/high</span>}
-        {rolled && gaps.length > 0 && <span className="pill warn">scan coverage incomplete</span>}
-        <Button size="sm" variant="outline" className="ml-auto" onClick={download}>
+    <Panel
+      id="assessment"
+      defaultOpen
+      data-testid="assessment"
+      aria-label="Assessment"
+      icon={<ScanSearch className="text-primary" />}
+      title="Assessment"
+      summary={
+        <>
+          <span className={cn("pill", v.level >= 3 ? "ok" : v.level >= 1 ? "warn" : "bad")}>
+            readiness Level {v.level}
+          </span>
+          <span className="pill muted">
+            {v.points}/{v.max_points} points
+          </span>
+          {high > 0 && <span className="pill bad">{high} critical/high</span>}
+          {rolled && gaps.length > 0 && <span className="pill warn">scan coverage incomplete</span>}
+        </>
+      }
+      right={
+        <Button size="sm" variant="outline" onClick={download}>
           <Download /> Report (.md)
         </Button>
-      </div>
+      }
+    >
       <p className="m-0 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">{v.stack_summary}</span> · commit{" "}
         <code>{String(v.repo.commit ?? "").slice(0, 12)}</code> on <code>{String(v.repo.ref ?? "")}</code> ·{" "}
@@ -371,7 +381,7 @@ export default function AssessmentPanel({
           </ul>
         </details>
       )}
-    </section>
+    </Panel>
   );
 }
 

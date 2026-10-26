@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // End-to-end tests against a running deployment: `make e2e BASE_URL=http://…`.
-// The factory runs them after each deploy; they include the accessibility check (e2e/a11y.spec.ts).
+// The factory runs them after each deploy; they include the accessibility check (e2e/a11y.spec.ts)
+// and the screenshots of every route (e2e/screenshots.spec.ts).
 const baseURL = process.env.BASE_URL ?? "http://localhost:3000";
 
 // Playwright ignores HTTP_PROXY/HTTPS_PROXY. In the factory's sandbox the only way to the live app

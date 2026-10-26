@@ -1,43 +1,171 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens (ADR-0044 §4). Components use these through Tailwind (bg-background, text-primary,
+ * rounded-lg, …), never raw colours, so the whole app follows the product's `look` decision
+ * (docs/decisions.yaml → src/app/look.ts → <html data-look>) and the reader's light or dark mode.
+ * System fonts only: builds have no network to font hosts.
+ */
+
 :root {
   color-scheme: light dark;
-  --fg: #1a1a1a;
-  --bg: #ffffff;
-  --muted: #555555;
-  --accent: #0b5cad;
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  line-height: 1.5;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* neutral (default) */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.965 0.004 260);
+  --muted-foreground: oklch(0.47 0.015 260);
+  --border: oklch(0.91 0.006 260);
+  --input: oklch(0.86 0.008 260);
+  --primary: oklch(0.47 0.16 260);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.955 0.02 260);
+  --accent-foreground: oklch(0.3 0.08 260);
+  --destructive: oklch(0.53 0.2 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.5 0.13 150);
+  --ring: oklch(0.55 0.16 260);
+  --radius: 0.5rem;
+  --density: 1; /* spacing scale for compact looks */
+  --text-base-size: 1rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fg: #f2f2f2;
-    --bg: #121212;
-    --muted: #b5b5b5;
-    --accent: #7db8ff;
+    --background: oklch(0.17 0.01 260);
+    --foreground: oklch(0.95 0.005 260);
+    --card: oklch(0.21 0.012 260);
+    --muted: oklch(0.25 0.012 260);
+    --muted-foreground: oklch(0.72 0.015 260);
+    --border: oklch(0.3 0.012 260);
+    --input: oklch(0.36 0.014 260);
+    --primary: oklch(0.72 0.13 260);
+    --primary-foreground: oklch(0.17 0.02 260);
+    --accent: oklch(0.28 0.03 260);
+    --accent-foreground: oklch(0.92 0.03 260);
+    --destructive: oklch(0.7 0.17 25);
+    --destructive-foreground: oklch(0.17 0.02 25);
+    --success: oklch(0.74 0.13 150);
+    --ring: oklch(0.72 0.13 260);
   }
 }
 
-body {
-  margin: 0;
-  color: var(--fg);
-  background: var(--bg);
+/* neutral, compact: denser spacing and type for tables and data */
+[data-look="neutral-compact"] {
+  --density: 0.75;
+  --text-base-size: 0.875rem;
+  --radius: 0.375rem;
 }
 
-main {
-  max-width: 48rem;
-  margin: 0 auto;
-  padding: 2rem 1rem;
+/* warm: soft warm neutrals, rounder corners, a friendly accent */
+[data-look="warm"] {
+  --background: oklch(0.99 0.006 75);
+  --foreground: oklch(0.24 0.02 50);
+  --card: oklch(1 0.004 75);
+  --muted: oklch(0.96 0.012 75);
+  --muted-foreground: oklch(0.47 0.03 55);
+  --border: oklch(0.9 0.018 70);
+  --input: oklch(0.85 0.02 70);
+  --primary: oklch(0.52 0.14 40);
+  --accent: oklch(0.95 0.03 60);
+  --accent-foreground: oklch(0.35 0.08 45);
+  --ring: oklch(0.6 0.14 40);
+  --radius: 0.85rem;
+}
+@media (prefers-color-scheme: dark) {
+  [data-look="warm"] {
+    --background: oklch(0.19 0.012 55);
+    --foreground: oklch(0.95 0.01 75);
+    --card: oklch(0.23 0.015 55);
+    --muted: oklch(0.27 0.015 55);
+    --muted-foreground: oklch(0.75 0.02 70);
+    --border: oklch(0.33 0.018 55);
+    --input: oklch(0.38 0.02 55);
+    --primary: oklch(0.75 0.13 50);
+    --primary-foreground: oklch(0.2 0.03 45);
+    --accent: oklch(0.3 0.03 55);
+    --accent-foreground: oklch(0.93 0.03 70);
+    --ring: oklch(0.75 0.13 50);
+  }
 }
 
-a {
-  color: var(--accent);
+/* bold: high contrast surfaces, a strong accent, larger headings */
+[data-look="bold"] {
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.13 0 0);
+  --border: oklch(0.82 0 0);
+  --input: oklch(0.7 0 0);
+  --primary: oklch(0.5 0.24 295);
+  --accent: oklch(0.94 0.04 295);
+  --accent-foreground: oklch(0.32 0.18 295);
+  --ring: oklch(0.5 0.24 295);
+  --radius: 0.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  [data-look="bold"] {
+    --background: oklch(0.12 0 0);
+    --foreground: oklch(0.98 0 0);
+    --card: oklch(0.17 0 0);
+    --muted: oklch(0.22 0 0);
+    --muted-foreground: oklch(0.78 0 0);
+    --border: oklch(0.35 0 0);
+    --input: oklch(0.45 0 0);
+    --primary: oklch(0.75 0.17 295);
+    --primary-foreground: oklch(0.12 0.02 295);
+    --accent: oklch(0.26 0.06 295);
+    --accent-foreground: oklch(0.93 0.05 295);
+    --ring: oklch(0.75 0.17 295);
+  }
 }
 
-:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --spacing: calc(0.25rem * var(--density));
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    font-size: var(--text-base-size);
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    line-height: 1.5;
+  }
+  [data-look="bold"] h1 {
+    @apply text-4xl font-extrabold tracking-tight;
+  }
+  a {
+    @apply text-primary underline-offset-4 hover:underline;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
 }

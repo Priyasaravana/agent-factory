@@ -15,6 +15,8 @@ const PROVIDER: Record<string, string> = {
 
 /** What each scan station found on this change (ADR-0034/0035): who answered the check,
  * the normalised findings, the policy that judged them, and whether they blocked. */
+import { Panel } from "./ui/panel";
+
 export default function ToolsPanel({ changeId, runStatus }: { changeId: string; runStatus: string }) {
   const q = useQuery({
     queryKey: ["tools", changeId, runStatus],
@@ -30,16 +32,21 @@ export default function ToolsPanel({ changeId, runStatus }: { changeId: string; 
   const failing = reports.filter((r) => !r.passed).length;
 
   return (
-    <details className="rounded-xl border bg-card p-4" data-testid="tools">
-      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-        <ShieldCheck className="size-4 text-primary" />
-        <span className="font-medium">Security checks</span>
-        <span className="pill muted">
-          {reports.length} checks · {total} findings
-        </span>
-        {failing > 0 && <span className="pill bad">{failing} blocking</span>}
-      </summary>
-      <div className="mt-3 grid gap-3">
+    <Panel
+      id="tools"
+      data-testid="tools"
+      tone={failing > 0 ? "bad" : "default"}
+      icon={<ShieldCheck className="text-primary" />}
+      title="Security checks"
+      summary={
+        <>
+          <span className="pill muted">
+            {reports.length} checks · {total} findings
+          </span>
+          {failing > 0 && <span className="pill bad">{failing} blocking</span>}
+        </>
+      }
+    >
         {reports.map((r) => {
           const counts = ORDER.filter((s) => (r.counts?.[s] ?? 0) > 0);
           const findings = r.findings ?? [];
@@ -118,7 +125,6 @@ export default function ToolsPanel({ changeId, runStatus }: { changeId: string; 
             </div>
           );
         })}
-      </div>
-    </details>
+    </Panel>
   );
 }

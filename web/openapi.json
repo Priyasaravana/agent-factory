@@ -661,6 +661,172 @@
         }
       }
     },
+    "/api/attention": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What every live product is waiting for, most urgent first: the Needs-you panel and header count",
+        "description": "What every live product is waiting for, most urgent first: the Needs-you panel and header count",
+        "operationId": "list_attention",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "include_optional",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Optional"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttentionItem"
+                  },
+                  "title": "Response List Attention"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/screenshots": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Route screenshots of the preview and the live app, and the UI review of them (ADR-0044 \u00a74)",
+        "description": "Route screenshots of the preview and the live app, and the UI review of them (ADR-0044 \u00a74)",
+        "operationId": "get_change_screenshots",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/screenshots/{run}/{name}": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "One route screenshot (PNG)",
+        "description": "One route screenshot (PNG)",
+        "operationId": "get_change_screenshot",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          },
+          {
+            "name": "run",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/events": {
       "get": {
         "tags": [
@@ -4668,6 +4834,92 @@
         "title": "AssignWorkflowInput",
         "description": "Assign an org workflow to a product (ADR-0039) for some or all of the kinds it serves."
       },
+      "AttentionItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "answer_questions",
+              "align",
+              "approve_risk",
+              "accept_risk",
+              "resume",
+              "factory_hold",
+              "wait",
+              "feedback"
+            ],
+            "title": "Kind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "panel": {
+            "type": "string",
+            "title": "Panel"
+          },
+          "blocking": {
+            "type": "boolean",
+            "title": "Blocking",
+            "default": true
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "product_title": {
+            "type": "string",
+            "title": "Product Title"
+          },
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "title",
+          "owner",
+          "panel",
+          "since",
+          "product_id",
+          "product_title",
+          "change_id",
+          "iteration"
+        ],
+        "title": "AttentionItem",
+        "description": "A pending action with the product and change it belongs to (`GET /api/attention`)."
+      },
       "BlueprintUse": {
         "properties": {
           "id": {
@@ -5155,6 +5407,13 @@
                 "type": "null"
               }
             ]
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/PendingAction"
+            },
+            "type": "array",
+            "title": "Actions"
           }
         },
         "type": "object",
@@ -6812,6 +7071,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Data"
+          },
+          "level": {
+            "$ref": "#/components/schemas/EventLevel",
+            "description": "How much this event matters to a reader: error, warn, info or debug (`levels.level_of`).",
+            "readOnly": true
           }
         },
         "type": "object",
@@ -6820,7 +7084,8 @@
           "change_id",
           "ts",
           "kind",
-          "message"
+          "message",
+          "level"
         ],
         "title": "Event"
       },
@@ -6837,6 +7102,16 @@
           "feedback"
         ],
         "title": "EventKind"
+      },
+      "EventLevel": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warn",
+          "info",
+          "debug"
+        ],
+        "title": "EventLevel"
       },
       "EvidenceFile": {
         "properties": {
@@ -7801,6 +8076,72 @@
           "ok"
         ],
         "title": "PackAdvisorySignal"
+      },
+      "PendingAction": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "answer_questions",
+              "align",
+              "approve_risk",
+              "accept_risk",
+              "resume",
+              "factory_hold",
+              "wait",
+              "feedback"
+            ],
+            "title": "Kind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "panel": {
+            "type": "string",
+            "title": "Panel"
+          },
+          "blocking": {
+            "type": "boolean",
+            "title": "Blocking",
+            "default": true
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "title",
+          "owner",
+          "panel",
+          "since"
+        ],
+        "title": "PendingAction",
+        "description": "Something a person (or the factory's operator) must do before a change can go on, or may do\nnow that it is delivered (`attention.pending_actions`, pure). Shown at the top of the product and\nchange pages, so nobody has to scroll to find what is blocking."
       },
       "PhaseInfo": {
         "properties": {
@@ -8796,6 +9137,54 @@
           "adds"
         ],
         "title": "ScopePresetInfo"
+      },
+      "ScreenshotRun": {
+        "properties": {
+          "run": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "live"
+            ],
+            "title": "Run"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run"
+        ],
+        "title": "ScreenshotRun",
+        "description": "Route screenshots from one e2e run (ADR-0044 \u00a74): `preview` before deploy, `live` after."
+      },
+      "ScreenshotsView": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UiReviewView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ScreenshotsView"
       },
       "SkillDetail": {
         "properties": {
@@ -9978,6 +10367,90 @@
         ],
         "title": "TraceRow",
         "description": "One requirement, traced: scenarios -> tagged tests -> live acceptance."
+      },
+      "UiCriterion": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "UiCriterion"
+      },
+      "UiReviewView": {
+        "properties": {
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/UiCriterion"
+            },
+            "type": "array",
+            "title": "Criteria"
+          },
+          "scores": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Scores"
+          },
+          "why": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Why"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "findings": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "default": true
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "title": "UiReviewView",
+        "description": "The reviewer's scores of the screenshots against the pack's rubric. Reported only."
       },
       "UnassignWorkflowInput": {
         "properties": {

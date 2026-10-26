@@ -31,6 +31,14 @@ and Acceptance stations depend on them.
 if (denied) return denied;` in every protected route handler (it also refuses cross-site
     posts), `authorizePage(path, role)` in protected pages. `allow-all`, `signed-in` or `roles`
     (`admin`, `member`).
+- `src/app/look.ts` — the product's `LOOK` (from the `look` decision), `APP_NAME` and `NAV`.
+  `src/app/globals.css` holds the design tokens (Tailwind CSS v4) for each look, light and dark.
+- `src/components/` — the app shell (`app-shell.tsx`: header, navigation, account menu, in the root
+  layout), the page frame (`page.tsx`: `<Page title description actions>`, the one `<main>` and
+  `<h1>`) and `ui/`: shadcn/ui components copied in as source (Button, Input, Label, Textarea,
+  Select, Card, Table, Badge, Dialog, toast, EmptyState). Build pages from these and the tokens; no
+  raw colours, other fonts or other UI libraries.
+- `docs/ui.md` — the designer's page-by-page design (layout, components, states, interactions).
 - `tests/` — vitest. Route handlers and libraries run in Node; a component test starts with
   `// @vitest-environment jsdom` and uses Testing Library. Database tests call
   `memoryDatabase()` from `tests/support/db.ts` (an in-memory Postgres, real SQL).
@@ -41,7 +49,8 @@ if (denied) return denied;` in every protected route handler (it also refuses cr
 - `e2e/` — Playwright tests (`make e2e BASE_URL=…`). The factory runs them twice: against
   `make preview` (the standalone server on an in-memory database, `PREVIEW_DATABASE=memory`)
   before it builds an image, and against the live app after every deploy. `e2e/a11y.spec.ts` scans
-  every route in `e2e/routes.ts` with axe.
+  every route in `e2e/routes.ts` with axe, and `e2e/screenshots.spec.ts` screenshots each one (light
+  and dark, 1280 and 390 px, into `e2e-screenshots/`, not committed) as evidence for the UI review.
 - `.github/` — CI (same checks as the factory), CODEOWNERS, Dependabot.
 - `deploy/chart/` — Helm chart (Deployment + Service + optional Ingress + Postgres).
 
@@ -49,7 +58,8 @@ if (denied) return denied;` in every protected route handler (it also refuses cr
 
 - Design decisions (`docs/decisions.yaml`) choose the adapters: set `DEFAULTS` in
   `src/modules/config.ts` to match — `authentication: local` → `auth: "local"`;
-  `authorisation: signed-in` → `authz: "signed-in"`, `roles` → `authz: "roles"`. Protected writes
+  `authorisation: signed-in` → `authz: "signed-in"`, `roles` → `authz: "roles"`; `look` →
+  `LOOK` in `src/app/look.ts`. Protected writes
   (data another person relies on) go through `authorize(...)` on the server, never only by hiding a
   button. With sign-in on, e2e tests sign in with the helpers in `e2e/auth.ts`, and acceptance
   tests show a protected action refused without signing in. Accounts a test creates get

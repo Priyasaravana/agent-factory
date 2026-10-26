@@ -17,6 +17,18 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
   routes and pages need a signed-in user or a role. The user and session tables belong to the
   `auth` module; don't add your own.
 
+## Look and feel
+- The designer writes `docs/ui.md` in the design station: build every page as it says (layout,
+  components, states, interactions). Set `LOOK`, `APP_NAME` and `NAV` in `src/app/look.ts`.
+- Every page is `<Page title description actions>` (`@/components/page`) inside the app shell, and
+  uses the components in `src/components/ui/` (Button, Input, Label, Textarea, Select, Card, Table,
+  Badge, Dialog, toast, EmptyState) with the design tokens (`bg-card`, `text-muted-foreground`,
+  `bg-primary`…). No raw colours, no other fonts, no new UI libraries.
+- Every list has an empty state; destructive actions confirm in a `Dialog`; saves give feedback (a
+  toast or the updated list); errors show next to what caused them.
+- It must work at 390 px wide: stack columns, let tables scroll inside `Table`, no sideways page
+  scroll. Check dark mode too.
+
 ## Implementation checklist
 1. Data access in `src/lib/<entity>.ts`: functions taking plain values, using `await db()` and
    parameterised SQL. Validate input at the edge (route handler / server action) and return 400
@@ -34,7 +46,10 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
    jsdom. Cover the happy path, not-found and validation.
 5. Turn every entry in `tests/acceptance/scenarios.yaml` into a test in
    `tests/acceptance.test.ts(x)`, its title tagged with the requirement ids, e.g. `@R1`.
-6. Add each new page to `e2e/routes.ts`, and a Playwright spec in `e2e/` for the main journey.
+6. Add each new page to `e2e/routes.ts` (and to `SIGNED_IN_ROUTES` when it needs a signed-in
+   person), and a Playwright spec in `e2e/` for the main journey. The e2e suite screenshots every
+   route (light and dark, desktop and phone); the factory keeps them as evidence and its reviewer
+   scores them against the pack's UI rubric.
 
 ## Checks
 - `make verify`: eslint (`--max-warnings=0`), `prettier --check`, `tsc --noEmit`, vitest with
@@ -70,3 +85,5 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
 - Add dependencies with `npm install <pkg>` so `package-lock.json` stays in step; never edit
   the lockfile by hand, and don't upgrade `@playwright/test`.
 - No `next/font/google` or other remote assets: builds run without internet access to them.
+- The header has its own "Sign out" button: in e2e, scope a page's own controls to the page
+  (`page.getByRole("main").getByRole("button", …)`), or Playwright finds two.

@@ -26,16 +26,17 @@ function byPhase(stations: StationView[]): { phase: string; stations: StationVie
   return groups;
 }
 
-/** The change's stations as a horizontal timeline grouped by DevOps phase (wraps on narrow screens). */
+/** The change's stations as a horizontal timeline grouped by DevOps phase. On a phone each phase is a
+ * row of its own and its stations wrap, so the strip never needs a horizontal scroll. */
 export default function StationStrip({ stations }: { stations: StationView[] }) {
   const groups = byPhase(stations);
   return (
-    <ol className="strip-timeline strip my-3 flex list-none flex-wrap gap-y-4 p-0" aria-label="Stations">
+    <ol className="strip-timeline strip my-3 flex list-none flex-col gap-y-3 p-0 sm:flex-row sm:flex-wrap sm:gap-y-4" aria-label="Stations">
       {groups.map((g, gi) => (
         <li
           key={`${g.phase}-${gi}`}
-          className="flex flex-col gap-1.5"
-          style={{ flex: `${g.stations.length} 1 0`, minWidth: `${g.stations.length * 8}rem` }}
+          className="flex min-w-0 flex-col gap-1.5 sm:min-w-[min(var(--phase-min),100%)]"
+          style={{ flex: `${g.stations.length} 1 0`, ["--phase-min" as string]: `${g.stations.length * 8}rem` }}
         >
           <div
             className="mr-3 border-b border-border pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
@@ -43,7 +44,7 @@ export default function StationStrip({ stations }: { stations: StationView[] }) 
           >
             {phaseLabel(g.phase)}
           </div>
-          <ol className="flex list-none p-0" aria-label={`${phaseLabel(g.phase)} stations`}>
+          <ol className="flex list-none flex-wrap gap-y-2 p-0" aria-label={`${phaseLabel(g.phase)} stations`}>
             {g.stations.map((s) => {
               const last = gi === groups.length - 1 && s === g.stations[g.stations.length - 1];
               return <Step key={s.id} s={s} last={last} />;
@@ -62,7 +63,7 @@ function Step({ s, last }: { s: StationView; last: boolean }) {
   const showId = label.toLowerCase().replace(/ /g, "-") !== s.id;
   return (
     <li
-      className={`station-step st-${s.state} group flex min-w-0 flex-1 items-start`}
+      className={`station-step st-${s.state} group flex min-w-[6.5rem] flex-1 items-start`}
       title={s.role ?? "deterministic check"}
     >
       <div className="flex w-full flex-col gap-1.5">
@@ -77,7 +78,9 @@ function Step({ s, last }: { s: StationView; last: boolean }) {
           >
             {s.repair && s.state === "pending" ? <Wrench /> : st.icon}
           </span>
-          {!last && <span className={cn("mx-2 h-px flex-1", s.state === "passed" ? "bg-ok/60" : "bg-border")} />}
+          {!last && (
+            <span className={cn("mx-2 hidden h-px flex-1 sm:block", s.state === "passed" ? "bg-ok/60" : "bg-border")} />
+          )}
         </div>
         <div className="pr-3 leading-tight">
           <div className={cn("text-sm font-medium", s.state === "pending" && "text-muted-foreground")}>{label}</div>

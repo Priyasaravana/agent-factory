@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { FileCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, unwrap } from "../api/client";
-import { cn } from "../lib/utils";
+import { Panel } from "./ui/panel";
 
 type Tab = "requirements" | "product" | "technical" | "api" | "trace";
 
 /** The change's specification: what the factory agreed to build, and how each
  * requirement is traced to scenarios, tests and live acceptance. At the review
  * gate, changes and approval go through "Align with the architect". */
+
 export default function SpecPanel({
   changeId,
   runStatus,
@@ -72,19 +73,15 @@ export default function SpecPanel({
   ).length;
 
   return (
-    <section
-      className={cn(
-        "grid gap-3 rounded-xl border p-4",
-        reviewing ? "border-warn/60 bg-warn/5" : "bg-card",
-      )}
+    <Panel
+      id="spec"
+      defaultOpen={reviewing}
       data-testid="spec-panel"
       aria-label="Specification"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <FileCheck className="size-4 text-primary" />
-        <h4 className="m-0">
-          {reviewing ? "Review the specification" : "Specification"}
-        </h4>
+      icon={<FileCheck className="text-primary" />}
+      title={reviewing ? "Review the specification" : "Specification"}
+      summary={
+        <>
         <span className="pill muted">{s.requirements.length} requirements</span>
         <span className="pill muted">
           {s.acceptance.length} acceptance · {s.holdout_count} hidden scenarios
@@ -114,8 +111,11 @@ export default function SpecPanel({
             {verified}/{s.traceability.length} verified live
           </span>
         )}
+        </>
+      }
+    >
         <div
-          className="ml-auto flex gap-1 rounded-lg border bg-card p-0.5"
+          className="flex w-fit max-w-full flex-wrap gap-1 rounded-lg border bg-card p-0.5"
           role="tablist"
         >
           {(
@@ -138,7 +138,6 @@ export default function SpecPanel({
             </button>
           ))}
         </div>
-      </div>
 
       {s.review_notes.length > 0 && (
         <div className="note m-0 text-sm">
@@ -306,6 +305,6 @@ export default function SpecPanel({
           are aligned.
         </p>
       )}
-    </section>
+    </Panel>
   );
 }

@@ -36,6 +36,7 @@ from agent_factory import (
     stack,
     tools,
     traceability,
+    ui_review,
 )
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
@@ -165,7 +166,11 @@ class StationContext:
 
     def stack_skill_file(self, name: str) -> Path | None:
         packs_here = [p for p, _ in self.stack_guides] + [p for p in [self.blueprint.pack_binding] if p]
-        return next((p.skill_file for p in packs_here if p.skill == name and p.skill_file), None)
+        found = next((p.skill_file for p in packs_here if p.skill == name and p.skill_file), None)
+        pack = self.blueprint.pack_binding
+        if found is None and pack is not None and pack.ui_skill == name:  # the designer's (ADR-0044 §4)
+            return pack.ui_skill_file
+        return found
 
     def guidance_scope(self, name: str) -> str | None:
         """For a team repo, where a detected pack's skill applies (None: not repo guidance)."""
@@ -329,8 +334,11 @@ class StationContext:
         schema: dict[str, Any] | None = None,
         protect_holdout: bool = True,
         secret_env: dict[str, str] | None = None,
+        spec: AgentSpec | None = None,
     ) -> AgentResult:
-        spec = self.spec
+        """Run the station's agent, or `spec` instead: a second agent inside the same station (the
+        designer after the architect, ADR-0044 §4), with its own call record and the same grant."""
+        spec = spec or self.spec
         protected = [str(self.ws.data_dir / "holdout")] if protect_holdout else []
 
         async def sink(kind: str, data: dict[str, Any]) -> None:
@@ -939,7 +947,9 @@ async def preview_e2e(ctx: StationContext) -> StationResult:
         await ctx.emit(EventKind.decision, f"end-to-end before deploy {note}", {"preview_e2e": {"ran": False}})
         return StationResult(StationOutcome.passed, note)
     script = packs.preview_e2e_script(preview, e2e, bp.health_path)
+    _clear_screenshots(ctx)
     res = await ctx.cmd(script, timeout=preview.ready_seconds + 900, untrusted=True)
+    await _keep_screenshots(ctx, "preview")
     command = e2e.replace("{url}", preview.url)
     record = {"ok": res.ok, "ran": True, "command": command, "url": preview.url, "preview": preview.command}
     _write_json(ctx, "preview-e2e.json", record)
@@ -1616,7 +1626,9 @@ async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> 
     command = ctx.blueprint.e2e_command
     if not command:
         return None
+    _clear_screenshots(ctx)
     res = await ctx.cmd(command.replace("{url}", internal_url(ctx)), timeout=900, untrusted=True, env=admin or None)
+    await _keep_screenshots(ctx, "live")
     if not res.ok:
         await ctx.emit(EventKind.decision, "end-to-end tests failed against the live app", {"e2e": {"ok": False}})
         return StationResult(
@@ -1626,6 +1638,65 @@ async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> 
         )
     await ctx.emit(EventKind.decision, "end-to-end tests passed against the live app", {"e2e": {"ok": True}})
     return None
+
+
+def _screenshot_dir(ctx: StationContext) -> Path | None:
+    pack = ctx.blueprint.pack_binding
+    return ctx.worktree / pack.ui_screenshots if pack is not None and pack.ui_screenshots else None
+
+
+def _clear_screenshots(ctx: StationContext) -> None:
+    """Start each e2e run without the last run's pictures, so a removed route doesn't linger."""
+    if (shots := _screenshot_dir(ctx)) is not None:
+        shutil.rmtree(shots, ignore_errors=True)
+
+
+async def _keep_screenshots(ctx: StationContext, run: str) -> list[str]:
+    """The e2e suite's route screenshots (ADR-0044 §4) into the change's evidence, under
+    screenshots/<run>/ (preview: before deploy; live: the deployed app). Pictures, not results:
+    what the suite reported decides the station."""
+    shots = _screenshot_dir(ctx)
+    if shots is None:
+        return []
+    kept = ui_review.collect(shots, artifacts_dir(ctx) / "screenshots" / run)
+    if kept:
+        await ctx.emit(
+            EventKind.decision,
+            f"kept {len(kept)} screenshot(s) of the {run} app as evidence",
+            {"screenshots": {"run": run, "files": kept}},
+        )
+    return kept
+
+
+async def _ui_review(ctx: StationContext) -> None:
+    """Score the preview's route screenshots against the pack's UI rubric (ADR-0044 §4). Reported
+    only: recorded as evidence (ui-review.json) and shown on the change page, never a failure."""
+    pack = ctx.blueprint.pack_binding
+    shots = _screenshot_dir(ctx)
+    rubric = pack.ui_rubric if pack is not None else None
+    names = sorted(p.name for p in shots.glob("*.png")) if shots is not None and shots.is_dir() else []
+    if rubric is None or shots is None or not names:
+        return
+    rel = shots.relative_to(ctx.worktree).as_posix()
+    listing = "\n".join(f"- {rel}/{n}" for n in names[: ui_review.MAX_SHOTS])
+    ui_doc = "docs/ui.md" if (ctx.worktree / "docs/ui.md").is_file() else "(none)"
+    prompt = f"""Score the look and feel of this product from its screenshots. You are observe-only.
+Open each screenshot with the Read tool (it shows images), and read {ui_doc} (the designer's intent).
+Score each criterion from 1 (poor) to 5 (polished), with one line why, and list concrete findings,
+each naming the screenshot file it is about and what to change.
+
+## Screenshots (route-size-scheme.png; desktop 1280 px and phone 390 px, light and dark)
+{listing}
+
+## Rubric
+{rubric.prompt_block()}"""
+    res = await ctx.agent(prompt, ui_review.schema(rubric))
+    if not res.ok or not isinstance(res.structured, dict):
+        await ctx.emit(EventKind.log, "UI review: the reviewer returned no scores (reported only, nothing blocked)")
+        return
+    review = ui_review.judge(rubric, res.structured, [n.lower() for n in names])
+    _write_json(ctx, "ui-review.json", {"iteration": ctx.change.iteration, **review.as_data()})
+    await ctx.emit(EventKind.decision, review.headline(), {"ui_review": review.as_data()})
 
 
 async def _record_traceability(ctx: StationContext, holdout_file: Path, results: list[dict[str, Any]]) -> None:
@@ -1727,6 +1798,8 @@ Each finding names the file and says what to change."""
     evidence = {"iteration": ctx.change.iteration, "report": report, "judgement": verdict.as_data()}
     (out / "review.json").write_text(json.dumps(evidence, indent=2))
     await ctx.emit(EventKind.decision, verdict.headline(), {"review": evidence})
+    if verdict.complete:
+        await _ui_review(ctx)
     if not verdict.complete:
         # the reviewer's fault, not the builder's: hold for a person rather than loop build
         return StationResult(StationOutcome.held, verdict.headline(), "\n".join(verdict.problems))

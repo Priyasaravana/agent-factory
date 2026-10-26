@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, unwrap, type ChangeDetail } from "../api/client";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
+import { Panel } from "./ui/panel";
 
 type Risk = NonNullable<ChangeDetail["risk"]>;
 
@@ -31,20 +32,22 @@ export default function ChangeRiskPanel({ changeId, productId, risk }: { changeI
   const selfAt = risk.self_approval_at ? new Date(risk.self_approval_at) : null;
 
   return (
-    <section
-      className={`rounded-lg border p-3 ${risk.waiting ? "border-warn" : ""}`}
+    <Panel
+      id="risk"
+      tone={risk.waiting ? "attention" : "default"}
+      attention={!!risk.waiting}
       aria-label="Change risk"
       data-testid="change-risk"
-    >
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        {risk.waiting ? <ShieldAlert className="size-4 text-warn" /> : <ShieldCheck className="size-4 text-ok" />}
-        Change risk
-        <span className="text-xs font-normal text-muted-foreground">
+      icon={risk.waiting ? <ShieldAlert className="text-warn" /> : <ShieldCheck className="text-ok" />}
+      title="Change risk"
+      summary={
+        <span>
           {holds.length} risky · {notes.length} note{notes.length === 1 ? "" : "s"} · {risk.files_changed ?? 0} files
           changed
           {risk.approved_by ? ` · approved by ${risk.approved_by}` : ""}
         </span>
-      </div>
+      }
+    >
       <ul className="m-0 grid list-none gap-1.5 p-0 text-sm">
         {[...holds, ...notes].map((f) => (
           <li key={`${f.rule}-${f.file}-${f.line}`} className="grid gap-0.5">
@@ -61,7 +64,7 @@ export default function ChangeRiskPanel({ changeId, productId, risk }: { changeI
         ))}
       </ul>
       {risk.waiting && (
-        <div className="mt-3 grid gap-2">
+        <div className="grid gap-2">
           <p className="m-0 text-xs text-muted-foreground">
             An admin other than {risk.requested_by ?? "the requester"} approves with a reason, or anyone who can
             steer this product sends it back to be changed without them.
@@ -92,6 +95,6 @@ export default function ChangeRiskPanel({ changeId, productId, risk }: { changeI
           <Problems error={approve.error ?? sendBack.error} />
         </div>
       )}
-    </section>
+    </Panel>
   );
 }

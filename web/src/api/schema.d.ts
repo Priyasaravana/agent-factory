@@ -288,6 +288,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What every live product is waiting for, most urgent first: the Needs-you panel and header count
+         * @description What every live product is waiting for, most urgent first: the Needs-you panel and header count
+         */
+        get: operations["list_attention"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/screenshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Route screenshots of the preview and the live app, and the UI review of them (ADR-0044 §4)
+         * @description Route screenshots of the preview and the live app, and the UI review of them (ADR-0044 §4)
+         */
+        get: operations["get_change_screenshots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/screenshots/{run}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One route screenshot (PNG)
+         * @description One route screenshot (PNG)
+         */
+        get: operations["get_change_screenshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/events": {
         parameters: {
             query?: never;
@@ -1865,6 +1925,48 @@ export interface components {
             kinds?: string[] | null;
         };
         /**
+         * AttentionItem
+         * @description A pending action with the product and change it belongs to (`GET /api/attention`).
+         */
+        AttentionItem: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Station */
+            station?: string | null;
+            /** Owner */
+            owner: string;
+            /** Panel */
+            panel: string;
+            /**
+             * Blocking
+             * @default true
+             */
+            blocking: boolean;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Product Id */
+            product_id: string;
+            /** Product Title */
+            product_title: string;
+            /** Change Id */
+            change_id: string;
+            /** Iteration */
+            iteration: number;
+        };
+        /**
          * BlueprintUse
          * @description A blueprint whose products run a workflow (ADR-0037: workflows belong to the org).
          */
@@ -2038,6 +2140,8 @@ export interface components {
             /** Stations */
             stations: components["schemas"]["StationView"][];
             risk?: components["schemas"]["ChangeRiskView"] | null;
+            /** Actions */
+            actions?: components["schemas"]["PendingAction"][];
         };
         /** ChangeEntryView */
         ChangeEntryView: {
@@ -2725,12 +2829,19 @@ export interface components {
             data?: {
                 [key: string]: unknown;
             };
+            /** @description How much this event matters to a reader: error, warn, info or debug (`levels.level_of`). */
+            readonly level: components["schemas"]["EventLevel"];
         };
         /**
          * EventKind
          * @enum {string}
          */
         EventKind: "station_started" | "station_finished" | "decision" | "log" | "agent" | "command" | "status" | "feedback";
+        /**
+         * EventLevel
+         * @enum {string}
+         */
+        EventLevel: "error" | "warn" | "info" | "debug";
         /** EvidenceFile */
         EvidenceFile: {
             /** Path */
@@ -3186,6 +3297,42 @@ export interface components {
             hint: string;
         };
         /**
+         * PendingAction
+         * @description Something a person (or the factory's operator) must do before a change can go on, or may do
+         *     now that it is delivered (`attention.pending_actions`, pure). Shown at the top of the product and
+         *     change pages, so nobody has to scroll to find what is blocking.
+         */
+        PendingAction: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Station */
+            station?: string | null;
+            /** Owner */
+            owner: string;
+            /** Panel */
+            panel: string;
+            /**
+             * Blocking
+             * @default true
+             */
+            blocking: boolean;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+        };
+        /**
          * PhaseInfo
          * @description One column of the phase registry (ADR-0039 §2).
          */
@@ -3604,6 +3751,25 @@ export interface components {
             entry: string[];
             /** Adds */
             adds: string[];
+        };
+        /**
+         * ScreenshotRun
+         * @description Route screenshots from one e2e run (ADR-0044 §4): `preview` before deploy, `live` after.
+         */
+        ScreenshotRun: {
+            /**
+             * Run
+             * @enum {string}
+             */
+            run: "preview" | "live";
+            /** Files */
+            files?: string[];
+        };
+        /** ScreenshotsView */
+        ScreenshotsView: {
+            /** Runs */
+            runs?: components["schemas"]["ScreenshotRun"][];
+            review?: components["schemas"]["UiReviewView"] | null;
         };
         /** SkillDetail */
         SkillDetail: {
@@ -4120,6 +4286,47 @@ export interface components {
             }[];
             /** No Live Check */
             no_live_check?: string | null;
+        };
+        /** UiCriterion */
+        UiCriterion: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * UiReviewView
+         * @description The reviewer's scores of the screenshots against the pack's rubric. Reported only.
+         */
+        UiReviewView: {
+            /** Criteria */
+            criteria?: components["schemas"]["UiCriterion"][];
+            /** Scores */
+            scores?: {
+                [key: string]: number;
+            };
+            /** Why */
+            why?: {
+                [key: string]: string;
+            };
+            /** Mean */
+            mean?: number | null;
+            /** Findings */
+            findings?: {
+                [key: string]: string;
+            }[];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+            /** Problems */
+            problems?: string[];
         };
         /** UnassignWorkflowInput */
         UnassignWorkflowInput: {
@@ -4965,6 +5172,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_attention: {
+        parameters: {
+            query?: {
+                product_id?: string | null;
+                include_optional?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttentionItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_screenshots: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_change_screenshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+                run: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

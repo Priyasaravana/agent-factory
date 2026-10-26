@@ -7,8 +7,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, computed_field, model_validator
 
+from agent_factory.levels import EventLevel, level_of
 from agent_factory.workflow import AgentSpec, EvalCase, HandlerInfo, Phase, RefDoc
 
 
@@ -321,6 +322,12 @@ class Event(BaseModel):
     kind: EventKind
     message: str
     data: dict[str, Any] = Field(default_factory=dict)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def level(self) -> EventLevel:
+        """How much this event matters to a reader: error, warn, info or debug (`levels.level_of`)."""
+        return level_of(str(self.kind), self.message, self.data)
 
 
 class Transition(BaseModel):
@@ -1044,11 +1051,68 @@ class AssessmentView(BaseModel):
     pack_signals: list[PackAdvisory] = Field(default_factory=list)
 
 
+class PendingAction(BaseModel):
+    """Something a person (or the factory's operator) must do before a change can go on, or may do
+    now that it is delivered (`attention.pending_actions`, pure). Shown at the top of the product and
+    change pages, so nobody has to scroll to find what is blocking."""
+
+    kind: Literal[
+        "answer_questions", "align", "approve_risk", "accept_risk", "resume", "factory_hold", "wait", "feedback"
+    ]
+    title: str  # what to do, as a button would say it
+    detail: str = ""  # why, in one or two sentences
+    station: str | None = None
+    owner: str  # who acts: the product's creator, "an admin", or "system" (the factory's operator)
+    panel: str  # the panel on the change page that does it (an element id), or "work-ledger"
+    blocking: bool = True  # False: the change is delivered; acting is optional
+    since: datetime
+
+
+class AttentionItem(PendingAction):
+    """A pending action with the product and change it belongs to (`GET /api/attention`)."""
+
+    product_id: str
+    product_title: str
+    change_id: str
+    iteration: int
+
+
+class ScreenshotRun(BaseModel):
+    """Route screenshots from one e2e run (ADR-0044 §4): `preview` before deploy, `live` after."""
+
+    run: Literal["preview", "live"]
+    files: list[str] = Field(default_factory=list)  # route-size-scheme.png
+
+
+class UiCriterion(BaseModel):
+    id: str
+    title: str
+
+
+class UiReviewView(BaseModel):
+    """The reviewer's scores of the screenshots against the pack's rubric. Reported only."""
+
+    criteria: list[UiCriterion] = Field(default_factory=list)
+    scores: dict[str, int] = Field(default_factory=dict)
+    why: dict[str, str] = Field(default_factory=dict)
+    mean: float | None = None
+    findings: list[dict[str, str]] = Field(default_factory=list)
+    summary: str = ""
+    complete: bool = True
+    problems: list[str] = Field(default_factory=list)
+
+
+class ScreenshotsView(BaseModel):
+    runs: list[ScreenshotRun] = Field(default_factory=list)
+    review: UiReviewView | None = None
+
+
 class ChangeDetail(BaseModel):
     change: Change
     product: Product
     stations: list[StationView]
     risk: ChangeRiskView | None = None
+    actions: list[PendingAction] = Field(default_factory=list)
 
 
 class StationSpend(BaseModel):
