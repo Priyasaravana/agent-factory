@@ -47,31 +47,33 @@ export function AppShell({
               ))}
             </ul>
           </nav>
-          <div className="ml-auto flex items-center gap-2" aria-label="Account">
-            {user ? (
-              <>
-                <span
-                  className="hidden text-sm text-muted-foreground sm:inline"
-                  data-testid="signed-in-as"
-                >
-                  {user.email}
-                </span>
-                <form method="post" action="/api/auth/sign-out">
-                  <Button type="submit" variant="outline" size="sm">
-                    Sign out
+          {(user || signInEnabled) && (
+            <div role="group" className="ml-auto flex items-center gap-2" aria-label="Account">
+              {user ? (
+                <>
+                  <span
+                    className="hidden text-sm text-muted-foreground sm:inline"
+                    data-testid="signed-in-as"
+                  >
+                    {user.email}
+                  </span>
+                  <form method="post" action="/api/auth/sign-out">
+                    <Button type="submit" variant="outline" size="sm">
+                      Sign out
+                    </Button>
+                  </form>
+                </>
+              ) : (
+                signInEnabled && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/sign-in" className="no-underline hover:no-underline">
+                      Sign in
+                    </Link>
                   </Button>
-                </form>
-              </>
-            ) : (
-              signInEnabled && (
-                <Button asChild variant="outline" size="sm">
-                  <Link href="/sign-in" className="no-underline hover:no-underline">
-                    Sign in
-                  </Link>
-                </Button>
-              )
-            )}
-          </div>
+                )
+              )}
+            </div>
+          )}
         </div>
       </header>
       <div className="flex-1">{children}</div>

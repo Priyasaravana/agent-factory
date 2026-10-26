@@ -21,6 +21,8 @@ describe("app shell", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(nav.querySelectorAll("a")).toHaveLength(NAV.length);
     expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+    // nothing to put in the account area: no empty labelled element (axe: aria-prohibited-attr)
+    expect(screen.queryByRole("group", { name: "Account" })).toBeNull();
     expect(screen.getByText("content")).toBeTruthy();
   });
 
@@ -30,7 +32,8 @@ describe("app shell", () => {
         <p>content</p>
       </AppShell>,
     );
-    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/sign-in");
+    const account = screen.getByRole("group", { name: "Account" });
+    expect(account.querySelector("a")?.getAttribute("href")).toBe("/sign-in");
   });
 
   it("shows who is signed in and a sign-out form", () => {
