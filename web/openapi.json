@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Agent Factory API",
+    "title": "Agent Software Factory API",
     "description": "API-first control plane for the agent software factory. Every route is a shared action also available to agents.",
     "version": "0.1.0"
   },

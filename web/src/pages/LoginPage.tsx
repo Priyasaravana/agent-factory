@@ -35,7 +35,7 @@ export default function LoginPage() {
             <Factory className="size-5" />
           </div>
           <div>
-            <h1 className="m-0 text-xl font-semibold tracking-tight">Agent Factory</h1>
+            <h1 className="m-0 text-xl font-semibold tracking-tight">Agent Software Factory</h1>
             <p className="m-0 mt-1 text-sm text-muted-foreground">Sign in to continue</p>
           </div>
         </div>
