@@ -4,10 +4,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-10-26)
-- **Main** (`c5ec9b0`) includes ADR-0044 PR 3 (look and feel, `nextjs-web` 1.4.0, "Needs you", collapsible
+- **Main** (`0794b67`) has the plan in `docs/planning/` (the chat project keeps only a START-HERE pointer), and ADR-0044 PR 3 (look and feel, `nextjs-web` 1.4.0, "Needs you", collapsible
   panels, event levels), ADR-0045 (approved base images, with its CI/template fixes `ef7ac48` and
   `afe4148`) and the Playwright proxy fix in the template (`9564283`, 1.3.2).
-- **In review:** `docs/planning-in-repo`, the plan moved from the chat project into `docs/planning/`.
 - **Live:** Book lending `66697b75071c` was resumed on 2026-10-26 to prove the Playwright proxy fix. If it
   still says `ENOTFOUND`, cancel rather than loop. Outcome not recorded yet: check the change before acting.
 - **Next:** the "Before the acceptance run" items in the roadmap (no-progress stop and target probe, journey
@@ -76,6 +75,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **How Saravana likes to work:** poll-style questions and concise answers; UI that is presentable and easy
   to use; each change states its value per part; he asks what value each option brings. When he answers
   "explain", give the issue, options and a recommendation in plain words, then ask again.
+
+### Rules
+- Each change states its value per part.
+- Never put secrets in config or the DB: references only.
+- Don't delete Saravana's files without asking.
+- One session per branch. Keep this page short: replace "Current state" each session.
 
 ### The loop (cloud workspace ↔ Mac)
 - The Mac's shell has no network (npm and pypi unreachable since 2026-10-18).

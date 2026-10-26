@@ -63,8 +63,8 @@ per-pack evaluation is in the backlog.
    - ✅ **Live e2e reaches the app** (`9564283`, nextjs-web 1.3.2): Playwright ignores `HTTP_PROXY`, so the
      template sets `use.proxy` when `BASE_URL` isn't loopback. Found by Book lending (2026-10-25), whose three
      `ENOTFOUND` failures were routed to the developer as work and held the change after ~$4.90.
-   - ✅ **Planning in the repo** (2026-10-26): `docs/planning/` is the only copy of the plan, checked by
-     `engine/tests/test_planning_docs.py`, so any agent on any account can pick up the work.
+   - ✅ **Planning in the repo** (`0794b67`, merged 2026-10-26): `docs/planning/` is the only copy of the plan,
+     checked by `engine/tests/test_planning_docs.py`, so any agent on any account can pick up the work.
    - ⏳ **Before the acceptance run (~2.5 days):**
      - **No-progress stop and target probe (~1 day, ADR-0043 follow-up):** an empty implement diff with the
        same failure fingerprint holds with the cause instead of looping; before live e2e, the acceptance station
@@ -193,9 +193,10 @@ per-pack evaluation is in the backlog.
 34. ADR-0044 PR 1 decision sheet (0049, `ce49828`), PR 1b align with the architect (0050, `eb60339`, `d5df28b`), PR 2 modules and sign-in (`a827cd4`, nextjs-web 1.3.0).
 35. Approved base images (ADR-0045, `66054c0`, `4fc2c6f`, `65efb2d`; nextjs-web 1.3.1); live e2e through the egress proxy (`9564283`, 1.3.2).
 36. ADR-0044 PR 3, look and feel plus factory UI usability: "Needs you", collapsible panels, event levels, phone width, the name Agent Software Factory (`8a94f8b`, `69d9fe3`, `008a09d`, `c5ec9b0`; nextjs-web 1.4.0).
+37. Planning in the repo (`0794b67`): `docs/planning/`, one copy, drift checked in CI; the chat project keeps only a pointer.
 
 ## 🔄 In review
-- `docs/planning-in-repo`: the plan moves from the chat project into `docs/planning/`, with a drift check.
+- (none)
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):
