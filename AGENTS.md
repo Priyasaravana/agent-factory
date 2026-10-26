@@ -1,5 +1,9 @@
 # Working on the agent-factory repo (for coding agents and humans)
 
+- **Start with the plan: [docs/planning/README.md](docs/planning/README.md)**, then its `roadmap.md`
+  (what's next) and `handoff.md` (current state, how we work). The plan lives only there: never keep
+  a copy elsewhere (a chat project, a wiki), and update `roadmap.md` / `handoff.md` in the same branch
+  as the work they describe. `tests/test_planning_docs.py` checks links, ADR numbers and copies.
 - Engine: `engine/` (Python 3.12, uv). Tests are the contract: `make test`.
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
 - Run checks quietly (`scripts/check`, see its header): output goes to `.cache/check/<step>.log`
