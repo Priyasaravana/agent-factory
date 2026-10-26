@@ -48,6 +48,9 @@ Read `AGENTS.md` in the repo root first; it is authoritative.
   proxy refuses loopback; `make e2e` already bypasses it), run
   `make e2e BASE_URL=http://127.0.0.1:3000`, then `kill %1`. The preview starts on an empty
   in-memory database each time, so every e2e test creates the data it needs.
+- Keep the `proxy` block in `playwright.config.ts`: the live run reaches the app only through the
+  sandbox's egress proxy, which Playwright doesn't pick up from `HTTP_PROXY` by itself. A live e2e
+  failure such as `getaddrinfo ENOTFOUND` is the environment, not the app: report it, don't change code.
 
 ## Pitfalls
 - Import a module's port (`@/modules/auth`), never its adapters: `make lint` fails on
