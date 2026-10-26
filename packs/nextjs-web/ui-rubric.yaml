@@ -1,0 +1,29 @@
+# How the code-review station's reviewer scores the route screenshots (ADR-0044 §4): 1 (poor) to 5
+# (polished), per criterion, with a reason and findings that name the screenshot. Reported only:
+# the scores never fail a change until the rubric is calibrated on known-good and known-bad shots.
+criteria:
+  - id: hierarchy
+    title: Visual hierarchy
+    look_for: >-
+      One clear page title, the main action easy to find, related things grouped, secondary
+      information visibly quieter. A reader knows where to look first.
+  - id: spacing
+    title: Spacing and alignment
+    look_for: >-
+      Consistent gaps from the spacing scale, edges that line up, nothing cramped or floating, no
+      text touching a border, comfortable line length for prose.
+  - id: consistency
+    title: Consistency with the design system
+    look_for: >-
+      The template's components and tokens everywhere (buttons, inputs, cards, tables, badges);
+      no one-off colours, fonts or hand-rolled controls; the chosen look applied on every page.
+  - id: states
+    title: States
+    look_for: >-
+      Empty lists say what goes there and how to add the first one; errors are shown next to what
+      caused them; signed-out and forbidden states explain what to do; nothing looks broken.
+  - id: responsive
+    title: Phone and dark mode
+    look_for: >-
+      At 390 px nothing is cut off or scrolls sideways, tap targets are big enough and tables
+      scroll inside their own box; dark mode keeps contrast and nothing turns invisible.

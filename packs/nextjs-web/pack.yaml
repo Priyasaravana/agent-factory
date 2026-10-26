@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.3.2
+version: 1.4.0
 title: Next.js web app
 stack:
   builds: web-app
@@ -35,6 +35,14 @@ stack:
   base_images:
     - {stage: runtime-hardened, image: "dhi.io/node:22-alpine3.23", login: dhi, title: Docker Hardened Node 22}
     - {stage: runtime-distroless, image: "gcr.io/distroless/nodejs22-debian12:nonroot", title: Distroless Node 22}
+  # look and feel (ADR-0044 §4): the design station's designer agent preloads `skill` and writes
+  # docs/ui.md; the e2e suite saves a screenshot of every route (light and dark, desktop and phone)
+  # into `screenshots`, which preview-e2e and acceptance keep as evidence; the code-review station's
+  # reviewer scores them against `rubric`, reported only (it never fails a change)
+  ui:
+    skill: skills/nextjs-ui-design
+    rubric: ui-rubric.yaml
+    screenshots: e2e-screenshots
   # the deployment's first admin (ADR-0044 §3): the chart generates it into this Secret; the factory
   # reads it after deploy to sign the live e2e suite and the hidden scenarios in, redacted
   admin_secret:

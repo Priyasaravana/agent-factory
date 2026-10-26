@@ -21,6 +21,8 @@ type Entry = {
 
 /** Every agent call of a change (ADR-0022): who ran, on which model, how long, what it
  * cost, which tools it used and what the guardrails refused, with its transcript. */
+import { Panel } from "./ui/panel";
+
 export default function AgentCallsPanel({
   changeId,
   runStatus,
@@ -44,22 +46,23 @@ export default function AgentCallsPanel({
   const cost = calls.reduce((n, c) => n + (c.cost_usd ?? 0), 0);
 
   return (
-    <details
-      className="rounded-xl border bg-card p-4"
+    <Panel
+      id="agent-calls"
       data-testid="agent-calls"
+      icon={<Bot className="text-primary" />}
+      title="Agent calls"
+      summary={
+        <>
+          <span className="pill muted">{calls.length} calls</span>
+          <span className="pill muted">${cost.toFixed(2)}</span>
+          {denials.length > 0 && (
+            <span className="pill bad" title="actions the guardrails refused">
+              <ShieldAlert className="size-3" /> {denials.length} denied
+            </span>
+          )}
+        </>
+      }
     >
-      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-        <Bot className="size-4 text-primary" />
-        <span className="font-semibold">Agent calls</span>
-        <span className="pill muted">{calls.length} calls</span>
-        <span className="pill muted">${cost.toFixed(2)}</span>
-        {denials.length > 0 && (
-          <span className="pill bad" title="actions the guardrails refused">
-            <ShieldAlert className="size-3" /> {denials.length} denied
-          </span>
-        )}
-      </summary>
-      <div className="mt-3 grid gap-3">
         {denials.length > 0 && (
           <div className="grid gap-1 text-sm" data-testid="denials">
             <strong>Refused by guardrails</strong>
@@ -134,8 +137,7 @@ export default function AgentCallsPanel({
           </tbody>
         </table>
         {open && <Transcript changeId={changeId} name={open} />}
-      </div>
-    </details>
+    </Panel>
   );
 }
 

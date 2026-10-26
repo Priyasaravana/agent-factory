@@ -25,7 +25,7 @@ from agent_factory.engine.stations import (
     _write_json,
 )
 from agent_factory.models import DiscussTurn, EventKind, StationOutcome
-from agent_factory.workflow import WorkflowDoc
+from agent_factory.workflow import AgentSpec, WorkflowDoc
 
 MAX_THREAD_CHARS = 12_000  # the discussion the architect sees: the latest turns that fit
 _DOCS = (
@@ -35,7 +35,9 @@ _DOCS = (
     "docs/openapi.yaml",
     decisions.SHEET,
     decisions.ROADMAP,
+    "docs/ui.md",
 )
+UI_DOC = "docs/ui.md"
 ALIGN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["reply", "requirements_change"],
@@ -275,9 +277,11 @@ async def run(ctx: StationContext) -> StationResult:
                 "decision sheet or roadmap incomplete",
                 "The engine's check of the design documents:\n" + "\n".join(f"- {e}" for e in errors),
             )
+    if (designed := await _designer(ctx)) is not None:
+        return designed
     out = await _record(ctx, cat, previous)
     ctx.change.decisions_pending = _needs_person(ctx, cat, out)
-    await ctx.ws.commit_all(ctx.worktree, "docs: design, decisions, roadmap, API contract and task plan")
+    await ctx.ws.commit_all(ctx.worktree, "docs: design, decisions, roadmap, UI, API contract and task plan")
     if "answers" not in out:
         pack = ctx.blueprint.pack_binding
         note = f"no decision sheet: {pack.source if pack else ctx.product.blueprint} asks no design questions"
@@ -293,6 +297,108 @@ async def run(ctx: StationContext) -> StationResult:
             {"decisions": out},
         )
     return StationResult(StationOutcome.passed, "design, decisions, roadmap, openapi and tasks written")
+
+
+# ---------------------------------------------------------------- designer --
+def designer_spec(ctx: StationContext) -> AgentSpec | None:
+    """The designer (ADR-0044 §4): a second agent in the design station, after the architect, for a
+    stack pack with a `ui` section. Same tools and grant as the architect; the pack's UI skill is
+    preloaded (with the stack's golden path), and it may write only docs/ui.md."""
+    pack = ctx.blueprint.pack_binding
+    if pack is None or not pack.ui_skill:
+        return None
+    base = ctx.spec
+    return base.model_copy(
+        update={
+            "id": "designer",
+            "description": "Designs every page with the stack's design system and writes docs/ui.md",
+            "skills": [pack.ui_skill],
+            "preload_skills": [pack.ui_skill],
+            "produces": [UI_DOC],
+            "context_docs": [],
+            "learnings": "",
+            "previous_iterations": 0,
+            "prompt": "You are the product's designer. Follow the preloaded design skill exactly. "
+            "Write docs/ui.md only; never change code or other documents.",
+        }
+    )
+
+
+def designer_prompt(ctx: StationContext) -> str:
+    again = (
+        "\ndocs/ui.md exists from an earlier iteration: update it for this change and keep what still holds."
+        if (ctx.worktree / UI_DOC).is_file()
+        else ""
+    )
+    return f"""Design the pages for this product and write {UI_DOC}, following the preloaded design skill.
+Read docs/spec.md, docs/requirements.yaml, docs/design.md, docs/tasks.md and {decisions.SHEET} (its
+`look` answer sets the theme) first, then src/app/look.ts, src/components/ and AGENTS.md.{again}
+
+Change request this iteration: {_asked(ctx, "none")}
+{_work_item(ctx)}{_review_notes(ctx)}"""
+
+
+async def _designer(ctx: StationContext) -> StationResult | None:
+    """Run the designer; anything it touched besides docs/ui.md is undone. None: done (or no designer)."""
+    spec = designer_spec(ctx)
+    if spec is None:
+        return None
+    before = await _dirty(ctx)  # the architect's work, not committed yet: kept exactly as it is
+    res = await ctx.agent(designer_prompt(ctx), spec=spec)
+    if lim := _limit_result(res):
+        return lim
+    undone = await _keep_only(ctx, UI_DOC, before)
+    if not res.ok or not (ctx.worktree / UI_DOC).is_file():
+        return StationResult(
+            StationOutcome.failed, "UI design incomplete", res.error or f"the designer did not write {UI_DOC}"
+        )
+    pages = sum(1 for line in (_text(ctx.worktree, UI_DOC) or "").splitlines() if line.startswith("## /"))
+    _write_json(ctx, "ui-design.json", {"doc": UI_DOC, "pages": pages, "undone": undone})
+    await ctx.emit(
+        EventKind.decision,
+        f"designer wrote {UI_DOC}: {pages} page(s)" + (f"; undid {', '.join(undone)}" if undone else ""),
+        {"ui_design": {"pages": pages, "undone": undone}},
+    )
+    return None
+
+
+async def _dirty(ctx: StationContext) -> dict[str, bytes | None]:
+    """Every changed or new path in the worktree, with its content (None: deleted)."""
+    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
+    out: dict[str, bytes | None] = {}
+    for line in res.output.splitlines() if res.ok else []:
+        rel = line[3:].strip().strip('"')
+        if " -> " in rel:
+            rel = rel.split(" -> ", 1)[1]
+        if rel:
+            p = ctx.worktree / rel
+            out[rel] = p.read_bytes() if p.is_file() else None
+    return out
+
+
+async def _keep_only(ctx: StationContext, allowed: str, before: dict[str, bytes | None]) -> list[str]:
+    """Put back every path the designer changed except `allowed`: to its content from before the
+    designer ran (the architect's uncommitted work), else to HEAD, or remove it if it is new."""
+    undone: list[str] = []
+    for rel, now in (await _dirty(ctx)).items():
+        if rel == allowed or (rel in before and before[rel] == now):
+            continue
+        p = ctx.worktree / rel
+        if rel in before:
+            old = before[rel]
+            if old is None:
+                p.unlink(missing_ok=True)
+            else:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(old)
+        else:
+            tracked = await ctx.ws.git(f"ls-files --error-unmatch -- {shlex.quote(rel)}", ctx.worktree)
+            if tracked.ok:
+                await ctx.ws.git(f"checkout HEAD -- {shlex.quote(rel)}", ctx.worktree)
+            else:
+                p.unlink(missing_ok=True)
+        undone.append(rel)
+    return sorted(undone)
 
 
 # ---------------------------------------------------------------- discuss --

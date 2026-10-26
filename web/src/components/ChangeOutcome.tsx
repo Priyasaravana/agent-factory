@@ -6,6 +6,8 @@ const RESULT: Record<string, string> = { fixed: "ok", "still-present": "bad", "n
 
 /** What a change was asked, what it did and changed, what it gathered, and what a later
  * assessment verified (ADR-0040). */
+import { Panel } from "./ui/panel";
+
 export default function ChangeOutcome({ changeId, runStatus }: { changeId: string; runStatus: string }) {
   const stopped = ["awaiting_feedback", "failed", "cancelled", "held"].includes(runStatus);
   const q = useQuery({
@@ -19,11 +21,15 @@ export default function ChangeOutcome({ changeId, runStatus }: { changeId: strin
   const found = o.found ?? {};
   const isAssess = o.kind === "assess";
   return (
-    <section className="grid gap-2 rounded-xl border bg-card p-4 text-sm" data-testid="change-outcome" aria-label="Outcome">
-      <div className="flex items-center gap-2">
-        <ListChecks className="size-4 text-primary" />
-        <h4 className="m-0">Outcome of iteration {o.iteration}</h4>
-      </div>
+    <Panel
+      id="outcome"
+      data-testid="change-outcome"
+      aria-label="Outcome"
+      bodyClassName="text-sm"
+      icon={<ListChecks className="text-primary" />}
+      title={`Outcome of iteration ${o.iteration}`}
+      summary={o.asked ? <span className="line-clamp-1">{o.asked.split("\n")[0]}</span> : undefined}
+    >
       <dl className="m-0 grid gap-2 sm:grid-cols-[8rem_1fr]">
         <dt className="font-medium">Asked</dt>
         <dd className="m-0 whitespace-pre-line text-muted-foreground">
@@ -89,6 +95,6 @@ export default function ChangeOutcome({ changeId, runStatus }: { changeId: strin
           {(o.gathered ?? []).length === 0 && <span className="text-muted-foreground">—</span>}
         </dd>
       </dl>
-    </section>
+    </Panel>
   );
 }

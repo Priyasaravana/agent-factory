@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowLeft,
   ArrowUpRight,
+  FileText,
   GitBranch,
   Globe,
   Layers,
@@ -14,11 +15,12 @@ import { ACTIVE, KIND_LABEL, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
 import WorkLedger from "../components/WorkLedger";
+import NeedsYou, { useAttention } from "../components/NeedsYou";
+import { Panel } from "../components/ui/panel";
 import SpendCard from "../components/SpendCard";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
-import { Card, CardContent } from "../components/ui/card";
 import { ago } from "../lib/time";
 import { cn } from "../lib/utils";
 
@@ -35,6 +37,7 @@ export default function ProductPage() {
     refetchInterval: 4_000,
   });
   const [selected, setSelected] = useState<string | null>(null);
+  const attention = useAttention(productId, true);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const qc = useQueryClient();
   const archive = useMutation({
@@ -103,6 +106,13 @@ export default function ProductPage() {
           )}
         </div>
       </div>
+      {!product.archived_at && (
+        <NeedsYou
+          productId={product.id}
+          selectedChange={changeId}
+          onSelectChange={setSelected}
+        />
+      )}
       {product.archived_at && (
         <p className="note m-0">
           Archived {ago(product.archived_at)}
@@ -131,7 +141,7 @@ export default function ProductPage() {
         <Problems error={archive.error} />
       </ConfirmDialog>
 
-      <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 items-start gap-3 lg:grid-cols-4">
         <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
           {product.pack && (
@@ -203,43 +213,56 @@ export default function ProductPage() {
         <SpendCard spend={spend} />
       </div>
 
-      <Card>
-        <CardContent className="grid gap-2 pt-4">
-          <details>
-            <summary className="font-medium">
-              {product.target === "repo"
-                ? "What the team wants to know"
-                : "Requirements"}
-            </summary>
-            <pre className="pre mt-2">{product.requirements}</pre>
-          </details>
-          {feedback.length > 0 && (
-            <details>
-              <summary className="font-medium">
-                Change requests ({feedback.length})
-              </summary>
-              <ol className="mt-2 grid gap-2 pl-5 text-sm">
-                {feedback.map((f) => (
-                  <li key={f.id}>{f.text}</li>
-                ))}
-              </ol>
-            </details>
-          )}
-        </CardContent>
-      </Card>
+      <Panel
+        id="requirements"
+        icon={<FileText className="text-primary" />}
+        title={
+          product.target === "repo"
+            ? "What the team wants to know"
+            : "Requirements"
+        }
+        summary={
+          <>
+            <span className="line-clamp-1">
+              {product.requirements.split("\n")[0]}
+            </span>
+            {feedback.length > 0 && (
+              <span className="pill muted">
+                {feedback.length} change request
+                {feedback.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </>
+        }
+      >
+        <pre className="pre m-0">{product.requirements}</pre>
+        {feedback.length > 0 && (
+          <div className="grid gap-1">
+            <span className="text-sm font-medium">
+              Change requests ({feedback.length})
+            </span>
+            <ol className="m-0 grid gap-2 pl-5 text-sm">
+              {feedback.map((f) => (
+                <li key={f.id}>{f.text}</li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </Panel>
 
-      <div id="work-ledger" className="scroll-mt-4">
-        <WorkLedger
-          productId={product.id}
-          canChange={
-            !product.archived_at &&
-            !ACTIVE.has(String(product.latest_status ?? ""))
-          }
-          onChanged={() =>
-            qc.invalidateQueries({ queryKey: ["product", productId] })
-          }
-        />
-      </div>
+      <WorkLedger
+        productId={product.id}
+        canChange={
+          !product.archived_at &&
+          !ACTIVE.has(String(product.latest_status ?? ""))
+        }
+        attention={(attention.data ?? []).some(
+          (a) => a.kind === "accept_risk",
+        )}
+        onChanged={() =>
+          qc.invalidateQueries({ queryKey: ["product", productId] })
+        }
+      />
 
       {changes.length > 1 && (
         <div

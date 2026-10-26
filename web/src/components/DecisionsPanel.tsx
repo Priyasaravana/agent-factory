@@ -6,6 +6,7 @@ import { api, unwrap } from "../api/client";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
+import { Panel } from "./ui/panel";
 
 type Draft = Record<string, { choice: string; other: string; reason: string }>;
 
@@ -131,19 +132,16 @@ export default function DecisionsPanel({
   const busy = v.discuss_pending || send.isPending;
 
   return (
-    <section
-      className={cn(
-        "grid gap-3 rounded-xl border p-4",
-        reviewing ? "border-warn/60 bg-warn/5" : "bg-card",
-      )}
+    <Panel
+      id="decisions"
+      tone={reviewing ? "attention" : "default"}
+      attention={reviewing}
       data-testid="decisions-panel"
       aria-label="Design decisions"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <Compass className="size-4 text-primary" />
-        <h4 className="m-0">
-          {reviewing ? "Align with the architect" : "Design decisions"}
-        </h4>
+      icon={<Compass className="text-primary" />}
+      title={reviewing ? "Align with the architect" : "Design decisions"}
+      summary={
+        <>
         {questions.length > 0 && (
           <span className="pill muted">
             {questions.length} design choices ·{" "}
@@ -161,7 +159,9 @@ export default function DecisionsPanel({
             {changed.size} new or changed
           </span>
         )}
-      </div>
+        </>
+      }
+    >
 
       {reviewing && (
         <p className="m-0 text-sm text-muted-foreground">
@@ -480,6 +480,6 @@ export default function DecisionsPanel({
           </table>
         </details>
       )}
-    </section>
+    </Panel>
   );
 }

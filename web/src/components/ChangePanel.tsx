@@ -1,12 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
+  AlertTriangle,
   Ban,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  CircleAlert,
   CircleDollarSign,
+  HelpCircle,
+  Info,
+  Layers3,
   MessageSquareText,
   Play,
   RefreshCw,
   Send,
   Shuffle,
+  Sparkles,
+  Bug,
+  OctagonAlert,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +36,7 @@ import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
 import ToolsPanel from "./ToolsPanel";
+import ScreenshotsPanel from "./ScreenshotsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
 import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
@@ -36,6 +48,10 @@ import StationStrip from "./StationStrip";
 import StatusPill from "./StatusPill";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Panel, setAllPanels } from "./ui/panel";
+
+/** Stopped short of done, waiting for a person or the clock: the hold panel explains and resumes. */
+const STOPPED = new Set(["held", "interrupted", "paused_limits"]);
 
 export default function ChangePanel({
   changeId,
@@ -133,15 +149,6 @@ export default function ChangePanel({
             <RefreshCw className="ml-2 size-3.5" />
             {r.loops} {r.loops === 1 ? "loop" : "loops"}
           </span>
-          {["held", "interrupted", "paused_limits"].includes(r.status) && (
-            <Button
-              size="sm"
-              onClick={() => resume.mutate()}
-              disabled={resume.isPending}
-            >
-              <Play /> Resume
-            </Button>
-          )}
           {ACTIVE.has(r.status) && (
             <Button
               size="sm"
@@ -152,9 +159,17 @@ export default function ChangePanel({
               <Ban /> Cancel
             </Button>
           )}
+          <span className="flex gap-1">
+            <Button size="sm" variant="ghost" onClick={() => setAllPanels(true)} title="Open every panel">
+              <ChevronsUpDown /> <span className="hidden sm:inline">Expand all</span>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAllPanels(false)} title="Close every panel">
+              <ChevronsDownUp /> <span className="hidden sm:inline">Collapse all</span>
+            </Button>
+          </span>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4 pt-4">
+      <CardContent className="grid grid-cols-[minmax(0,1fr)] gap-4 pt-4">
         {r.change_request && (
           <p className="note m-0 flex items-start gap-2">
             <MessageSquareText className="mt-0.5 size-4 shrink-0 text-info" />
@@ -171,7 +186,7 @@ export default function ChangePanel({
             </span>
           </p>
         )}
-        <Problems error={resume.error} />
+        {!STOPPED.has(r.status) && <Problems error={resume.error} />}
         <StationStrip
           stations={stations.filter((s) => s.state !== "skipped")}
         />
@@ -225,54 +240,104 @@ export default function ChangePanel({
             risk={risk}
           />
         )}
-        {r.summary && (
-          <p
-            className={cn(
-              "m-0 text-sm",
-              r.status === "held" ? "error" : "text-muted-foreground",
-            )}
+        {r.summary && !STOPPED.has(r.status) && (
+          <p className="m-0 text-sm text-muted-foreground">{r.summary}</p>
+        )}
+        {STOPPED.has(r.status) && (
+          <Panel
+            id="hold"
+            tone="attention"
+            attention
+            data-testid="hold-panel"
+            icon={<OctagonAlert className="text-warn" />}
+            title={
+              r.status === "held"
+                ? r.hold_class === "infra"
+                  ? "Held: the factory failed here"
+                  : "Held: the change needs a person"
+                : r.status === "interrupted"
+                  ? "Interrupted: the factory restarted"
+                  : "Paused for the model usage window"
+            }
+            summary={r.summary ? <span className="text-foreground">{r.summary}</span> : undefined}
+            right={
+              r.status !== "paused_limits" && (
+                <Button size="sm" onClick={() => resume.mutate()} disabled={resume.isPending}>
+                  <Play /> Resume
+                </Button>
+              )
+            }
           >
-            {r.summary}
-          </p>
-        )}
-        {r.status === "held" && r.hold_class === "infra" && (
-          <p className="note m-0" data-testid="hold-infra">
-            The factory failed here, not the product: retries didn't cure it,
-            and nothing was sent to the developer. Check what the hold names,
-            then resume.
-          </p>
-        )}
-        {r.status === "held" && r.required_action && (
-          <p className="note m-0" data-testid="required-action">
-            <span className="font-medium">Before you resume:</span>{" "}
-            {r.required_action.text}
-          </p>
-        )}
-        {r.status === "held" && r.last_failure && (
-          <details open>
-            <summary className="font-medium">Evidence</summary>
-            <pre className="pre mt-2">{r.last_failure}</pre>
-          </details>
+            {r.status === "held" && r.hold_class === "infra" && (
+              <p className="note m-0" data-testid="hold-infra">
+                The factory failed here, not the product: retries didn't cure it,
+                and nothing was sent to the developer. Check what the hold names,
+                then resume.
+              </p>
+            )}
+            {r.status === "held" && r.required_action && (
+              <p className="note m-0" data-testid="required-action">
+                <span className="font-medium">Before you resume:</span>{" "}
+                {r.required_action.text}
+              </p>
+            )}
+            {r.status === "held" && r.last_failure ? (
+              <div className="grid gap-1">
+                <span className="text-sm font-medium">Evidence</span>
+                <pre className="pre m-0">{r.last_failure}</pre>
+              </div>
+            ) : (
+              <p className="m-0 text-sm text-muted-foreground">
+                {r.status === "paused_limits"
+                  ? "Nothing to do: the change resumes by itself when the window resets."
+                  : "Resume to carry on from the station it stopped at."}
+              </p>
+            )}
+            <Problems error={resume.error} />
+          </Panel>
         )}
         {r.status === "needs_input" && (
-          <Questions
-            changeId={changeId}
-            questions={r.questions ?? []}
-            switchTo={r.switch_to ?? []}
-            onDone={refresh}
-          />
+          <Panel
+            id="questions"
+            tone="attention"
+            attention
+            icon={<HelpCircle className="text-warn" />}
+            title="Intake needs a decision from you"
+            summary={`${(r.questions ?? []).length} question${(r.questions ?? []).length === 1 ? "" : "s"}`}
+          >
+            <Questions
+              changeId={changeId}
+              questions={r.questions ?? []}
+              switchTo={r.switch_to ?? []}
+              onDone={refresh}
+            />
+          </Panel>
         )}
         {r.status === "awaiting_feedback" && !archived && (
-          <FeedbackForm
-            productId={productId}
-            onDone={refresh}
-            repo={target === "repo"}
-          />
+          <Panel
+            id="feedback"
+            defaultOpen
+            tone="ok"
+            icon={<Sparkles className="text-ok" />}
+            title={
+              target === "repo"
+                ? "Ask for a change: the factory opens a pull request, and you merge it"
+                : "Try the app, then tell the factory what to change"
+            }
+            summary="Feature, bug fix or upkeep: the next iteration starts when you send it"
+          >
+            <FeedbackForm
+              productId={productId}
+              onDone={refresh}
+              repo={target === "repo"}
+            />
+          </Panel>
         )}
         {r.status === "awaiting_feedback" && !archived && target === "repo" && (
           <AssessAgain productId={productId} onDone={refresh} />
         )}
         <RunPillars events={events} />
+        <ScreenshotsPanel changeId={changeId} runStatus={r.status} />
         <ToolsPanel changeId={changeId} runStatus={r.status} />
         <AgentCallsPanel changeId={changeId} runStatus={r.status} />
         <EvidencePanel changeId={changeId} runStatus={r.status} />
@@ -334,8 +399,22 @@ function useRunEvents(changeId: string): FactoryEvent[] {
   return events;
 }
 
+type Level = "error" | "warn" | "info" | "debug";
+
+/** How each level reads: a colour and an icon, so colour is never the only signal. */
+const LEVEL: Record<Level, { label: string; plural: string; icon: typeof Info; tone: string }> = {
+  error: { label: "error", plural: "errors", icon: CircleAlert, tone: "text-bad" },
+  warn: { label: "warning", plural: "warnings", icon: AlertTriangle, tone: "text-warn" },
+  info: { label: "info", plural: "info", icon: Info, tone: "text-info" },
+  debug: { label: "detail", plural: "detail", icon: Bug, tone: "text-muted-foreground" },
+};
+const LEVELS: Level[] = ["error", "warn", "info", "debug"];
+const levelOf = (e: FactoryEvent): Level => (e.level as Level | undefined) ?? "info";
+
 function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
-  const [filter, setFilter] = useState<"all" | "decisions" | "stations">("all");
+  // which levels are shown: detail (agent text, tool calls) is hidden until asked for
+  const [shownLevels, setShownLevels] = useState<Set<Level>>(() => new Set(["error", "warn", "info"]));
+  const [kind, setKind] = useState<"all" | "decisions" | "stations">("all");
   const [newestFirst, setNewestFirst] = useState(true);
   const [query, setQuery] = useState("");
   const box = useRef<HTMLDivElement>(null);
@@ -345,21 +424,32 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
     const el = box.current;
     if (el) el.scrollTop = newestFirst ? 0 : el.scrollHeight;
   }, [events.length, newestFirst]);
+  const counts = Object.fromEntries(LEVELS.map((l) => [l, events.filter((e) => levelOf(e) === l).length])) as Record<
+    Level,
+    number
+  >;
   const q = query.trim().toLowerCase();
   const matching = events.filter(
     (e) =>
-      (filter === "all" ||
-        (filter === "decisions"
-          ? e.kind === "decision"
-          : e.kind.startsWith("station"))) &&
-      (!q ||
-        `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
+      shownLevels.has(levelOf(e)) &&
+      (kind === "all" || (kind === "decisions" ? e.kind === "decision" : e.kind.startsWith("station"))) &&
+      (!q || `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
   );
   const shown = newestFirst ? [...matching].reverse() : matching;
+  const toggle = (l: Level) => {
+    const next = new Set(shownLevels);
+    if (next.has(l)) next.delete(l);
+    else next.add(l);
+    setShownLevels(next);
+  };
+  const only = (l: Level) => setShownLevels(new Set([l]));
   return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h4 className="m-0 flex items-center gap-2">
+    <Panel
+      id="activity"
+      data-testid="activity"
+      icon={<Activity className="text-primary" />}
+      title={
+        <>
           Activity
           {live && (
             <span className="relative flex size-2" title="Live">
@@ -367,11 +457,54 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
               <span className="relative inline-flex size-2 rounded-full bg-ok" />
             </span>
           )}
-        </h4>
-        <span
-          className="text-xs text-muted-foreground"
-          data-testid="activity-count"
+        </>
+      }
+      summary={
+        <>
+          <span data-testid="activity-total">{events.length} events</span>
+          {(["error", "warn"] as Level[]).map((l) => {
+            const Icon = LEVEL[l].icon;
+            return counts[l] > 0 ? (
+              <span key={l} className={cn("pill", l === "error" ? "bad" : "warn")} data-testid={`activity-${l}-count`}>
+                <Icon /> {counts[l]} {counts[l] === 1 ? LEVEL[l].label : LEVEL[l].plural}
+              </span>
+            ) : null;
+          })}
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label="Levels shown">
+          {LEVELS.map((l) => {
+            const Icon = LEVEL[l].icon;
+            return (
+              <button
+                key={l}
+                type="button"
+                aria-pressed={shownLevels.has(l)}
+                className={cn("tab inline-flex items-center gap-1", shownLevels.has(l) && "active")}
+                onClick={() => toggle(l)}
+                onDoubleClick={() => only(l)}
+                title={`Show or hide ${LEVEL[l].plural} (double-click: only ${LEVEL[l].plural})`}
+                data-testid={`level-${l}`}
+              >
+                <Icon className={cn("size-3.5", LEVEL[l].tone)} aria-hidden />
+                {LEVEL[l].plural} <span className="tabular-nums text-muted-foreground">{counts[l]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <select
+          aria-label="Kind of event"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as typeof kind)}
+          className="w-auto py-1 text-sm"
         >
+          <option value="all">all events</option>
+          <option value="decisions">decisions</option>
+          <option value="stations">stations</option>
+        </select>
+        <span className="text-xs text-muted-foreground" data-testid="activity-count">
           {matching.length === events.length
             ? `${events.length} events`
             : `${matching.length} of ${events.length} events`}
@@ -382,7 +515,7 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
           placeholder="Search activity…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="ml-auto h-8 w-56 text-sm"
+          className="h-8 w-full text-sm sm:ml-auto sm:w-56"
         />
         <button
           className="tab"
@@ -392,41 +525,40 @@ function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
         >
           {newestFirst ? "newest first ↓" : "oldest first ↓"}
         </button>
-        <div className="flex gap-1 rounded-lg border bg-card p-0.5">
-          {(["all", "decisions", "stations"] as const).map((f) => (
-            <button
-              key={f}
-              className={`tab ${filter === f ? "active" : ""}`}
-              onClick={() => setFilter(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
       </div>
       <div className="log" ref={box} data-testid="activity-log">
-        {shown.map((e) => (
-          <div key={e.id} className={`ev ev-${e.kind}`}>
-            <span className="ts" title={new Date(e.ts).toLocaleString()}>
-              {new Date(e.ts).toLocaleTimeString()}
-            </span>
-            <span className="st">{e.station ?? ""}</span>
-            <span className="msg">{e.message}</span>
-            {typeof e.data?.output === "string" && e.data.output && (
-              <details>
-                <summary>output</summary>
-                <pre className="pre">{e.data.output as string}</pre>
-              </details>
-            )}
-          </div>
-        ))}
+        {shown.map((e) => {
+          const l = levelOf(e);
+          const Icon = LEVEL[l].icon;
+          const output = typeof e.data?.output === "string" ? (e.data.output as string) : "";
+          const evidence = typeof e.data?.evidence === "string" ? (e.data.evidence as string) : "";
+          const tail = output || evidence;
+          return (
+            <div key={e.id} className={`ev ev-${e.kind} lv-${l}`} data-level={l}>
+              <span className="ts" title={new Date(e.ts).toLocaleString()}>
+                {new Date(e.ts).toLocaleTimeString()}
+              </span>
+              <span className="st">{e.station ?? ""}</span>
+              <span className="msg">
+                <Icon className={cn("lv-icon", LEVEL[l].tone)} aria-label={LEVEL[l].label} />
+                {e.message}
+              </span>
+              {tail && (
+                <details open={l === "error"}>
+                  <summary>{output ? "output" : "evidence"}</summary>
+                  <pre className="pre">{tail}</pre>
+                </details>
+              )}
+            </div>
+          );
+        })}
         {shown.length === 0 && (
           <p className="m-0 p-3 text-muted-foreground">
-            {q ? `Nothing matches “${query.trim()}”.` : "Nothing yet."}
+            {q ? `Nothing matches “${query.trim()}”.` : events.length ? "Nothing at the levels shown." : "Nothing yet."}
           </p>
         )}
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -454,13 +586,12 @@ function Questions({
   });
   return (
     <form
-      className="rounded-xl border border-warn/50 bg-warn/5 p-4"
+      className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault();
         submit.mutate();
       }}
     >
-      <h4 className="m-0">Intake needs a decision from you</h4>
       {switchTo.length > 0 && (
         <SwitchStack changeId={changeId} switchTo={switchTo} onDone={onDone} />
       )}
@@ -674,17 +805,12 @@ function FeedbackForm({
   });
   return (
     <form
-      className="rounded-xl border border-ok/40 bg-ok/5 p-4"
+      className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault();
         send.mutate();
       }}
     >
-      <h4 className="m-0">
-        {repo
-          ? "Ask for a change: the factory opens a pull request, and you merge it"
-          : "Try the app, then tell the factory what to change"}
-      </h4>
       <div
         className="flex w-fit flex-wrap gap-1 rounded-lg border bg-card p-1"
         role="radiogroup"
@@ -745,20 +871,19 @@ function RunPillars({ events }: { events: FactoryEvent[] }) {
   if (!card?.pillars) return null;
   const uncovered = card.pillars.filter((p) => !p.applicable).length;
   return (
-    <details
-      className="rounded-xl border bg-card p-4"
+    <Panel
+      id="pillars"
       data-testid="change-pillars"
+      icon={<Layers3 className="text-primary" />}
+      title="Quality pillars"
+      summary={
+        <>
+          <span className={cn("pill", (card.level ?? 0) >= 3 ? "ok" : "warn")}>Level {card.level}</span>
+          {uncovered > 0 && <span className="pill muted">{uncovered} uncovered</span>}
+        </>
+      }
     >
-      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-        <span className="font-semibold">Quality pillars</span>
-        <span className="pill muted">Level {card.level}</span>
-        {uncovered > 0 && (
-          <span className="pill muted">{uncovered} uncovered</span>
-        )}
-      </summary>
-      <div className="mt-3">
-        <PillarBars rows={card.pillars} />
-      </div>
-    </details>
+      <PillarBars rows={card.pillars} />
+    </Panel>
   );
 }

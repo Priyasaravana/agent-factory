@@ -8,7 +8,8 @@ test("the admin signs in and out", async ({ page, request }) => {
   await signIn(page);
   await page.goto("/sign-in");
   await expect(page.getByRole("heading", { level: 1, name: "Signed in" })).toBeVisible();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  // the header has a sign-out button too: use the page's own
+  await page.getByRole("main").getByRole("button", { name: "Sign out" }).click();
   await page.goto("/sign-in");
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });

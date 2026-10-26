@@ -8,3 +8,4 @@ test-results/
 next-env.d.ts
 .env
 .env*.local
+e2e-screenshots/

@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import { Button } from "./ui/button";
+import { Panel } from "./ui/panel";
 
 type Item = components["schemas"]["WorkItem"];
 type Tab = "open" | "in_progress" | "fixed" | "closed";
@@ -32,10 +33,13 @@ export default function WorkLedger({
   productId,
   canChange,
   onChanged,
+  attention = false,
 }: {
   productId: string;
   canChange: boolean;
   onChanged?: () => void;
+  /** a held change waits on a decision here (accept a risk): open and highlight the panel */
+  attention?: boolean;
 }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -129,14 +133,23 @@ export default function WorkLedger({
   };
 
   return (
-    <section className="grid gap-3 rounded-xl border bg-card p-4" data-testid="work-ledger" aria-label="Work items">
-      <div className="flex flex-wrap items-center gap-2">
-        <ClipboardList className="size-4 text-primary" />
-        <h4 className="m-0">Work items</h4>
-        <span className="text-xs text-muted-foreground">
-          everything found across iterations, and what became of it
-        </span>
-      </div>
+    <Panel
+      id="work-ledger"
+      tone={attention ? "attention" : "default"}
+      attention={attention}
+      data-testid="work-ledger"
+      aria-label="Work items"
+      icon={<ClipboardList className="text-primary" />}
+      title="Work items"
+      summary={
+        <>
+          <span className={cn("pill", counts.open ? "warn" : "muted")}>{counts.open} open</span>
+          {counts.in_progress > 0 && <span className="pill info">{counts.in_progress} in progress</span>}
+          <span className="pill muted">{counts.fixed} fixed</span>
+          <span>everything found across iterations, and what became of it</span>
+        </>
+      }
+    >
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-0.5" role="tablist" aria-label="Status">
           {TABS.map(([t, label]) => (
@@ -352,6 +365,6 @@ export default function WorkLedger({
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   );
 }

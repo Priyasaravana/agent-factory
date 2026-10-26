@@ -14,6 +14,8 @@ const SEV_ORDER = ["critical", "high", "medium", "low", "info"];
  * is left for the next one (anything not verified, the assumptions intake made, the reviewer's
  * notes and the open items on the product's work ledger). Read-only: it gathers what the spec,
  * the review and the ledger already hold. */
+import { Panel } from "./ui/panel";
+
 export default function IterationSummary({
   changeId,
   productId,
@@ -72,10 +74,22 @@ export default function IterationSummary({
     notDone.length + assumptions.length + notes.length + (open.length ? 1 : 0);
 
   return (
-    <section
-      className="grid gap-3 rounded-xl border bg-card p-4"
+    <Panel
+      id="summary"
+      defaultOpen
+      tone="ok"
       data-testid="iteration-summary"
       aria-label="Iteration summary"
+      icon={<PackageCheck className="text-ok" />}
+      title={`Iteration ${iteration} delivered`}
+      summary={
+        <>
+          <span className="pill ok">
+            {verified}/{trace.length} verified live
+          </span>
+          {nextCount > 0 && <span className="pill muted">{nextCount} to consider next</span>}
+        </>
+      }
     >
       <div className="grid gap-4 md:grid-cols-2">
         <div className="grid content-start gap-2">
@@ -201,7 +215,7 @@ export default function IterationSummary({
           )}
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }
 

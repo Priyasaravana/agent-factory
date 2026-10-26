@@ -209,6 +209,13 @@ class FakeAgentRunner:
                     }
                 ]
             }
+        if "scores" in props:  # the UI review of the route screenshots (ADR-0044 §4): reported only
+            ids = props["scores"]["items"]["properties"]["criterion"]["enum"]
+            return {
+                "summary": "[dry-run] consistent and readable",
+                "scores": [{"criterion": c, "score": 4, "why": "dry-run"} for c in ids],
+                "findings": [{"screenshot": "home-phone-dark.png", "issue": "[dry-run] tighten the header"}],
+            }
         if req.role == "checker":  # a scan station's agent provider or fallback (ADR-0035)
             return {"summary": "[dry-run] checked", "findings": list(self.scan_findings)}
         if "test_command" in props:  # a change to an existing repo (ADR-0033)

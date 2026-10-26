@@ -196,6 +196,14 @@
   .ev .st { @apply text-xs font-medium text-primary; }
   .ev-decision .msg { @apply text-ok; }
   .ev-status .msg, .ev-station_finished .msg { @apply font-semibold; }
+  /* levels (engine-decided, `Event.level`): a coloured edge and an icon, never colour alone */
+  .ev { @apply border-l-[3px] border-transparent; }
+  .ev .msg .lv-icon { @apply mr-1.5 inline size-3.5 shrink-0 align-[-2px]; }
+  .ev.lv-error { @apply border-bad bg-bad/8; }
+  .ev.lv-error .msg { @apply font-medium text-bad; }
+  .ev.lv-warn { @apply border-warn bg-warn/6; }
+  .ev.lv-warn .msg { @apply text-foreground; }
+  .ev.lv-debug .msg { @apply text-muted-foreground; }
 
   /* agents + editors */
   .agent { @apply grid gap-1.5 rounded-lg border bg-card p-4; }

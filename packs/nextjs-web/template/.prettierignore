@@ -4,3 +4,4 @@ playwright-report
 test-results
 package-lock.json
 deploy/chart
+e2e-screenshots

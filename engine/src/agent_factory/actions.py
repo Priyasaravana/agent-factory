@@ -29,6 +29,7 @@ from starlette.background import BackgroundTask
 from agent_factory import contract as station_contract
 from agent_factory import evidence
 from agent_factory import station_templates as tpl
+from agent_factory.attention import pending_actions
 from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
@@ -42,6 +43,7 @@ from agent_factory.models import (
     AnswersInput,
     AssessmentView,
     AssignWorkflowInput,
+    AttentionItem,
     BlueprintUse,
     CatalogView,
     Change,
@@ -97,6 +99,8 @@ from agent_factory.models import (
     RiskFindingView,
     ScenarioView,
     ScopePresetInfo,
+    ScreenshotRun,
+    ScreenshotsView,
     SkillDetail,
     SkillInfo,
     SkillSourceInput,
@@ -113,6 +117,8 @@ from agent_factory.models import (
     TemplateInfo,
     ToolReportView,
     TraceRow,
+    UiCriterion,
+    UiReviewView,
     UnassignWorkflowInput,
     UpdateStationInput,
     WorkflowSettingsInput,
@@ -608,7 +614,47 @@ def get_change(f: Factory, change_id: str) -> ChangeDetail:
         product=product,
         stations=_station_views(f, change, change.workflow_id or ""),
         risk=_risk_view(f, change),
+        actions=pending_actions(product, change, _since_state(f, change)),
     )
+
+
+def _since_state(f: Factory, change: Change) -> datetime:
+    """When the change entered its current state (its last status transition)."""
+    last = f.store.transitions([change.id]).get(change.id, [])
+    return last[-1].ts if last else change.updated_at
+
+
+@action(
+    "list_attention",
+    "What every live product is waiting for, most urgent first: the Needs-you panel and header count",
+    "GET",
+    "/api/attention",
+)
+def list_attention(f: Factory, product_id: str | None = None, include_optional: bool = False) -> list[AttentionItem]:
+    products = [
+        o
+        for o in f.store.list_products()
+        if not o.archived_at and not o.eval_run_id and (product_id is None or o.id == product_id)
+    ]
+    items: list[AttentionItem] = []
+    for product in products:
+        changes = f.store.list_changes(product.id)
+        if not changes:
+            continue
+        latest = max(changes, key=lambda c: c.iteration)
+        for a in pending_actions(product, latest, _since_state(f, latest)):
+            if a.blocking or include_optional:
+                items.append(
+                    AttentionItem(
+                        **a.model_dump(),
+                        product_id=product.id,
+                        product_title=product.title,
+                        change_id=latest.id,
+                        iteration=latest.iteration,
+                    )
+                )
+    items.sort(key=lambda i: (not i.blocking, i.owner == "system", i.since))
+    return items
 
 
 def _risk_view(f: Factory, change: Change) -> ChangeRiskView | None:
@@ -629,6 +675,58 @@ def _risk_view(f: Factory, change: Change) -> ChangeRiskView | None:
         break_glass=policy.break_glass,
         self_approval_at=hold.since + timedelta(minutes=policy.cooling_off_minutes) if hold else None,
     )
+
+
+_SHOT = re.compile(r"^[a-z0-9][a-z0-9._-]{0,120}\.png$")
+
+
+@action(
+    "get_change_screenshots",
+    "Route screenshots of the preview and the live app, and the UI review of them (ADR-0044 §4)",
+    "GET",
+    "/api/changes/{change_id}/screenshots",
+)
+def get_change_screenshots(f: Factory, change_id: str) -> ScreenshotsView:
+    change = f.store.get_change(change_id)
+    if not change:
+        raise FactoryError("change not found")
+    folder = f.manager.ws.data_dir / "artifacts" / change_id
+    runs = []
+    for run in ("preview", "live"):
+        d = folder / "screenshots" / run
+        files = sorted(p.name for p in d.glob("*.png") if _SHOT.match(p.name)) if d.is_dir() else []
+        if files:
+            runs.append(ScreenshotRun.model_validate({"run": run, "files": files}))
+    review = None
+    try:
+        raw = json.loads((folder / "ui-review.json").read_text())
+    except (OSError, ValueError):
+        raw = None
+    if isinstance(raw, dict):
+        product = f.store.get_product(change.product_id)
+        bp = f.cfg.blueprints.get(product.blueprint) if product else None
+        pack = bp.pack_binding if bp is not None else None
+        rubric = pack.ui_rubric if pack is not None else None
+        criteria = [UiCriterion(id=c.id, title=c.title) for c in rubric.criteria] if rubric else []
+        review = UiReviewView.model_validate({**raw, "criteria": criteria})
+    return ScreenshotsView(runs=runs, review=review)
+
+
+@action(
+    "get_change_screenshot",
+    "One route screenshot (PNG)",
+    "GET",
+    "/api/changes/{change_id}/screenshots/{run}/{name}",
+)
+def get_change_screenshot(f: Factory, change_id: str, run: str, name: str) -> Response:
+    if not f.store.get_change(change_id):
+        raise FactoryError("change not found")
+    if run not in ("preview", "live") or not _SHOT.match(name):
+        raise FactoryError("screenshot not found")
+    p = f.manager.ws.data_dir / "artifacts" / change_id / "screenshots" / run / name
+    if not p.is_file() or p.is_symlink():
+        raise FactoryError("screenshot not found")
+    return FileResponse(p, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
 
 
 @action("list_events", "Append-only event/decision log for a change", "GET", "/api/changes/{change_id}/events")

@@ -256,6 +256,17 @@
   (`E2E_ADMIN_*`; a sandboxed command inherits a redacted value by name, an agent session through
   `AgentRequest.secret_env` / `SandboxSpec.allow_env`). Never put a credential in a prompt or argv.
   Tests in `tests/test_app_sign_in.py`.
+- Look and feel (ADR-0044 §4, `nextjs-web` 1.4.0): a pack's `stack.ui` names the designer's skill, the UI
+  rubric and the folder the e2e suite saves route screenshots in. The design station runs the designer
+  after the architect (`design_station._designer`, `ctx.agent(..., spec=...)`; only `docs/ui.md` may
+  change). Screenshots become evidence (`_keep_screenshots`); the code-review station's UI review is
+  judged by the pure `ui_review.judge` and is reported only, never a failure. Tests in
+  `tests/test_ui_review.py`.
+- What the product and change pages show a person (the factory UI): pending actions come from the pure
+  `attention.pending_actions` (`GET /api/attention`, `ChangeDetail.actions`), and every event's level
+  (error, warn, info, debug) from the pure `levels.level_of` (`Event.level`). Decide these in the engine,
+  never in the page; a new status, hold or event shape gets its case in `tests/test_attention.py` or
+  `tests/test_levels.py`.
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

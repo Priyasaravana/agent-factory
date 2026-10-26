@@ -13,6 +13,8 @@ function size(bytes: number): string {
 
 /** The change's sealed evidence (ADR-0023): every file with its SHA-256, re-checked on
  * every view, and a zip for the product's creator or an admin. */
+import { Panel } from "./ui/panel";
+
 export default function EvidencePanel({
   changeId,
   runStatus,
@@ -61,27 +63,29 @@ export default function EvidencePanel({
   }
 
   return (
-    <details className="rounded-xl border bg-card p-4" data-testid="evidence">
-      <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-        <FileCheck2 className="size-4 text-primary" />
-        <span className="font-semibold">Evidence</span>
-        <span className="pill muted">
-          {files.length} files · {size(e.total_bytes)}
-        </span>
-        {e.intact ? (
-          <span
-            className="pill ok"
-            title="every file matches the sealed manifest"
-          >
-            intact
+    <Panel
+      id="evidence"
+      data-testid="evidence"
+      bodyClassName="text-sm"
+      icon={<FileCheck2 className="text-primary" />}
+      title="Evidence"
+      summary={
+        <>
+          <span className="pill muted">
+            {files.length} files · {size(e.total_bytes)}
           </span>
-        ) : (
-          <span className="pill bad" title="something changed after the seal">
-            <ShieldAlert className="size-3" /> changed since sealed
-          </span>
-        )}
-      </summary>
-      <div className="mt-3 grid gap-3 text-sm">
+          {e.intact ? (
+            <span className="pill ok" title="every file matches the sealed manifest">
+              intact
+            </span>
+          ) : (
+            <span className="pill bad" title="something changed after the seal">
+              <ShieldAlert className="size-3" /> changed since sealed
+            </span>
+          )}
+        </>
+      }
+    >
         <p className="muted small m-0">
           Sealed {e.sealed_at ? new Date(e.sealed_at).toLocaleString() : ""}{" "}
           when the change was{" "}
@@ -139,7 +143,6 @@ export default function EvidencePanel({
             ))}
           </tbody>
         </table>
-      </div>
-    </details>
+    </Panel>
   );
 }

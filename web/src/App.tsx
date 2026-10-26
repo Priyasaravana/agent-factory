@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Boxes, ChevronsUpDown, Command as CommandIcon, Factory, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Monitor, Moon,
+  BellRing, Boxes, ChevronsUpDown, Command as CommandIcon, Factory, Gauge, KeyRound, LayoutDashboard, LogOut, Menu, Monitor, Moon,
   Plug, Shield, ShieldAlert, ShieldCheck, Sparkles, Sun, X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -10,6 +10,7 @@ import { api, unwrap } from "./api/client";
 import { useAuth, useSignOut } from "./auth";
 import CommandPalette, { useCommandPalette } from "./components/CommandPalette";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { useAttention } from "./components/NeedsYou";
 import { Button } from "./components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -176,6 +177,30 @@ function UserMenu() {
   );
 }
 
+/** How many changes wait on a person, across every live product; opens the first one. */
+function AttentionChip() {
+  const q = useAttention();
+  const items = q.data ?? [];
+  if (!items.length) return null;
+  const first = items[0];
+  const products = new Set(items.map((i) => i.product_id)).size;
+  return (
+    <Tip
+      label={`${first.product_title}: ${first.title}${items.length > 1 ? ` (+${items.length - 1} more)` : ""}`}
+      side="bottom"
+    >
+      <NavLink
+        to={`/products/${first.product_id}`}
+        className="pill warn clickable no-underline hover:no-underline"
+        data-testid="attention-chip"
+      >
+        <BellRing />
+        {items.length} waiting{products > 1 ? ` · ${products} products` : ""}
+      </NavLink>
+    </Tip>
+  );
+}
+
 function StatusChips() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => unwrap(api.GET("/api/health")), refetchInterval: 10_000 });
   const h = health.data;
@@ -273,7 +298,8 @@ function Shell() {
             <span className="flex-1">Search or jump to…</span>
             <kbd className="rounded border bg-muted px-1.5 font-mono text-[11px]">⌘K</kbd>
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1.5">
+            <AttentionChip />
             <StatusChips />
           </div>
         </header>

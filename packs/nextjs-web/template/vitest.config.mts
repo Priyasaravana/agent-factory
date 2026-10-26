@@ -15,7 +15,9 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/app/layout.tsx"], // markup only: the e2e suite covers it
+      // markup only: the e2e suite covers them. src/components/ui holds shadcn/ui components copied
+      // in as source (a library, not app code); the app's own components stay covered.
+      exclude: ["src/app/layout.tsx", "src/components/ui/**"],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

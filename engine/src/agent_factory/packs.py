@@ -46,6 +46,7 @@ from agent_factory import base_images
 from agent_factory.base_images import BaseImage
 from agent_factory.decisions import Catalogue, CatalogueError, load_catalogue
 from agent_factory.readiness import RuleError, StackRules, parse_stack_rules
+from agent_factory.ui_review import Rubric, RubricError, parse_rubric
 
 if TYPE_CHECKING:
     from agent_factory.config import FactoryConfig
@@ -131,6 +132,16 @@ class PackDetect(BaseModel):
         return v
 
 
+class PackUi(BaseModel):
+    """Look and feel (ADR-0044 §4): the designer's skill, the UI review rubric, and where the e2e
+    suite saves its route screenshots (relative to the product repo)."""
+
+    model_config = ConfigDict(extra="forbid")
+    skill: str  # a folder with SKILL.md, preloaded for the designer
+    rubric: str  # criteria the reviewer scores the screenshots against (1–5, reported only)
+    screenshots: str = Field(default="e2e-screenshots", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
+
+
 class PackStack(BaseModel):
     """What a stack pack builds (ADR-0041 §1). Paths are inside the pack folder."""
 
@@ -155,6 +166,7 @@ class PackStack(BaseModel):
     admin_secret: PackAdminSecret | None = None  # the deployment's first admin, for live sign-in (§3)
     # approved runtime images, default first (ADR-0045): stages of the template's Dockerfile
     base_images: list[BaseImage] = Field(default_factory=list, max_length=6)
+    ui: PackUi | None = None  # designer, screenshots and UI review (ADR-0044 §4)
 
 
 class Pack(BaseModel):
@@ -168,6 +180,7 @@ class Pack(BaseModel):
     _sha256: str = PrivateAttr(default="")
     _rules: StackRules | None = PrivateAttr(default=None)
     _catalogue: Catalogue | None = PrivateAttr(default=None)
+    _rubric: Rubric | None = PrivateAttr(default=None)
 
     @property
     def source(self) -> str:
@@ -270,6 +283,18 @@ def _check_stack(pack: Pack) -> StackRules:
             raise PackError(f"pack {pack.source}: stack.base_images lists a stage twice")
     if stack.preview and not stack.e2e:
         raise PackError(f"pack {pack.source}: stack.preview needs stack.e2e, the suite it runs against the preview")
+    if stack.ui:
+        ui_skill = _inside(pack, stack.ui.skill, "stack.ui.skill", is_dir=True)
+        if not (ui_skill / "SKILL.md").is_file():
+            raise PackError(f"pack {pack.source}: stack.ui.skill '{stack.ui.skill}' has no SKILL.md")
+        rubric_file = _inside(pack, stack.ui.rubric, "stack.ui.rubric", is_dir=False)
+        try:
+            raw = yaml.safe_load(rubric_file.read_text())
+            pack._rubric = parse_rubric(raw, f"pack {pack.source} {stack.ui.rubric}")
+        except (RubricError, yaml.YAMLError) as exc:
+            raise PackError(str(exc)) from exc
+        if not stack.e2e:
+            raise PackError(f"pack {pack.source}: stack.ui needs stack.e2e, the suite that takes the screenshots")
     if stack.evals:
         _check_evals(pack, _inside(pack, stack.evals, "stack.evals", is_dir=False))
     if stack.decisions:
@@ -345,6 +370,11 @@ class PackBinding:
     decisions: Catalogue | None = None  # the decision sheet's questions (ADR-0044 §1)
     admin_secret: PackAdminSecret | None = None  # the deployment's first admin (ADR-0044 §3)
     base_images: tuple[BaseImage, ...] = ()  # approved runtime images, default first (ADR-0045)
+    # look and feel (ADR-0044 §4): the designer's skill, the UI rubric, where screenshots are saved
+    ui_skill: str | None = None
+    ui_skill_file: Path | None = None
+    ui_rubric: Rubric | None = None
+    ui_screenshots: str | None = None
 
     @property
     def source(self) -> str:
@@ -427,6 +457,10 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         pack.catalogue,
         stack.admin_secret,
         tuple(stack.base_images),
+        ui_skill=Path(stack.ui.skill).name if stack.ui else None,
+        ui_skill_file=pack.path(stack.ui.skill) / "SKILL.md" if stack.ui else None,
+        ui_rubric=pack._rubric,
+        ui_screenshots=stack.ui.screenshots if stack.ui else None,
     )
 
 

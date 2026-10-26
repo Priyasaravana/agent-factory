@@ -218,6 +218,14 @@ Mapped to [practices.md](../practices.md).
 2. **PR 2, modules and auth** (~2 days): the five modules with contract tests, sign-in pages, admin
    bootstrap, the two signals, e2e and verifier sign-in; `nextjs-web` 1.3.0.
 3. **PR 3, look and feel** (~1.5 days): Tailwind v4, shadcn/ui components and app shell, tokens by `look`,
-   designer agent and `nextjs-ui-design` skill, screenshot evidence, report-only UI review.
+   designer agent and `nextjs-ui-design` skill, screenshot evidence, report-only UI review; `nextjs-web`
+   1.4.0. As built: a pack's `stack.ui` names the designer's skill, the rubric (`ui-rubric.yaml`) and the
+   screenshot folder; the designer runs with the architect's grant and may change only `docs/ui.md`
+   (anything else it touches is undone); preview-e2e and acceptance keep the screenshots under
+   `artifacts/<change>/screenshots/{preview,live}/`; the code-review station scores the preview's against
+   the rubric (`ui_review.judge`, `ui-review.json`), never failing the change. The same PR makes the
+   factory's own product and change pages usable at length and on a phone: a "Needs you" panel from
+   `GET /api/attention` (`attention.pending_actions`, pure), collapsible panels, and an engine-decided
+   level on every event (`levels.level_of`, pure).
 4. **J1 live run:** a new Next.js product from scratch, `decisions: ask`, decisions agreed in the poll,
    published and deployed at Level 3. Its sealed evidence is kept as the J1 demo record.
