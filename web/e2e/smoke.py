@@ -66,13 +66,15 @@ def main() -> int:
             expect(page.get_by_role("heading", name="Iteration 1")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
             expect(page.locator(".strip")).to_contain_text("Quality gate")
-            expect(page.get_by_text(re.compile(r"agent readiness: Level 3"))).to_be_visible()
+            # panels start closed (one-line summaries); the activity log shows the readiness decision
+            page.locator("#activity [data-panel-toggle]").click()
+            expect(page.get_by_test_id("activity-log")).to_contain_text(re.compile(r"agent readiness: Level 3"))
             page.screenshot(path=f"{SHOTS}/delivered.png", full_page=True)
 
             step("evidence: sealed, intact, downloadable")
             ev = page.get_by_test_id("evidence")
             expect(ev).to_contain_text("intact", timeout=30_000)
-            ev.locator("summary").click()
+            ev.locator("[data-panel-toggle]").click()
             with page.expect_download() as dl:
                 ev.get_by_role("button", name=re.compile("Download bundle")).click()
             assert dl.value.suggested_filename.startswith("evidence-"), dl.value.suggested_filename
