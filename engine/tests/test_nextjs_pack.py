@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_signals():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.3.1" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.3.2" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -188,6 +188,15 @@ def test_the_template_pins_the_playwright_the_sandbox_ships_a_browser_for():
     assert tools.playwright and pkg["devDependencies"]["@playwright/test"] == tools.playwright
     assert lock["packages"]["node_modules/@playwright/test"]["version"] == tools.playwright
     assert "@playwright/test" in (TEMPLATE / ".github" / "dependabot.yml").read_text(), "kept out of Dependabot"
+
+
+def test_live_e2e_goes_through_the_sandbox_proxy_and_the_preview_does_not():
+    """Playwright ignores HTTP_PROXY; in the sandbox the live app (http://dind:<port>) is reachable
+    only through the egress proxy (Book lending, 2026-10-25: ENOTFOUND dind looped three times)."""
+    cfg = (TEMPLATE / "playwright.config.ts").read_text()
+    assert "process.env.HTTPS_PROXY" in cfg and "process.env.HTTP_PROXY" in cfg
+    assert re.search(r"use:\s*\{[^}]*\bproxy\b", cfg), "the proxy reaches Playwright's use options"
+    assert "127\\.0\\.0\\.1" in cfg and "localhost" in cfg, "loopback (the preview) stays direct"
 
 
 def test_the_template_needs_no_web_fonts_or_remote_assets():
@@ -337,7 +346,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.3.1"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.3.2"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)
