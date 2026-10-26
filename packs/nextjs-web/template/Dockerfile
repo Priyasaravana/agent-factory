@@ -18,11 +18,15 @@ RUN npx next build
 
 # Approved runtime images (no shell, no package manager, non-root): only the one RUNTIME names is
 # pulled and built. Pinned by Node version; `scripts/pin-base-images` in the factory adds digests.
+# Each stage sets its own entrypoint: the final stage inherits it, and the images differ (Docker
+# Hardened has none and node on PATH; distroless runs /nodejs/bin/node, not on PATH).
 FROM dhi.io/node:22-alpine3.23 AS runtime-hardened
+ENTRYPOINT ["node"]
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime-distroless
+ENTRYPOINT ["/nodejs/bin/node"]
 
 # Runtime: the standalone server and its static files, as uid 65532 on every approved image (the
-# chart's runAsUser). The image's entrypoint is node.
+# chart's runAsUser). The entrypoint is node, from the chosen stage.
 FROM ${RUNTIME}
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
