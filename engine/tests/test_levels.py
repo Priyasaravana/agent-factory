@@ -36,6 +36,12 @@ L = EventLevel
         ("status", "change queued (iteration 1)", {}, L.info),
         # decisions: infra retries and guardrail denials are warnings; ordinary decisions are info
         ("decision", "retrying agent call in 20s (1/3): 401 Expired Key", {"retry": {"attempt": 1}}, L.warn),
+        (
+            "decision",
+            "no progress: acceptance failed the same way again and implement changed no code",
+            {"no_progress": {"station": "acceptance", "repair": "implement"}},
+            L.warn,
+        ),
         ("decision", "guardrail denied Bash for reviewer: write", {"denied": {"tool": "Bash"}}, L.warn),
         ("decision", "denied secret env://X", {"denied": "push-image"}, L.warn),
         ("decision", "held for infra", {"failure": {"class": "infra"}}, L.warn),

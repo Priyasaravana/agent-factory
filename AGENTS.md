@@ -211,6 +211,12 @@
   that doesn't match it. A hold that a person must unblock sets `StationResult.required`; resume
   refuses until it is done (`ChangeManager._action_done`). Agent calls run under
   `agent_call_minutes` / `agent_stall_minutes` and the change's time budget, all in agent time.
+  No-progress stop: before routing a failure to repair, the pipeline compares it with the last one it
+  routed (`Change.last_routed`: station, `failures.failure_fingerprint`, committed tree from
+  `Workspace.tree_id`); the same failure on the same code holds with the cause and what the repair agent
+  said, instead of looping; resume clears it. Before live e2e and the verifier, acceptance probes the app's
+  liveness path from the sandbox the way the test clients reach it (`target_probe_command`: through the
+  egress proxy, or directly for loopback); unreachable is `infra`. Tests in `tests/test_no_progress.py`.
 - Model access goes through the gateway seam (ADR-0036, `gateway.py`): `ClaudeAgentRunner`
   opens a gateway session per agent call (a virtual key behind a gateway) and closes it in
   a `finally`. A sandbox never gets a credential the session withholds

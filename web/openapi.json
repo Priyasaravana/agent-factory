@@ -5202,6 +5202,16 @@
             ],
             "title": "Last Failure"
           },
+          "last_routed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutedFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hold_class": {
             "anyOf": [
               {
@@ -9032,6 +9042,30 @@
           "trigger"
         ],
         "title": "RoadmapRowView"
+      },
+      "RoutedFailure": {
+        "properties": {
+          "station": {
+            "type": "string",
+            "title": "Station"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "tree": {
+            "type": "string",
+            "title": "Tree"
+          }
+        },
+        "type": "object",
+        "required": [
+          "station",
+          "fingerprint",
+          "tree"
+        ],
+        "title": "RoutedFailure",
+        "description": "The last failure sent to a repair station, for the no-progress stop (ADR-0043 follow-up,\nBook lending 2026-10-25): which station failed, the failure's fingerprint\n(`failures.failure_fingerprint`) and the committed tree it failed on."
       },
       "ScanFallbackView": {
         "properties": {

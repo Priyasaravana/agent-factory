@@ -54,7 +54,7 @@ def level_of(kind: str, message: str, data: Mapping[str, Any] | None) -> EventLe
             return EventLevel.warn
         return EventLevel.info
     if kind == "decision":
-        if "retry" in d or "denied" in d:
+        if "retry" in d or "denied" in d or "no_progress" in d:
             return EventLevel.warn
         failure = d.get("failure")
         if isinstance(failure, Mapping) and failure.get("class") in ("infra", "decision"):

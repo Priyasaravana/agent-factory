@@ -161,6 +161,7 @@ class Change(BaseModel):
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     last_failure: str | None = None  # evidence handed to the repair station
+    last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
     # the action a person must take before resuming
     hold_class: str | None = None
@@ -296,6 +297,25 @@ class RequiredAction(BaseModel):
     kind: Literal["accept_risk"]
     text: str  # the instruction, shown on the change page and when a resume is refused
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
+
+
+class RoutedFailure(BaseModel):
+    """The last failure sent to a repair station, for the no-progress stop (ADR-0043 follow-up,
+    Book lending 2026-10-25): which station failed, the failure's fingerprint
+    (`failures.failure_fingerprint`) and the committed tree it failed on."""
+
+    station: str
+    fingerprint: str
+    tree: str
+
+    def repeated_by(self, now: RoutedFailure) -> bool:
+        """`now` is the same failure at the same station on the same code: the repair in between
+        changed nothing, so routing it again would only loop. Pure. An unknown tree never matches."""
+        return bool(self.tree) and (self.station, self.fingerprint, self.tree) == (
+            now.station,
+            now.fingerprint,
+            now.tree,
+        )
 
 
 class RiskHold(BaseModel):

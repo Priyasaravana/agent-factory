@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-26 (planning moved into the repo; PR 3, ADR-0045 and the Playwright proxy fix merged).
+Updated 2026-10-27 (no-progress stop and target probe in review; Book lending delivered with the proxy fix).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -66,11 +66,14 @@ per-pack evaluation is in the backlog.
    - ✅ **Planning in the repo** (`0794b67`, merged 2026-10-26): `docs/planning/` is the only copy of the plan,
      checked by `engine/tests/test_planning_docs.py`, so any agent on any account can pick up the work.
    - ⏳ **Before the acceptance run (~2.5 days):**
-     - **No-progress stop and target probe (~1 day, ADR-0043 follow-up):** an empty implement diff with the
-       same failure fingerprint holds with the cause instead of looping; before live e2e, the acceptance station
-       probes the e2e URL from the sandbox the way the test client reaches it (through the proxy, or directly
-       for loopback), and a failure is `infra`. Later, optional: classifier rules for `ENOTFOUND` /
-       `ECONNREFUSED` on the target host; the golden-path skill stops the preview by pid, not `pkill`.
+     - 🔄 **No-progress stop and target probe (ADR-0043 follow-up; branch `feat/no-progress-stop`, 2026-10-27,
+       in review):** the same failure (fingerprint) at the same station on the same committed tree, after a
+       repair that changed no code, holds with the cause and what the repair agent said instead of looping
+       (`RoutedFailure`, `failures.failure_fingerprint`); before live e2e and the verifier, acceptance probes the
+       app's liveness path from the sandbox the way the test clients reach it (through the egress proxy, or
+       directly for loopback), and an unreachable target is `infra`: retried in place, then held, never sent
+       to the developer. Tests in `tests/test_no_progress.py`. Later, optional: classifier rules for
+       `ENOTFOUND` / `ECONNREFUSED` on the target host; the golden-path skill stops the preview by pid, not `pkill`.
      - **Journey acceptance test (~1 day):** a scripted dry-run of the J1 flow in CI (request → align with
        Design decisions set to ask → modules and sign-in → e2e before deploy → readiness → publish), using
        the fake runner and executor; it grows with each milestone.
@@ -196,7 +199,7 @@ per-pack evaluation is in the backlog.
 37. Planning in the repo (`0794b67`): `docs/planning/`, one copy, drift checked in CI; the chat project keeps only a pointer.
 
 ## 🔄 In review
-- (none)
+- `feat/no-progress-stop` (2026-10-27): no-progress stop and e2e target probe (J1, before the acceptance run).
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):

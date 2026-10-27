@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import shutil
 from collections.abc import Callable
@@ -172,6 +173,13 @@ class Workspace:
         await self.git("add -A", wt)
         res = await self.git(f'commit -q -m "{message}"', wt)
         return res.ok
+
+    async def tree_id(self, wt: Path) -> str:
+        """The committed tree at HEAD: equal for two commits with the same files, so it tells
+        whether a repair changed any code. Empty when git can't say."""
+        res = await self.git("rev-parse HEAD^{tree}", wt)
+        out = res.output.strip().splitlines() if res.ok else []
+        return out[-1] if out and re.fullmatch(r"[0-9a-f]{40,64}", out[-1]) else ""
 
     async def head_sha(self, wt: Path) -> str:
         res = await self.git("rev-parse --short HEAD", wt)
