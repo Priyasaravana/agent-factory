@@ -2079,6 +2079,7 @@ export interface components {
             pr_url?: string | null;
             /** Last Failure */
             last_failure?: string | null;
+            last_routed?: components["schemas"]["RoutedFailure"] | null;
             /** Hold Class */
             hold_class?: string | null;
             required_action?: components["schemas"]["RequiredAction"] | null;
@@ -3711,6 +3712,20 @@ export interface components {
             why: string;
             /** Trigger */
             trigger: string;
+        };
+        /**
+         * RoutedFailure
+         * @description The last failure sent to a repair station, for the no-progress stop (ADR-0043 follow-up,
+         *     Book lending 2026-10-25): which station failed, the failure's fingerprint
+         *     (`failures.failure_fingerprint`) and the committed tree it failed on.
+         */
+        RoutedFailure: {
+            /** Station */
+            station: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Tree */
+            tree: string;
         };
         /** ScanFallbackView */
         ScanFallbackView: {

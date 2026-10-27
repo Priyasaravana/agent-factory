@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -904,7 +905,9 @@ needs at least one tagged test; the Quality gate station checks this.
         return lim
     if not res.ok:
         return StationResult(StationOutcome.failed, "developer agent failed", res.error)
-    await ctx.ws.commit_all(ctx.worktree, "feat: implementation" + (" (fix)" if fix else ""))
+    if not await ctx.ws.commit_all(ctx.worktree, "feat: implementation" + (" (fix)" if fix else "")) and fix:
+        # nothing to commit: if the same failure comes back, the pipeline's no-progress stop holds
+        return StationResult(StationOutcome.passed, "the developer changed no code for this failure")
     return StationResult(StationOutcome.passed, "implementation committed")
 
 
@@ -1551,6 +1554,8 @@ async def acceptance(ctx: StationContext) -> StationResult:
         return StationResult(
             StationOutcome.held, "no holdout scenarios found — cannot verify", "missing holdout evidence"
         )
+    if unreachable := await _probe_target(ctx):
+        return unreachable
     admin = await _app_admin(ctx)
     where = ctx.blueprint.admin_secret
     sign_in = sign_in_note(where.sign_in) if admin and where else ""
@@ -1616,6 +1621,55 @@ async def _app_admin(ctx: StationContext) -> dict[str, str]:
         {"sign_in": {"secret": name, "keys": [where.email, where.password]}},
     )
     return {ADMIN_EMAIL_ENV: email, ADMIN_PASSWORD_ENV: password}
+
+
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_loopback(url: str) -> bool:
+    return (urlsplit(url).hostname or "").lower() in LOOPBACK_HOSTS
+
+
+def target_probe_command(url: str, path: str) -> str:
+    """Can the sandbox reach the app the way its test clients do? (ADR-0043 follow-up.) Pure.
+    The sandbox's network is internal; its only way out is the egress proxy. The e2e clients go
+    through the proxy for a non-loopback URL (Playwright by the template's `use.proxy`, httpx and
+    curl by the environment) and directly for loopback, so the probe does the same. `--fail`: a
+    proxy's refusal (403) or an unreachable upstream (502/503) is not reaching the app."""
+    target = shlex.quote(url.rstrip("/") + (path if path.startswith("/") else "/" + path))
+    how = "--noproxy '*'" if is_loopback(url) else '${HTTP_PROXY:+--proxy "$HTTP_PROXY"}'
+    return f"curl --fail --silent --show-error --max-time 10 -o /dev/null {how} {target}"
+
+
+async def _probe_target(ctx: StationContext) -> StationResult | None:
+    """Before live e2e and the verifier: the app's liveness path from the sandbox, the way the test
+    clients reach it. Book lending (2026-10-25): Playwright couldn't resolve `dind`, the failure went
+    to the developer as code work three times and held the change after ~$4.90. A target the sandbox
+    can't reach is the factory's failure (`infra`): retried in place, then held, never repaired.
+    None: reached."""
+    url = internal_url(ctx)
+    route = "directly" if is_loopback(url) else "through the egress proxy"
+    command = target_probe_command(url, ctx.blueprint.health_path or "/")
+    f = Failure(
+        FailureClass.infra,
+        "e2e_target_unreachable",
+        f"the sandbox cannot reach the app at {url} {route}, the way the e2e tests do",
+        retryable=True,
+    )
+    attempt = 0
+    while True:
+        res = await ctx.cmd(command, timeout=30, untrusted=True)
+        if res.ok:
+            await ctx.emit(EventKind.log, f"the sandbox reaches the app at {url} {route}")
+            return None
+        if ctx.stop is not None:  # out of time
+            return StationResult(StationOutcome.failed, "the time budget ran out probing the app", res.output[-2000:])
+        if attempt >= ctx.cfg.budgets.infra_retries:
+            ctx._stop_infra(f, attempt, res.output[-2000:])
+            return StationResult(StationOutcome.failed, f.cause, res.output[-2000:])
+        attempt += 1
+        if not await ctx._wait_to_retry(f, attempt, "the e2e target probe"):
+            return StationResult(StationOutcome.failed, f.cause, res.output[-2000:])
 
 
 async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> StationResult | None:

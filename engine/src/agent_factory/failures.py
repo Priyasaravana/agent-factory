@@ -18,6 +18,7 @@ the product's own text, which must not steer the route.
 
 from __future__ import annotations
 
+import hashlib
 import random
 import re
 import shlex
@@ -248,6 +249,28 @@ def classify_command(command: str, returncode: int, output: str, timed_out: bool
         if re.search(r.pattern, tail, re.IGNORECASE):
             return Failure(r.cls, r.id, r.cause, r.retryable and r.cls == FailureClass.infra, r.immediate)
     return WORK
+
+
+# ------------------------------------------------------------- no progress --
+# The no-progress stop (ADR-0043 follow-up). Book lending (2026-10-25): live e2e failed three times
+# with `getaddrinfo ENOTFOUND dind`; the developer twice changed nothing ("the failure is an
+# environment problem"), the same failure came back each time, and the loop ran until build's
+# attempt budget held it (~$4.90). Two failures are "the same" when their evidence matches once
+# what changes from run to run (timings, ports, ids, colours) is taken out.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_HEXISH = re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,}\b")  # commit and image ids, digests
+_NUMBER = re.compile(r"\d+(\.\d+)?")
+
+
+def failure_fingerprint(evidence: str) -> str:
+    """A short stable id of a failure's evidence: equal for the same failure on a later run.
+    Pure. Timings, counts, ports, line numbers and ids are masked, so a fingerprint is coarse on
+    purpose: it only ever stops a loop in which the repair also changed nothing."""
+    text = _ANSI.sub("", evidence or "").lower()
+    text = _HEXISH.sub("#", text)
+    text = _NUMBER.sub("0", text)
+    text = " ".join(text.split())
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 # ----------------------------------------------------------------- backoff --

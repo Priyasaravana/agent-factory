@@ -22,6 +22,7 @@ from agent_factory.engine.stations import STATIONS, StationContext, StationResul
 from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
+from agent_factory.failures import failure_fingerprint
 from agent_factory.gateway import DirectGateway, ModelGateway
 from agent_factory.models import (
     AVAILABLE_KINDS,
@@ -40,6 +41,7 @@ from agent_factory.models import (
     ProductTarget,
     RiskApproval,
     RiskHold,
+    RoutedFailure,
     StationOutcome,
     WorkItem,
 )
@@ -508,6 +510,7 @@ class ChangeManager:
         change.attempts = {}  # a human resume authorises a fresh budget
         change.loops = 0
         change.hold_class = None
+        change.last_routed = None  # a person looked: the same failure gets one more repair
         change.status = ChangeStatus.queued
         self.store.save_change(change)
         self.store.add_event(change.id, EventKind.decision, "change resumed by human", station=change.current_station)
@@ -1186,7 +1189,14 @@ class ChangeManager:
                     )
                 if change.loops > self.cfg.budgets.max_loops_per_change:
                     return self._hold(change, sid, "fix-loop budget exhausted", result.failure_evidence)
-                change.last_failure = result.failure_evidence or result.summary
+                evidence = result.failure_evidence or result.summary
+                routed = RoutedFailure(
+                    station=sid, fingerprint=failure_fingerprint(evidence), tree=await self.ws.tree_id(worktree)
+                )
+                if change.last_routed is not None and change.last_routed.repeated_by(routed):
+                    return self._hold_no_progress(change, sid, target, evidence)
+                change.last_routed = routed
+                change.last_failure = evidence
                 change.current_station = target
                 self.store.add_event(
                     change.id,
@@ -1296,6 +1306,34 @@ class ChangeManager:
         change.attempts[sid] = max(0, change.attempts.get(sid, 1) - 1)  # the factory's failure, not an attempt
         evidence = "\n".join(x for x in (stop.evidence, result.failure_evidence or "") if x)
         return self._hold(change, sid, stop.why, evidence)
+
+    def _hold_no_progress(self, change: Change, sid: str, target: str, evidence: str) -> None:
+        """The same failure came back and the repair in between changed no code (ADR-0043 follow-up):
+        routing it again would loop until a budget runs out, so hold with the cause instead. What
+        the repair agent said goes with the evidence: it often names the cause ("the failure is an
+        environment problem", Book lending 2026-10-25)."""
+        said = next(
+            (
+                e.message
+                for e in reversed(self.store.list_events(change.id))
+                if e.station == target and e.kind == EventKind.agent
+            ),
+            "",
+        )
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"no progress: {sid} failed the same way again and {target} changed no code",
+            station=sid,
+            data={"no_progress": {**(change.last_routed.model_dump() if change.last_routed else {}), "repair": target}},
+        )
+        change.hold_class = "work"
+        why = (
+            f"no progress: {sid} failed the same way again after {target} changed no code; "
+            "read the evidence (the cause may be outside the product), then resume or change the request"
+        )
+        note = f"\n--- what {target} said ---\n{said[-1500:]}" if said else ""
+        return self._hold(change, sid, why, evidence + note)
 
     def _hold(self, change: Change, sid: str, why: str, evidence: str | None = None) -> None:
         change.status = ChangeStatus.held

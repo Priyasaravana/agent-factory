@@ -1,19 +1,22 @@
-# Agent Factory: handoff (updated 2026-10-26)
+# Agent Factory: handoff (updated 2026-10-27)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-26)
-- **Main** (`0794b67`) has the plan in `docs/planning/` (the chat project keeps only a START-HERE pointer), and ADR-0044 PR 3 (look and feel, `nextjs-web` 1.4.0, "Needs you", collapsible
-  panels, event levels), ADR-0045 (approved base images, with its CI/template fixes `ef7ac48` and
-  `afe4148`) and the Playwright proxy fix in the template (`9564283`, 1.3.2).
-- **Live:** Book lending `66697b75071c` was resumed on 2026-10-26 to prove the Playwright proxy fix. If it
-  still says `ENOTFOUND`, cancel rather than loop. Outcome not recorded yet: check the change before acting.
-- **Next:** the "Before the acceptance run" items in the roadmap (no-progress stop and target probe, journey
-  acceptance test, pin Trivy and syft), then the J1 acceptance run with Design decisions set to **Ask a
-  person**. J2 then iterates on **that acceptance product**, not Book keeping.
+## Current state (2026-10-27)
+- **Main** (`ca848ab`): the plan in `docs/planning/`, ADR-0044 PR 3 (look and feel, `nextjs-web` 1.4.0),
+  ADR-0045 (approved base images) and the Playwright proxy fix (`9564283`, 1.3.2).
+- **In review:** `feat/no-progress-stop` (one commit on `ca848ab`, applied on the Mac as a branch; PR text in
+  `.git/pr/no-progress-stop.md`): the no-progress stop and the e2e target probe. `Change` gains
+  `last_routed` (OpenAPI regenerated). Engine tests in `tests/test_no_progress.py`.
+- **Live:** Book lending `66697b75071c` was **delivered** on 2026-10-26 after the proxy fix: live e2e passed,
+  14/14 requirements verified live, published to `software-factory-apps/book-lending`, ~$7.00 in total.
+  The proxy fix is proved live.
+- **Next:** the other two "Before the acceptance run" items (journey acceptance test, pin Trivy and syft),
+  then the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
+  acceptance product**, not Book keeping.
 - **Not yet proved live:** the chart's admin Secret (no helm in the cloud; CI renders it) and the cluster
-  read of it. The J1 acceptance run proves both.
+  read of it; the target probe and the no-progress stop. The J1 acceptance run proves them.
 - **After merging on the Mac:** New product and Product change show "template update available": Back to
   factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review gate)
   and publish.
@@ -29,9 +32,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `dind:8081-8100`. The sandbox sets `HTTP_PROXY`/`HTTPS_PROXY` (`sandbox/spec.py`), but **Playwright ignores
   them**, so it resolved `dind` itself. FastAPI's e2e clients honour the env, so only `nextjs-web` hit it.
   Preview e2e passes because it runs on `127.0.0.1`. Fixed in the template (`9564283`).
-- Still to build (roadmap J1): the no-progress stop (empty implement diff + same failure fingerprint → hold
-  with the cause) and the target probe (acceptance checks the e2e URL from the sandbox the way the test
-  client reaches it; a failure is `infra`). Later, optional: classifier rules for `ENOTFOUND` /
+- Built on `feat/no-progress-stop` (2026-10-27): the no-progress stop (same failure fingerprint at the same
+  station on the same committed tree → hold with the cause) and the target probe (acceptance checks the
+  app's liveness path from the sandbox the way the test clients reach it; a failure is `infra`). Later, optional: classifier rules for `ENOTFOUND` /
   `ECONNREFUSED` / `ERR_NAME_NOT_RESOLVED` on the target host, each with a test that a real app error stays
   `work`; the golden-path skill stops the preview by pid, not `pkill`.
 - Agreed: no SRE/infra agent for this; agents stay unaware of the environment by design (ADR-0039). An ops
@@ -141,6 +144,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Cloud container:** never create a uid 10001 user (the CLI drops to it and can't write `.cache/check`);
   run the CLI with `AGENT_FACTORY_ALLOW_ROOT=1`. `pkill -f` / `pgrep -f` with a pattern in the command line
   kills the shell itself: use `ps -ef | grep next-server` and kill the pid.
+- **Cloud without PyPI (2026-10-27):** on some accounts the cloud workspace can't reach pypi.org or
+  files.pythonhosted.org (403 from the egress proxy), so `uv sync` fails; GitHub and npm still work. Workaround:
+  `python3 -m venv --system-site-packages engine/.venv` (the image has pydantic, starlette, uvicorn, PyYAML,
+  jsonschema, claude-agent-sdk), copy pytest, httpx, mypy and ruff from `~/.cache/uv/archive-v0/*` into its
+  site-packages, clone fastapi, pydantic-settings, pytest-asyncio and annotated-doc from GitHub at the locked
+  tags and list them in a `.pth` (pytest-asyncio needs a hand-made dist-info with its `pytest11` entry point),
+  then run checks with `UV_NO_SYNC=1`. ruff and mypy may be a minor version behind the lock.
 - **Cloud Playwright:** the template pins Playwright 1.64.1 (chromium revision 1248), and its browser download
   is blocked in the cloud. Make a folder of symlinks `chromium-1248 → /opt/pw-browsers/chromium-1243` and
   `chromium_headless_shell-1248 → /opt/pw-browsers/chromium_headless_shell-1243`, then
