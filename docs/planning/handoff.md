@@ -1,25 +1,22 @@
-# Agent Factory: handoff (updated 2026-10-27)
+# Agent Factory: handoff (updated 2026-10-27, evening)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-27)
-- **Main** (`ca848ab`): the plan in `docs/planning/`, ADR-0044 PR 3 (look and feel, `nextjs-web` 1.4.0),
-  ADR-0045 (approved base images) and the Playwright proxy fix (`9564283`, 1.3.2).
-- **In review:** `feat/no-progress-stop` (one commit on `ca848ab`, applied on the Mac as a branch; PR text in
-  `.git/pr/no-progress-stop.md`): the no-progress stop and the e2e target probe. `Change` gains
-  `last_routed` (OpenAPI regenerated). Engine tests in `tests/test_no_progress.py`.
-- **Live:** Book lending `66697b75071c` was **delivered** on 2026-10-26 after the proxy fix: live e2e passed,
-  14/14 requirements verified live, published to `software-factory-apps/book-lending`, ~$7.00 in total.
-  The proxy fix is proved live.
-- **Next:** the other two "Before the acceptance run" items (journey acceptance test, pin Trivy and syft),
-  then the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
-  acceptance product**, not Book keeping.
+## Current state (2026-10-27, evening)
+- **Main** (`9888491`, the same on GitHub and on the Mac): the no-progress stop and target probe are merged,
+  on top of the plan in `docs/planning/`, ADR-0044 PR 3 (`nextjs-web` 1.4.0) and ADR-0045.
+- **In review:** `feat/journey-acceptance` (one commit on `9888491`; PR text in `.git/pr/journey-acceptance.md`):
+  `engine/tests/test_journey.py`, the J1 journey as one scripted dry-run over the HTTP API. Test-only plus
+  the plan; no engine, API or web change, so no data reset and no template update.
+- **Live:** Book lending `66697b75071c` delivered on 2026-10-26 (14/14 verified live, published, ~$7.00).
+- **Next:** pin the scanner images (Trivy and syft off `latest`, ~0.5 day), then the J1 acceptance run with
+  Design decisions set to **Ask a person**. J2 then iterates on **that acceptance product**, not Book keeping.
 - **Not yet proved live:** the chart's admin Secret (no helm in the cloud; CI renders it) and the cluster
   read of it; the target probe and the no-progress stop. The J1 acceptance run proves them.
-- **After merging on the Mac:** New product and Product change show "template update available": Back to
-  factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review gate)
-  and publish.
+- **Before the acceptance run on the Mac:** New product and Product change show "template update available":
+  Back to factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review
+  gate) and publish.
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as
   resource owner, All repositories, and Administration, Contents and Workflows read/write. If the org
   requires approval for tokens, approve it under Settings → Personal access tokens.
@@ -151,6 +148,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   site-packages, clone fastapi, pydantic-settings, pytest-asyncio and annotated-doc from GitHub at the locked
   tags and list them in a `.pth` (pytest-asyncio needs a hand-made dist-info with its `pytest11` entry point),
   then run checks with `UV_NO_SYNC=1`. ruff and mypy may be a minor version behind the lock.
+  Also give the venv its entry points, or `uv run` falls back to the system pytest and can't import
+  `agent_factory`: a `.venv/bin/pytest` script calling `pytest.console_main()`, symlinks to the image's
+  `ruff` and `mypy` in `~/.local/bin`, and `.venv/bin/agent-factory` calling `agent_factory.cli:run`.
+- **Cloud without npm either (2026-10-27):** some sessions also refuse registry.npmjs.org, so `npm ci` and
+  `scripts/check web` can't run there; an engine-only change can still be checked, and CI builds the web.
 - **Cloud Playwright:** the template pins Playwright 1.64.1 (chromium revision 1248), and its browser download
   is blocked in the cloud. Make a folder of symlinks `chromium-1248 → /opt/pw-browsers/chromium-1243` and
   `chromium_headless_shell-1248 → /opt/pw-browsers/chromium_headless_shell-1243`, then

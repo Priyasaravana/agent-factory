@@ -6,6 +6,9 @@
   as the work they describe. `tests/test_planning_docs.py` checks links, ADR numbers and copies.
 - Engine: `engine/` (Python 3.12, uv). Tests are the contract: `make test`.
   Never call real models in tests; use `FakeAgentRunner` / `FakeExecutor`.
+  `tests/test_journey.py` is the golden journey scripted over the HTTP API (roadmap): a change that
+  breaks it broke a journey step; a milestone that lands adds its steps there, each assertion naming
+  its step (J1.0, J1.1, ...).
 - Run checks quietly (`scripts/check`, see its header): output goes to `.cache/check/<step>.log`
   and you get one line per step plus only the failures. While developing, run
   `scripts/check changed` (tests touched by the branch) or `scripts/check test <files> -k <name>`;
