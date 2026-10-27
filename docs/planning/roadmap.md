@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-27 (no-progress stop and target probe in review; Book lending delivered with the proxy fix).
+Updated 2026-10-27 (no-progress stop and target probe merged as `9888491`; journey acceptance test in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -23,7 +23,8 @@ team repo PR → run and maintain → end of life.
   milestones below need (ADR-0043, a trimmed ADR-0044) go ahead.
 - **Each milestone ends with a live run** whose sealed evidence is kept as the demo record, and a short demo.
 - **A journey acceptance test** (scripted, dry-run, in CI) grows with each milestone, so a working step
-  never silently breaks. ⚠️ Not started yet: planned for J1, before the acceptance run (J1.2).
+  never silently breaks. J1 steps written 2026-10-27 (`engine/tests/test_journey.py`, in review); each
+  milestone adds its steps there when it lands.
 - A new idea that isn't on the journey goes to the backlog.
 
 Journey at the critique (main `9604e60`): 7 of 23 steps live, 9 built but unproven, 7 missing.
@@ -66,17 +67,20 @@ per-pack evaluation is in the backlog.
    - ✅ **Planning in the repo** (`0794b67`, merged 2026-10-26): `docs/planning/` is the only copy of the plan,
      checked by `engine/tests/test_planning_docs.py`, so any agent on any account can pick up the work.
    - ⏳ **Before the acceptance run (~2.5 days):**
-     - 🔄 **No-progress stop and target probe (ADR-0043 follow-up; branch `feat/no-progress-stop`, 2026-10-27,
-       in review):** the same failure (fingerprint) at the same station on the same committed tree, after a
+     - ✅ **No-progress stop and target probe (ADR-0043 follow-up; `9888491`, merged 2026-10-27):** the same failure (fingerprint) at the same station on the same committed tree, after a
        repair that changed no code, holds with the cause and what the repair agent said instead of looping
        (`RoutedFailure`, `failures.failure_fingerprint`); before live e2e and the verifier, acceptance probes the
        app's liveness path from the sandbox the way the test clients reach it (through the egress proxy, or
        directly for loopback), and an unreachable target is `infra`: retried in place, then held, never sent
        to the developer. Tests in `tests/test_no_progress.py`. Later, optional: classifier rules for
        `ENOTFOUND` / `ECONNREFUSED` on the target host; the golden-path skill stops the preview by pid, not `pkill`.
-     - **Journey acceptance test (~1 day):** a scripted dry-run of the J1 flow in CI (request → align with
-       Design decisions set to ask → modules and sign-in → e2e before deploy → readiness → publish), using
-       the fake runner and executor; it grows with each milestone.
+     - 🔄 **Journey acceptance test (branch `feat/journey-acceptance`, 2026-10-27, in review):** a scripted
+       dry-run of the J1 flow, run by CI's engine tests (`engine/tests/test_journey.py`): one Next.js product
+       driven through the HTTP API as a person would: Design decisions set to ask in the editor → request →
+       review gate under "Needs you" → align (a choice, an open-question answer, a comment) → approve →
+       Level 3 with the module signals → e2e against the preview before build → live e2e signed in as the
+       chart's admin, after the target probe → publish to the org → sealed evidence. Each assertion names its
+       journey step (J1.0–J1.7), so a failure says which step broke; it grows with each milestone.
      - **Pin the scanner images (~0.5 day):** Trivy and syft off `latest` (still `aquasec/trivy:latest` in
        `tools.py` on 2026-10-26), pinned by version (digest where the registry gives one). This is the slice
        of "upgradable selections" J1 needs; the rest stays in the backlog.
@@ -89,8 +93,8 @@ per-pack evaluation is in the backlog.
    stale base image, so builds now `--pull` (`dcf8c71`). Also merged: the product's Spend card and
    iteration summary (patch 0048, `40c8e8e`).
 5. ⏳ **J1 acceptance run** after PR 3, with Design decisions set to **Ask a person**: proves the align flow,
-   modules, sign-in with the chart's admin Secret on the cluster, and the new look, on one product. Start
-   the journey acceptance test here.
+   modules, sign-in with the chart's admin Secret on the cluster, the target probe and the no-progress
+   stop, and the new look, on one product. The journey acceptance test is its dry-run twin.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
 
