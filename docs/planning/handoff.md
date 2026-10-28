@@ -4,14 +4,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-10-28)
-- **Main** (`fd81b9c` on GitHub): the journey acceptance test is merged, on top of the no-progress stop and
-  target probe (`9888491`), the plan in `docs/planning/`, ADR-0044 PR 3 (`nextjs-web` 1.4.0) and ADR-0045.
-- **In review:** `feat/pin-scanner-images` (one commit on `fd81b9c`; PR text in `.git/pr/pin-scanner-images.md`):
-  `aquasec/trivy:0.76.0` (image scan, config check, CI) and `anchore/syft:v1.54.1` (SBOM), the versions
-  `latest` served on 2026-10-28; `engine/tests/test_scanner_pins.py` keeps them pinned and Trivy on one
-  version. No engine logic, API or web change, no data reset, no template update. **It edits
-  `.agent-factory/config.yaml`:** stash Saravana's local edits before applying, then re-apply them.
-- **Digests still to add** (Docker Hub isn't reachable from the cloud workspace): on the Mac,
+- **Main** (`5d2c42a` on GitHub, same as the Mac's local main on 2026-10-28): scanner images pinned
+  (`aquasec/trivy:0.76.0`, `anchore/syft:v1.54.1`, `engine/tests/test_scanner_pins.py`), on top of the journey
+  acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
+- **Digests still to add** (Docker Hub isn't reachable from the cloud workspace or the agent's Mac shell): in Saravana's terminal,
   `docker buildx imagetools inspect aquasec/trivy:0.76.0` and `... anchore/syft:v1.54.1`, then append
   `@sha256:<index digest>` to each reference (config, `tools.py`, CI); the test accepts that form.
 - **Live:** Book lending `66697b75071c` delivered on 2026-10-26 (14/14 verified live, published, ~$7.00).
@@ -88,7 +84,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - One session per branch. Keep this page short: replace "Current state" each session.
 
 ### The loop (cloud workspace ↔ Mac)
-- The Mac's shell has no network (npm and pypi unreachable since 2026-10-18).
+- The agent's shell on the Mac has no network (npm and pypi unreachable since 2026-10-18; GitHub and Docker Hub
+  also refused when checked on 2026-10-28). Saravana's own terminal does the fetch, push and Docker Hub lookups.
 - **Cloud:** the repo is public: `GIT_LFS_SKIP_SMUDGE=1 git clone --depth 30 https://github.com/Priyasaravana/agent-factory`.
   First check GitHub main equals his local main (`git -C $HOME/mnt/agent-factory log -1 main`). If his local
   main is ahead, or a branch exists only on the Mac, bring it over as a bundle

@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-28 (journey acceptance test merged as `fd81b9c`; scanner image pins in review).
+Updated 2026-10-28 (scanner image pins merged as `5d2c42a`; next: digests on the Mac, then the J1 acceptance run).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -81,7 +81,7 @@ per-pack evaluation is in the backlog.
        Level 3 with the module signals → e2e against the preview before build → live e2e signed in as the
        chart's admin, after the target probe → publish to the org → sealed evidence. Each assertion names its
        journey step (J1.0–J1.7), so a failure says which step broke; it grows with each milestone.
-     - 🔄 **Pin the scanner images (branch `feat/pin-scanner-images`, 2026-10-28, in review):** Trivy and syft
+     - ✅ **Pin the scanner images (`5d2c42a`, merged 2026-10-28):** Trivy and syft
        off `latest`, pinned by version: `aquasec/trivy:0.76.0` in the image scan, the config check (`tools.py`)
        and CI; `anchore/syft:v1.54.1` for the SBOM (the versions `latest` served on 2026-10-28, so findings
        don't move). `tests/test_scanner_pins.py` fails on a moving tag and on two Trivy versions (they share
@@ -242,5 +242,5 @@ per-pack evaluation is in the backlog.
 ## 🧹 Housekeeping
 - The ruleset on main requires `engine`, `auth`, `web`, `golden-path`, `images` and `e2e`.
 - Saravana runs fetch, push and merge. Agents never push or commit to main.
-- The Mac shell has no network: agents clone the public repo in the cloud and check it matches his local `main`; work goes back as bundles or patches.
+- The agent's shell on the Mac has no network (checked again 2026-10-28: GitHub, PyPI, npm and Docker Hub refused by its proxy): agents clone the public repo in the cloud and check it matches his local `main`; work goes back as bundles or patches. Commands that need the network (`git fetch`, `docker buildx imagetools inspect`) run in Saravana's own terminal.
 - In an agent's cloud workspace, run the CLI with `AGENT_FACTORY_ALLOW_ROOT=1`.
