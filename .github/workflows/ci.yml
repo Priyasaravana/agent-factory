@@ -151,13 +151,14 @@ jobs:
           done
           docker tag af-nextjs-template:ci-runtime-hardened af-nextjs-template:ci
       # The factory's Build station refuses an image with a fixable CRITICAL CVE. Advisory here: a new
-      # upstream CVE should show up as a warning on the next PR, not block unrelated work.
+      # upstream CVE should show up as a warning on the next PR, not block unrelated work. Trivy is the
+      # factory's pinned version (.agent-factory/config.yaml; tests/test_scanner_pins.py).
       - name: the template images pass the factory's image scan (advisory)
         continue-on-error: true
         run: |
           docker build -t af-fastapi-template:ci packs/fastapi-service/template
           for img in af-nextjs-template:ci af-fastapi-template:ci; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0 image \
               --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed "$img"
           done
       - name: the sandbox verifies the Next.js template and runs its e2e + accessibility tests with its Chromium

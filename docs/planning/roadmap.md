@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-27 (no-progress stop and target probe merged as `9888491`; journey acceptance test in review).
+Updated 2026-10-28 (journey acceptance test merged as `fd81b9c`; scanner image pins in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -23,7 +23,7 @@ team repo PR → run and maintain → end of life.
   milestones below need (ADR-0043, a trimmed ADR-0044) go ahead.
 - **Each milestone ends with a live run** whose sealed evidence is kept as the demo record, and a short demo.
 - **A journey acceptance test** (scripted, dry-run, in CI) grows with each milestone, so a working step
-  never silently breaks. J1 steps written 2026-10-27 (`engine/tests/test_journey.py`, in review); each
+  never silently breaks. J1 steps merged 2026-10-27 (`engine/tests/test_journey.py`, `fd81b9c`); each
   milestone adds its steps there when it lands.
 - A new idea that isn't on the journey goes to the backlog.
 
@@ -74,16 +74,21 @@ per-pack evaluation is in the backlog.
        directly for loopback), and an unreachable target is `infra`: retried in place, then held, never sent
        to the developer. Tests in `tests/test_no_progress.py`. Later, optional: classifier rules for
        `ENOTFOUND` / `ECONNREFUSED` on the target host; the golden-path skill stops the preview by pid, not `pkill`.
-     - 🔄 **Journey acceptance test (branch `feat/journey-acceptance`, 2026-10-27, in review):** a scripted
+     - ✅ **Journey acceptance test (`fd81b9c`, merged 2026-10-27):** a scripted
        dry-run of the J1 flow, run by CI's engine tests (`engine/tests/test_journey.py`): one Next.js product
        driven through the HTTP API as a person would: Design decisions set to ask in the editor → request →
        review gate under "Needs you" → align (a choice, an open-question answer, a comment) → approve →
        Level 3 with the module signals → e2e against the preview before build → live e2e signed in as the
        chart's admin, after the target probe → publish to the org → sealed evidence. Each assertion names its
        journey step (J1.0–J1.7), so a failure says which step broke; it grows with each milestone.
-     - **Pin the scanner images (~0.5 day):** Trivy and syft off `latest` (still `aquasec/trivy:latest` in
-       `tools.py` on 2026-10-26), pinned by version (digest where the registry gives one). This is the slice
-       of "upgradable selections" J1 needs; the rest stays in the backlog.
+     - 🔄 **Pin the scanner images (branch `feat/pin-scanner-images`, 2026-10-28, in review):** Trivy and syft
+       off `latest`, pinned by version: `aquasec/trivy:0.76.0` in the image scan, the config check (`tools.py`)
+       and CI; `anchore/syft:v1.54.1` for the SBOM (the versions `latest` served on 2026-10-28, so findings
+       don't move). `tests/test_scanner_pins.py` fails on a moving tag and on two Trivy versions (they share
+       the `trivy-cache` DB). **Digests not added yet:** the cloud workspace can't reach Docker Hub; resolve
+       them on the Mac (`docker buildx imagetools inspect aquasec/trivy:0.76.0`, same for syft) and append
+       `@sha256:<index digest>` before the acceptance run; the test already accepts that form. This is the
+       slice of "upgradable selections" J1 needs; the rest stays in the backlog.
 3. ✅ **Publish to GitHub live** (2026-10-22): a dedicated GitHub org as `policies.publish.owner`, with a
    fine-grained token (Administration, Contents, Workflows read/write).
 4. ✅ **First live run** (2026-10-22): "Book keeping" (nextjs-web 1.1.x): 9/9 requirements verified live by
@@ -201,13 +206,15 @@ per-pack evaluation is in the backlog.
 35. Approved base images (ADR-0045, `66054c0`, `4fc2c6f`, `65efb2d`; nextjs-web 1.3.1); live e2e through the egress proxy (`9564283`, 1.3.2).
 36. ADR-0044 PR 3, look and feel plus factory UI usability: "Needs you", collapsible panels, event levels, phone width, the name Agent Software Factory (`8a94f8b`, `69d9fe3`, `008a09d`, `c5ec9b0`; nextjs-web 1.4.0).
 37. Planning in the repo (`0794b67`): `docs/planning/`, one copy, drift checked in CI; the chat project keeps only a pointer.
+38. No-progress stop and e2e target probe (ADR-0043 follow-up, `9888491`).
+39. Journey acceptance test, J1 steps (`engine/tests/test_journey.py`, `fd81b9c`).
 
 ## 🔄 In review
-- `feat/no-progress-stop` (2026-10-27): no-progress stop and e2e target probe (J1, before the acceptance run).
+- `feat/pin-scanner-images` (2026-10-28): Trivy and syft pinned by version (J1, before the acceptance run).
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):
-  - one inventory of every pinned choice: pack base images, Node/Python/Playwright in the sandbox, scanner images (pinned in J1), Actions, models;
+  - one inventory of every pinned choice: pack base images, Node/Python/Playwright in the sandbox, scanner images (Trivy and syft pinned by version in J1; Semgrep, OSV-Scanner and Snyk still on moving tags), Actions, models;
   - pin by digest; Dependabot/Renovate opens the upgrade PR; the evaluation harness gates it before it serves products;
   - template images scanned weekly in CI (blocking on the scheduled run) (live product rescans are in J4);
   - pack upgrades reach existing products: a new pack version offers each product an upkeep change bringing its Dockerfile, chart and CI up to the pack.

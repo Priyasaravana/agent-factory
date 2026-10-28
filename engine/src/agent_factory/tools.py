@@ -57,9 +57,10 @@ class Tool:
     needs_repo: bool = False  # asks a service about the product's repository ({repo} is owner/name)
 
 
-# Images follow the repo's convention for scanners: a moving tag until a digest is reviewed
-# and pinned in the config (see `scan_command`). Exit codes are ignored: the parsed output
-# decides, and output that can't be parsed means the tool didn't run.
+# Trivy is pinned by version, the same one as the image scan (`scan_command`) and CI: they share
+# the `trivy-cache` DB (tests/test_scanner_pins.py). Semgrep and OSV-Scanner still follow a moving
+# tag until the "upgradable selections" inventory pins them. Exit codes are ignored: the parsed
+# output decides, and output that can't be parsed means the tool didn't run.
 TOOLS: dict[str, Tool] = {
     t.id: t
     for t in (
@@ -96,7 +97,7 @@ TOOLS: dict[str, Tool] = {
             "trivy-config",
             "Trivy (Dockerfile, Kubernetes)",
             "configuration",
-            "aquasec/trivy:latest",
+            "aquasec/trivy:0.76.0",
             "docker run --rm -v {path}:/src:ro -v trivy-cache:/root/.cache {image} config --format json --quiet /src",
             "trivy-config",
             pillar="reliability",
