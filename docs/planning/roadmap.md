@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-28 (scanner image pins merged as `5d2c42a`; next: digests on the Mac, then the J1 acceptance run).
+Updated 2026-10-28 (scanner images pinned by version `5d2c42a` and by digest on `feat/scanner-digests`; next: the J1 acceptance run).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -85,9 +85,9 @@ per-pack evaluation is in the backlog.
        off `latest`, pinned by version: `aquasec/trivy:0.76.0` in the image scan, the config check (`tools.py`)
        and CI; `anchore/syft:v1.54.1` for the SBOM (the versions `latest` served on 2026-10-28, so findings
        don't move). `tests/test_scanner_pins.py` fails on a moving tag and on two Trivy versions (they share
-       the `trivy-cache` DB). **Digests not added yet:** the cloud workspace can't reach Docker Hub; resolve
-       them on the Mac (`docker buildx imagetools inspect aquasec/trivy:0.76.0`, same for syft) and append
-       `@sha256:<index digest>` before the acceptance run; the test already accepts that form. This is the
+       the `trivy-cache` DB). **Digests** (branch `feat/scanner-digests`, 2026-10-28, in review): index digests resolved by Saravana on
+       the Mac, appended to every reference (`aquasec/trivy:0.76.0@sha256:2416d1f7…`, `anchore/syft:v1.54.1@sha256:3eb5379b…`);
+       the test now requires a digest. This is the
        slice of "upgradable selections" J1 needs; the rest stays in the backlog.
 3. ✅ **Publish to GitHub live** (2026-10-22): a dedicated GitHub org as `policies.publish.owner`, with a
    fine-grained token (Administration, Contents, Workflows read/write).

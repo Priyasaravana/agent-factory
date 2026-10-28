@@ -66,7 +66,7 @@ blueprints:
     # CVE holds for a person; high CVEs are recorded in the product's work ledger.
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:0.76.0 image --quiet --format json --severity HIGH,CRITICAL {image}
+      aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image --quiet --format json --severity HIGH,CRITICAL {image}
     # Readiness station: the generated repo must stay at agent-readiness Level 3
     # (docs/practices.md). The secret scan runs in dind on the run worktree ({path}).
     min_readiness_level: 3
@@ -76,7 +76,7 @@ blueprints:
     # SPDX SBOM of every built image, next to a provenance record (artifacts/<run>/)
     sbom_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
-      anchore/syft:v1.54.1 {image} -o spdx-json={out}/sbom.spdx.json -q
+      anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa {image} -o spdx-json={out}/sbom.spdx.json -q
     node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 
@@ -86,14 +86,14 @@ blueprints:
     pack: nextjs-web
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:0.76.0 image --quiet --format json --severity HIGH,CRITICAL {image}
+      aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image --quiet --format json --severity HIGH,CRITICAL {image}
     min_readiness_level: 3
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
       detect --no-git --source {path} --redact --no-banner --exit-code 1
     sbom_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
-      anchore/syft:v1.54.1 {image} -o spdx-json={out}/sbom.spdx.json -q
+      anchore/syft:v1.54.1@sha256:3eb5379ba7b409c3f4069b686110527af0c47df993fa5c10d13e7cf34f49b1aa {image} -o spdx-json={out}/sbom.spdx.json -q
     node_ports: 30080-30099       # the same app ports as every blueprint: one pool, shared
     environment: local
 

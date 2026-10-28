@@ -158,7 +158,7 @@ jobs:
         run: |
           docker build -t af-fastapi-template:ci packs/fastapi-service/template
           for img in af-nextjs-template:ci af-fastapi-template:ci; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0 image \
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image \
               --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed "$img"
           done
       - name: the sandbox verifies the Next.js template and runs its e2e + accessibility tests with its Chromium

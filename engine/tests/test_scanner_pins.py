@@ -1,4 +1,4 @@
-"""Scanner images are pinned by version, never a moving tag (roadmap J1, "pin the scanner images").
+"""Scanner images are pinned by version and index digest, never a moving tag (roadmap J1, "pin the scanner images").
 
 A moving tag changes what the factory runs without a change in this repo: findings shift between two
 runs of the same product, and a re-pointed tag runs whatever was pushed (Trivy's `latest` was
@@ -62,3 +62,14 @@ def test_one_trivy_version_across_the_factory_and_ci(cfg: FactoryConfig) -> None
         (m["tag"], m["digest"]) for text in _sources(cfg).values() for m in _refs(text) if m["name"] == "aquasec/trivy"
     }
     assert len(refs) == 1, f"Trivy references differ: {sorted(map(str, refs))}"
+
+
+def test_every_scanner_reference_carries_its_digest(cfg: FactoryConfig) -> None:
+    """A version tag can still be re-pushed; the index digest can't. Digests resolved 2026-10-28."""
+    bare = [
+        f"{where}: {m.group(0)}"
+        for where, text in _sources(cfg).items()
+        for m in _refs(text)
+        if not (m["tag"] and m["digest"])
+    ]
+    assert not bare, f"scanner images without a version tag and an @sha256 digest: {bare}"
