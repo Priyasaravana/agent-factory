@@ -97,7 +97,7 @@ TOOLS: dict[str, Tool] = {
             "trivy-config",
             "Trivy (Dockerfile, Kubernetes)",
             "configuration",
-            "aquasec/trivy:0.76.0",
+            "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222",
             "docker run --rm -v {path}:/src:ro -v trivy-cache:/root/.cache {image} config --format json --quiet /src",
             "trivy-config",
             pillar="reliability",

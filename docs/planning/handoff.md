@@ -7,9 +7,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Main** (`5d2c42a` on GitHub, same as the Mac's local main on 2026-10-28): scanner images pinned
   (`aquasec/trivy:0.76.0`, `anchore/syft:v1.54.1`, `engine/tests/test_scanner_pins.py`), on top of the journey
   acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **Digests still to add** (Docker Hub isn't reachable from the cloud workspace or the agent's Mac shell): in Saravana's terminal,
-  `docker buildx imagetools inspect aquasec/trivy:0.76.0` and `... anchore/syft:v1.54.1`, then append
-  `@sha256:<index digest>` to each reference (config, `tools.py`, CI); the test accepts that form.
+- **In review:** `feat/scanner-digests` (on `docs/plan-2026-10-28`; merge both): index digests on every Trivy
+  and syft reference (config, `tools.py`, CI), resolved by Saravana with `docker buildx imagetools inspect` on
+  2026-10-28; `test_every_scanner_reference_carries_its_digest` keeps them. **It edits
+  `.agent-factory/config.yaml`:** stash Saravana's local edits before applying, then re-apply them.
 - **Live:** Book lending `66697b75071c` delivered on 2026-10-26 (14/14 verified live, published, ~$7.00).
 - **Next:** the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
   acceptance product**, not Book keeping.
