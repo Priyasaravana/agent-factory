@@ -4,17 +4,17 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-10-28)
-- **Main** (`823d72b` on GitHub, same as the Mac's local main on 2026-10-28): scanner images pinned by version
-  and index digest (`aquasec/trivy:0.76.0@sha256:2416d1f7…`, `anchore/syft:v1.54.1@sha256:3eb5379b…`; config,
-  `tools.py`, CI; `engine/tests/test_scanner_pins.py` requires the digest), on top of the journey acceptance test
-  (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `fix/iteration-keeps-person-decisions` (one commit on `823d72b`): `decisions.judge` and `stamp`
-  take the sheet the change started from (`earlier`), so a person's answers stand in autonomous mode and keep their name; the design station passes it; tests in
-  `test_decisions.py` (`test_an_iteration_keeps_what_a_person_decided_in_autonomous_mode`,
-  `test_the_architect_cannot_claim_a_person_decided`). No API, web or data change.
+- **Main** (`9013b79` on GitHub, same as the Mac's local main on 2026-10-28): a person's design decisions survive
+  autonomous iterations (`decisions.judge` / `stamp` take `earlier`, the sheet the change started from), on top of
+  the scanner images pinned by version and index digest (`823d72b`; `test_scanner_pins.py` requires the digest),
+  the journey acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
+- **In review:** `feat/j2-next-iteration` (slice 1 of J2 "plan the next iteration", one commit on `9013b79`):
+  pure functions in `ledger.py` (`parse_suggestions`, `fold_features`, `next_iteration`, `pick_kind`,
+  `has_fix`, category `FEATURE`; `release` closes a delivered feature). No API, web or data change.
+- **J1 acceptance run started 2026-10-28** on a new product ("Kudos board"), Design decisions → Ask a person.
 - **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
   2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
-  delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: the bug above.
+  delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: fixed in `9013b79`.
 - **Next:** the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
   acceptance product**, not Book keeping.
 - **Proved live by Book lending:** the chart's admin Secret and the cluster read of it (acceptance signed in

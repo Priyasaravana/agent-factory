@@ -320,12 +320,18 @@ def claim(
 
 def release(items: list[WorkItem], *, change_id: str, status: str, now: datetime, pr_url: str | None) -> list[WorkItem]:
     """A change that addressed items stopped: a delivered one leaves them in progress until the
-    next assessment verifies them; a failed or cancelled one returns them to open."""
+    next assessment verifies them (a suggested feature is done: the change's acceptance verified it);
+    a failed or cancelled one returns them to open."""
     changed = []
     for it in items:
         if change_id not in it.claimed_by or it.status != "in_progress":
             continue
-        if status in ("awaiting_feedback", "delivered"):
+        if status in ("awaiting_feedback", "delivered") and it.category == FEATURE:
+            # a feature is verified by the change's own acceptance (hidden scenarios on the live app),
+            # not by a later assessment
+            it.status, it.resolved_by = "fixed", change_id
+            _log(it, now, "fixed", "delivered and accepted by change " + change_id, change_id=change_id)
+        elif status in ("awaiting_feedback", "delivered"):
             _log(
                 it,
                 now,
@@ -624,6 +630,149 @@ def fold_roadmap(
         _log(it, now, "fixed", "no longer deferred in the product roadmap", iteration=iteration, change_id=change_id)
         changed[it.id] = it
     return sorted(changed.values(), key=sort_key), stats
+
+
+FEATURE = "feature"  # suggested next features for a delivered product (roadmap J2)
+SIZES = ("S", "M", "L")
+VALUES = {"high": "high", "medium": "medium", "low": "low"}
+MAX_SUGGESTIONS = 5
+
+
+def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Next-feature suggestions from the architect or the designer, checked: 1 to 5 entries, each with a
+    title, what it does for the people using the product (`detail`), a `value` (high | medium | low), a
+    `size` (S | M | L) and the requirements it would add. Returns the clean suggestions and the problems."""
+    if not isinstance(raw, list) or not raw:
+        return [], ["give 1 to 5 suggestions as a list"]
+    if len(raw) > MAX_SUGGESTIONS:
+        return [], [f"at most {MAX_SUGGESTIONS} suggestions, ranked by value: drop the weakest"]
+    out: list[dict[str, Any]] = []
+    errors: list[str] = []
+    titles: set[str] = set()
+    for n, s in enumerate(raw, 1):
+        if not isinstance(s, dict):
+            errors.append(f"suggestion {n}: not a mapping")
+            continue
+        title = " ".join(str(s.get("title") or "").split())[:120]
+        detail = str(s.get("detail") or "").strip()[:1000]
+        value = str(s.get("value") or "").strip().lower()
+        size = str(s.get("size") or "").strip().upper()
+        reqs = s.get("requirements") or []
+        by = str(s.get("by") or "architect").strip() or "architect"
+        where = f"suggestion {n} ({title or 'untitled'})"
+        if len(title) < 3:
+            errors.append(f"suggestion {n}: needs a title")
+        elif _norm(title) in titles:
+            errors.append(f"{where}: suggested twice")
+        if len(detail) < 10:
+            errors.append(f"{where}: say what it does for the people using the product")
+        if value not in VALUES:
+            errors.append(f"{where}: value is one of high, medium, low")
+        if size not in SIZES:
+            errors.append(f"{where}: size is one of S, M, L")
+        if not isinstance(reqs, list) or not all(isinstance(r, str) and r.strip() for r in reqs):
+            errors.append(f"{where}: requirements is a list of the requirements it would add")
+            reqs = []
+        titles.add(_norm(title))
+        out.append(
+            {
+                "title": title,
+                "detail": detail,
+                "value": VALUES.get(value, "medium"),
+                "size": size if size in SIZES else "M",
+                "requirements": [" ".join(r.split())[:300] for r in reqs][:10],
+                "by": by[:40],
+            }
+        )
+    return (out, []) if not errors else ([], errors)
+
+
+def fold_features(
+    product_id: str,
+    items: list[WorkItem],
+    suggestions: list[dict[str, Any]],
+    *,
+    change_id: str,
+    iteration: int,
+    now: datetime,
+) -> tuple[list[WorkItem], dict[str, int]]:
+    """Fold the next-feature suggestions made at a delivery into the ledger (roadmap J2), from
+    `parse_suggestions`. A new title is a new open item; one suggested before is seen again (a person's
+    decision on it stands: a rejected feature isn't reopened by being suggested again). A suggestion that
+    isn't repeated stays as it is: it was the agent's judgement, not a check. Returns the items that
+    changed and what happened."""
+    changed: dict[str, WorkItem] = {}
+    stats = {"new": 0, "seen": 0}
+    by_fp = {it.fingerprint: it for it in items if it.category == FEATURE}
+    ids = {it.id for it in items}
+    for s in suggestions:
+        fp = fingerprint("recommendation", "", f"feature:{s['title']}")
+        it = by_fp.get(fp)
+        if it is None:
+            it = WorkItem(
+                id=item_id(product_id, fp),
+                product_id=product_id,
+                kind="recommendation",
+                fingerprint=fp,
+                title=s["title"],
+                severity=s["value"],
+                category=FEATURE,
+                change_kind="feature",
+                effort=s["size"],
+                first_iteration=iteration,
+                created_at=now,
+                updated_at=now,
+            )
+            while it.id in ids:
+                it.id = it.id + "x"
+            ids.add(it.id)
+            by_fp[fp] = it
+            items.append(it)
+            stats["new"] += 1
+            _log(it, now, "found", f"suggested by the {s['by']}", iteration=iteration, change_id=change_id)
+        elif iteration in it.seen_in:
+            continue
+        else:
+            stats["seen"] += 1
+            _log(it, now, "seen", f"suggested again by the {s['by']}", iteration=iteration, change_id=change_id)
+        if it.status in OPEN:  # a decided item keeps what the person saw when they decided
+            it.severity, it.effort = s["value"], s["size"]
+            it.detail = s["detail"] + ("\nWould add: " + "; ".join(s["requirements"]) if s["requirements"] else "")
+        it.sources = [{"station": "handover", "via": f"next-feature suggestions ({s['by']})", "rule": ""}]
+        it.last_iteration = iteration
+        if iteration not in it.seen_in:
+            it.seen_in.append(iteration)
+        it.updated_at = now
+        changed[it.id] = it
+    return sorted(changed.values(), key=sort_key), stats
+
+
+def has_fix(it: WorkItem) -> bool:
+    """An image finding with a released fix (its detail starts "fixed in", `image_scan.ledger_detail`)."""
+    return it.category == IMAGE and it.detail.startswith("fixed in")
+
+
+def next_iteration(items: list[WorkItem]) -> dict[str, list[WorkItem]]:
+    """What a person can pick for a delivered product's next iteration (roadmap J2, the "Next
+    iteration" card): suggested **features**, deferred **quality** work from the pillar roadmap, and
+    **security** fixes (image vulnerabilities with a released fix). Open items only, best first;
+    everything else stays on the work ledger."""
+    open_ = sorted((it for it in items if it.status == "open"), key=sort_key)
+    return {
+        "features": [it for it in open_ if it.category == FEATURE],
+        "quality": [it for it in open_ if it.category == ROADMAP],
+        "security": [it for it in open_ if has_fix(it)],
+    }
+
+
+def pick_kind(items: list[WorkItem]) -> str:
+    """The kind of change that addresses these items (roadmap J2): any new behaviour makes it a feature
+    (carrying the fixes with it), otherwise a bug fix if any item is a bug, otherwise upkeep (security
+    fixes alone keep behaviour). No items: a feature, as free text asks for new behaviour."""
+    kinds = {it.change_kind for it in items}
+    if not items or "feature" in kinds:
+        return "feature"
+    return "bug" if "bug" in kinds else "upkeep"
 
 
 def request_text(text: str, items: list[WorkItem]) -> str:

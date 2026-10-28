@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-28 (scanner images pinned by digest, `823d72b`; iteration decisions fix in review; Book lending's two live runs recorded; next: the J1 acceptance run).
+Updated 2026-10-28 (scanner digests `823d72b` and the iteration decisions fix `9013b79` merged; J2 slice 1 in review; Book lending's two live runs recorded; next: the J1 acceptance run).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -103,8 +103,7 @@ per-pack evaluation is in the backlog.
    app's admin from the chart's `book-lending-admin` Secret on the cluster; 6/6 hidden scenarios live; Level 3
    (71/71); published to the org; a second iteration (`234341c4a9c5`, audit log and member erasure, $5.70)
    delivered and pushed to the product's `main` (by design: the factory owns its products' repos; branches and
-   PRs are for team repos, J3). **Bug found and fixed** (branch `fix/iteration-keeps-person-decisions`,
-   2026-10-28, in review): the iteration's autonomous design check made the architect take its recommendation,
+   PRs are for team repos, J3). **Bug found and fixed** (`9013b79`, merged 2026-10-28): the iteration's autonomous design check made the architect take its recommendation,
    so the person's **warm** look became **neutral**. Now a person's earlier answers stand in autonomous mode
    (lane constraints still win) and keep their name in the ADRs.
 6. ⏳ **J1 acceptance run** after PR 3, with Design decisions set to **Ask a person**: proves the align flow,
@@ -129,6 +128,14 @@ per-pack evaluation is in the backlog.
     says "assessment" for factory products).
   - **The engine picks the change kind** (pure, tested): CVE-only → upkeep; any feature → feature, carrying
     the fixes.
+  - 🔄 **Build started 2026-10-28, alongside the J1 acceptance run** (asked for in the session that day; the live
+    J2 run still waits for the J1 product). **Slice 1, in review** (branch `feat/j2-next-iteration`): pure ledger
+    functions, no API or web change: `parse_suggestions` (1–5, each with value, size and the requirements it
+    would add), `fold_features` (category `feature`; a rejected suggestion stays rejected), `next_iteration`
+    (features, quality, security fixes with a released fix), `pick_kind`, and a delivered feature closes on
+    delivery (its acceptance verified it). Tests: `tests/test_next_iteration.py`. **Next slices:** the
+    architect's and designer's suggestions at delivery; the API (`kind` picked by the engine when not given);
+    the "Next iteration" card in "Needs you".
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
@@ -221,9 +228,10 @@ per-pack evaluation is in the backlog.
 38. No-progress stop and e2e target probe (ADR-0043 follow-up, `9888491`).
 39. Journey acceptance test, J1 steps (`engine/tests/test_journey.py`, `fd81b9c`).
 40. Scanner images pinned by version and digest: Trivy 0.76.0, syft v1.54.1 (`5d2c42a`, `823d72b`).
+41. A person's design decisions survive autonomous iterations (`9013b79`, found on Book lending).
 
 ## 🔄 In review
-- `fix/iteration-keeps-person-decisions` (2026-10-28): a person's design decisions survive autonomous iterations (J1 item 5).
+- `feat/j2-next-iteration` (2026-10-28): J2 slice 1, suggested features in the ledger, the next-iteration groups and the change-kind rule (pure).
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):
