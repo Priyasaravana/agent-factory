@@ -133,7 +133,7 @@ async def test_a_cut_off_scanner_db_download_is_retried_not_sent_to_the_develope
     """Book list (change 43be36b68aaf, 2026-10-22): the Mac slept during the image scan, Trivy's
     DB download ended in "unexpected EOF", the build went to implement as a code failure and the
     change held on implement's attempt budget. The scan now goes through ctx.cmd: retried in place."""
-    needle = "aquasec/trivy:latest image"
+    needle = "image --quiet --format json --severity HIGH,CRITICAL"  # the image scan, any version
     ex = FakeExecutor(fail_on=[needle], fail_with={needle: TRIVY_DB_CUT})
     f = _quick(make_factory(ex))
     change = f.manager.start_change(f.manager.create_product(PRODUCT))

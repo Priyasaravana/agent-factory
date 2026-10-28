@@ -56,14 +56,17 @@ blueprints:
     # about at intake instead of silently built in Python.
     pack: fastapi-service
     # Runs inside dind (the docker CLI talks to it), so nothing is installed in the
-    # factory image. {image} is filled in by the Build station. Pin a digest
-    # (aquasec/trivy@sha256:...) once you have verified one you trust.
+    # factory image. {image} is filled in by the Build station. Scanner images are pinned by
+    # version, never `latest` (Trivy's `latest` was re-pointed to malicious images in March 2026);
+    # every Trivy reference (here, tools.py, CI) uses one version, since they share the
+    # `trivy-cache` DB. To pin a digest: `docker buildx imagetools inspect aquasec/trivy:<v>` and
+    # append `@sha256:<index digest>` (tests/test_scanner_pins.py keeps them pinned and in step).
     # The JSON report is judged by the engine (ADR-0042): critical CVEs block (`scan_fail_on`),
     # an app dependency goes back to the developer with the exact bump, a base-image or unfixed
     # CVE holds for a person; high CVEs are recorded in the product's work ledger.
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:latest image --quiet --format json --severity HIGH,CRITICAL {image}
+      aquasec/trivy:0.76.0 image --quiet --format json --severity HIGH,CRITICAL {image}
     # Readiness station: the generated repo must stay at agent-readiness Level 3
     # (docs/practices.md). The secret scan runs in dind on the run worktree ({path}).
     min_readiness_level: 3
@@ -73,7 +76,7 @@ blueprints:
     # SPDX SBOM of every built image, next to a provenance record (artifacts/<run>/)
     sbom_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
-      anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
+      anchore/syft:v1.54.1 {image} -o spdx-json={out}/sbom.spdx.json -q
     node_ports: 30080-30099       # mapped to host 8081-8100 (cluster/kind-config.yaml); archive products to free one
     environment: local            # where registry/scan/deploy/publish happen (see below)
 
@@ -83,14 +86,14 @@ blueprints:
     pack: nextjs-web
     scan_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-      aquasec/trivy:latest image --quiet --format json --severity HIGH,CRITICAL {image}
+      aquasec/trivy:0.76.0 image --quiet --format json --severity HIGH,CRITICAL {image}
     min_readiness_level: 3
     secret_scan_command: >-
       docker run --rm -v {path}:{path}:ro zricethezav/gitleaks:v8.24.3
       detect --no-git --source {path} --redact --no-banner --exit-code 1
     sbom_command: >-
       docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v {out}:{out}
-      anchore/syft:latest {image} -o spdx-json={out}/sbom.spdx.json -q
+      anchore/syft:v1.54.1 {image} -o spdx-json={out}/sbom.spdx.json -q
     node_ports: 30080-30099       # the same app ports as every blueprint: one pool, shared
     environment: local
 

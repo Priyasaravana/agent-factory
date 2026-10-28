@@ -1,22 +1,27 @@
-# Agent Factory: handoff (updated 2026-10-27, evening)
+# Agent Factory: handoff (updated 2026-10-28)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-27, evening)
-- **Main** (`9888491`, the same on GitHub and on the Mac): the no-progress stop and target probe are merged,
-  on top of the plan in `docs/planning/`, ADR-0044 PR 3 (`nextjs-web` 1.4.0) and ADR-0045.
-- **In review:** `feat/journey-acceptance` (one commit on `9888491`; PR text in `.git/pr/journey-acceptance.md`):
-  `engine/tests/test_journey.py`, the J1 journey as one scripted dry-run over the HTTP API. Test-only plus
-  the plan; no engine, API or web change, so no data reset and no template update.
+## Current state (2026-10-28)
+- **Main** (`fd81b9c` on GitHub): the journey acceptance test is merged, on top of the no-progress stop and
+  target probe (`9888491`), the plan in `docs/planning/`, ADR-0044 PR 3 (`nextjs-web` 1.4.0) and ADR-0045.
+- **In review:** `feat/pin-scanner-images` (one commit on `fd81b9c`; PR text in `.git/pr/pin-scanner-images.md`):
+  `aquasec/trivy:0.76.0` (image scan, config check, CI) and `anchore/syft:v1.54.1` (SBOM), the versions
+  `latest` served on 2026-10-28; `engine/tests/test_scanner_pins.py` keeps them pinned and Trivy on one
+  version. No engine logic, API or web change, no data reset, no template update. **It edits
+  `.agent-factory/config.yaml`:** stash Saravana's local edits before applying, then re-apply them.
+- **Digests still to add** (Docker Hub isn't reachable from the cloud workspace): on the Mac,
+  `docker buildx imagetools inspect aquasec/trivy:0.76.0` and `... anchore/syft:v1.54.1`, then append
+  `@sha256:<index digest>` to each reference (config, `tools.py`, CI); the test accepts that form.
 - **Live:** Book lending `66697b75071c` delivered on 2026-10-26 (14/14 verified live, published, ~$7.00).
-- **Next:** pin the scanner images (Trivy and syft off `latest`, ~0.5 day), then the J1 acceptance run with
-  Design decisions set to **Ask a person**. J2 then iterates on **that acceptance product**, not Book keeping.
+- **Next:** the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
+  acceptance product**, not Book keeping.
 - **Not yet proved live:** the chart's admin Secret (no helm in the cloud; CI renders it) and the cluster
   read of it; the target probe and the no-progress stop. The J1 acceptance run proves them.
 - **Before the acceptance run on the Mac:** New product and Product change show "template update available":
   Back to factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review
-  gate) and publish.
+  gate) and publish. The first scan pulls the pinned Trivy and syft images (one-off download).
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as
   resource owner, All repositories, and Administration, Contents and Workflows read/write. If the org
   requires approval for tokens, approve it under Settings → Personal access tokens.
@@ -151,6 +156,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   Also give the venv its entry points, or `uv run` falls back to the system pytest and can't import
   `agent_factory`: a `.venv/bin/pytest` script calling `pytest.console_main()`, symlinks to the image's
   `ruff` and `mypy` in `~/.local/bin`, and `.venv/bin/agent-factory` calling `agent_factory.cli:run`.
+- **Cloud venv without PyPI, extra (2026-10-28):** `pypi.org` is in the proxy's `no_proxy` list, so with
+  PyPI blocked uv fails on DNS rather than a 403. Don't copy `mypy` from the uv cache (its compiled helper
+  module is missing); symlink the image's `mypy` instead. A `.pth` with `engine/src` stands in for the
+  editable install.
 - **Cloud without npm either (2026-10-27):** some sessions also refuse registry.npmjs.org, so `npm ci` and
   `scripts/check web` can't run there; an engine-only change can still be checked, and CI builds the web.
 - **Cloud Playwright:** the template pins Playwright 1.64.1 (chromium revision 1248), and its browser download
