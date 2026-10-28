@@ -216,12 +216,27 @@ def dump_sheet(sheet: Sheet) -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
 
 
+def by_person(decided_by: str) -> bool:
+    """Whether an answer's attribution names a person rather than the architect."""
+    return bool(decided_by.strip()) and not decided_by.startswith("architect")
+
+
+def _kept(a: Answer, earlier: Sheet | None) -> Answer | None:
+    """The earlier answer a person gave to this question, when `a` keeps it unchanged (same choice and
+    same `other`). Iterations carry what a person agreed: autonomous mode doesn't overrule it."""
+    e = earlier.answer(a.question) if earlier else None
+    if e is None or not by_person(e.decided_by):
+        return None
+    return e if (a.choice, (a.other or "").strip()) == (e.choice, (e.other or "").strip()) else None
+
+
 def judge(
     cat: Catalogue | None,
     sheet: Sheet,
     constraints: dict[str, list[str]],
     mode: Mode,
     asked: Sequence[dict[str, str]] = (),
+    earlier: Sheet | None = None,
 ) -> list[str]:
     """Whether the sheet is complete and inside the lane's constraints. Empty means it passes.
 
@@ -229,7 +244,8 @@ def judge(
     - `recommended` is one of the question's options, and every answer has a rationale;
     - `choice` is an allowed option, or "other" with its text, which only ask mode accepts
       (it leaves the approved options, so a person must see it);
-    - in autonomous mode the architect takes its recommendation when the lane allows it;
+    - in autonomous mode the architect takes its recommendation when the lane allows it, except where
+      it keeps an answer a person gave in `earlier` (the sheet the change started from), "other" included;
     - every open question intake `asked` has an answer (ADR-0044 §1: they go to the architect)."""
     errors: list[str] = []
     for oq in asked:
@@ -255,8 +271,9 @@ def judge(
             )
         if len(a.rationale.strip()) < 10:
             errors.append(f"{q.id}: give a one-line rationale naming the pillar it serves")
+        kept = _kept(a, earlier) is not None
         if a.choice == OTHER:
-            if mode != "ask":
+            if mode != "ask" and not kept:
                 errors.append(f"{q.id}: 'other' needs a person (decisions: ask); choose one of {', '.join(allowed)}")
             elif not (a.other or "").strip():
                 errors.append(f"{q.id}: 'other' needs the concrete choice in `other`")
@@ -265,16 +282,21 @@ def judge(
                 errors.append(f"{q.id}: '{a.choice}' is not an option ({', '.join(o.id for o in q.options)})")
             else:
                 errors.append(f"{q.id}: '{a.choice}' is outside this lane's constraints ({', '.join(allowed)})")
-        elif mode == "autonomous" and a.recommended in allowed and a.choice != a.recommended:
+        elif mode == "autonomous" and a.recommended in allowed and a.choice != a.recommended and not kept:
             errors.append(f"{q.id}: autonomous mode takes the recommendation '{a.recommended}'")
     return errors
 
 
 def stamp(
-    sheet: Sheet, constraints: dict[str, list[str]], cat: Catalogue | None, asked: Sequence[dict[str, str]] = ()
+    sheet: Sheet,
+    constraints: dict[str, list[str]],
+    cat: Catalogue | None,
+    asked: Sequence[dict[str, str]] = (),
+    earlier: Sheet | None = None,
 ) -> Sheet:
     """Who decided each answer, for the record. The architect's own answers say whether they are its
-    recommendation or the lane's constraint; a person's answers keep their name."""
+    recommendation or the lane's constraint. An answer a person gave in `earlier` and the architect kept
+    keeps that person's name and reason; the architect can't name a person on an answer it wrote."""
     out = sheet.model_copy(deep=True)
     texts = {q["id"]: q["question"] for q in asked}
     out.open_questions = [q for q in out.open_questions if not texts or q.id in texts]
@@ -285,10 +307,12 @@ def stamp(
     for a in out.answers:
         if cat is None:
             break
-        if a.decided_by.startswith("architect") or not a.decided_by.strip():
-            q = cat.question(a.question)
-            constrained = q is not None and a.recommended not in allowed_options(q, constraints)
-            a.decided_by = "architect (constrained)" if constrained else "architect (recommended)"
+        if (e := _kept(a, earlier)) is not None:
+            a.decided_by, a.reason = e.decided_by, e.reason
+            continue
+        q = cat.question(a.question)
+        constrained = q is not None and a.recommended not in allowed_options(q, constraints)
+        a.decided_by = "architect (constrained)" if constrained else "architect (recommended)"
     return out
 
 

@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-28 (scanner images pinned by version `5d2c42a` and by digest on `feat/scanner-digests`; next: the J1 acceptance run).
+Updated 2026-10-28 (scanner images pinned by digest, `823d72b`; iteration decisions fix in review; Book lending's two live runs recorded; next: the J1 acceptance run).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -85,7 +85,7 @@ per-pack evaluation is in the backlog.
        off `latest`, pinned by version: `aquasec/trivy:0.76.0` in the image scan, the config check (`tools.py`)
        and CI; `anchore/syft:v1.54.1` for the SBOM (the versions `latest` served on 2026-10-28, so findings
        don't move). `tests/test_scanner_pins.py` fails on a moving tag and on two Trivy versions (they share
-       the `trivy-cache` DB). **Digests** (branch `feat/scanner-digests`, 2026-10-28, in review): index digests resolved by Saravana on
+       the `trivy-cache` DB). **Digests** (`823d72b`, merged 2026-10-28): index digests resolved by Saravana on
        the Mac, appended to every reference (`aquasec/trivy:0.76.0@sha256:2416d1f7…`, `anchore/syft:v1.54.1@sha256:3eb5379b…`);
        the test now requires a digest. This is the
        slice of "upgradable selections" J1 needs; the rest stays in the backlog.
@@ -97,7 +97,17 @@ per-pack evaluation is in the backlog.
    widened the scan scope (`661badc`); image and tool scans bypassed infra retries (`d547252`); dind kept a
    stale base image, so builds now `--pull` (`dcf8c71`). Also merged: the product's Spend card and
    iteration summary (patch 0048, `40c8e8e`).
-5. ⏳ **J1 acceptance run** after PR 3, with Design decisions set to **Ask a person**: proves the align flow,
+5. ✅ **Book lending, two live runs (2026-10-25 to 2026-10-27; not the acceptance run):** built on nextjs-web
+   1.3.0, before the new look (1.4.0), the target probe and the no-progress stop. **Proved live:** a person
+   choosing a design decision on the review page (look: warm) and the architect aligning to it; sign-in as the
+   app's admin from the chart's `book-lending-admin` Secret on the cluster; 6/6 hidden scenarios live; Level 3
+   (71/71); published to the org; a second iteration (`234341c4a9c5`, audit log and member erasure, $5.70)
+   delivered and pushed to the product's `main` (by design: the factory owns its products' repos; branches and
+   PRs are for team repos, J3). **Bug found and fixed** (branch `fix/iteration-keeps-person-decisions`,
+   2026-10-28, in review): the iteration's autonomous design check made the architect take its recommendation,
+   so the person's **warm** look became **neutral**. Now a person's earlier answers stand in autonomous mode
+   (lane constraints still win) and keep their name in the ADRs.
+6. ⏳ **J1 acceptance run** after PR 3, with Design decisions set to **Ask a person**: proves the align flow,
    modules, sign-in with the chart's admin Secret on the cluster, the target probe and the no-progress
    stop, and the new look, on one product. The journey acceptance test is its dry-run twin.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
@@ -121,6 +131,8 @@ per-pack evaluation is in the backlog.
     the fixes.
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
+- **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
+  a person's earlier answers survive iteration 2 unchanged.
 - **Rollback to the last good release** when iteration 2+ fails after deploy (last-good record, `--atomic`).
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
 - **Done when:** iteration 2 is started from the "Next iteration" card with a suggested feature and a CVE fix,
@@ -208,13 +220,14 @@ per-pack evaluation is in the backlog.
 37. Planning in the repo (`0794b67`): `docs/planning/`, one copy, drift checked in CI; the chat project keeps only a pointer.
 38. No-progress stop and e2e target probe (ADR-0043 follow-up, `9888491`).
 39. Journey acceptance test, J1 steps (`engine/tests/test_journey.py`, `fd81b9c`).
+40. Scanner images pinned by version and digest: Trivy 0.76.0, syft v1.54.1 (`5d2c42a`, `823d72b`).
 
 ## 🔄 In review
-- `feat/pin-scanner-images` (2026-10-28): Trivy and syft pinned by version (J1, before the acceptance run).
+- `fix/iteration-keeps-person-decisions` (2026-10-28): a person's design decisions survive autonomous iterations (J1 item 5).
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):
-  - one inventory of every pinned choice: pack base images, Node/Python/Playwright in the sandbox, scanner images (Trivy and syft pinned by version in J1; Semgrep, OSV-Scanner and Snyk still on moving tags), Actions, models;
+  - one inventory of every pinned choice: pack base images, Node/Python/Playwright in the sandbox, scanner images (Trivy and syft pinned by version and digest in J1; Semgrep, OSV-Scanner and Snyk still on moving tags), Actions, models;
   - pin by digest; Dependabot/Renovate opens the upgrade PR; the evaluation harness gates it before it serves products;
   - template images scanned weekly in CI (blocking on the scheduled run) (live product rescans are in J4);
   - pack upgrades reach existing products: a new pack version offers each product an upkeep change bringing its Dockerfile, chart and CI up to the pack.

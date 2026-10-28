@@ -74,15 +74,20 @@ def needs_sheet(worktree: Path, cat: Catalogue | None) -> bool:
     return cat is not None or bool(open_questions(worktree))
 
 
-def sheet_errors(worktree: Path, cat: Catalogue | None, doc: WorkflowDoc, mode: Mode | None = None) -> list[str]:
+def sheet_errors(
+    worktree: Path, cat: Catalogue | None, doc: WorkflowDoc, mode: Mode | None = None, earlier: Sheet | None = None
+) -> list[str]:
     """What keeps the sheet in the worktree from passing (empty: it passes). Used by the station and
-    by the review page before a person approves."""
+    by the review page before a person approves. `earlier` is the sheet the change started from: a
+    person's answers in it stand in autonomous mode."""
     if not needs_sheet(worktree, cat):
         return []
     sheet, errors = decisions.parse_sheet(_text(worktree, decisions.SHEET))
     if sheet is None:
         return errors
-    return decisions.judge(cat, sheet, doc.decision_constraints, mode or mode_of(doc), open_questions(worktree))
+    return decisions.judge(
+        cat, sheet, doc.decision_constraints, mode or mode_of(doc), open_questions(worktree), earlier
+    )
 
 
 def _questions_block(cat: Catalogue, doc: WorkflowDoc) -> str:
@@ -113,7 +118,8 @@ def _sheet_prompt(cat: Catalogue | None, doc: WorkflowDoc, asked: list[dict[str,
         "concrete choice in `other`."
         if mode == "ask"
         else "Nobody reviews these before build: take your recommendation unless the lane doesn't allow it, "
-        "then choose the best allowed option. Never answer `other` in this lane."
+        "then choose the best allowed option. Never answer `other` in this lane, except to keep one a person "
+        "gave. Keep every answer a person decided earlier (its `decided_by` names a person) exactly as it is."
     )
     parts = [
         roadmap,
@@ -191,13 +197,13 @@ def _fix_prompt(errors: list[str]) -> str:
     )
 
 
-def _doc_errors(ctx: StationContext, cat: Catalogue | None) -> list[str]:
+def _doc_errors(ctx: StationContext, cat: Catalogue | None, earlier: Sheet | None = None) -> list[str]:
     errors: list[str] = []
     if needs_sheet(ctx.worktree, cat):
         if not (ctx.worktree / decisions.SHEET).is_file():
             errors.append(f"{decisions.SHEET} is missing")
         else:
-            errors += sheet_errors(ctx.worktree, cat, ctx.workflow_doc)
+            errors += sheet_errors(ctx.worktree, cat, ctx.workflow_doc, earlier=earlier)
     _, roadmap_errors = decisions.parse_roadmap(_text(ctx.worktree, decisions.ROADMAP))
     return errors + roadmap_errors
 
@@ -210,7 +216,7 @@ async def _record(ctx: StationContext, cat: Catalogue | None, previous: Sheet | 
     if cat is not None or asked:
         sheet, _ = decisions.parse_sheet(_text(ctx.worktree, decisions.SHEET))
         assert sheet is not None  # noqa: S101 - judged before
-        sheet = decisions.stamp(sheet, ctx.workflow_doc.decision_constraints, cat, asked)
+        sheet = decisions.stamp(sheet, ctx.workflow_doc.decision_constraints, cat, asked, previous)
         (ctx.worktree / decisions.SHEET).write_text(decisions.dump_sheet(sheet))
         for rel, body in decisions.render_adrs(cat, sheet).items():
             (ctx.worktree / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -264,14 +270,14 @@ async def run(ctx: StationContext) -> StationResult:
         missing.append(decisions.SHEET)
     if not res.ok or missing:
         return StationResult(StationOutcome.failed, "design incomplete", res.error or f"missing artifacts: {missing}")
-    if errors := _doc_errors(ctx, cat):  # one chance to fix what the engine found
+    if errors := _doc_errors(ctx, cat, previous):  # one chance to fix what the engine found
         await ctx.emit(
             EventKind.decision, f"design documents need fixing: {len(errors)} problem(s)", {"problems": errors}
         )
         res = await ctx.agent(_fix_prompt(errors))
         if lim := _limit_result(res):
             return lim
-        if errors := _doc_errors(ctx, cat):
+        if errors := _doc_errors(ctx, cat, previous):
             return StationResult(
                 StationOutcome.failed,
                 "decision sheet or roadmap incomplete",

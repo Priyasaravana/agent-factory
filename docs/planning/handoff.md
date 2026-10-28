@@ -4,18 +4,22 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-10-28)
-- **Main** (`5d2c42a` on GitHub, same as the Mac's local main on 2026-10-28): scanner images pinned
-  (`aquasec/trivy:0.76.0`, `anchore/syft:v1.54.1`, `engine/tests/test_scanner_pins.py`), on top of the journey
-  acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `feat/scanner-digests` (on `docs/plan-2026-10-28`; merge both): index digests on every Trivy
-  and syft reference (config, `tools.py`, CI), resolved by Saravana with `docker buildx imagetools inspect` on
-  2026-10-28; `test_every_scanner_reference_carries_its_digest` keeps them. **It edits
-  `.agent-factory/config.yaml`:** stash Saravana's local edits before applying, then re-apply them.
-- **Live:** Book lending `66697b75071c` delivered on 2026-10-26 (14/14 verified live, published, ~$7.00).
+- **Main** (`823d72b` on GitHub, same as the Mac's local main on 2026-10-28): scanner images pinned by version
+  and index digest (`aquasec/trivy:0.76.0@sha256:2416d1f7…`, `anchore/syft:v1.54.1@sha256:3eb5379b…`; config,
+  `tools.py`, CI; `engine/tests/test_scanner_pins.py` requires the digest), on top of the journey acceptance test
+  (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
+- **In review:** `fix/iteration-keeps-person-decisions` (one commit on `823d72b`): `decisions.judge` and `stamp`
+  take the sheet the change started from (`earlier`), so a person's answers stand in autonomous mode and keep their name; the design station passes it; tests in
+  `test_decisions.py` (`test_an_iteration_keeps_what_a_person_decided_in_autonomous_mode`,
+  `test_the_architect_cannot_claim_a_person_decided`). No API, web or data change.
+- **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
+  2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
+  delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: the bug above.
 - **Next:** the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
   acceptance product**, not Book keeping.
-- **Not yet proved live:** the chart's admin Secret (no helm in the cloud; CI renders it) and the cluster
-  read of it; the target probe and the no-progress stop. The J1 acceptance run proves them.
+- **Proved live by Book lending:** the chart's admin Secret and the cluster read of it (acceptance signed in
+  from `book-lending-admin`). **Not yet proved live:** the target probe, the no-progress stop and the new look
+  (1.4.0). The J1 acceptance run, on a **new** product on current main, proves them.
 - **Before the acceptance run on the Mac:** New product and Product change show "template update available":
   Back to factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review
   gate) and publish. The first scan pulls the pinned Trivy and syft images (one-off download).
