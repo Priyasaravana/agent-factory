@@ -149,6 +149,45 @@ def test_a_person_answers_over_the_architects_sheet():
     assert decisions.diff(None, new)["added"] == sorted(q.id for q in _cat().questions)
 
 
+def test_an_iteration_keeps_what_a_person_decided_in_autonomous_mode():
+    """Book lending, 2026-10-27: iteration 2 (autonomous) turned the person's `warm` look back into the
+    recommended `neutral`, because the engine made autonomous mode take the recommendation."""
+    first = decisions.stamp(_sheet(look="neutral"), {}, _cat())
+    agreed = decisions.apply_answers(
+        first, [DecisionAnswer(question="look", choice="warm", reason="friendly")], "admin"
+    )
+    agreed.answer("data-store").choice, agreed.answer("data-store").other = "other", "SQLite on a volume"
+    agreed.answer("data-store").decided_by = "admin"
+    # the architect keeps both: the person's choices stand, "other" included
+    kept = agreed.model_copy(deep=True)
+    assert decisions.judge(_cat(), kept, {}, "autonomous", earlier=agreed) == []
+    stamped = decisions.stamp(kept, {}, _cat(), earlier=agreed)
+    assert (stamped.answer("look").decided_by, stamped.answer("look").reason) == ("admin", "friendly")
+    assert stamped.answer("data-store").decided_by == "admin"
+    assert stamped.answer("authentication").decided_by == "architect (recommended)"
+    # without the earlier sheet, the old rule applies: that's what overwrote `warm`
+    errors = decisions.judge(_cat(), kept, {}, "autonomous")
+    assert any("look: autonomous mode takes the recommendation 'neutral'" in e for e in errors)
+    assert any("data-store: 'other' needs a person" in e for e in errors)
+    # the lane's constraints still win over a person's earlier answer
+    assert (
+        "outside this lane's constraints"
+        in decisions.judge(_cat(), kept, {"look": ["neutral"]}, "autonomous", earlier=agreed)[0]
+    )
+
+
+def test_the_architect_cannot_claim_a_person_decided():
+    sheet = _sheet(look="warm")
+    sheet.answer("look").recommended = "neutral"
+    sheet.answer("look").decided_by = "admin"  # written by the architect, no person said so
+    assert "takes the recommendation 'neutral'" in decisions.judge(_cat(), sheet, {}, "autonomous")[0]
+    assert decisions.stamp(sheet, {}, _cat()).answer("look").decided_by == "architect (recommended)"
+    # a changed choice is the architect's, even where a person had answered before
+    earlier = _sheet(look="bold")
+    earlier.answer("look").decided_by = "admin"
+    assert "takes the recommendation 'neutral'" in decisions.judge(_cat(), sheet, {}, "autonomous", earlier=earlier)[0]
+
+
 def test_the_sheet_round_trips_and_bad_files_say_why():
     sheet = _sheet()
     again, errors = decisions.parse_sheet(decisions.dump_sheet(sheet))
