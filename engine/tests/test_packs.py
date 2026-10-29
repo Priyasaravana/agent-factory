@@ -270,7 +270,8 @@ async def test_a_change_records_its_pack_and_the_coding_agents_get_its_skill(mak
     assert json.loads((out / "provenance.json").read_text())["materials"]["pack"] == expected
     assert json.loads((out / "manifest.json").read_text())["pack"] == expected
 
-    prompts = {c.role: c.system_prompt for c in f.manager.agents.calls}
+    # the run's own calls, not the next-feature suggestions after the delivery (read only, no pack skill)
+    prompts = {c.role: c.system_prompt for c in f.manager.agents.calls if c.station != "suggest"}
     skill = "### Skill: fastapi-golden-path"
     assert skill in prompts["architect"] and skill in prompts["developer"]
     assert all(skill not in p for role, p in prompts.items() if role not in {"architect", "developer", "devops"})
