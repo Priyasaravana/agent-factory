@@ -143,3 +143,97 @@ async def test_a_cut_off_scanner_db_download_is_retried_not_sent_to_the_develope
     scans = [e for e in f.store.list_events(change.id) if e.kind == EventKind.command and needle in e.message]
     assert len(scans) == 1 and scans[0].message.startswith("✓"), "one summary, the retried scan's"
     assert not any("> " in e.message and needle in e.message for e in scans), "no report path or raw output"
+
+
+class _SleepyHost:
+    """The host's clocks for `stations._host_clock`: a command named in `sleep_on` runs while the host
+    sleeps `seconds` (the wall clock jumps, the monotonic one doesn't), once per entry."""
+
+    def __init__(self, seconds: float = 3867.0) -> None:
+        self.seconds, self.offset = seconds, 0.0
+
+    def clock(self) -> tuple[float, float]:
+        import time
+
+        return time.time() + self.offset, time.monotonic()
+
+
+class _SleepyExecutor(FakeExecutor):
+    def __init__(self, host: _SleepyHost, sleep_on: list[str], **kw) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(**kw)
+        self.host, self.sleep_on = host, sleep_on
+
+    async def run(self, command, cwd=None, timeout=600, env=None):  # type: ignore[no-untyped-def]
+        for needle in list(self.sleep_on):
+            if needle in command:
+                self.sleep_on.remove(needle)
+                self.host.offset += self.host.seconds
+                break
+        return await super().run(command, cwd, timeout, env)
+
+
+WEB = PRODUCT.model_copy(update={"blueprint": "nextjs-web"})
+
+
+async def test_kudos_board_a_preview_cut_off_by_host_sleep_runs_again_not_sent_to_the_developer(
+    make_factory, monkeypatch
+):
+    """Kudos board (change 75fd61391452, 2026-10-29): the Mac slept 1h04 while `make preview` built; the
+    preview never answered, and the failure went to the developer, who found nothing to fix (~15 min).
+    Now the command's own clocks show the sleep: it runs again at once, and nothing goes to the developer."""
+    from agent_factory.engine import stations
+
+    host = _SleepyHost()
+    monkeypatch.setattr(stations, "_host_clock", host.clock)
+    agents = FakeAgentRunner()
+    f = _quick(make_factory(_SleepyExecutor(host, ["make preview"], fail_on=["make preview"]), agents=agents))
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+
+    retries = _retries(f, change.id)
+    assert [(r["rule"], r["station"], r["wait_s"]) for r in retries] == [("host_asleep", "preview-e2e", 0)]
+    assert "asleep for 1:04:27 during the command" in retries[0]["cause"]
+    assert [c.role for c in agents.calls].count("developer") == 1, "the sleep never reached the developer"
+    messages = [e.message for e in f.store.list_events(change.id)]
+    assert not any(m.startswith("routing failure from preview-e2e") for m in messages)
+    assert f.store.get_change(change.id).attempts.get("preview-e2e") == 1
+
+
+async def test_a_failure_that_comes_back_with_the_host_awake_goes_to_the_developer_with_the_details(
+    make_factory, monkeypatch
+):
+    from agent_factory.engine import stations
+
+    host = _SleepyHost()
+    monkeypatch.setattr(stations, "_host_clock", host.clock)
+    ex = _SleepyExecutor(host, ["make preview"], fail_on=["make preview", "make preview"])
+    f = _quick(make_factory(ex))
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback  # fixed on the second pass
+
+    assert [r["rule"] for r in _retries(f, change.id)] == ["host_asleep"]
+    routed = next(
+        e.data["routed"] for e in f.store.list_events(change.id) if e.message.startswith("routing failure from preview")
+    )
+    assert routed["to"] == "implement"
+    assert (
+        "[factory] An earlier run of this command was cut off: the factory host was asleep for 1:04:27"
+        in (routed["evidence"])
+    )
+    assert "treat this as a real failure" in routed["evidence"]
+
+
+async def test_a_host_that_keeps_sleeping_holds_for_the_factory(make_factory, monkeypatch):
+    from agent_factory.engine import stations
+
+    host = _SleepyHost()
+    monkeypatch.setattr(stations, "_host_clock", host.clock)
+    ex = _SleepyExecutor(host, ["make preview"] * 3, fail_on=["make preview"] * 3)
+    f = _quick(make_factory(ex), infra_retries=2)
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.held
+
+    held = f.store.get_change(change.id)
+    assert held.hold_class == "infra" and held.current_station == "preview-e2e"
+    assert "infrastructure: the factory host was asleep for 1:04:27 during the command" in held.summary
+    assert "after 2 retries; resume to try again" in held.summary

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from conftest import PRODUCT, wait_run
 from test_outcomes import NOW, T0, _facts
 
-from agent_factory.hostclock import SuspendWatcher, detect, merge, overlap_s
+from agent_factory.hostclock import SuspendWatcher, asleep_s, detect, merge, overlap_s
 from agent_factory.models import ChangeStatus
 from agent_factory.outcomes import compute
 
@@ -22,6 +22,13 @@ def test_detect():
     assert detect(t, 100.0, t - 3600, 105.0) is None, "wall clock set back"
     start, end = detect(t, 100.0, t + 1000, 105.0)  # slept ~995s inside a 5s tick
     assert start == E + timedelta(seconds=5) and end == E + timedelta(seconds=1000)
+
+
+def test_a_step_knows_whether_the_host_slept_during_it():
+    """Its own two clock readings: the wall clock ran 3,900s, the monotonic one 33s."""
+    assert asleep_s((1000.0, 50.0), (4900.0, 83.0)) == 3867.0
+    assert asleep_s((1000.0, 50.0), (1040.0, 83.0)) == 0.0, "7s of jitter is not sleep"
+    assert asleep_s((1000.0, 50.0), (900.0, 83.0)) == 0.0, "a wall clock set backwards is not sleep"
 
 
 def test_overlap_and_merge():

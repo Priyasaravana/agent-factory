@@ -178,3 +178,12 @@ def test_backoff_stays_within_the_schedule() -> None:
     waits = [backoff(n, schedule, rnd) for n in (1, 2, 3, 4)]
     assert 10 <= waits[0] <= 20 and 45 <= waits[1] <= 90 and 150 <= waits[2] <= 300 and 150 <= waits[3] <= 300
     assert backoff(1, []) == 0.0
+
+
+def test_a_command_cut_off_by_host_sleep_is_infra_and_retried_at_once():
+    f = failures.host_asleep(3867)
+    assert (f.cls, f.rule, f.retryable, f.immediate) == (FailureClass.infra, "host_asleep", True, True)
+    assert "asleep for 1:04:27 during the command" in f.cause
+    note = failures.awake_note(3867)
+    assert note.startswith("\n[factory] An earlier run of this command was cut off")
+    assert "ran it again with the host awake" in note and "real failure" in note

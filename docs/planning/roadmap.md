@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-28 (scanner digests `823d72b` and the iteration decisions fix `9013b79` merged; J2 slice 1 in review; Book lending's two live runs recorded; next: the J1 acceptance run).
+Updated 2026-10-29 (J1 acceptance run "Kudos board" delivered, UI not yet phone-ready; host-sleep fix in review; J2 slice 1 merged `3a92577`).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -109,6 +109,16 @@ per-pack evaluation is in the backlog.
 6. ⏳ **J1 acceptance run** after PR 3, with Design decisions set to **Ask a person**: proves the align flow,
    modules, sign-in with the chart's admin Secret on the cluster, the target probe and the no-progress
    stop, and the new look, on one product. The journey acceptance test is its dry-run twin.
+   **Run 2026-10-28/29: "Kudos board"** (product `5ff547d402cb`, change `75fd61391452`, nextjs-web 1.4.0,
+   delivered, $6.38). **Proved live:** the review gate and alignment (the person changed the look to
+   neutral-compact), sign-in from the chart's `kudos-admin` Secret, the target probe, the scanner digests, a
+   hidden scenario catching a real bug (duplicate account 500 → 409, fixed by the loop), 11/11 requirements
+   verified live, Level 3 (71/71), published and deployed. **Not met:** "a polished responsive UI": UI review
+   3.4/5, responsive 2/5, controls about 28–30 px tall against R9's 44 px (the UI review only reports; the
+   verifier uses curl). The no-progress stop didn't trigger (nothing to stop). **Factory bug found:** the Mac
+   slept 1h04 during `make preview`; the preview never answered and went to the developer as code work (~15
+   min, no change). Fix in review: `fix/preview-after-sleep`. **Still to do for "Done when":** 44 px controls in
+   every look, checked by the template's e2e at phone width (template 1.4.1), then rerun the UI on Kudos board.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
 
@@ -129,7 +139,7 @@ per-pack evaluation is in the backlog.
   - **The engine picks the change kind** (pure, tested): CVE-only → upkeep; any feature → feature, carrying
     the fixes.
   - 🔄 **Build started 2026-10-28, alongside the J1 acceptance run** (asked for in the session that day; the live
-    J2 run still waits for the J1 product). **Slice 1, in review** (branch `feat/j2-next-iteration`): pure ledger
+    J2 run still waits for the J1 product). **Slice 1, merged** (`3a92577`): pure ledger
     functions, no API or web change: `parse_suggestions` (1–5, each with value, size and the requirements it
     would add), `fold_features` (category `feature`; a rejected suggestion stays rejected), `next_iteration`
     (features, quality, security fixes with a released fix), `pick_kind`, and a delivered feature closes on
@@ -229,9 +239,10 @@ per-pack evaluation is in the backlog.
 39. Journey acceptance test, J1 steps (`engine/tests/test_journey.py`, `fd81b9c`).
 40. Scanner images pinned by version and digest: Trivy 0.76.0, syft v1.54.1 (`5d2c42a`, `823d72b`).
 41. A person's design decisions survive autonomous iterations (`9013b79`, found on Book lending).
+42. J2 slice 1: suggested features in the ledger, the next-iteration groups and the change-kind rule (`3a92577`, pure).
 
 ## 🔄 In review
-- `feat/j2-next-iteration` (2026-10-28): J2 slice 1, suggested features in the ledger, the next-iteration groups and the change-kind rule (pure).
+- `fix/preview-after-sleep` (2026-10-29): a command cut off by host sleep runs again instead of going to the developer.
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):

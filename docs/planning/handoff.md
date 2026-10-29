@@ -3,26 +3,25 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-28)
-- **Main** (`9013b79` on GitHub, same as the Mac's local main on 2026-10-28): a person's design decisions survive
-  autonomous iterations (`decisions.judge` / `stamp` take `earlier`, the sheet the change started from), on top of
-  the scanner images pinned by version and index digest (`823d72b`; `test_scanner_pins.py` requires the digest),
-  the journey acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `feat/j2-next-iteration` (slice 1 of J2 "plan the next iteration", one commit on `9013b79`):
-  pure functions in `ledger.py` (`parse_suggestions`, `fold_features`, `next_iteration`, `pick_kind`,
-  `has_fix`, category `FEATURE`; `release` closes a delivered feature). No API, web or data change.
-- **J1 acceptance run started 2026-10-28** on a new product ("Kudos board"), Design decisions → Ask a person.
+## Current state (2026-10-29)
+- **Main** (`3a92577` on GitHub, same as the Mac's local main on 2026-10-29): J2 slice 1 (pure ledger functions:
+  `parse_suggestions`, `fold_features`, `next_iteration`, `pick_kind`), on top of a person's design decisions
+  surviving autonomous iterations (`9013b79`), the scanner images pinned by digest (`823d72b`), the journey
+  acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
+- **In review:** `fix/preview-after-sleep` (one commit on `3a92577`): `ctx.cmd` reads the host's wall and
+  monotonic clocks around each command (`hostclock.asleep_s`); a command that failed while the host slept is
+  `infra` (`failures.host_asleep`), run again at once; if it fails again awake, its output gets
+  `failures.awake_note` and it goes on as usual; a host that keeps sleeping holds. Tests: the Kudos board case in
+  `test_failure_routes.py`. No API, web or data change.
+- **J1 acceptance run, "Kudos board"** (product `5ff547d402cb`, change `75fd61391452`): delivered 2026-10-29,
+  http://localhost:8083, `software-factory-apps/kudos`, $6.38. Everything proved live except a phone-ready UI
+  (controls ~28 px, R9 asks 44 px). See the roadmap, J1 item 6.
 - **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
   2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
   delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: fixed in `9013b79`.
-- **Next:** the J1 acceptance run with Design decisions set to **Ask a person**. J2 then iterates on **that
-  acceptance product**, not Book keeping.
-- **Proved live by Book lending:** the chart's admin Secret and the cluster read of it (acceptance signed in
-  from `book-lending-admin`). **Not yet proved live:** the target probe, the no-progress stop and the new look
-  (1.4.0). The J1 acceptance run, on a **new** product on current main, proves them.
-- **Before the acceptance run on the Mac:** New product and Product change show "template update available":
-  Back to factory default, then set **Design decisions → Ask a person** in the editor (card under Spec review
-  gate) and publish. The first scan pulls the pinned Trivy and syft images (one-off download).
+- **Next:** template 1.4.1 (44 px controls in every look, checked by the template's e2e at phone width), then a
+  Kudos board iteration that brings the UI up to it. That iteration also starts the J2 live run: check the
+  person's neutral-compact look survives it (`9013b79`).
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as
   resource owner, All repositories, and Administration, Contents and Workflows read/write. If the org
   requires approval for tokens, approve it under Settings → Personal access tokens.
@@ -141,7 +140,7 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Remote file tools:** committing a file to a path under `.git/` is refused: commit into `.cache/`, then `mv`.
   Committing to the same device path can leave the old file: give each new bundle a new name.
 - **Keep the Mac awake during live runs** (`caffeinate -dims`): sleep paused a run four times and cut off a
-  Trivy DB download.
+  Trivy DB download; on Kudos board (2026-10-28/29) it slept 13 times overnight and cut off a preview build.
 - **Reading live state:** stage `.factory-data/factory.db` (plus `-wal` and `-shm`) and `artifacts/<change>/`,
   then read them with Python's sqlite3 in the cloud (no `sqlite3` CLI there). A product's git is
   `GIT_DIR=.factory-data/products/<name>/.git`, branch `run/<change>`.
