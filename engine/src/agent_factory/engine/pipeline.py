@@ -766,17 +766,22 @@ class ChangeManager:
         self,
         product_id: str,
         text: str,
-        kind: ChangeKind = ChangeKind.feature,
+        kind: ChangeKind | None = ChangeKind.feature,
         items: list[str] | None = None,
         provided: dict[str, dict[str, Any]] | None = None,
     ) -> Change:
         """A change to a delivered product (ADR-0030): a feature, a bug fix or upkeep; an
         existing repo is assessed again (ADR-0031). `items` are work items from the product's
-        ledger the change addresses (ADR-0040): spelled out in the request, then in progress."""
+        ledger the change addresses (ADR-0040): spelled out in the request, then in progress.
+        No `kind`: the engine picks it from the items (`ledger.pick_kind`, roadmap J2)."""
         product = self.store.get_product(product_id)
         if not product:
             raise FactoryError("product not found")
         later = TARGET_KINDS[product.target][1]
+        picked = kind is None
+        if kind is None:
+            wanted = set(items or [])
+            kind = ChangeKind(ledger.pick_kind([i for i in self.store.list_work_items(product_id) if i.id in wanted]))
         if kind not in later:
             raise InvalidRequestError(f"this product's next change can be: {', '.join(later)} (not '{kind}')")
         latest = self.store.get_change(product.latest_change_id) if product.latest_change_id else None
@@ -803,7 +808,12 @@ class ChangeManager:
             text = ledger.request_text(text, chosen)
         self.store.add_feedback(product_id, latest.id if latest else None, text)
         change = self.start_change(product, change_request=text, kind=kind, provided=provided)
-        self.store.add_event(change.id, EventKind.feedback, text, data={"kind": kind, "work_items": list(items or [])})
+        self.store.add_event(
+            change.id,
+            EventKind.feedback,
+            text,
+            data={"kind": kind, "kind_by": "engine" if picked else "person", "work_items": list(items or [])},
+        )
         if chosen:
             claimed = ledger.claim(
                 chosen,

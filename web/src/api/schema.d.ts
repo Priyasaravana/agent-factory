@@ -198,8 +198,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration
-         * @description Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration
+         * Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration. Without a kind, the engine picks it from the work items: any feature makes a feature, fixes alone upkeep
+         * @description Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration. Without a kind, the engine picks it from the work items: any feature makes a feature, fixes alone upkeep
          */
         post: operations["submit_feedback"];
         delete?: never;
@@ -220,6 +220,26 @@ export interface paths {
          * @description The product's work ledger (ADR-0040): every issue, risk, test gap, recommendation and coverage gap found across its iterations, with its status and history
          */
         get: operations["list_work_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/next-iteration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now
+         * @description What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now
+         */
+        get: operations["next_iteration"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2914,8 +2934,7 @@ export interface components {
         FeedbackInput: {
             /** Text */
             text: string;
-            /** @default feature */
-            kind: components["schemas"]["ChangeKind"];
+            kind?: components["schemas"]["ChangeKind"] | null;
             /** Items */
             items?: string[];
             /** Provided */
@@ -3101,6 +3120,25 @@ export interface components {
             decided_by?: string | null;
             /** Decided At */
             decided_at?: string | null;
+        };
+        /**
+         * NextIterationView
+         * @description What a person can pick for a delivered product's next iteration (roadmap J2, the "Next iteration"
+         *     card): suggested features, deferred quality work and security fixes, open items only, best first
+         *     (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind: the engine picks it.
+         */
+        NextIterationView: {
+            /** Features */
+            features: components["schemas"]["WorkItem"][];
+            /** Quality */
+            quality: components["schemas"]["WorkItem"][];
+            /** Security */
+            security: components["schemas"]["WorkItem"][];
+            /** Can Start */
+            can_start: boolean;
+            /** Latest Change Id */
+            latest_change_id?: string | null;
+            latest_status?: components["schemas"]["ChangeStatus"] | null;
         };
         /**
          * OnboardRepoInput
@@ -5090,6 +5128,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    next_iteration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextIterationView"];
                 };
             };
             /** @description Validation Error */

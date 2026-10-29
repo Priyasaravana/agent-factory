@@ -159,3 +159,86 @@ async def test_bad_suggestions_never_touch_the_delivery(make_factory):
     assert not [i for i in f.store.list_work_items(product.id) if i.category == ledger.FEATURE]
     event = next(e for e in f.store.list_events(change.id) if e.message.startswith("next features:"))
     assert event.message == "next features: none suggested (1 dropped)"
+
+
+# --------------------------------------------- the next iteration over the API (slice 3) --
+def _cve(product_id: str, title: str, detail: str):  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from agent_factory.models import WorkItem
+
+    now = datetime(2026, 10, 29, 20, tzinfo=UTC)
+    fp = ledger.image_fingerprint(title)
+    return WorkItem(
+        id=ledger.item_id(product_id, fp),
+        product_id=product_id,
+        kind="issue",
+        fingerprint=fp,
+        title=title,
+        severity="high",
+        category=ledger.IMAGE,
+        detail=detail,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def test_the_next_iteration_is_listed_and_the_engine_picks_its_kind(make_factory):
+    from conftest import PRODUCT, wait_run
+    from test_api import _client
+
+    f = make_factory()
+    product = f.manager.create_product(PRODUCT)
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id) == ChangeStatus.awaiting_feedback
+    fixable = _cve(product.id, "CVE-2026-1111 in openssl", "fixed in 3.5.2")
+    f.store.save_work_items([fixable, _cve(product.id, "CVE-2026-2222 in zlib", "no fix released yet")])
+
+    app, ctx, c = await _client(f)
+    async with c:
+        view = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        assert [i["title"] for i in view["features"]] == ["Search bookmarks", "Export bookmarks"]
+        assert [i["id"] for i in view["security"]] == [fixable.id], "only a CVE with a released fix"
+        assert view["quality"] and {i["category"] for i in view["quality"]} == {ledger.ROADMAP}, "deferred pillar work"
+        assert (view["can_start"], view["latest_change_id"], view["latest_status"]) == (
+            True,
+            first.id,
+            "awaiting_feedback",
+        )
+        assert (await c.get("/api/products/nope/next-iteration")).status_code == 404
+
+        # security fixes alone: upkeep, picked by the engine and recorded as such
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": "Patch it", "items": [fixable.id]})
+        assert r.status_code == 201, r.text
+        upkeep = r.json()
+        assert upkeep["kind"] == "upkeep"
+        event = next(e for e in f.store.list_events(upkeep["id"]) if e.kind == "feedback")
+        assert (event.data["kind"], event.data["kind_by"]) == ("upkeep", "engine")
+        busy = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        assert busy["can_start"] is False and busy["security"] == [], "claimed items leave the card"
+        assert await wait_run(f, upkeep["id"]) == ChangeStatus.awaiting_feedback
+
+        # a feature with a fix: a feature carrying the fix; no items at all: a feature (free text)
+        groups = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        search = groups["features"][0]
+        assert groups["can_start"] is True
+        r = await c.post(
+            f"/api/products/{product.id}/feedback", json={"text": "Search, please", "items": [search["id"]]}
+        )
+        assert r.status_code == 201 and r.json()["kind"] == "feature"
+        assert await wait_run(f, r.json()["id"]) == ChangeStatus.awaiting_feedback
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": "Add a dark mode"})
+        assert r.status_code == 201 and r.json()["kind"] == "feature"
+        event = next(e for e in f.store.list_events(r.json()["id"]) if e.kind == "feedback")
+        assert event.data["kind_by"] == "engine"
+        assert await wait_run(f, r.json()["id"]) == ChangeStatus.awaiting_feedback
+
+        # a kind a person gives is kept, and checked as before
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": "Fix the typo", "kind": "bug"})
+        assert r.status_code == 201 and r.json()["kind"] == "bug"
+        event = next(e for e in f.store.list_events(r.json()["id"]) if e.kind == "feedback")
+        assert event.data["kind_by"] == "person"
+        assert await wait_run(f, r.json()["id"]) == ChangeStatus.awaiting_feedback
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": "Assess it", "kind": "assess"})
+        assert r.status_code == 422 and "can be: feature, bug, upkeep" in r.text
+    await ctx.__aexit__(None, None, None)

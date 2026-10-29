@@ -30,7 +30,7 @@ from agent_factory import contract as station_contract
 from agent_factory import evidence
 from agent_factory import station_templates as tpl
 from agent_factory.attention import pending_actions
-from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
+from agent_factory.engine.pipeline import FEEDBACK_OPEN, FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
@@ -78,6 +78,7 @@ from agent_factory.models import (
     InstallSkillInput,
     IntegrationView,
     LearningProposal,
+    NextIterationView,
     OnboardRepoInput,
     OutcomesView,
     PhaseInfo,
@@ -450,7 +451,8 @@ def get_change_entry(f: Factory, product_id: str, kind: str | None = None) -> Ch
 
 @action(
     "submit_feedback",
-    "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
+    "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration. "
+    "Without a kind, the engine picks it from the work items: any feature makes a feature, fixes alone upkeep",
     "POST",
     "/api/products/{product_id}/feedback",
     status_code=201,
@@ -477,6 +479,29 @@ def list_work_items(f: Factory, product_id: str) -> list[WorkItem]:
     if not f.store.get_product(product_id):
         raise FactoryError("product not found")
     return sorted(f.store.list_work_items(product_id), key=ledger.sort_key)
+
+
+@action(
+    "next_iteration",
+    "What a delivered product's next iteration can address: suggested features, deferred quality work and "
+    "security fixes with a released fix (open work items, best first), and whether it can start now",
+    "GET",
+    "/api/products/{product_id}/next-iteration",
+)
+def next_iteration(f: Factory, product_id: str) -> NextIterationView:
+    from agent_factory import ledger
+
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    latest = f.store.get_change(product.latest_change_id) if product.latest_change_id else None
+    groups = ledger.next_iteration(f.store.list_work_items(product_id))
+    return NextIterationView(
+        **groups,
+        can_start=latest is None or latest.status in FEEDBACK_OPEN,
+        latest_change_id=latest.id if latest else None,
+        latest_status=latest.status if latest else None,
+    )
 
 
 @action(
