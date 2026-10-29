@@ -8,20 +8,22 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `d3fec2b` availability: `failures.needed_checks` / `env_problems`, `ChangeManager.env_check`, live only), on top
   of J2 slice 1 (`3a92577`, pure ledger functions), a person's decisions surviving iterations (`9013b79`), scanner
   digests (`823d72b`), the journey acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `docs/kudos-observations` (plan only).
+- **In review:** `feat/j2-suggestions` (two commits on `d3fec2b`): the plan update after Kudos board iteration 2,
+  and J2 slice 2: `suggest.py` (`wanted`, `vet`, `architect_prompt`, `designer_prompt`, `run_suggestions`),
+  called by `ChangeManager._suggest` after the retro, before the evidence seal; the fake answers
+  `station == "suggest"` (`FakeAgentRunner.suggestions` overrides per role). Tests: `tests/test_suggest.py`; the
+  call list in `test_observability.py` now ends with the suggesting architect. No API, web or data change.
 - **Live: Kudos board** (product `5ff547d402cb`, http://localhost:8083, `software-factory-apps/kudos`, look
   neutral-compact decided by admin): iteration 1 `75fd61391452` (new product, $6.38) and iteration 2
   `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. The J2 live run iterates on this product.
 - **J1:** met on Kudos board after iteration 2; closing it is Saravana's call (roadmap J1 item 6).
-- **Next (next session): J2 "plan the next iteration", slice 2 onwards.** Slice 1 (`3a92577`) has the pure parts
-  in `ledger.py`; nothing calls them yet. Slice 2: at delivery (handover), the architect proposes 3–5 next
-  features and the designer adds UX improvements from the route screenshots → `ledger.parse_suggestions` →
-  `fold_features`. Slice 3: the API (`FeedbackInput.kind` optional, `ledger.pick_kind` when items are given;
-  a `next-iteration` view from `ledger.next_iteration`). Slice 4: the "Next iteration" card in "Needs you"
-  (features, quality, security fixes; tick, free text, Start the next iteration), replacing the feedback box for
-  factory products. Then the J2 live run on Kudos board (the phone header is a natural first suggestion).
-  Cloud sessions couldn't reach PyPI or npm on 2026-10-28/29: ask for those domains to be allowed, or run the
-  engine, web and Playwright checks on the Mac, before slices 3–4.
+- **Next: J2 slice 3, the API.** `FeedbackInput.kind` optional (`ledger.pick_kind` when items are given), and
+  a `GET /api/products/{id}/next-iteration` view from `ledger.next_iteration` (features, quality, security).
+  Then slice 4, the "Next iteration" card in "Needs you" (tick, free text, Start the next iteration), replacing
+  the feedback box for factory products; then the J2 live run on Kudos board (its next delivery will now list
+  suggested features; the phone header is a likely one). Slices 3–4 change the OpenAPI schema and the web app:
+  they need `uv run agent-factory openapi`, `npm run gen:api` and `npm run build`, which the cloud sessions
+  couldn't run on 2026-10-28/29 (PyPI and npm blocked): allow those domains, or run them on the Mac.
 - **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
   2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
   delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: fixed in `9013b79`.

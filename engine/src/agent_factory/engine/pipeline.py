@@ -908,6 +908,7 @@ class ChangeManager:
         # after the slot is released: learning never delays or fails a delivery (ADR-0021)
         if not cancelled and change.status == ChangeStatus.awaiting_feedback:
             await self._retro(change, product)
+            await self._suggest(change, product)
         if not cancelled:
             await self._seal(change, product)
             self._after_stop(change, product)
@@ -1004,6 +1005,19 @@ class ChangeManager:
             self.store.add_event(change.id, EventKind.log, f"retro failed: {type(exc).__name__}: {exc}")
         if change.cost_usd != cost:
             self.store.save_change(change)  # the retro's model spend belongs to this change
+
+    async def _suggest(self, change: Change, product: Product) -> None:
+        """The next features of a delivered product (roadmap J2), on its work ledger. Like the retro,
+        after the delivery: it never delays or fails it."""
+        from agent_factory.suggest import run_suggestions
+
+        cost = change.cost_usd
+        try:
+            await run_suggestions(self, change, product)
+        except Exception as exc:  # noqa: BLE001 - a failed suggestion is logged, never raised into the change
+            self.store.add_event(change.id, EventKind.log, f"next features failed: {type(exc).__name__}: {exc}")
+        if change.cost_usd != cost:
+            self.store.save_change(change)  # the agents' model spend belongs to this change
 
     def _record_pack(self, change: Change, blueprint: Blueprint) -> None:
         """Which stack pack this change builds with, once per change (ADR-0041 §7)."""

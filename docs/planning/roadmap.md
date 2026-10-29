@@ -159,9 +159,14 @@ per-pack evaluation is in the backlog.
     functions, no API or web change: `parse_suggestions` (1–5, each with value, size and the requirements it
     would add), `fold_features` (category `feature`; a rejected suggestion stays rejected), `next_iteration`
     (features, quality, security fixes with a released fix), `pick_kind`, and a delivered feature closes on
-    delivery (its acceptance verified it). Tests: `tests/test_next_iteration.py`. **Next slices:** the
-    architect's and designer's suggestions at delivery; the API (`kind` picked by the engine when not given);
-    the "Next iteration" card in "Needs you".
+    delivery (its acceptance verified it). Tests: `tests/test_next_iteration.py`. **Slice 2, in review** (branch
+    `feat/j2-suggestions`, 2026-10-29): `suggest.py`, after each delivery of a factory product (like the retro:
+    never delays or fails it), the architect (from the spec's out-of-scope, "later" answers and next needs, up to
+    4) and, when the change kept route screenshots, the designer (UX improvements from them, up to 2) suggest
+    next features, observe-only; the engine vets each one (`suggest.vet`: valid, no duplicate, best value first,
+    top 5) and folds them into the work ledger; the prompts list earlier suggestions, so a rejected one isn't
+    suggested again and an open one keeps its title. Tests: `tests/test_suggest.py`. **Next slices:** the API
+    (`kind` picked by the engine when not given; a next-iteration view); the "Next iteration" card in "Needs you".
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
@@ -259,7 +264,7 @@ per-pack evaluation is in the backlog.
 43. The environment check: a failed command is checked against what it depended on (host sleep, disk, sandbox, the delivery environment's integrations) before it goes to the developer (`6438826`, `d3fec2b`).
 
 ## 🔄 In review
-- `docs/kudos-observations` (2026-10-29): Kudos board iteration 2 recorded; template 1.4.1, a browser verifier and the phone header in the backlog.
+- `feat/j2-suggestions` (2026-10-29): Kudos board iteration 2 recorded (plan), and J2 slice 2: next features suggested at each delivery, on the work ledger.
 
 ## 🗂 Backlog
 - **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29): the *neutral-compact*
