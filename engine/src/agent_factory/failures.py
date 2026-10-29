@@ -47,6 +47,32 @@ class Failure:
 WORK = Failure(FailureClass.work, "unrecognised", "the step failed")
 
 
+def host_asleep(seconds: float) -> Failure:
+    """A command that failed while the factory host slept (the computer or Docker was suspended):
+    nothing about the code is known yet, so it runs again at once instead of going to the developer."""
+    return Failure(
+        FailureClass.infra,
+        "host_asleep",
+        f"the factory host was asleep for {_hms(seconds)} during the command (the computer slept or Docker was paused)",
+        retryable=True,
+        immediate=True,
+    )
+
+
+def awake_note(seconds: float) -> str:
+    """What the developer is told when a command cut off by host sleep fails again with the host awake."""
+    return (
+        f"\n[factory] An earlier run of this command was cut off: the factory host was asleep for {_hms(seconds)}."
+        " The factory ran it again with the host awake and it failed again, as shown above: treat this as a"
+        " real failure."
+    )
+
+
+def _hms(seconds: float) -> str:
+    s = round(seconds)
+    return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
+
+
 @dataclass(frozen=True)
 class Rule:
     id: str

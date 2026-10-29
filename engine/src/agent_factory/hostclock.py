@@ -66,6 +66,20 @@ class SuspendWatcher:
             prev = now
 
 
+def now_pair() -> tuple[float, float]:
+    """(wall, monotonic) now: take one before and one after a step, and `asleep_s` says whether the
+    host slept during it."""
+    return time.time(), time.monotonic()
+
+
+def asleep_s(before: tuple[float, float], after: tuple[float, float], threshold: float = THRESHOLD_S) -> float:
+    """Seconds the host was suspended between two `now_pair` readings, 0 if none. Pure. It needs no
+    watcher and has no race with it: the step's own clocks show the gap (Kudos board, 2026-10-29: the
+    preview build was cut off by a 1h04 sleep and sent to the developer as a code failure)."""
+    got = detect(before[0], before[1], after[0], after[1], threshold)
+    return 0.0 if got is None else (got[1] - got[0]).total_seconds()
+
+
 def overlap_s(a: datetime, b: datetime, pauses: list[tuple[datetime, datetime]]) -> float:
     """Seconds of [a, b] covered by the (non-overlapping) pauses. Pure."""
     total = 0.0

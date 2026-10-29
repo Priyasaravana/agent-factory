@@ -28,6 +28,7 @@ from agent_factory import (
     base_images,
     checks,
     contract,
+    hostclock,
     image_scan,
     ledger,
     packs,
@@ -43,7 +44,15 @@ from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import CommandResult, Executor
-from agent_factory.failures import Failure, FailureClass, backoff, classify_agent, classify_command
+from agent_factory.failures import (
+    Failure,
+    FailureClass,
+    awake_note,
+    backoff,
+    classify_agent,
+    classify_command,
+    host_asleep,
+)
 from agent_factory.models import (
     Change,
     EventKind,
@@ -93,6 +102,8 @@ class Stop:
 
 # where retries wait; tests replace it
 _sleep = asyncio.sleep
+# (wall, monotonic) around each command, to see whether the host slept during it; tests replace it
+_host_clock = hostclock.now_pair
 
 
 def _local_set() -> ProviderSet:
@@ -255,15 +266,21 @@ class StationContext:
         (ADR-0043); `retry=False` for a step that is not safe to repeat. `record=False` keeps the
         command and its output out of the event log (a scanner's report can hold secrets): the
         caller records its own summary; retries are still recorded. Its timeout never runs past
-        the change's time budget."""
+        the change's time budget.
+        A command that fails while the host sleeps runs again at once (`host_asleep`, infra): the
+        failure says nothing about the code yet. If it fails again with the host awake, it goes on
+        as usual, with a note in its output that the rerun was awake."""
         ex = (self.untrusted_ex or self.ex) if untrusted else self.ex
         attempt = 0
+        slept_before = 0.0  # host sleep that cut off an earlier run of this command
         while True:
             left = self.time_left()
             if left is not None and left <= 0:
                 self._out_of_time(f"before `{command[:80]}`")
                 return CommandResult(command, -1, "the change's time budget is used up", timed_out=True)
+            before = _host_clock()
             res = await ex.run(command, cwd=cwd or self.worktree, timeout=_cap(timeout, left), env=env)
+            slept = hostclock.asleep_s(before, _host_clock())
             if record:
                 await self.emit(
                     EventKind.command,
@@ -272,12 +289,22 @@ class StationContext:
                 )
             if res.ok:
                 return res
+            if slept and retry:
+                f = host_asleep(slept)
+                slept_before += slept
+                if attempt >= self.cfg.budgets.infra_retries:
+                    self._stop_infra(f, attempt, res.output[-3000:])
+                    return res
+                attempt += 1
+                if not await self._wait_to_retry(f, attempt, f"`{command[:80]}`"):
+                    return res
+                continue
             if res.timed_out and left is not None and timeout > left:
                 self._out_of_time(f"during `{command[:80]}`")
                 return res
             f = classify_command(command, res.returncode, res.output, res.timed_out, untrusted=untrusted)
             if f.cls != FailureClass.infra:
-                return res
+                return replace(res, output=res.output + awake_note(slept_before)) if slept_before else res
             if not (retry and f.retryable) or attempt >= self.cfg.budgets.infra_retries:
                 self._stop_infra(f, attempt, res.output[-3000:])
                 return res
