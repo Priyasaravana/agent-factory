@@ -41,6 +41,9 @@ class FakeAgentRunner:
     infra_fail: dict[str, list[str]] = field(default_factory=dict)
     # roles whose next call goes silent for this many seconds (a stalled or long call, ADR-0043)
     hang: dict[str, float] = field(default_factory=dict)
+    # what each role suggests as next features after a delivery (roadmap J2), by role; the default:
+    # two features from the architect, one improvement from the designer
+    suggestions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     calls: list[AgentRequest] = field(default_factory=list)
     _risky_state: str = "pending"  # pending -> written -> removed
 
@@ -104,10 +107,42 @@ class FakeAgentRunner:
                 )
             return AgentResult(ok=False, error=f"{req.role} simulated failure")
 
+        if req.station == "suggest":  # next features after a delivery (roadmap J2): read only
+            return AgentResult(ok=True, structured={"suggestions": self._suggest(req.role)}, text="done", turns=1)
         if req.role == "architect" and "on the review page" in req.prompt:
             return AgentResult(ok=True, structured=self._discuss(req), text="aligned", turns=1)
         self._write_artifacts(req)
         return AgentResult(ok=True, structured=self._structured(req), text="done", turns=1)
+
+    def _suggest(self, role: str) -> list[dict[str, Any]]:
+        if role in self.suggestions:
+            return self.suggestions[role]
+        if role == "designer":
+            return [
+                {
+                    "title": "Clearer phone header",
+                    "detail": "The phone header takes two rows; one row with a menu leaves room for content.",
+                    "value": "medium",
+                    "size": "S",
+                    "requirements": ["On phones the header fits one row"],
+                }
+            ]
+        return [
+            {
+                "title": "Search bookmarks",
+                "detail": "People find a bookmark by words in its title, not only by tag.",
+                "value": "high",
+                "size": "M",
+                "requirements": ["Members can search bookmarks by title"],
+            },
+            {
+                "title": "Export bookmarks",
+                "detail": "People take their bookmarks elsewhere as a file.",
+                "value": "low",
+                "size": "S",
+                "requirements": ["Members can download their bookmarks as JSON"],
+            },
+        ]
 
     def _discuss(self, req: AgentRequest) -> dict[str, str]:
         """The architect aligning with a person (ADR-0044 §1): "set <question> to <option>" changes the

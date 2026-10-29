@@ -88,7 +88,8 @@ async def test_every_agent_call_of_a_run_is_recorded_with_its_transcript(make_fa
     async with c:
         view = (await c.get(f"/api/changes/{change.id}/calls")).json()
         roles = [x["role"] for x in view["calls"]]
-        assert roles == ["intake", "architect", "developer", "reviewer", "verifier"]
+        # the last: the architect suggesting next features after the delivery (roadmap J2)
+        assert roles == ["intake", "architect", "developer", "reviewer", "verifier", "architect"]
         build = view["calls"][2]
         assert build["station"] == "implement" and build["tools"] == {"Read": 1} and build["transcript"]
         assert view["denials"] == []
