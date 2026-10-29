@@ -147,7 +147,8 @@ async def test_each_call_records_which_skills_were_granted_preloaded_and_invoked
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     app, ctx, c = await _client(f)
     async with c:
-        calls = {x["role"]: x for x in (await c.get(f"/api/changes/{change.id}/calls")).json()["calls"]}
+        listed = (await c.get(f"/api/changes/{change.id}/calls")).json()["calls"]
+        calls = {x["role"]: x for x in listed if x["station"] != "suggest"}  # not the next-feature suggestions
     await ctx.__aexit__(None, None, None)
     arch = calls["architect"]["skills"]
     assert arch["invoked"] == ["security-pillar"]
