@@ -1,18 +1,27 @@
-# Agent Factory: handoff (updated 2026-10-28)
+# Agent Factory: handoff (updated 2026-10-29)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-10-29, end of session)
-- **Main** (`d3fec2b` on GitHub, same as the Mac's local main): the environment check (`6438826` host sleep,
-  `d3fec2b` availability: `failures.needed_checks` / `env_problems`, `ChangeManager.env_check`, live only), on top
-  of J2 slice 1 (`3a92577`, pure ledger functions), a person's decisions surviving iterations (`9013b79`), scanner
-  digests (`823d72b`), the journey acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `feat/j2-suggestions` (two commits on `d3fec2b`): the plan update after Kudos board iteration 2,
-  and J2 slice 2: `suggest.py` (`wanted`, `vet`, `architect_prompt`, `designer_prompt`, `run_suggestions`),
-  called by `ChangeManager._suggest` after the retro, before the evidence seal; the fake answers
-  `station == "suggest"` (`FakeAgentRunner.suggestions` overrides per role). Tests: `tests/test_suggest.py`; the
-  call list in `test_observability.py` now ends with the suggesting architect. No API, web or data change.
+- **Main** (`b6538a6` on GitHub): J2 slice 2 merged (`94ec787` suggestions, `b6538a6` test fix), on top of the
+  environment check (`6438826`, `d3fec2b`), J2 slice 1 (`3a92577`), decisions surviving iterations (`9013b79`),
+  scanner digests (`823d72b`), the journey acceptance test (`fd81b9c`) and the no-progress stop (`9888491`).
+- **In review:** `feat/j2-api` (one commit on `b6538a6`): J2 slice 3, the API. `FeedbackInput.kind` is optional;
+  left out, `ChangeManager.feedback` picks it with `ledger.pick_kind` from the ticked items (none: feature), and the
+  feedback event records `kind_by` (`engine` | `person`). New `GET /api/products/{id}/next-iteration`
+  (`actions.next_iteration`, `NextIterationView`: features, quality, security, `can_start` = latest change in
+  `FEEDBACK_OPEN`, latest change id and status). `web/openapi.json` regenerated; **`web/src/api/schema.d.ts` edited
+  by hand** to match (npm blocked in the cloud on 2026-10-29): if CI's web job shows schema drift, run
+  `npm run gen:api` on the Mac and amend. Tests: `tests/test_suggest.py`
+  (`test_the_next_iteration_is_listed_and_the_engine_picks_its_kind`). Engine suite: 1037 passed, 5 failed, the
+  same 5 as on main in that container (see Lessons, "scanner binaries").
+- **Next: J2 slice 4, the "Next iteration" card** in "Needs you" (from `GET /next-iteration`: tick items in
+  Features / Quality / Security, optional free text, Start the next iteration → `POST /feedback` without a kind;
+  replaces the feedback box for factory products; hide it when `can_start` is false). Web work: needs
+  `npm ci`, `npm run build` and UI screenshots, so run it where npm works (the Mac, or a session with npm allowed).
+  Then the J2 live run on Kudos board (its next delivery will now list suggested features; the phone header is a
+  likely one).
 - **Live: Kudos board** (product `5ff547d402cb`, http://localhost:8083, `software-factory-apps/kudos`, look
   neutral-compact decided by admin): iteration 1 `75fd61391452` (new product, $6.38) and iteration 2
   `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. The J2 live run iterates on this product.
@@ -176,6 +185,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   is blocked in the cloud. Make a folder of symlinks `chromium-1248 → /opt/pw-browsers/chromium-1243` and
   `chromium_headless_shell-1248 → /opt/pw-browsers/chromium_headless_shell-1243`, then
   `PLAYWRIGHT_BROWSERS_PATH=<that folder> make e2e …`.
+- **Scanner binaries in the cloud image (2026-10-29):** five tests fail there on main too
+  (`test_checks.py::test_snyk_answers_with_its_token_only_in_the_environment` and four in `test_tools.py`: warnings
+  kept, blocking finding, fallback to the agent, hold without fallback): the image has real scanners on PATH, so a
+  "tool that doesn't run" runs. Compare against main before chasing them; CI is the reference.
 - **Secret scan:** test passwords in the template are low-entropy words (`testtesttesttest`,
   `preview-preview`) so gitleaks' generic rule (entropy > 3.5) never flags a generated product.
 - **Actions in their own module:** FastAPI resolves endpoint annotations from `actions.py`'s globals, so a

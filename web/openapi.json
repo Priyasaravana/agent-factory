@@ -423,8 +423,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
-        "description": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration",
+        "summary": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration. Without a kind, the engine picks it from the work items: any feature makes a feature, fixes alone upkeep",
+        "description": "Ask for a change to a delivered product (feature, bug or upkeep); starts the next iteration. Without a kind, the engine picks it from the work items: any feature makes a feature, fixes alone upkeep",
         "operationId": "submit_feedback",
         "parameters": [
           {
@@ -501,6 +501,49 @@
                     "$ref": "#/components/schemas/WorkItem"
                   },
                   "title": "Response List Work Items"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/next-iteration": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now",
+        "description": "What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now",
+        "operationId": "next_iteration",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextIterationView"
                 }
               }
             }
@@ -7298,8 +7341,14 @@
             "title": "Text"
           },
           "kind": {
-            "$ref": "#/components/schemas/ChangeKind",
-            "default": "feature"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "items": {
             "items": {
@@ -7691,6 +7740,65 @@
         ],
         "title": "LearningProposal",
         "description": "A lesson the retro suggests for one agent after a change that needed help (ADR-0021).\nNothing changes until an admin accepts it into the workflow draft and publishes."
+      },
+      "NextIterationView": {
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Features"
+          },
+          "quality": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Quality"
+          },
+          "security": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Security"
+          },
+          "can_start": {
+            "type": "boolean",
+            "title": "Can Start"
+          },
+          "latest_change_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Change Id"
+          },
+          "latest_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "features",
+          "quality",
+          "security",
+          "can_start"
+        ],
+        "title": "NextIterationView",
+        "description": "What a person can pick for a delivered product's next iteration (roadmap J2, the \"Next iteration\"\ncard): suggested features, deferred quality work and security fixes, open items only, best first\n(`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind: the engine picks it."
       },
       "OnboardRepoInput": {
         "properties": {

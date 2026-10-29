@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-29 (Kudos board iteration 2 delivered phone-ready, decisions kept, environment check live; template 1.4.1 to the backlog; J2 next).
+Updated 2026-10-29 (Kudos board iteration 2 delivered phone-ready, decisions kept, environment check live; template 1.4.1 to the backlog; J2 slices 2 merged, 3 in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -159,14 +159,18 @@ per-pack evaluation is in the backlog.
     functions, no API or web change: `parse_suggestions` (1–5, each with value, size and the requirements it
     would add), `fold_features` (category `feature`; a rejected suggestion stays rejected), `next_iteration`
     (features, quality, security fixes with a released fix), `pick_kind`, and a delivered feature closes on
-    delivery (its acceptance verified it). Tests: `tests/test_next_iteration.py`. **Slice 2, in review** (branch
-    `feat/j2-suggestions`, 2026-10-29): `suggest.py`, after each delivery of a factory product (like the retro:
+    delivery (its acceptance verified it). Tests: `tests/test_next_iteration.py`. **Slice 2, merged** (`94ec787`,
+    `b6538a6`): `suggest.py`, after each delivery of a factory product (like the retro:
     never delays or fails it), the architect (from the spec's out-of-scope, "later" answers and next needs, up to
     4) and, when the change kept route screenshots, the designer (UX improvements from them, up to 2) suggest
     next features, observe-only; the engine vets each one (`suggest.vet`: valid, no duplicate, best value first,
     top 5) and folds them into the work ledger; the prompts list earlier suggestions, so a rejected one isn't
-    suggested again and an open one keeps its title. Tests: `tests/test_suggest.py`. **Next slices:** the API
-    (`kind` picked by the engine when not given; a next-iteration view); the "Next iteration" card in "Needs you".
+    suggested again and an open one keeps its title. Tests: `tests/test_suggest.py`. **Slice 3, in review** (branch
+    `feat/j2-api`, 2026-10-29): `FeedbackInput.kind` optional: left out, the engine picks it from the ticked items
+    (`ledger.pick_kind`; the feedback event records `kind_by` engine or person); `GET
+    /api/products/{id}/next-iteration` (`NextIterationView`: features, quality, security, `can_start`, the
+    latest change and its status). OpenAPI regenerated; `schema.d.ts` mirrored by hand (npm blocked), CI's web
+    job confirms it. **Next slice:** the "Next iteration" card in "Needs you".
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
@@ -262,9 +266,10 @@ per-pack evaluation is in the backlog.
 41. A person's design decisions survive autonomous iterations (`9013b79`, found on Book lending).
 42. J2 slice 1: suggested features in the ledger, the next-iteration groups and the change-kind rule (`3a92577`, pure).
 43. The environment check: a failed command is checked against what it depended on (host sleep, disk, sandbox, the delivery environment's integrations) before it goes to the developer (`6438826`, `d3fec2b`).
+44. J2 slice 2: next features suggested at each delivery by the architect and the designer, vetted and folded into the work ledger (`94ec787`, `b6538a6`).
 
 ## 🔄 In review
-- `feat/j2-suggestions` (2026-10-29): Kudos board iteration 2 recorded (plan), and J2 slice 2: next features suggested at each delivery, on the work ledger.
+- `feat/j2-api` (2026-10-29): J2 slice 3, the API: the engine picks the change kind from the ticked items; `GET /api/products/{id}/next-iteration`.
 
 ## 🗂 Backlog
 - **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29): the *neutral-compact*

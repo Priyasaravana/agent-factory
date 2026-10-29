@@ -881,7 +881,9 @@ class FeedbackInput(BaseModel):
     """A change to a delivered product: what to do and what kind of change it is (ADR-0030)."""
 
     text: str = Field(min_length=3, max_length=20_000)
-    kind: ChangeKind = ChangeKind.feature  # feature | bug | upkeep
+    # feature | bug | upkeep (| assess for a team repo); left out, the engine picks it from the items
+    # (`ledger.pick_kind`, roadmap J2): any feature makes a feature, security fixes alone are upkeep
+    kind: ChangeKind | None = None
     # work items this change addresses (ADR-0040): they move to "in progress" and are verified
     # by the next assessment
     items: list[str] = Field(default_factory=list, max_length=50)
@@ -1330,6 +1332,19 @@ class ProvidedArtifactInfo(BaseModel):
     ref: str
     title: str
     example: dict[str, Any]  # a valid manifest with placeholder values, to edit
+
+
+class NextIterationView(BaseModel):
+    """What a person can pick for a delivered product's next iteration (roadmap J2, the "Next iteration"
+    card): suggested features, deferred quality work and security fixes, open items only, best first
+    (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind: the engine picks it."""
+
+    features: list[WorkItem]
+    quality: list[WorkItem]
+    security: list[WorkItem]
+    can_start: bool  # the latest change is delivered or stopped: the next iteration can start now
+    latest_change_id: str | None = None
+    latest_status: ChangeStatus | None = None
 
 
 class ChangeEntryView(BaseModel):
