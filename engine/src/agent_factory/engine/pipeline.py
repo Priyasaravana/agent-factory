@@ -10,11 +10,12 @@ import re
 import time
 import traceback
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import ledger
+from agent_factory import failures, ledger
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
@@ -836,6 +837,23 @@ class ChangeManager:
             self._wake_later(change)
         return touched
 
+    def env_check(
+        self, blueprint: str, grant: frozenset[str] | None
+    ) -> Callable[[bool], Awaitable[tuple[list[str], list[str]]]] | None:
+        """After a command fails: the product's environment checked again (preflight, never cached), limited
+        to what the station depends on (`failures.needed_checks`). Each delivery environment brings its own
+        checks through its integrations. None in dry-run, where nothing real can be down."""
+        if self.settings.factory_mode != "live":
+            return None
+
+        async def check(untrusted: bool) -> tuple[list[str], list[str]]:
+            view = await self.preflight.blueprint(blueprint, max_age=0)
+            env = self.providers.for_blueprint(blueprint)
+            areas = {cap: getattr(env, cap).name for cap in ("registry", "deploy", "scan", "publish")}
+            return failures.env_problems(view.checks, failures.needed_checks(grant, untrusted, areas))
+
+        return check
+
     # -------------------------------------------------------- internals ----
     def _get(self, change_id: str) -> Change:
         change = self.store.get_change(change_id)
@@ -1096,6 +1114,7 @@ class ChangeManager:
             ctx.secrets = self.secrets
             ctx.deadline = deadline
             ctx.grant = flow.grant(sid, self.workflows.phases)  # the capability boundary (ADR-0039 §4)
+            ctx.env_check = self.env_check(product.blueprint, ctx.grant)
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
                 ctx.imported_plugin = self.workflows.library.materialise(ctx.skill_pins)

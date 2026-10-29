@@ -22,8 +22,10 @@ import hashlib
 import random
 import re
 import shlex
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 
 class FailureClass(StrEnum):
@@ -65,6 +67,68 @@ def awake_note(seconds: float) -> str:
         f"\n[factory] An earlier run of this command was cut off: the factory host was asleep for {_hms(seconds)}."
         " The factory ran it again with the host awake and it failed again, as shown above: treat this as a"
         " real failure."
+    )
+
+
+# what a station's capabilities need from the delivery environment's integrations (ADR-0039 §4)
+NEEDS_INTEGRATION = {
+    "push-image": "registry",
+    "pull-image": "registry",
+    "deploy": "deploy",
+    "promote": "deploy",
+    "rollback": "deploy",
+    "run-scanners": "scan",
+    "open-pr": "publish",
+}
+
+
+class Check(Protocol):
+    """A readiness check as preflight reports it (`models.CheckView`)."""
+
+    id: str
+    title: str
+    state: str
+    reasons: list[str]
+
+
+def needed_checks(grant: Iterable[str] | None, untrusted: bool, integrations: Mapping[str, str]) -> set[str]:
+    """Which readiness checks a failed command depended on, so only those can turn it into an environment
+    failure. The Docker disk, always; the agent sandbox for code the agents wrote; and the delivery
+    environment's integration for each capability the station uses (`integrations`: capability area →
+    integration name, from the product's environment, so any environment brings its own checks).
+    `grant` None: the station may use anything."""
+    ids = {"disk"} | ({"sandbox"} if untrusted else set())
+    bases = None if grant is None else {g.split(":", 1)[0] for g in grant}
+    for cap, area in NEEDS_INTEGRATION.items():
+        if (bases is None or cap in bases) and area in integrations:
+            ids.add(f"integration:{integrations[area]}")
+    return ids
+
+
+def env_problems(checks: Iterable[Check], needed: set[str]) -> tuple[list[str], list[str]]:
+    """(what is down, what was checked) among the `needed` readiness checks. Pure."""
+    down, checked = [], []
+    for c in checks:
+        if c.id not in needed:
+            continue
+        checked.append(c.title)
+        if c.state == "failed":
+            down.append(f"{c.title}: {'; '.join(c.reasons)[:300] or 'failed'}")
+    return down, checked
+
+
+def env_unavailable(down: list[str]) -> Failure:
+    """A command failed and something it depends on in the environment is down: the environment's
+    failure, retried with backoff, then held with what is down."""
+    more = f" (and {len(down) - 1} more)" if len(down) > 1 else ""
+    return Failure(FailureClass.infra, "env_unavailable", f"the environment is not available: {down[0]}{more}", True)
+
+
+def env_healthy_note(checked: list[str]) -> str:
+    """What the developer is told when the environment was checked after the failure and is up."""
+    return (
+        f"\n[factory] After this failure the factory checked what the command depends on ({'; '.join(checked)})"
+        " and it is all available: treat this as a real failure."
     )
 
 

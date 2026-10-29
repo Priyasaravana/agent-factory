@@ -187,3 +187,57 @@ def test_a_command_cut_off_by_host_sleep_is_infra_and_retried_at_once():
     note = failures.awake_note(3867)
     assert note.startswith("\n[factory] An earlier run of this command was cut off")
     assert "ran it again with the host awake" in note and "real failure" in note
+
+
+def test_a_failure_depends_only_on_the_environment_its_station_uses():
+    local = {"registry": "local", "deploy": "local", "scan": "local", "publish": "github"}
+    # code the agents wrote, in a station that may only use the sandbox: the disk and the sandbox
+    assert failures.needed_checks(frozenset({"run-sandbox", "write-code"}), True, local) == {"disk", "sandbox"}
+    # deploy to any environment, from the engine: the disk and the deploy integration
+    assert failures.needed_checks(frozenset({"deploy:*"}), False, local) == {"disk", "integration:local"}
+    assert failures.needed_checks(frozenset({"open-pr"}), False, local) == {"disk", "integration:github"}
+    # a cloud environment brings its own integrations
+    cloud = {"registry": "ecr", "deploy": "eks", "scan": "local", "publish": "github"}
+    assert failures.needed_checks(frozenset({"push-image", "deploy:prod"}), False, cloud) == {
+        "disk",
+        "integration:ecr",
+        "integration:eks",
+    }
+    assert failures.needed_checks(None, True, cloud) == {
+        "disk",
+        "sandbox",
+        "integration:ecr",
+        "integration:eks",
+        "integration:local",
+        "integration:github",
+    }
+
+
+def test_what_is_down_is_named_and_what_was_checked_is_listed():
+    from agent_factory.models import CheckView
+
+    checks = [
+        CheckView(id="sandbox", title="Agent sandbox", area="agents", state="ready"),
+        CheckView(id="disk", title="Docker disk space", area="build", state="degraded", reasons=["91% full"]),
+        CheckView(
+            id="integration:local",
+            title="local (local): registry, deploy",
+            area="registry",
+            state="failed",
+            reasons=["kind cluster API not ready: connection refused"],
+        ),
+        CheckView(id="ports", title="Free app port", area="deploy", state="failed", reasons=["none free"]),
+    ]
+    down, checked = failures.env_problems(checks, {"sandbox", "disk", "integration:local"})
+    assert down == ["local (local): registry, deploy: kind cluster API not ready: connection refused"]
+    assert checked == ["Agent sandbox", "Docker disk space", "local (local): registry, deploy"]
+    assert failures.env_problems(checks, {"sandbox"}) == ([], ["Agent sandbox"]), "not needed: not counted"
+    f = failures.env_unavailable([*down, "Agent sandbox: not running"])
+    assert (f.cls, f.rule, f.retryable, f.immediate) == (FailureClass.infra, "env_unavailable", True, False)
+    assert f.cause == (
+        "the environment is not available: local (local): registry, deploy: kind cluster API not ready: "
+        "connection refused (and 1 more)"
+    )
+    note = failures.env_healthy_note(checked)
+    assert "checked what the command depends on (Agent sandbox; Docker disk space; local" in note
+    assert note.endswith("it is all available: treat this as a real failure.")
