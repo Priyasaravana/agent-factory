@@ -3,29 +3,28 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-29)
-- **Main** (`3a92577` on GitHub, same as the Mac's local main on 2026-10-29): J2 slice 1 (pure ledger functions:
-  `parse_suggestions`, `fold_features`, `next_iteration`, `pick_kind`), on top of a person's design decisions
-  surviving autonomous iterations (`9013b79`), the scanner images pinned by digest (`823d72b`), the journey
-  acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `fix/environment-check` (two commits on `3a92577`), ADR-0043 follow-up: before a failed command is
-  called the code's failure, the factory checks the environment it depended on. (1) Host sleep: `ctx.cmd` reads
-  the wall and monotonic clocks around each command (`hostclock.asleep_s`); failed while asleep → `host_asleep`,
-  run again at once. (2) Availability: `ChangeManager.env_check` re-runs preflight (never cached) and keeps the
-  checks the station depends on (`failures.needed_checks`: the Docker disk, the sandbox for agent-written code,
-  and the delivery environment's integration per capability: registry, deploy, scan, publish, so a cloud
-  environment brings its own checks); something down → `env_unavailable`, retried with backoff, then held naming
-  it. Up → the failure goes on as usual, its output ending with what was checked (`env_healthy_note`, or
-  `awake_note` after a sleep). Live mode only; a check that can't run changes nothing. No API, web or data change.
-- **J1 acceptance run, "Kudos board"** (product `5ff547d402cb`, change `75fd61391452`): delivered 2026-10-29,
-  http://localhost:8083, `software-factory-apps/kudos`, $6.38. Everything proved live except a phone-ready UI
-  (controls ~28 px, R9 asks 44 px). See the roadmap, J1 item 6.
+## Current state (2026-10-29, end of session)
+- **Main** (`d3fec2b` on GitHub, same as the Mac's local main): the environment check (`6438826` host sleep,
+  `d3fec2b` availability: `failures.needed_checks` / `env_problems`, `ChangeManager.env_check`, live only), on top
+  of J2 slice 1 (`3a92577`, pure ledger functions), a person's decisions surviving iterations (`9013b79`), scanner
+  digests (`823d72b`), the journey acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
+- **In review:** `docs/kudos-observations` (plan only).
+- **Live: Kudos board** (product `5ff547d402cb`, http://localhost:8083, `software-factory-apps/kudos`, look
+  neutral-compact decided by admin): iteration 1 `75fd61391452` (new product, $6.38) and iteration 2
+  `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. The J2 live run iterates on this product.
+- **J1:** met on Kudos board after iteration 2; closing it is Saravana's call (roadmap J1 item 6).
+- **Next (next session): J2 "plan the next iteration", slice 2 onwards.** Slice 1 (`3a92577`) has the pure parts
+  in `ledger.py`; nothing calls them yet. Slice 2: at delivery (handover), the architect proposes 3–5 next
+  features and the designer adds UX improvements from the route screenshots → `ledger.parse_suggestions` →
+  `fold_features`. Slice 3: the API (`FeedbackInput.kind` optional, `ledger.pick_kind` when items are given;
+  a `next-iteration` view from `ledger.next_iteration`). Slice 4: the "Next iteration" card in "Needs you"
+  (features, quality, security fixes; tick, free text, Start the next iteration), replacing the feedback box for
+  factory products. Then the J2 live run on Kudos board (the phone header is a natural first suggestion).
+  Cloud sessions couldn't reach PyPI or npm on 2026-10-28/29: ask for those domains to be allowed, or run the
+  engine, web and Playwright checks on the Mac, before slices 3–4.
 - **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
   2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
   delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: fixed in `9013b79`.
-- **Next:** template 1.4.1 (44 px controls in every look, checked by the template's e2e at phone width), then a
-  Kudos board iteration that brings the UI up to it. That iteration also starts the J2 live run: check the
-  person's neutral-compact look survives it (`9013b79`).
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as
   resource owner, All repositories, and Administration, Contents and Workflows read/write. If the org
   requires approval for tokens, approve it under Settings → Personal access tokens.
@@ -145,6 +144,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   Committing to the same device path can leave the old file: give each new bundle a new name.
 - **Keep the Mac awake during live runs** (`caffeinate -dims`): sleep paused a run four times and cut off a
   Trivy DB download; on Kudos board (2026-10-28/29) it slept 13 times overnight and cut off a preview build.
+- **The verifier has no browser** (2026-10-29): for layout requirements (phone widths, tap targets) it reads the
+  CSS and estimates. Put such checks in the pack's Playwright e2e, which measures them.
+- **Look densities change sizes** (2026-10-29): Tailwind sizes in rem scale with a look's root font and density;
+  a hard floor (44 px tap targets) must be in px.
 - **Reading live state:** stage `.factory-data/factory.db` (plus `-wal` and `-shm`) and `artifacts/<change>/`,
   then read them with Python's sqlite3 in the cloud (no `sqlite3` CLI there). A product's git is
   `GIT_DIR=.factory-data/products/<name>/.git`, branch `run/<change>`.

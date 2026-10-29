@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-29 (J1 acceptance run "Kudos board" delivered, UI not yet phone-ready; environment check in review; J2 slice 1 merged `3a92577`).
+Updated 2026-10-29 (Kudos board iteration 2 delivered phone-ready, decisions kept, environment check live; template 1.4.1 to the backlog; J2 next).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -117,11 +117,24 @@ per-pack evaluation is in the backlog.
    3.4/5, responsive 2/5, controls about 28–30 px tall against R9's 44 px (the UI review only reports; the
    verifier uses curl). The no-progress stop didn't trigger (nothing to stop). **Factory bug found:** the Mac
    slept 1h04 during `make preview`; the preview never answered and went to the developer as code work (~15
-   min, no change). Fix in review: `fix/environment-check`, broadened (agreed 2026-10-29: not about the Mac, about
-   whether the environment is available, wherever the factory runs): after any failed command, the factory checks
-   what that command depended on (host sleep, Docker disk, sandbox, the environment's registry, deploy, scan and
-   publish integrations) and retries or holds when something is down, instead of sending it to the developer. **Still to do for "Done when":** 44 px controls in
-   every look, checked by the template's e2e at phone width (template 1.4.1), then rerun the UI on Kudos board.
+   min, no change). Fixed (`6438826`, `d3fec2b`, merged 2026-10-29), broadened (agreed 2026-10-29: not about the
+   Mac, about whether the environment is available, wherever the factory runs): after a failed command, the
+   factory checks what it depended on (host sleep, Docker disk, sandbox, the environment's registry, deploy, scan
+   and publish integrations) and retries or holds when something is down, instead of sending it to the developer.
+   **Iteration 2, 2026-10-29** (change `d5e3de869ac0`, feature, product-change lane, autonomous decisions, $6.02,
+   54 min): "every control at least 44 px on phones, keep the look". **Proved live:** the person's look stayed
+   *neutral-compact, decided by admin* (decision sheet unchanged, `9013b79`); UI review 4.0/5, responsive 2 → 4
+   ("controls reach 44 px, nothing scrolls sideways at 390 px"); the environment check's note reached the
+   developer on a real e2e failure ("…checked what the command depends on (Agent sandbox; Docker disk space) and
+   it is all available", `d3fec2b`); a hidden scenario caught a real phone bug (a 60-character name made the board
+   scroll sideways), fixed by the loop; 11/11 verified live; Level 3. Not exercised: the sleep retry (the Mac
+   stayed awake). **Found:** (1) the cause is the template: the *neutral-compact* look scales spacing by 0.75 and
+   the root font to 14 px, so `min-h-11` renders ~29 px in every product on that look (backlog: template 1.4.1);
+   (2) the verifier has no browser and judged the phone layout from the CSS, estimating widths (backlog); (3) on
+   phones the header became a ~110 px two-row block and no longer shows the signed-in email (a candidate first
+   suggested feature for J2). **J1 status (2026-10-29):** Kudos board meets the "Done when" after iteration 2;
+   a new product would still start with small controls until template 1.4.1. Closing J1 on this run, or after
+   1.4.1 and a new-product run, is Saravana's call. J2 starts in the next session.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
 
@@ -243,11 +256,20 @@ per-pack evaluation is in the backlog.
 40. Scanner images pinned by version and digest: Trivy 0.76.0, syft v1.54.1 (`5d2c42a`, `823d72b`).
 41. A person's design decisions survive autonomous iterations (`9013b79`, found on Book lending).
 42. J2 slice 1: suggested features in the ledger, the next-iteration groups and the change-kind rule (`3a92577`, pure).
+43. The environment check: a failed command is checked against what it depended on (host sleep, disk, sandbox, the delivery environment's integrations) before it goes to the developer (`6438826`, `d3fec2b`).
 
 ## 🔄 In review
-- `fix/environment-check` (2026-10-29): a failed command is checked against the environment it depended on (host sleep, disk, sandbox, delivery integrations) before it goes to the developer.
+- `docs/kudos-observations` (2026-10-29): Kudos board iteration 2 recorded; template 1.4.1, a browser verifier and the phone header in the backlog.
 
 ## 🗂 Backlog
+- **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29): the *neutral-compact*
+  look scales spacing by 0.75 and the root font to 14 px, so the template's `min-h-11` renders ~29 px. Recipe
+  proven by Kudos board iteration 2: a `phone` custom variant in px (`@media (width < 640px)`) with
+  `phone:min-h-[44px]` in the base Button, Input, Select and Textarea, the shell's nav links, the dialog close and
+  the toast close (also `min-w`); plus an e2e check that measures tap targets at 390 px in every look, so it fails
+  the build instead of being reported. Then a short new-product run proves new products start phone-ready.
+- **Phone header** (Kudos board iteration 2): ~110 px, two rows, no signed-in email. In the template's shell, or as
+  the product's first J2 suggested feature.
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):
   - one inventory of every pinned choice: pack base images, Node/Python/Playwright in the sandbox, scanner images (Trivy and syft pinned by version and digest in J1; Semgrep, OSV-Scanner and Snyk still on moving tags), Actions, models;
   - pin by digest; Dependabot/Renovate opens the upgrade PR; the evaluation harness gates it before it serves products;
@@ -265,7 +287,7 @@ per-pack evaluation is in the backlog.
 - Product creation form: provided entry artifacts.
 - Builder scope bar (phase rail behind "Custom scope") and tidy-up (drop built-in template dropdown, GitHub import as a link, mark unused agents).
 - Evaluation: repeated runs per case; side-by-side models; scheduled re-evaluation for drift.
-- Hidden-scenario verifier for web apps with a browser (today it uses curl; the pack's Playwright suite covers the browser side).
+- Hidden-scenario verifier for web apps with a browser (today it uses curl; the pack's Playwright suite covers the browser side). Kudos board iteration 2 (2026-10-29): it judged a phone layout from the CSS, estimating widths, because it had no browser.
 - Security and models:
   - OpenTelemetry GenAI export;
   - model profiles and fallback;
