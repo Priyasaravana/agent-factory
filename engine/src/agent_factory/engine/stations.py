@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import shlex
 import shutil
@@ -51,6 +52,8 @@ from agent_factory.failures import (
     backoff,
     classify_agent,
     classify_command,
+    env_healthy_note,
+    env_unavailable,
     host_asleep,
 )
 from agent_factory.models import (
@@ -100,6 +103,8 @@ class Stop:
     rule: str = ""
 
 
+log = logging.getLogger("agent_factory.stations")
+
 # where retries wait; tests replace it
 _sleep = asyncio.sleep
 # (wall, monotonic) around each command, to see whether the host slept during it; tests replace it
@@ -137,6 +142,9 @@ class StationContext:
     # the run's time budget, on the monotonic clock (agent time: it stops while the host sleeps)
     deadline: float | None = None
     stop: Stop | None = None  # set when this station must hold (ADR-0043)
+    # after a failure, what is down in the environment the command depends on and what was checked
+    # (`failures.needed_checks`); None: not checked (dry-run)
+    env_check: Callable[[bool], Awaitable[tuple[list[str], list[str]]]] | None = None
 
     @property
     def blueprint(self) -> Blueprint:
@@ -303,14 +311,35 @@ class StationContext:
                 self._out_of_time(f"during `{command[:80]}`")
                 return res
             f = classify_command(command, res.returncode, res.output, res.timed_out, untrusted=untrusted)
+            if f.cls == FailureClass.work:
+                # before calling it the code's failure: is what the command depends on up?
+                down, checked = await self._env(untrusted) if retry else ([], [])
+                if down:
+                    f = env_unavailable(down)
+                else:
+                    notes = (awake_note(slept_before) if slept_before else "") + (
+                        env_healthy_note(checked) if checked else ""
+                    )
+                    return replace(res, output=res.output + notes) if notes else res
             if f.cls != FailureClass.infra:
-                return replace(res, output=res.output + awake_note(slept_before)) if slept_before else res
+                return res
             if not (retry and f.retryable) or attempt >= self.cfg.budgets.infra_retries:
                 self._stop_infra(f, attempt, res.output[-3000:])
                 return res
             attempt += 1
             if not await self._wait_to_retry(f, attempt, f"`{command[:80]}`"):
                 return res
+
+    async def _env(self, untrusted: bool) -> tuple[list[str], list[str]]:
+        """What is down among the environment's checks this command depended on, and what was checked.
+        A check that can't run says nothing: the failure stays the code's."""
+        if self.env_check is None:
+            return [], []
+        try:
+            return await asyncio.wait_for(self.env_check(untrusted), timeout=90)
+        except Exception:  # noqa: BLE001 - checking must never turn a failure into a crash
+            log.warning("environment check after a failure did not complete", exc_info=True)
+            return [], []
 
     def time_left(self) -> float | None:
         return None if self.deadline is None else self.deadline - time.monotonic()

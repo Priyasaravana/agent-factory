@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-29 (J1 acceptance run "Kudos board" delivered, UI not yet phone-ready; host-sleep fix in review; J2 slice 1 merged `3a92577`).
+Updated 2026-10-29 (J1 acceptance run "Kudos board" delivered, UI not yet phone-ready; environment check in review; J2 slice 1 merged `3a92577`).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -117,7 +117,10 @@ per-pack evaluation is in the backlog.
    3.4/5, responsive 2/5, controls about 28–30 px tall against R9's 44 px (the UI review only reports; the
    verifier uses curl). The no-progress stop didn't trigger (nothing to stop). **Factory bug found:** the Mac
    slept 1h04 during `make preview`; the preview never answered and went to the developer as code work (~15
-   min, no change). Fix in review: `fix/preview-after-sleep`. **Still to do for "Done when":** 44 px controls in
+   min, no change). Fix in review: `fix/environment-check`, broadened (agreed 2026-10-29: not about the Mac, about
+   whether the environment is available, wherever the factory runs): after any failed command, the factory checks
+   what that command depended on (host sleep, Docker disk, sandbox, the environment's registry, deploy, scan and
+   publish integrations) and retries or holds when something is down, instead of sending it to the developer. **Still to do for "Done when":** 44 px controls in
    every look, checked by the template's e2e at phone width (template 1.4.1), then rerun the UI on Kudos board.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
@@ -242,7 +245,7 @@ per-pack evaluation is in the backlog.
 42. J2 slice 1: suggested features in the ledger, the next-iteration groups and the change-kind rule (`3a92577`, pure).
 
 ## 🔄 In review
-- `fix/preview-after-sleep` (2026-10-29): a command cut off by host sleep runs again instead of going to the developer.
+- `fix/environment-check` (2026-10-29): a failed command is checked against the environment it depended on (host sleep, disk, sandbox, delivery integrations) before it goes to the developer.
 
 ## 🗂 Backlog
 - **Upgradable selections** (decided 2026-10-18: every choice the factory makes is versioned data with an owner, a scan and an upgrade path):

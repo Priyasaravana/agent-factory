@@ -237,3 +237,65 @@ async def test_a_host_that_keeps_sleeping_holds_for_the_factory(make_factory, mo
     assert held.hold_class == "infra" and held.current_station == "preview-e2e"
     assert "infrastructure: the factory host was asleep for 1:04:27 during the command" in held.summary
     assert "after 2 retries; resume to try again" in held.summary
+
+
+def _environment(f, answers: list[list[str]]):  # type: ignore[no-untyped-def]
+    """The environment check after a failure (`ChangeManager.env_check`, live only): each call answers with
+    the next list of what is down (the last one from then on). Records what each call was asked."""
+    asked: list[tuple[frozenset[str] | None, bool]] = []
+
+    def env_check(blueprint, grant):  # type: ignore[no-untyped-def]
+        async def check(untrusted: bool) -> tuple[list[str], list[str]]:
+            asked.append((grant, untrusted))
+            down = answers.pop(0) if len(answers) > 1 else answers[0]
+            return list(down), ["Agent sandbox", "Docker disk space"]
+
+        return check
+
+    f.manager.env_check = env_check
+    return asked
+
+
+CLUSTER_DOWN = "local (local): registry, deploy: kind cluster API not ready: connection refused"
+
+
+async def test_a_failure_while_the_environment_is_down_waits_for_it_not_for_the_developer(make_factory):
+    agents = FakeAgentRunner()
+    f = _quick(make_factory(FakeExecutor(fail_on=["make preview"]), agents=agents))
+    asked = _environment(f, [[CLUSTER_DOWN], []])
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+
+    retries = _retries(f, change.id)
+    assert [(r["rule"], r["station"]) for r in retries] == [("env_unavailable", "preview-e2e")]
+    assert retries[0]["cause"] == f"the environment is not available: {CLUSTER_DOWN}"
+    assert asked and asked[0][1] is True, "the preview is code the agents wrote: the sandbox is checked"
+    assert [c.role for c in agents.calls].count("developer") == 1, "nothing went to the developer"
+
+
+async def test_a_failure_with_the_environment_up_goes_to_the_developer_saying_so(make_factory):
+    f = _quick(make_factory(FakeExecutor(fail_on=["make preview"])))
+    _environment(f, [[]])
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+
+    assert _retries(f, change.id) == []
+    routed = next(
+        e.data["routed"] for e in f.store.list_events(change.id) if e.message.startswith("routing failure from preview")
+    )
+    assert routed["to"] == "implement"
+    assert (
+        "[factory] After this failure the factory checked what the command depends on (Agent sandbox; Docker"
+        in (routed["evidence"])
+    )
+
+
+async def test_an_environment_that_stays_down_holds_and_names_what_is_down(make_factory):
+    f = _quick(make_factory(FakeExecutor(fail_on=["make preview"] * 3)), infra_retries=2)
+    _environment(f, [[CLUSTER_DOWN]])
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.held
+
+    held = f.store.get_change(change.id)
+    assert held.hold_class == "infra" and held.current_station == "preview-e2e"
+    assert f"infrastructure: the environment is not available: {CLUSTER_DOWN} after 2 retries" in held.summary

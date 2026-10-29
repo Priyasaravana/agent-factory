@@ -8,11 +8,15 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `parse_suggestions`, `fold_features`, `next_iteration`, `pick_kind`), on top of a person's design decisions
   surviving autonomous iterations (`9013b79`), the scanner images pinned by digest (`823d72b`), the journey
   acceptance test (`fd81b9c`) and the no-progress stop and target probe (`9888491`).
-- **In review:** `fix/preview-after-sleep` (one commit on `3a92577`): `ctx.cmd` reads the host's wall and
-  monotonic clocks around each command (`hostclock.asleep_s`); a command that failed while the host slept is
-  `infra` (`failures.host_asleep`), run again at once; if it fails again awake, its output gets
-  `failures.awake_note` and it goes on as usual; a host that keeps sleeping holds. Tests: the Kudos board case in
-  `test_failure_routes.py`. No API, web or data change.
+- **In review:** `fix/environment-check` (two commits on `3a92577`), ADR-0043 follow-up: before a failed command is
+  called the code's failure, the factory checks the environment it depended on. (1) Host sleep: `ctx.cmd` reads
+  the wall and monotonic clocks around each command (`hostclock.asleep_s`); failed while asleep → `host_asleep`,
+  run again at once. (2) Availability: `ChangeManager.env_check` re-runs preflight (never cached) and keeps the
+  checks the station depends on (`failures.needed_checks`: the Docker disk, the sandbox for agent-written code,
+  and the delivery environment's integration per capability: registry, deploy, scan, publish, so a cloud
+  environment brings its own checks); something down → `env_unavailable`, retried with backoff, then held naming
+  it. Up → the failure goes on as usual, its output ending with what was checked (`env_healthy_note`, or
+  `awake_note` after a sleep). Live mode only; a check that can't run changes nothing. No API, web or data change.
 - **J1 acceptance run, "Kudos board"** (product `5ff547d402cb`, change `75fd61391452`): delivered 2026-10-29,
   http://localhost:8083, `software-factory-apps/kudos`, $6.38. Everything proved live except a phone-ready UI
   (controls ~28 px, R9 asks 44 px). See the roadmap, J1 item 6.
