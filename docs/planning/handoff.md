@@ -1,41 +1,31 @@
-# Agent Factory: handoff (updated 2026-10-29)
+# Agent Factory: handoff (updated 2026-10-30)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-29, end of session)
-- **Main** (`b6538a6` on GitHub): J2 slice 2 merged (`94ec787` suggestions, `b6538a6` test fix), on top of the
-  environment check (`6438826`, `d3fec2b`), J2 slice 1 (`3a92577`), decisions surviving iterations (`9013b79`),
-  scanner digests (`823d72b`), the journey acceptance test (`fd81b9c`) and the no-progress stop (`9888491`).
-- **In review:** `feat/j2-api` (one commit on `b6538a6`): J2 slice 3, the API. `FeedbackInput.kind` is optional;
-  left out, `ChangeManager.feedback` picks it with `ledger.pick_kind` from the ticked items (none: feature), and the
-  feedback event records `kind_by` (`engine` | `person`). New `GET /api/products/{id}/next-iteration`
-  (`actions.next_iteration`, `NextIterationView`: features, quality, security, `can_start` = latest change in
-  `FEEDBACK_OPEN`, latest change id and status). `web/openapi.json` regenerated; **`web/src/api/schema.d.ts` edited
-  by hand** to match (npm blocked in the cloud on 2026-10-29): if CI's web job shows schema drift, run
-  `npm run gen:api` on the Mac and amend. Tests: `tests/test_suggest.py`
-  (`test_the_next_iteration_is_listed_and_the_engine_picks_its_kind`). Engine suite: 1037 passed, 5 failed, the
-  same 5 as on main in that container (see Lessons, "scanner binaries").
-- **Next: J2 slice 4, the "Next iteration" card** in "Needs you" (from `GET /next-iteration`: tick items in
-  Features / Quality / Security, optional free text, Start the next iteration → `POST /feedback` without a kind;
-  replaces the feedback box for factory products; hide it when `can_start` is false). Web work: needs
-  `npm ci`, `npm run build` and UI screenshots, so run it where npm works (the Mac, or a session with npm allowed).
-  Then the J2 live run on Kudos board (its next delivery will now list suggested features; the phone header is a
-  likely one).
-- **Live: Kudos board** (product `5ff547d402cb`, http://localhost:8083, `software-factory-apps/kudos`, look
-  neutral-compact decided by admin): iteration 1 `75fd61391452` (new product, $6.38) and iteration 2
-  `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. The J2 live run iterates on this product.
+## Current state (2026-10-30, end of session)
+- **Main** (`f21ebdb` on GitHub): J2 slice 3 merged (the engine picks the change kind; `GET /next-iteration`), on
+  top of J2 slices 1–2 (`3a92577`, `94ec787`, `b6538a6`), the environment check (`6438826`, `d3fec2b`), decisions
+  surviving iterations (`9013b79`), scanner digests (`823d72b`) and the journey acceptance test (`fd81b9c`).
+- **In review:** `feat/j2-next-iteration-card` (one commit on `f21ebdb`): J2 slice 4. New
+  `web/src/components/NextIteration.tsx` under "Needs you" on `ProductPage` (factory products only): Features /
+  Quality / Security fixes from `GET /next-iteration`, tick (with "tick all"), optional free text, **Start the next
+  iteration** → `POST /feedback` without a kind; hidden unless `can_start` and the latest change isn't held. The
+  change panel's feedback box now shows for team repos only; `attention.py` points a delivered factory product at
+  panel `next-iteration` (`tests/test_attention.py`); `web/e2e/smoke.py` starts iteration 2 from the card. No API
+  change (OpenAPI unchanged). **Not built, no screenshots:** npm was blocked in the cloud, the Mac's agent shell
+  has no network, and the Mac repo has no `web/node_modules`. A stub type-check found nothing; CI's stack build
+  (`tsc -b && vite build` in the image) and the browser smoke test are the check. Before merging, a look at the
+  card at desktop and 390 px is worth it (`npm ci && npm run build` on the Mac, or the CI smoke screenshots).
+  Engine: affected tests pass (attention, journey, suggest, planning docs).
+- **Next: the J2 live run on Kudos board** (product `5ff547d402cb`, http://localhost:8083): start iteration 3 from
+  the card with a suggested feature (the phone header with the signed-in email is a likely one) and a CVE fix if
+  one is open; check the person's look survives. Then J2's rollback and the accepted/closed state.
+- **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
+  `75fd61391452` ($6.38) and iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. Iteration 2
+  predates slice 2, so the card may show no suggested features until the next delivery: free text still works.
 - **J1:** met on Kudos board after iteration 2; closing it is Saravana's call (roadmap J1 item 6).
-- **Next: J2 slice 3, the API.** `FeedbackInput.kind` optional (`ledger.pick_kind` when items are given), and
-  a `GET /api/products/{id}/next-iteration` view from `ledger.next_iteration` (features, quality, security).
-  Then slice 4, the "Next iteration" card in "Needs you" (tick, free text, Start the next iteration), replacing
-  the feedback box for factory products; then the J2 live run on Kudos board (its next delivery will now list
-  suggested features; the phone header is a likely one). Slices 3–4 change the OpenAPI schema and the web app:
-  they need `uv run agent-factory openapi`, `npm run gen:api` and `npm run build`, which the cloud sessions
-  couldn't run on 2026-10-28/29 (PyPI and npm blocked): allow those domains, or run them on the Mac.
-- **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iteration 1 `66697b75071c` delivered
-  2026-10-26 (6/6 hidden scenarios, published, ~$7.00); iteration 2 `234341c4a9c5` (audit log, member erasure)
-  delivered 2026-10-27, pushed to the product's `main` ($5.70). Its look went from warm to neutral: fixed in `9013b79`.
+- **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iterations 1 and 2 delivered (2026-10-26/27).
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as
   resource owner, All repositories, and Administration, Contents and Workflows read/write. If the org
   requires approval for tokens, approve it under Settings → Personal access tokens.
@@ -181,6 +171,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   editable install.
 - **Cloud without npm either (2026-10-27):** some sessions also refuse registry.npmjs.org, so `npm ci` and
   `scripts/check web` can't run there; an engine-only change can still be checked, and CI builds the web.
+  On 2026-10-30 every npm mirror (yarnpkg, npmmirror, jsdelivr, unpkg) was refused too, the Mac's agent shell got
+  a 403 for npm, and the Mac repo had no `web/node_modules`. For a quick syntax and unused-name check of `.tsx`
+  files, the global `tsc` with shorthand module stubs (`declare module "react";` …) works; ignore the stub errors.
 - **Cloud Playwright:** the template pins Playwright 1.64.1 (chromium revision 1248), and its browser download
   is blocked in the cloud. Make a folder of symlinks `chromium-1248 → /opt/pw-browsers/chromium-1243` and
   `chromium_headless_shell-1248 → /opt/pw-browsers/chromium_headless_shell-1243`, then

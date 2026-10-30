@@ -16,6 +16,7 @@ import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
 import WorkLedger from "../components/WorkLedger";
 import NeedsYou, { useAttention } from "../components/NeedsYou";
+import NextIteration from "../components/NextIteration";
 import { Panel } from "../components/ui/panel";
 import SpendCard from "../components/SpendCard";
 import { Button } from "../components/ui/button";
@@ -112,6 +113,9 @@ export default function ProductPage() {
           selectedChange={changeId}
           onSelectChange={setSelected}
         />
+      )}
+      {!product.archived_at && product.target !== "repo" && (
+        <NextIteration productId={product.id} onStarted={() => setSelected(null)} />
       )}
       {product.archived_at && (
         <p className="note m-0">
