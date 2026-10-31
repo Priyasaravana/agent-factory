@@ -115,7 +115,11 @@ export default function ProductPage() {
         />
       )}
       {!product.archived_at && product.target !== "repo" && (
-        <NextIteration productId={product.id} onStarted={() => setSelected(null)} />
+        <NextIteration
+          productId={product.id}
+          latestStatus={product.latest_status}
+          onStarted={() => setSelected(null)}
+        />
       )}
       {product.archived_at && (
         <p className="note m-0">

@@ -60,14 +60,18 @@ function likelyKind(items: Item[]): ChangeKind {
  */
 export default function NextIteration({
   productId,
+  latestStatus,
   onStarted,
 }: {
   productId: string;
+  /** the product's latest change status, from the page's own polling: when it changes (a change is
+   * delivered or stops), the card asks again at once instead of waiting for its next poll */
+  latestStatus?: string | null;
   onStarted?: (changeId: string) => void;
 }) {
   const qc = useQueryClient();
   const q = useQuery({
-    queryKey: ["next-iteration", productId],
+    queryKey: ["next-iteration", productId, latestStatus ?? ""],
     queryFn: () =>
       unwrap(
         api.GET("/api/products/{product_id}/next-iteration", {

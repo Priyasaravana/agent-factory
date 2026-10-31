@@ -81,7 +81,7 @@ def main() -> int:
 
             step("next iteration card (free text, the engine picks the kind) → iteration 2")
             card = page.get_by_test_id("next-iteration")
-            expect(card).to_be_visible()
+            expect(card).to_be_visible(timeout=20_000)  # shown once the product page sees the delivery
             start = card.get_by_test_id("start-next-iteration")
             expect(start).to_be_disabled()  # nothing ticked, nothing described
             card.get_by_role("textbox").fill("Add a reset endpoint")
