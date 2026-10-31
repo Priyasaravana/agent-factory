@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, GitPullRequest, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { ClipboardList, GitPullRequest, ListPlus, RotateCcw, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, unwrap } from "../api/client";
@@ -34,12 +34,18 @@ export default function WorkLedger({
   canChange,
   onChanged,
   attention = false,
+  nextIteration,
+  onAddToNext,
 }: {
   productId: string;
   canChange: boolean;
   onChanged?: () => void;
   /** a held change waits on a decision here (accept a risk): open and highlight the panel */
   attention?: boolean;
+  /** a factory product: items go to the "Next iteration" card (the one place an iteration starts)
+   * instead of starting a change from here; `nextIteration` holds what is already added there */
+  nextIteration?: Set<string>;
+  onAddToNext?: (ids: string[]) => void;
 }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -211,9 +217,27 @@ export default function WorkLedger({
             <strong>{chosen.length} selected</strong>
             {tab === "open" && (
               <>
-                <Button size="sm" disabled={!canChange} onClick={startChange}>
-                  <GitPullRequest /> Make a change
-                </Button>
+                {onAddToNext ? (
+                  <Button
+                    size="sm"
+                    data-testid="add-to-next"
+                    onClick={() => {
+                      onAddToNext(chosen.map((i) => i.id));
+                      toast.success(`Added to the next iteration`, {
+                        description: `${chosen.length} item(s) are ticked on the Next iteration card.`,
+                      });
+                      setPicked(new Set());
+                      setMode("");
+                      document.getElementById("next-iteration")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                  >
+                    <ListPlus /> Add to next iteration
+                  </Button>
+                ) : (
+                  <Button size="sm" disabled={!canChange} onClick={startChange}>
+                    <GitPullRequest /> Make a change
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => setMode("wont_do")}>
                   <X /> Won't do
                 </Button>
@@ -233,7 +257,7 @@ export default function WorkLedger({
               clear
             </button>
           </div>
-          {!canChange && tab === "open" && (
+          {!canChange && tab === "open" && !onAddToNext && (
             <span className="text-xs text-muted-foreground">A change can start once the current iteration stops.</span>
           )}
           {mode === "change" && (
@@ -302,6 +326,9 @@ export default function WorkLedger({
                 )}
                 <span className={`pill ${SEV[i.severity ?? "medium"] ?? "muted"}`}>{i.severity}</span>
                 <span className="pill muted">{KIND[i.kind]}</span>
+                {nextIteration?.has(i.id) && i.status === "open" && (
+                  <span className="pill info">in next iteration</span>
+                )}
                 <span
                   role="button"
                   tabIndex={0}

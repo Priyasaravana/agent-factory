@@ -1,29 +1,28 @@
-# Agent Factory: handoff (updated 2026-10-30)
+# Agent Factory: handoff (updated 2026-10-31)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-30, end of session)
-- **Main** (`f21ebdb` on GitHub): J2 slice 3 merged (the engine picks the change kind; `GET /next-iteration`), on
-  top of J2 slices 1–2 (`3a92577`, `94ec787`, `b6538a6`), the environment check (`6438826`, `d3fec2b`), decisions
-  surviving iterations (`9013b79`), scanner digests (`823d72b`) and the journey acceptance test (`fd81b9c`).
-- **In review:** `feat/j2-next-iteration-card` (one commit on `f21ebdb`): J2 slice 4. New
-  `web/src/components/NextIteration.tsx` under "Needs you" on `ProductPage` (factory products only): Features /
-  Quality / Security fixes from `GET /next-iteration`, tick (with "tick all"), optional free text, **Start the next
-  iteration** → `POST /feedback` without a kind; hidden unless `can_start` and the latest change isn't held. The
-  change panel's feedback box now shows for team repos only; `attention.py` points a delivered factory product at
-  panel `next-iteration` (`tests/test_attention.py`); `web/e2e/smoke.py` starts iteration 2 from the card. No API
-  change (OpenAPI unchanged). **Not built, no screenshots:** npm was blocked in the cloud, the Mac's agent shell
-  has no network, and the Mac repo has no `web/node_modules`. A stub type-check found nothing; CI's stack build
-  (`tsc -b && vite build` in the image) and the browser smoke test are the check. Before merging, a look at the
-  card at desktop and 390 px is worth it (`npm ci && npm run build` on the Mac, or the CI smoke screenshots).
-  Engine: affected tests pass (attention, journey, suggest, planning docs).
-- **Next: the J2 live run on Kudos board** (product `5ff547d402cb`, http://localhost:8083): start iteration 3 from
-  the card with a suggested feature (the phone header with the signed-in email is a likely one) and a CVE fix if
-  one is open; check the person's look survives. Then J2's rollback and the accepted/closed state.
+## Current state (2026-10-31, end of session)
+- **Main** (`4c19e26` on GitHub): J2 slice 4 merged (the "Next iteration" card), on top of slices 1–3, the
+  environment check, decisions surviving iterations, scanner digests and the journey acceptance test. The Mac's
+  local main was at `f21ebdb` at the start of the session; Saravana pulled and rebuilt (`make up-live`).
+- **In review:** `feat/j2-next-iteration-one-flow` (one commit on `4c19e26`): J2 slice 5, one flow for the next
+  iteration (roadmap J2). Saravana found the page confusing after starting iteration 3, and asked Claude to decide
+  the layout; his review of the feel is next. Engine: `NextIterationView` + `latest_iteration`, `latest_kind`,
+  `latest_request` (`tests/test_suggest.py`). Web: `NextIteration.tsx` (all groups shown with an empty reason,
+  "show N more", a summary before start, a running state with **Follow it**; the picked set now lives in
+  `ProductPage`), `WorkLedger.tsx` (**Add to next iteration** on factory products instead of "Make a change"),
+  `ProductPage.tsx` (`#change` wrapper to scroll to). Built, type-checked and screenshotted (desktop, 390 px)
+  against a dry-run engine in the cloud: npm and PyPI both worked here on 2026-10-31.
+- **Next:** Saravana's review of the page; then iteration 4 on Kudos board from the card with a suggested
+  feature (five are open after iteration 3); a CVE fix if one is open (none at iteration 3). Then J2's rollback
+  and the accepted/closed state.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
-  `75fd61391452` ($6.38) and iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02), both delivered. Iteration 2
-  predates slice 2, so the card may show no suggested features until the next delivery: free text still works.
+  `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
+  `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's
+  delivery made the first five suggested features. Its designer found no `screenshots/live/` and suggested from
+  `docs/ui.md` (worth a look: where the live route screenshots are kept).
 - **J1:** met on Kudos board after iteration 2; closing it is Saravana's call (roadmap J1 item 6).
 - **Live:** Book lending (product `8aef2c7d1b8c`, nextjs-web 1.3.0): iterations 1 and 2 delivered (2026-10-26/27).
 - **Publish:** a dedicated GitHub org set as `policies.publish.owner`. A fine-grained token with the org as

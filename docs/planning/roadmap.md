@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-10-30 (J2 slice 3 merged; slice 4, the "Next iteration" card, in review).
+Updated 2026-10-31 (J2 slice 4 merged; Kudos board iteration 3 delivered live; slice 5, one flow for the next iteration, in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -169,7 +169,7 @@ per-pack evaluation is in the backlog.
     (`ledger.pick_kind`; the feedback event records `kind_by` engine or person); `GET
     /api/products/{id}/next-iteration` (`NextIterationView`: features, quality, security, `can_start`, the
     latest change and its status). OpenAPI regenerated; `schema.d.ts` mirrored by hand (npm blocked), CI's web
-    job confirms it. **Slice 4, in review** (branch `feat/j2-next-iteration-card`, 2026-10-30): the "Next iteration"
+    job confirms it. **Slice 4, merged** (`4c19e26`, 2026-10-31): the "Next iteration"
     card (`web/src/components/NextIteration.tsx`) right under "Needs you" on a factory product's page, from
     `GET /next-iteration`: Features (value and size), Quality and Security fixes to tick, optional free text,
     **Start the next iteration** → `POST /feedback` without a kind (the card previews the kind the engine will pick).
@@ -178,7 +178,26 @@ per-pack evaluation is in the backlog.
     (`attention.py`, panel `next-iteration`); the work ledger no longer says "assessment" in its change text. The
     CI smoke test starts iteration 2 from the card. Not built or screenshotted in the session (npm blocked in the
     cloud and on the Mac's agent shell): CI's stack build and smoke test are the check.
-    **Next:** the J2 live run on Kudos board from the card.
+    **Iteration 3 live, 2026-10-31** (Kudos board, change `2d17c4f736c8`, feature, delivered 17:08, ~$4.9): "on
+    phones, show the signed-in email in the header; keep the header to one row" (R12). Live e2e failed once and the
+    loop fixed it; 6/6 hidden scenarios, Level 3, published. **The first suggested features landed** (architect 3,
+    designer 2: e.g. "Show Accounts only to admins", "Totals for this month"). Found: (1) Saravana found the page
+    confusing (2026-10-31): two places started an iteration (the card and the Work items panel, which has its own
+    kind dropdown, so this iteration was started there with the kind chosen by a person), empty groups vanished
+    without a reason, nothing said what would start, and the card disappeared while a change ran; (2) the designer
+    found no live screenshots (`screenshots/live/` missing) and suggested from `docs/ui.md` instead (backlog);
+    (3) the host slept 5 min during implement (retried fine).
+    **Slice 5, in review** (branch `feat/j2-next-iteration-one-flow`, 2026-10-31; layout decided by Claude at
+    Saravana's request, his review of the feel to follow): one place starts an iteration. On factory products the
+    Work items panel has **Add to next iteration** (ticks the item on the card) instead of its own start button
+    and kind dropdown; team repos keep "Make a change". The card shows all three groups, an empty one says why
+    ("None yet: suggested at each delivery", "No open vulnerabilities with a released fix"); long groups show 3 and
+    "show N more"; a summary above the button says "Iteration N will be a feature (…): 1 feature, 1 security fix";
+    while a change runs the card says "Iteration N is running" with its kind, what was asked and **Follow it**.
+    `NextIterationView` gains `latest_iteration`, `latest_kind`, `latest_request`. Built and screenshotted at
+    desktop and 390 px against a dry-run engine.
+    **Next:** Saravana reviews the page; then iteration 4 on Kudos board from the card with a suggested feature
+    (and a CVE fix if one is open: none was at iteration 3, so that half is his call), then rollback.
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that

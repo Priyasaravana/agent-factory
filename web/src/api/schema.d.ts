@@ -3139,6 +3139,11 @@ export interface components {
             /** Latest Change Id */
             latest_change_id?: string | null;
             latest_status?: components["schemas"]["ChangeStatus"] | null;
+            /** Latest Iteration */
+            latest_iteration?: number | null;
+            latest_kind?: components["schemas"]["ChangeKind"] | null;
+            /** Latest Request */
+            latest_request?: string | null;
         };
         /**
          * OnboardRepoInput
