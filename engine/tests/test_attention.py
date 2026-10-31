@@ -8,7 +8,7 @@ from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.attention import pending_actions
-from agent_factory.models import Change, ChangeStatus, Product, RequiredAction, RiskHold
+from agent_factory.models import Change, ChangeStatus, Product, ProductTarget, RequiredAction, RiskHold
 
 NOW = datetime(2026, 10, 26, 10, 0, tzinfo=UTC)
 S = ChangeStatus
@@ -84,7 +84,12 @@ def test_holds_name_what_unblocks_them() -> None:
 
 def test_delivered_is_optional_and_running_needs_nothing() -> None:
     a = _one(S.awaiting_feedback)
-    assert (a.kind, a.panel, a.blocking) == ("feedback", "feedback", False)
+    # a factory product picks its next iteration on the "Next iteration" card (roadmap J2)
+    assert (a.kind, a.panel, a.blocking) == ("feedback", "next-iteration", False)
+    assert "next iteration" in a.title
+    team = _product()
+    team.target = ProductTarget.repo
+    assert _one(S.awaiting_feedback, product=team).panel == "feedback"
     assessed = _one(S.awaiting_feedback, kind="assess")
     assert assessed.panel == "work-ledger"
     for s in (S.queued, S.running, S.cancelled, S.failed):

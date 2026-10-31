@@ -313,24 +313,17 @@ export default function ChangePanel({
             />
           </Panel>
         )}
-        {r.status === "awaiting_feedback" && !archived && (
+        {/* a factory product picks its next iteration on the "Next iteration" card at the top of the page */}
+        {r.status === "awaiting_feedback" && !archived && target === "repo" && (
           <Panel
             id="feedback"
             defaultOpen
             tone="ok"
             icon={<Sparkles className="text-ok" />}
-            title={
-              target === "repo"
-                ? "Ask for a change: the factory opens a pull request, and you merge it"
-                : "Try the app, then tell the factory what to change"
-            }
+            title="Ask for a change: the factory opens a pull request, and you merge it"
             summary="Feature, bug fix or upkeep: the next iteration starts when you send it"
           >
-            <FeedbackForm
-              productId={productId}
-              onDone={refresh}
-              repo={target === "repo"}
-            />
+            <FeedbackForm productId={productId} onDone={refresh} repo />
           </Panel>
         )}
         {r.status === "awaiting_feedback" && !archived && target === "repo" && (

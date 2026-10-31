@@ -89,7 +89,7 @@ export default function WorkLedger({
         api.POST("/api/products/{product_id}/feedback", {
           params: { path: { product_id: productId } },
           body: {
-            text: note.trim() || `Address ${chosen.length} work item(s) from the assessment`,
+            text: note.trim() || `Address ${chosen.length} work item(s)`,
             kind: changeKind,
             items: chosen.map((i) => i.id),
           },

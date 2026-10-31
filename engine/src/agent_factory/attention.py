@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent_factory.models import Change, ChangeStatus, PendingAction, Product
+from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget
 
 SYSTEM = "system"
 ADMIN = "an admin"
@@ -142,12 +142,24 @@ def pending_actions(product: Product | None, change: Change, since: datetime) ->
                     blocking=False,
                 )
             ]
+        if product is not None and product.target == ProductTarget.repo:
+            return [
+                act(
+                    "feedback",
+                    "Try the app, then ask for the next change",
+                    "Delivered. Nothing waits on you; ask for a feature, a bug fix or upkeep when you're ready.",
+                    "feedback",
+                    blocking=False,
+                )
+            ]
+        # a factory product picks its next iteration on the "Next iteration" card (roadmap J2)
         return [
             act(
                 "feedback",
-                "Try the app, then ask for the next change",
-                "Delivered. Nothing waits on you; ask for a feature, a bug fix or upkeep when you're ready.",
-                "feedback",
+                "Try the app, then pick what the next iteration does",
+                "Delivered. Nothing waits on you; tick suggested features, quality work or security fixes, "
+                "or describe a change, when you're ready.",
+                "next-iteration",
                 blocking=False,
             )
         ]

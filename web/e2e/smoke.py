@@ -79,12 +79,14 @@ def main() -> int:
                 ev.get_by_role("button", name=re.compile("Download bundle")).click()
             assert dl.value.suggested_filename.startswith("evidence-"), dl.value.suggested_filename
 
-            step("change request (feature) → iteration 2")
-            kinds = page.get_by_role("radiogroup", name="Kind of change")
-            expect(kinds.get_by_role("radio", name="Bug fix")).to_be_visible()
-            expect(kinds.get_by_role("radio", name="Feature")).to_have_attribute("aria-checked", "true")
-            page.get_by_placeholder(re.compile("pagination")).fill("Add a reset endpoint")
-            page.get_by_role("button", name=re.compile("Request feature")).click()
+            step("next iteration card (free text, the engine picks the kind) → iteration 2")
+            card = page.get_by_test_id("next-iteration")
+            expect(card).to_be_visible(timeout=20_000)  # shown once the product page sees the delivery
+            start = card.get_by_test_id("start-next-iteration")
+            expect(start).to_be_disabled()  # nothing ticked, nothing described
+            card.get_by_role("textbox").fill("Add a reset endpoint")
+            expect(card.get_by_test_id("next-kind")).to_contain_text("feature")
+            start.click()
             expect(page.get_by_role("tab", name="iteration 2")).to_be_visible(timeout=20_000)
             expect(page.get_by_text(DELIVERED).first).to_be_visible(timeout=120_000)
 
