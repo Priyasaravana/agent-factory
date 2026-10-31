@@ -216,6 +216,8 @@ async def test_the_next_iteration_is_listed_and_the_engine_picks_its_kind(make_f
         assert (event.data["kind"], event.data["kind_by"]) == ("upkeep", "engine")
         busy = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
         assert busy["can_start"] is False and busy["security"] == [], "claimed items leave the card"
+        # while it runs, the card says what is running instead of disappearing
+        assert (busy["latest_iteration"], busy["latest_kind"], busy["latest_request"]) == (2, "upkeep", "Patch it")
         assert await wait_run(f, upkeep["id"]) == ChangeStatus.awaiting_feedback
 
         # a feature with a fix: a feature carrying the fix; no items at all: a feature (free text)

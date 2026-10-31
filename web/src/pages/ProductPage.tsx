@@ -38,6 +38,8 @@ export default function ProductPage() {
     refetchInterval: 4_000,
   });
   const [selected, setSelected] = useState<string | null>(null);
+  // what the next iteration addresses: ticked on the card or added from Work items (one flow)
+  const [nextPicks, setNextPicks] = useState<Set<string>>(new Set());
   const attention = useAttention(productId, true);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const qc = useQueryClient();
@@ -118,7 +120,13 @@ export default function ProductPage() {
         <NextIteration
           productId={product.id}
           latestStatus={product.latest_status}
+          picked={nextPicks}
+          onPickedChange={setNextPicks}
           onStarted={() => setSelected(null)}
+          onFollow={(id) => {
+            setSelected(id);
+            document.getElementById("change")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
         />
       )}
       {product.archived_at && (
@@ -270,6 +278,13 @@ export default function ProductPage() {
         onChanged={() =>
           qc.invalidateQueries({ queryKey: ["product", productId] })
         }
+        {...(product.target !== "repo" && !product.archived_at
+          ? {
+              nextIteration: nextPicks,
+              onAddToNext: (ids: string[]) =>
+                setNextPicks(new Set([...nextPicks, ...ids])),
+            }
+          : {})}
       />
 
       {changes.length > 1 && (
@@ -295,13 +310,15 @@ export default function ProductPage() {
         </div>
       )}
       {changeId && (
-        <ChangePanel
-          key={changeId}
-          changeId={changeId}
-          productId={product.id}
-          archived={!!product.archived_at}
-          target={product.target}
-        />
+        <div id="change" className="grid min-w-0 scroll-mt-4">
+          <ChangePanel
+            key={changeId}
+            changeId={changeId}
+            productId={product.id}
+            archived={!!product.archived_at}
+            target={product.target}
+          />
+        </div>
       )}
     </div>
   );

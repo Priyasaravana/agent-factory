@@ -1345,6 +1345,10 @@ class NextIterationView(BaseModel):
     can_start: bool  # the latest change is delivered or stopped: the next iteration can start now
     latest_change_id: str | None = None
     latest_status: ChangeStatus | None = None
+    # the latest change, so the card says what is running instead of disappearing while it runs
+    latest_iteration: int | None = None
+    latest_kind: ChangeKind | None = None
+    latest_request: str | None = None  # the first line of what was asked for it
 
 
 class ChangeEntryView(BaseModel):

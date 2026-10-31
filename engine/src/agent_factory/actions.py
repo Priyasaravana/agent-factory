@@ -496,11 +496,21 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
         raise FactoryError("product not found")
     latest = f.store.get_change(product.latest_change_id) if product.latest_change_id else None
     groups = ledger.next_iteration(f.store.list_work_items(product_id))
+    if latest is None:
+        return NextIterationView(
+            features=groups["features"], quality=groups["quality"], security=groups["security"], can_start=True
+        )
+    asked = (latest.change_request or "").strip().split("\n", 1)[0][:300]
     return NextIterationView(
-        **groups,
-        can_start=latest is None or latest.status in FEEDBACK_OPEN,
-        latest_change_id=latest.id if latest else None,
-        latest_status=latest.status if latest else None,
+        features=groups["features"],
+        quality=groups["quality"],
+        security=groups["security"],
+        can_start=latest.status in FEEDBACK_OPEN,
+        latest_change_id=latest.id,
+        latest_status=latest.status,
+        latest_iteration=latest.iteration,
+        latest_kind=latest.kind,
+        latest_request=asked or None,
     )
 
 
