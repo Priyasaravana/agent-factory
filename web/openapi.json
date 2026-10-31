@@ -7788,6 +7788,38 @@
                 "type": "null"
               }
             ]
+          },
+          "latest_iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Iteration"
+          },
+          "latest_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Request"
           }
         },
         "type": "object",
