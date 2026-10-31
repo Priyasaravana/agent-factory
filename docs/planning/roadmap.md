@@ -1,6 +1,7 @@
 # Agent Factory: build plan
 
-Updated 2026-10-31 (J2 slice 4 merged; Kudos board iteration 3 delivered live; slice 5, one flow for the next iteration, in review).
+Updated 2026-10-31 (J2 slice 4 merged; Kudos board iteration 3 delivered live; slice 5, one flow for the next
+iteration, in review; readiness outcomes folded into J1, J2 and J4, phases after J5 named, backlog added).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -26,6 +27,10 @@ team repo PR → run and maintain → end of life.
   never silently breaks. J1 steps merged 2026-10-27 (`engine/tests/test_journey.py`, `fd81b9c`); each
   milestone adds its steps there when it lands.
 - A new idea that isn't on the journey goes to the backlog.
+- **Ready for, proven, owned** (decided 2026-10-31; [master-plan.md](master-plan.md) principle 7): every
+  delivered product states what it is ready for, proves it, and has an owner for what happens after delivery.
+  The delivery outcomes behind it (repeatable quality, then safe operation) are in the "Done when" of J1, J2
+  and J4; team delivery and the improvement loop are the two phases after J5. The J-order and the freeze stay.
 
 Journey at the critique (main `9604e60`): 7 of 23 steps live, 9 built but unproven, 7 missing.
 **Now (main `a827cd4`, 2026-10-25): 9 live** (+ e2e before deploy, + publish to GitHub), **4 built but
@@ -137,6 +142,9 @@ per-pack evaluation is in the backlog.
    1.4.1 and a new-product run, is Saravana's call. J2 starts in the next session.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
+  **And repeatable (decided 2026-10-31):** a second product of a different shape, built from scratch on
+  template 1.4.1, meets the same bar **on its first delivery, without an iteration**, with tap targets measured
+  by the pack's e2e so a miss fails the build. Kudos board alone needed iteration 2, so J1 stays open until then.
 
 **J2. Iterate safely (~4.5 days)**
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
@@ -204,8 +212,14 @@ per-pack evaluation is in the backlog.
   a person's earlier answers survive iteration 2 unchanged.
 - **Rollback to the last good release** when iteration 2+ fails after deploy (last-good record, `--atomic`).
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
+- **"Ready for" statement** (decided 2026-10-31): each delivery states its tier, **demo**, **pilot** or
+  **production**, worked out by the engine (pure, tested) from the sealed evidence, plus what the next tier
+  still needs. First cut: demo = Level 3 and requirements verified live; pilot adds a named owner and a proven
+  rollback; production adds J4's availability target, alert and tested restore. Shown on the product page and
+  in the evidence; a product with no owner can't be above demo.
 - **Done when:** iteration 2 is started from the "Next iteration" card with a suggested feature and a CVE fix,
-  and a deliberately broken iteration rolls back while the previous version keeps serving.
+  and a deliberately broken iteration rolls back while the previous version keeps serving. **And** every
+  delivered change states what it's ready for and what the next tier needs (decided 2026-10-31).
 
 **J3. Team repo (~3 days)**
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
@@ -217,13 +231,26 @@ per-pack evaluation is in the backlog.
 - **Done when:** an assessment item becomes a PR, CI fails once and is fixed on the same PR, and the merge
   closes the change.
 
-**J4. Run and maintain (~4 days)**
+**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)**
+- **First, a named product owner** (decided 2026-10-31; master plan §3J, still "later" in `models.py`): each
+  product has an owner, its creator by default, reassignable by an admin; incidents, upkeep changes and the
+  retire flow name the owner, and "Needs you" routes product items to them.
+- **Availability target and alert per product** (decided 2026-10-31): the pack sets a default target (e.g.
+  health success rate over a window), the product may tighten it; a breach is the alert that opens the
+  incident below.
+- **Product data backup and tested restore** (decided 2026-10-31): the pack declares the product's data and
+  how to back it up; a scheduled backup, and a restore into a scratch release that the e2e reads back. A
+  backup that has never been restored doesn't count.
+- **A run survives a factory restart** (decided 2026-10-31): restarting the factory mid-change resumes the
+  change at its station (durable state, idempotent stations), instead of losing or failing it.
 - **A minimal Operate phase:** watch health and error rate from the app's `/metrics` and health endpoints;
   a breach opens an **incident** item in the product ledger; "Make this change" turns it into a fix change.
 - **Scheduled upkeep:** dependency bumps and image rescans per live product; a new CVE or outdated
   dependency opens an upkeep change (confirmed 2026-10-26: rescans of live products stay here; until then
   CVEs are found at build and fixed by hand from the Next iteration card).
 - **Done when:** an injected fault becomes an incident, a fix change and a redeploy without anyone opening a terminal.
+  **And** (decided 2026-10-31): the product has a named owner and a declared availability target whose breach
+  alerts; its data is backed up and a restore is proven; a factory restart mid-change resumes the change.
 
 **J5. End of life (~2 days)**
 - A **retire** flow: freeze changes, final sealed evidence, data export, undeploy, archive the product repo,
@@ -231,16 +258,35 @@ per-pack evaluation is in the backlog.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be
   shown from the evidence.
 
-## ⏸ Deferred until after J5
+## ⏸ After J5
+Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
+
+**T. Team delivery:** ownership, review responsibilities, concurrent work.
+- Composable-SDLC step 2 (human modes, owners, separation of duty) and step 3 (start anywhere).
+- Team permissions per product: members, reviewers and approvers by role; approval responsibilities recorded
+  in the evidence; traceable handoffs between people and stations.
+- Concurrent changes on one product and several products at once (needs J4's durable runs), with a merge rule
+  when two changes touch the same files.
+- Discuss mode at other person-owned stations (spec review, risk approval, assessment triage).
+- **Done when (draft):** two people deliver two concurrent changes on one product, each reviewed and approved by
+  someone other than its requester, with the handoffs in the evidence.
+
+**I. Improvement loop:** real outcomes decide which workflow changes are adopted.
+- A workflow, skill or model change runs on the representative product set (backlog) against the current
+  version, and is adopted only if outcomes hold or improve (principle 3 applied to the factory's own workflows).
+- Production outcomes feed back: incidents, rollbacks, escaped defects and user feedback per product, as trends
+  on Outcomes.
 - **Skill usage and upkeep** (planned 2026-10-21, ~3.5 days): usage roll-up per skill × role; drop/archive
   suggestions into the workflow draft (archived = hidden, kept for pinned versions, restorable); try-without
   evaluations for preloaded skills; skill gap report from the retro. The roll-up page alone (~1 day) can come
   earlier if it's wanted.
+- **Done when (draft):** a workflow change is rejected by the evaluation on outcomes, and another is adopted
+  with its before/after recorded.
+
+**Other deferred work:**
 - **The rest of ADR-0044:** rate limits, caching, flags, UI shell module; chart modules (HPA, PDB); UI review
   blocking delivery once the rubric is calibrated; FastAPI modules (products built before nextjs-web 1.3.0
   keep Level 3 until an upkeep change adopts modules).
-- **Discuss mode at other person-owned stations** (spec review, risk approval, assessment triage), and
-  composable-SDLC step 2 (human modes, owners, separation of duty) and step 3 (start anywhere).
 - **Packs:** `react-spa` (built modular, with generated-app resilience: timeouts, retries on idempotent calls,
   graceful shutdown, reliability signals); per-pack evaluation gating; full-stack Next.js + FastAPI; static
   site, agent service, worker / data pipeline.
@@ -300,6 +346,24 @@ per-pack evaluation is in the backlog.
 - `feat/j2-next-iteration-card` (2026-10-30): J2 slice 4, the "Next iteration" card; the feedback box stays for team repos only.
 
 ## 🗂 Backlog
+- **Readiness outcomes** (added 2026-10-31, from the capability review: discovery, design, engineering,
+  delivery, operations, team collaboration, continuous improvement). Items the J-milestones don't already carry:
+  - **Representative product set:** 3–5 product shapes (CRUD with sign-in, public read-only site, admin
+    workflow with roles, data-heavy list and search, an agent service once its pack exists) as evaluation
+    cases with hidden scenarios and visual checks; repeated runs per case. Feeds J1's second product and phase I.
+  - **Visual standards enforced, not reported:** UI review blocking once calibrated against the product set
+    (the rubric already scores; today it only reports); tap targets and sideways scroll at 390 px measured in
+    the pack's e2e (template 1.4.1).
+  - **Database migrations as a signal:** a schema change ships a forward migration, tested against the last
+    release's data, and a rollback path; a release with an unmigrated schema change fails Level 3.
+  - **Performance budget:** the pack declares a latency target for key routes; a short load smoke test in
+    acceptance records p95 in the evidence (measured, not asserted by an agent).
+  - **Staged releases:** canary or blue/green on the cluster target, promoted on health, before production
+    tier is claimed (with gated promotion, ADR-0039 Q2).
+  - **Interruption recovery beyond host sleep:** a killed agent call, a lost sandbox and a cluster restart each
+    resume or hold with a cause, tested (the environment check covers host sleep and disk today).
+  - **Defect trends on Outcomes:** escaped defects (a fix change that follows a delivery), rollbacks and
+    incidents per product and per pack version, so quality is a trend and not one run.
 - **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29): the *neutral-compact*
   look scales spacing by 0.75 and the root font to 14 px, so the template's `min-h-11` renders ~29 px. Recipe
   proven by Kudos board iteration 2: a `phone` custom variant in px (`@media (width < 640px)`) with

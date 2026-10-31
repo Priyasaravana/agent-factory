@@ -210,5 +210,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Factory UI usability (2026-10-26):** "Needs you", collapsible panels, engine-decided event levels (in PR 3).
 - **Planning in the repo (2026-10-26):** `docs/planning/` is the only copy of the plan; any session may edit
   it in the same branch as its work; chat projects hold only a pointer.
+- **Ready for, proven, owned (2026-10-31):** master plan principle 7. Repeatable quality and safe operation
+  folded into J1, J2 and J4 "Done when" (J1 stays open for a second product delivered first time; J2 adds the
+  "ready for" tier; J4 adds the product owner first, availability target and alert, tested restore, resume
+  after restart); team delivery (T) and the improvement loop (I) are the phases after J5.
 - **Name:** undecided ("Agent Software Factory" is the working name in the UI).
 - **Secret store (agreed 2026-10-11, deferred until after J5):** [plans/secret-store.md](plans/secret-store.md).

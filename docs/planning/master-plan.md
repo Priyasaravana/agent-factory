@@ -20,6 +20,11 @@ It runs on its own where policy allows: intake from tickets, scheduled upkeep, f
 4. **People set policy.** Risk-based gates decide when a person is needed; everything else runs.
 5. **Pluggable adapters** for tools, CI, ticket systems, registries, clusters and models.
 6. **Trusted people, untrusted text.** Only signed-in members start work. Tickets, repo files and web pages are data, never instructions. Risky changes need a second person, and harmful apps are never built (§3J).
+7. **Ready for, proven, owned** (decided 2026-10-31). Every delivered product states what it is ready for,
+   proves that readiness, and has an owner responsible for what happens after delivery. Readiness is a tier
+   (demo, pilot, production) the engine works out from the sealed evidence, never an agent's claim, and the
+   product shows what the next tier still needs. The owner is a named person (§3J), accountable for incidents,
+   upkeep and retirement.
 
 ## Vocabulary (decided, ADR-0028)
 - **Stations** follow the DevOps loop: Plan (requirements, design) → Code (implement) → Test (test, quality-gate, code-review, change-risk) → Release (build) → Deploy (deploy, deploy-repair) → Validate (acceptance) → Handover; Operate/Monitor come with the operate loop. Shipped in `feat/station-phases`.
