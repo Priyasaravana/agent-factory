@@ -32,6 +32,11 @@ RESTORABLE = frozenset({"deployed", "superseded"})
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
+def can_restore(provider: object) -> bool:
+    """The deploy target can record and restore releases (it has `identity` and `rollback`). Pure."""
+    return callable(getattr(provider, "identity", None)) and callable(getattr(provider, "rollback", None))
+
+
 def target(handler: str, change: Change, product: Product, environment: str) -> Release | None:
     """The release to restore after `handler` failed, or None: nothing to do. Pure.
 

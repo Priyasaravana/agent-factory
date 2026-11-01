@@ -125,6 +125,9 @@ async def test_an_environment_can_route_steps_to_another_provider(make_factory, 
     assert "https://bookmarks-service.dev.internal" in verifier.prompt, "acceptance tests the deployed URL"
     product = f.store.get_product(change.product_id)
     assert product.app_url == "https://bookmarks-service.dev.example.com"
+    # a target without `identity` / `rollback` records no release and says so (ADR-0046)
+    assert product.release is None
+    assert any("can't restore releases" in e.message for e in f.store.list_events(change.id))
 
 
 async def test_delivery_is_visible_over_the_api(make_factory):

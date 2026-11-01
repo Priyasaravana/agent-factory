@@ -80,6 +80,9 @@ choice per product, not imposed on every small app.
 - A temporary environment doubles a product's footprint while a change runs; its data starts empty, so a
   change that needs a data migration is checked against empty data only (backlog: migrations as a signal).
 - Products delivered before slice 1 have no recorded release: their first change after it records one.
+- `identity` and `rollback` are optional on a deploy provider (`local` and `helm` have them). A target
+  without them (a future Argo CD provider, say) records no releases and rolls nothing back; each deploy
+  says so in the event log, and a stop after its deploy has nothing to restore.
 - Answers ADR-0039's open promotion question 1 for the local setup: temporary namespaces in kind.
 
 ## Best practices

@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
-    from agent_factory.models import Release
 
 Capability = Literal["registry", "scan", "deploy", "publish"]
 CAPABILITIES: tuple[Capability, ...] = ("registry", "scan", "deploy", "publish")
@@ -106,10 +105,11 @@ class DeployProvider(Provider, Protocol):
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult: ...
     async def diagnostics(self, ctx: StationContext) -> str: ...
     async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
-    # where this product's releases run: environment, target, cluster, namespace, helm_release (ADR-0046)
-    def identity(self, ctx: StationContext) -> dict[str, str]: ...
-    # restore a recorded release exactly, failing closed, and verify it (ADR-0046)
-    async def rollback(self, ctx: StationContext, release: Release) -> StepResult: ...
+
+    # Optional, for a target that can restore releases (ADR-0046; `rollback.can_restore` checks):
+    #   identity(ctx) -> {environment, target, cluster, namespace, helm_release}: where releases run
+    #   async rollback(ctx, release) -> StepResult: restore a recorded release exactly, fail closed, verify
+    # A target without them records no releases and rolls nothing back, and the evidence says so.
 
 
 def secret_data(output: str) -> dict[str, str] | None:

@@ -1561,7 +1561,12 @@ async def deploy(ctx: StationContext) -> StationResult:
     ref = p.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
     # the intent first, saved before the cluster is touched (ADR-0046): whatever happens next (a
     # failure, a hold, a crash), the engine knows this change may have replaced production
-    ident = p.deploy.identity(ctx)
+    restorable = rollback.can_restore(p.deploy)
+    ident = (
+        p.deploy.identity(ctx)  # type: ignore[attr-defined]
+        if restorable
+        else {"environment": p.environment, "target": p.deploy.name, "cluster": "", "namespace": "", "helm_release": ""}
+    )
     ctx.change.deployed = Release(
         change_id=ctx.change.id,
         iteration=ctx.change.iteration,
@@ -1583,7 +1588,13 @@ async def deploy(ctx: StationContext) -> StationResult:
                 "digest": digest if isinstance(digest, str) else None,
             }
         )
-        if problems := rollback.record_problems(ctx.change.deployed):
+        if not restorable:
+            await ctx.emit(
+                EventKind.decision,
+                f"deploy target {p.deploy.name} ({p.deploy.kind}) can't restore releases: this release isn't "
+                "recorded and a later failure can't roll production back (ADR-0046)",
+            )
+        elif problems := rollback.record_problems(ctx.change.deployed):
             # fail closed: a release that can't be identified could never be restored; no repair
             # agent can fix that, so a person looks (the pipeline restores production first)
             seen = res.data.get("unidentified")
@@ -1612,7 +1623,11 @@ async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnos
         f"rolling production back to iteration {release.iteration} ({release.image}, revision {release.revision})",
         {"rollback": {"to": release.model_dump(mode="json"), "station": ctx.station_id}},
     )
-    res = await deploy_p.rollback(ctx, release)
+    if rollback.can_restore(deploy_p):
+        res = await deploy_p.rollback(ctx, release)  # type: ignore[attr-defined]
+    else:
+        why = f"deploy target {deploy_p.name} ({deploy_p.kind}) can't restore releases"
+        res = StepResult(False, f"rollback refused: {why}", data={"refused": [why]})
     entry = {
         "at": datetime.now(UTC).isoformat(),
         "station": ctx.station_id,

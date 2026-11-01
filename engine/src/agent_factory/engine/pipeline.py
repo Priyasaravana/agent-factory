@@ -1378,6 +1378,8 @@ class ChangeManager:
         crash) leaves an accepted release untracked (ADR-0046). Returns why it can't be recorded."""
         if not rollback.serving_unaccepted(change, product) or change.deployed is None:
             return None
+        if not rollback.can_restore(self.providers.for_blueprint(product.blueprint).deploy):
+            return None  # a target that can't restore releases records none (the deploy said so)
         if problems := rollback.record_problems(change.deployed):
             return f"the release can't be recorded as healthy: {'; '.join(problems)}"
         product.release = change.deployed
