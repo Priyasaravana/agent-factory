@@ -15,17 +15,18 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     (`validates_separately = True`; `local` is `False` and refuses to undeploy a slot).
   - Pipeline: `_validation_slot` records the temporary environment before deploy touches the cluster;
     `remove_validation` at every stop (`_execute`, cancel), on archive and in `sweep_validation` at start-up
-    (`app_factory`); a resumed change redeploys before acceptance; the healthy release is recorded at
+    (`app_factory`), refusing unless the target's identity now equals the recorded one
+    (`validation.removal_problems`; review fix P1, 2026-11-01); a resumed change redeploys before acceptance; the healthy release is recorded at
     `promote` (still at acceptance in place); `rollback.target` restores only while the change's own release
     may serve production.
   - Stations: `deploy` splits into `_deploy_for_validation` and `_deploy_production`; new `promote` station
     (contract type in the Deliver column, uses `deploy:*` + `promote`), added after acceptance in the New
     product and Product change lanes. Existing DB lanes keep validating in place until "Back to factory
     default" (or an edit) adds `promote`.
-  - Tests: `tests/test_validation_env.py` (15); `test_cluster_target`, `test_rollback`, `test_journey` updated.
+  - Tests: `tests/test_validation_env.py` (17); `test_cluster_target`, `test_rollback`, `test_journey` updated.
     `FakeHelm` handles `uninstall`.
 - **Checks on the branch (cloud, 2026-11-01):** lint, mypy (no new errors), auth, OpenAPI drift and web (tsc +
-  vite) clean; engine 1082 passed, 5 failed: `test_tools.py` ×4 and `test_checks.py::test_snyk_…`, the same
+  vite) clean; engine 1084 passed, 5 failed: `test_tools.py` ×4 and `test_checks.py::test_snyk_…`, the same
   five that fail on clean main in this cloud workspace (its scanner tools change what the fakes see).
   `golden-path` and `images` need Docker and Helm, absent here; no pack, template, image or Dockerfile is
   touched. GitHub CI is the gate.

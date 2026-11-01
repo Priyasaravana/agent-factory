@@ -17,7 +17,7 @@ These functions decide; the pipeline and the stations act (`engine/pipeline.py`,
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from agent_factory.models import Change, Validation
 
@@ -42,7 +42,7 @@ def in_place_reason(provider: object, stations: Iterable[str]) -> str | None:
     handlers = set(stations)
     if "deploy" not in handlers:
         return "the lane has no deploy station"
-    if not getattr(provider, "validates_separately", False):
+    if not getattr(provider, "validates_separately", False) or not callable(getattr(provider, "identity", None)):
         name, kind = getattr(provider, "name", "?"), getattr(provider, "kind", "?")
         return f"deploy target {name} ({kind}) can't give a change a second address"
     if PROMOTE not in handlers:
@@ -87,3 +87,27 @@ def same_image(v: Validation, digest: str | None) -> list[str]:
     if digest != v.digest:
         return [f"production runs {digest or 'an unknown digest'}, not the tested {v.digest}"]
     return []
+
+
+# what identifies where a temporary environment runs; recorded before deploy, compared before removal
+IDENTITY = ("environment", "target", "cluster", "namespace", "helm_release")
+
+
+def removal_problems(v: Validation, product_slug: str, now: Mapping[str, str] | None) -> list[str]:
+    """Every reason not to remove the recorded temporary environment with the deploy target as it is
+    configured now, fail closed. `now` is the target's identity for that release name (environment,
+    target, cluster, namespace, Helm release), or None: the target can't tell. The configuration may
+    have changed since the change ran (another cluster, kube context or namespace prefix): deleting
+    then would remove a same-named release somewhere else and leave the real one behind. Pure."""
+    if not v.helm_release or v.helm_release == product_slug:
+        return ["its name is the product's own release"]
+    if now is None:
+        return [f"deploy target {v.target} can't say where its releases run"]
+    missing = [k for k in IDENTITY if not str(getattr(v, k) or "")]
+    if missing:
+        return [f"no {', '.join(missing)} recorded"]
+    return [
+        f"recorded {key} '{getattr(v, key)}' is not the current '{now.get(key, '')}'"
+        for key in IDENTITY
+        if str(getattr(v, key)) != str(now.get(key, ""))
+    ]

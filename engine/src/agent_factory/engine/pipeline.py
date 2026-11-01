@@ -1456,27 +1456,27 @@ class ChangeManager:
         if v is None:
             return True
         try:
-            deploy_p = self.providers.for_blueprint(product.blueprint).deploy
-            refuse = (
-                "its name is the product's own release"
-                if v.helm_release == product.slug or not v.helm_release
-                else f"deploy target {deploy_p.name} has no temporary releases"
-                if not getattr(deploy_p, "validates_separately", False)
-                else f"it was made by {v.target}, not {deploy_p.name}"
-                if v.target != deploy_p.name
+            providers = self.providers.for_blueprint(product.blueprint)
+            deploy_p = providers.deploy
+            flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+            ctx = StationContext(
+                self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, product, change,
+                self.ws.change_dir(change.id), "cleanup", flow,
+            )  # fmt: skip
+            ctx.providers = providers
+            ctx.secrets = self.secrets
+            ctx.slot = v.helm_release
+            # where the target points now for that name, against where the environment was recorded:
+            # the configuration may have moved (cluster, context, namespace), and deleting then would
+            # remove a same-named release elsewhere and leave the real one orphaned
+            now = (
+                deploy_p.identity(ctx)  # type: ignore[attr-defined]
+                if getattr(deploy_p, "validates_separately", False) and callable(getattr(deploy_p, "identity", None))
                 else None
             )
-            if refuse:
-                ok, summary, detail = False, f"not removed: {refuse}", ""
+            if refuse := validation.removal_problems(v, product.slug, now):
+                ok, summary, detail = False, "refused: " + "; ".join(refuse), ""
             else:
-                flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
-                ctx = StationContext(
-                    self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, product, change,
-                    self.ws.change_dir(change.id), "cleanup", flow,
-                )  # fmt: skip
-                ctx.providers = self.providers.for_blueprint(product.blueprint)
-                ctx.secrets = self.secrets
-                ctx.slot = v.helm_release
                 res = await deploy_p.undeploy(ctx)
                 ok, summary, detail = res.ok, res.summary, res.detail
         except Exception as exc:  # noqa: BLE001 - recorded; the sweep or the archive tries again

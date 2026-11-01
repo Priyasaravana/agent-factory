@@ -336,3 +336,53 @@ async def test_e2e_and_the_verifier_sign_in_with_each_releases_own_admin(make_fa
     temp = f"kudos-board-c{change.id}"
     assert f"-n app-{temp} get secret {temp}-admin" in reads[0]
     assert all("get secret kudos-board-admin" not in c for c in reads[:1]), "never production's while validating"
+
+
+def test_removal_is_refused_unless_the_target_still_points_where_it_was_recorded():
+    v = _v(cluster="kind:af")
+    here = {"environment": "local-ingress", "target": "kind-ingress", "cluster": "kind:af",
+            "namespace": "app-a-c1", "helm_release": "a-c1"}  # fmt: skip
+    assert validation.removal_problems(v, "a", here) == []
+    assert validation.removal_problems(v, "a", {**here, "cluster": "ctx:prod"}) == [
+        "recorded cluster 'kind:af' is not the current 'ctx:prod'"
+    ]
+    assert validation.removal_problems(v, "a", {**here, "environment": "eu"})[0].startswith("recorded environment")
+    assert validation.removal_problems(v, "a", None) == ["deploy target kind-ingress can't say where its releases run"]
+    assert validation.removal_problems(_v(cluster=""), "a", here) == ["no cluster recorded"]
+    assert validation.removal_problems(_v(helm_release="a"), "a", here) == ["its name is the product's own release"]
+
+
+async def test_a_moved_deploy_target_never_removes_a_same_named_release_elsewhere(make_factory, cfg):
+    """The sweep and archive act on the recorded environment or not at all: if the target now points
+    at another cluster, the release there with the same name is left alone, and the recorded one stays
+    on record as not removed (a person cleans it up), never marked removed."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    temp = f"bookmarks-service-c{change.id}"
+    ex.fail_on.append(f"uninstall {temp} ")
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_change(change.id).validation.removed_at is None
+
+    f.manager.providers.integrations["kind-ingress"].kube_context = "prod-cluster"  # the config moved
+    tries = len(ex.calls)
+    assert await f.manager.sweep_validation() == []
+    assert not any("uninstall" in c for c in ex.calls[tries:]), "nothing deleted in the other cluster"
+    kept = f.store.get_change(change.id).validation
+    assert kept.removed_at is None and kept.cluster != "prod-cluster", "still on record where it really runs"
+    refused = [e for e in f.store.list_events(change.id) if e.data.get("validation_removed")][-1]
+    assert (
+        refused.level == EventLevel.warn
+        and "recorded cluster" in refused.message
+        and "'prod-cluster'" in refused.message
+    )
+
+    import pytest
+
+    from agent_factory.engine.pipeline import FactoryError
+
+    with pytest.raises(FactoryError, match="could not be removed"):
+        await f.manager.archive(product.id, "saravana")
+    assert not any("uninstall" in c for c in ex.calls[tries:]), "archive stops before touching anything"

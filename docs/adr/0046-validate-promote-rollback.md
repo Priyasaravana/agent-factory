@@ -71,7 +71,11 @@ choice per product, not imposed on every small app.
    nothing records an intent on production there, so a failure in it rolls nothing back (`rollback.target`
    now restores only while the change's own release may serve production). The namespace is labelled
    `agent-factory.io/validation=<change>` for a person; removal and the sweep go by the change records,
-   only for a release the change recorded as its own, never the product's name. A resumed change whose
+   only for a release the change recorded as its own, never the product's name, and fail closed like a
+   rollback: the target's identity for that name now (environment, target, cluster, namespace, release)
+   must equal the recorded one (`validation.removal_problems`, review of PR #132). If the configuration has
+   moved (another cluster or context), nothing is deleted, the environment stays on record as not removed
+   (a warning), and archive stops: a same-named release elsewhere is never removed in its place. A resumed change whose
    temporary environment was removed deploys a new one before acceptance, never testing production
    instead (`validation.needs_redeploy`). A lane version without a `promote` station (older pinned
    versions) also validates in place, since production would otherwise never be updated; "Back to factory
