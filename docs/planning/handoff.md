@@ -86,8 +86,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 
 ## How we work
 ### People and permissions
-- **Saravana** owns the repo, runs fetch, push and merge ("Rebase and merge"). Agents never commit to main
-  and never push.
+- **Saravana** owns the repo, reviews and merges ("Rebase and merge"). **Since 2026-11-01** (his call) an agent
+  in the cloud workspace pushes its feature branch and opens or updates the PR itself; he reviews, comments
+  and merges, and the agent pushes the fixes to the same branch. Agents never push to main, never merge, and
+  never force-push a branch under review (new commits only).
 - **Repo on the Mac:** `/Users/saravana/Saravana_Repos/agent-factory` (through the remote-device bridge:
   `$HOME/mnt/agent-factory`).
 - **His local config edits:** uncommitted edits in `.agent-factory/config.yaml` (environment `local-ingress`,
@@ -105,7 +107,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 
 ### The loop (cloud workspace ↔ Mac)
 - The agent's shell on the Mac has no network (npm and pypi unreachable since 2026-10-18; GitHub and Docker Hub
-  also refused when checked on 2026-10-28). Saravana's own terminal does the fetch, push and Docker Hub lookups.
+  also refused when checked on 2026-10-28). Saravana's own terminal does Docker Hub lookups; branches and PRs go
+  from the cloud workspace to GitHub (needs the GitHub account connected to Claude to have write access).
 - **Cloud:** the repo is public: `GIT_LFS_SKIP_SMUDGE=1 git clone --depth 30 https://github.com/Priyasaravana/agent-factory`.
   First check GitHub main equals his local main (`git -C $HOME/mnt/agent-factory log -1 main`). If his local
   main is ahead, or a branch exists only on the Mac, bring it over as a bundle

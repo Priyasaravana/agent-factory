@@ -420,6 +420,6 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 
 ## 🧹 Housekeeping
 - The ruleset on main requires `engine`, `auth`, `web`, `golden-path`, `images` and `e2e`.
-- Saravana runs fetch, push and merge. Agents never push or commit to main.
-- The agent's shell on the Mac has no network (checked again 2026-10-28: GitHub, PyPI, npm and Docker Hub refused by its proxy): agents clone the public repo in the cloud and check it matches his local `main`; work goes back as bundles or patches. Commands that need the network (`git fetch`, `docker buildx imagetools inspect`) run in Saravana's own terminal.
+- Agents push feature branches and open PRs from the cloud workspace; Saravana reviews and merges (decided 2026-11-01). Agents never push to main, merge, or force-push a branch under review.
+- The agent's shell on the Mac has no network (checked again 2026-10-28: GitHub, PyPI, npm and Docker Hub refused by its proxy): agents clone the public repo in the cloud and check it matches his local `main`; work goes back as a pushed branch and PR (a bundle only when pushing isn't possible). Commands that need the network (`git fetch`, `docker buildx imagetools inspect`) run in Saravana's own terminal.
 - In an agent's cloud workspace, run the CLI with `AGENT_FACTORY_ALLOW_ROOT=1`.
