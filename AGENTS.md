@@ -85,7 +85,12 @@
   directly, and says whether it can give a change its own address (`validates_separately`, ADR-0046:
   `helm` yes, `local` no, so it validates in place). Production is changed only by `promote` (or an
   in-place deploy); rules in `validation.py` and `rollback.py`, tests in `tests/test_validation_env.py`
-  and `tests/test_rollback.py`. New change-starting actions
+  and `tests/test_rollback.py`. A provider that can run blue/green has `deploy_colors`, `layout`,
+  `renders_colors` and `preview_url` (`helm`); the rules are in `blue_green.py`, tests in
+  `tests/test_blue_green.py`; blue/green holds unless the schema change is additive (`schema_compat.py`).
+  Production only ever gets read-only checks (`_read_only_checks`): never run e2e, sign in or write there.
+  A pack chart keeps blue the Deployment the app always had (name and selector unchanged), so a product
+  can move to blue/green without replacing its pods; `scripts/check-charts.py` (CI job `charts`) checks it. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
 - Changes to `images/`, Dockerfiles, `docker-compose.yml` or the golden path must
   keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's

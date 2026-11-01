@@ -2,8 +2,10 @@
 
 **Status:** accepted · 2026-11-01 (accepted by Saravana 2026-11-01) · direction decided by Saravana 2026-11-01;
 slice 1 merged (PR #131, `8680c44`: fail closed, crash-safe recording, verified rollback; engine errors settle
-production; sidecar-safe digests); slices 2 and 3 built together on `feat/j2-validate-promote` (decided
-2026-11-01: slice 2 alone would never update production on a `helm` target) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
+production; sidecar-safe digests); slices 2 and 3 merged together (PR #132, `72a7f7c`; decided 2026-11-01:
+slice 2 alone would never update production on a `helm` target); slice 4 built on `feat/j2-blue-green`
+(shape decided by Saravana 2026-11-01: two colours in production's one release, sharing its database) ·
+builds on [ADR-0026](0026-cluster-target.md) (cluster target),
 [ADR-0039](0039-lanes-phases.md) §6 (gated promotion), [ADR-0043](0043-failure-classes.md)
 (failure classes) and [ADR-0023](0023-evidence-manifest.md) (sealed evidence)
 
@@ -81,18 +83,60 @@ choice per product, not imposed on every small app.
    versions) also validates in place, since production would otherwise never be updated; "Back to factory
    default" brings the station. In place, the healthy release is still recorded when acceptance passes.
 6. **Promote the exact tested image** (slice 3). A `promote` station after acceptance deploys the same image
-   reference (by digest where the registry gives one; never rebuilt) to production, runs the smoke check and
-   the pack's e2e against it, and rolls back (decision 3) if either fails. Only then is the release recorded
-   (decision 2).
+   reference (by digest where the registry gives one; never rebuilt) to production, runs read-only checks
+   against it, and rolls back (decision 3) if they fail. Only then is the release recorded (decision 2).
+   *Changed by Saravana 2026-11-01:* production gets **read-only checks only** (the liveness path, the readiness
+   path and, for a web app, the home page, from the sandbox; no sign-in, nothing written), on a blue/green
+   preview and after any promotion, in place or blue/green. Production holds users' data, and the pack's e2e and
+   the hidden-scenario verifier already passed on that exact digest in the temporary environment, on empty data.
+   (A target that validates in place, `local` or a lane without `promote`, still runs acceptance where the
+   change is deployed: that is what validating in place means.)
    *As built:* `promote` (Deliver column, uses `deploy:*` and `promote`) deploys the recorded
    `repository:tag` over production (its intent saved first, as in decision 1), then requires production's
    running digest to equal the tested one (`promote_digest_mismatch`, `infra`), probes the target from the
-   sandbox, and runs the pack's e2e signed in as production's admin. A failure is rolled back by the
+   sandbox, and runs the read-only checks (as changed 2026-11-01). A failure is rolled back by the
    pipeline (decision 3) and holds for a person: the same image passed validation, so what differs is
    production, not the code. A change validated in place passes promote with nothing to do.
 7. **Strategy per product** (slice 4). `in-place` (Helm upgrade, rolling, the default) or `blue-green` (two
    releases, the ingress switched to the new one after its checks, the old one kept for an instant switch
    back until the next promotion). Set per product, defaulted by the pack.
+   *Decided by Saravana 2026-11-01:* two colours **in production's one Helm release**, not two releases. The
+   packs' charts run Postgres inside the release, so two releases would mean two databases and a switch would
+   lose the data; one release keeps one database under both colours.
+   *As built:* the charts (nextjs-web 1.5.0, fastapi-service 1.1.0) render one Deployment per colour. Blue is
+   the Deployment the app always had (same name and selector, plus a `color` label), so an in-place product
+   moves to blue/green without replacing its pods; green has a selector of its own, so neither selects the
+   other's pods. With `strategy=blue-green` the Service selects `blueGreen.live`, and a preview Service and
+   Ingress (`<release>-next.<domain>`) reach the idle colour. `promote` on a blue/green product
+   (`blue_green.py`, pure: `chosen`, `layout`, `plan`, `sets`, `in_place_reason`) reads production's Helm values,
+   refuses unless production serves the recorded healthy image (`blue_green_unexpected`, `infra`), saves the
+   intent, stages the tested image on the idle colour with the live colour unchanged, requires the tested digest
+   on the idle colour's own pods, runs the read-only checks at the preview, switches the Service, requires the
+   tested digest again and runs the read-only checks on production. The first blue/green release goes straight in as blue. The healthy release records its
+   colour (`Release.color`). Rollback is unchanged: `helm rollback` to the recorded revision puts the Service back
+   on the old colour, whose pods kept running, and the checks read the live colour's image from the values and
+   that colour's pods only. A product is promoted in place, and the event log says why, when its target can't
+   give the idle colour an address (`local`), the change was validated in place, its chart renders no colours
+   (products made before these pack versions; an upkeep change from the pack brings the chart), or the preview
+   address is another product's. The strategy is a product setting (`Product.deploy_strategy`; `GET`/`POST
+   /api/products/{id}/deploy-strategy`, creator or admin), shown in the product page's **Releases** panel; both
+   packs default to in place (`deploy:` in `pack.yaml`). Tests: `tests/test_blue_green.py`.
+   *Safeguards (decided by Saravana 2026-11-01, before merge):*
+   - **Schema compatible with the version kept running.** Before staging, `promote` reads the schema-defining
+     code of the commit users are on (an image's tag is its commit) and of the tested commit (`schema_compat.py`,
+     pure: SQL `create table` and other DDL in source and `.sql` files, SQLAlchemy models, Alembic-style
+     operations; tests excluded). Only new tables and indexes are additive. A changed or no-longer-created
+     table, or any new `alter`, `drop`, `truncate` or `rename`, holds the change as a **decision** for a person
+     (`schema_not_additive`) before production is touched: make the change additive (expand now, contract in a
+     later release) or set the product to in place under Releases and resume. A commit that can't be read
+     holds the same way (fail closed).
+   - **No test writes to users' data.** The preview gets the read-only checks of decision 6, never e2e.
+   - **Charts checked by real Helm in CI.** `scripts/check-charts.py` (job `charts`; a branch rule on `main` requires it, with engine, web and golden-path) lints and
+     renders both packs' charts in place, as a first blue/green release, staged and switched, and checks the
+     structure the engine relies on; bad values must fail the render.
+
+   *Known limits:* production runs two copies of the app; a schema change that blue/green holds still goes out
+   in place if a person chooses so, and an in-place rollback then also runs the old version on the new schema.
 
 ## Consequences
 - Users keep the last healthy release whenever a change fails after build: from slice 1 for every deploy
@@ -117,8 +161,9 @@ Mapped to [practices.md](../practices.md).
 
 | Practice | How this decision meets it |
 |---|---|
-| §1 Testing: test before production | Acceptance runs against a temporary environment, not the live app (slice 2). |
+| §1 Testing: test before production | Acceptance runs against a temporary environment, not the live app (slice 2); production only gets read-only checks, so no test writes users' data. |
 | §1 Security & governance: same artifact promoted | The tested image reference is promoted, never rebuilt (slice 3; ADR-0039 §6). |
+| §7 Reliability: compatible schema | Blue/green holds unless the schema change is additive against the version kept for the switch back (`schema_compat`). |
 | §7 Reliability: rollback | The last healthy release is recorded with its revision and digest, restored to that revision exactly, and verified (rollout, digest, liveness and readiness). |
 | §7 Reliability: crash safety | The deploy intent is saved before the cluster is touched; every stop and every restart settles production. |
 | §1 Security & governance: immutable artifacts | Releases are identified by image digest and checked against the cluster before and after a rollback. |

@@ -105,6 +105,10 @@ class StackMatch(BaseModel):
     egress: list[str] = Field(default_factory=list)  # what the repo's sandboxes may reach for it
 
 
+# how a new version of a product reaches its users (ADR-0046 slice 4)
+DeployStrategy = Literal["in-place", "blue-green"]
+
+
 class Release(BaseModel):
     """A release of a product on a deploy target (ADR-0046): what a change put there, and once it is
     delivered, the product's last healthy release, which a later failure restores."""
@@ -121,6 +125,9 @@ class Release(BaseModel):
     helm_release: str = ""
     revision: int | None = None  # the deploy target's revision (Helm: the release's version)
     digest: str | None = None  # sha256 digest every running container reported (immutable)
+    # blue/green (ADR-0046 slice 4): the colour this release runs as, so its pods and image can be
+    # told from the other colour's; None: in place, one Deployment
+    color: str | None = None
     at: datetime
 
 
@@ -177,6 +184,8 @@ class Product(BaseModel):
     # the last healthy release, recorded when a change is delivered (ADR-0046); None: nothing
     # delivered since releases were recorded
     release: Release | None = None
+    # how a new version reaches users (ADR-0046 slice 4); None: the stack pack's default
+    deploy_strategy: DeployStrategy | None = None
 
 
 class Change(BaseModel):
@@ -1396,6 +1405,26 @@ class NextIterationView(BaseModel):
     latest_iteration: int | None = None
     latest_kind: ChangeKind | None = None
     latest_request: str | None = None  # the first line of what was asked for it
+
+
+class DeployStrategyView(BaseModel):
+    """How a product's new versions reach its users (ADR-0046 slice 4): the strategy, who chose it,
+    what its stack pack's chart supports, and on blue/green which colour serves users and which is
+    kept running for an instant switch back."""
+
+    strategy: DeployStrategy
+    chosen_by: Literal["product", "pack", "factory"]
+    pack_default: DeployStrategy
+    options: list[DeployStrategy]  # what the product's stack pack supports
+    live_color: str | None = None  # blue/green: the colour users reach, from the last healthy release
+    kept_color: str | None = None  # blue/green: the colour that served before it, still running
+    note: str = ""  # what changes, in plain words
+
+
+class DeployStrategyInput(BaseModel):
+    """`strategy`: in-place or blue-green; None goes back to the stack pack's default."""
+
+    strategy: DeployStrategy | None = None
 
 
 class ChangeEntryView(BaseModel):

@@ -20,6 +20,7 @@ import json
 import re
 from typing import Any
 
+from agent_factory import blue_green
 from agent_factory.models import Change, Product, Release
 
 # the station handlers whose failure means production may be serving this change's release:
@@ -136,12 +137,9 @@ def history(history_json: str) -> list[dict[str, Any]]:
 
 
 def values_image(values_json: str) -> str | None:
-    """`repository:tag` from `helm get values -o json` (the image the factory set). Pure."""
-    doc = _json(values_json)
-    image = doc.get("image") if isinstance(doc, dict) else None
-    if not isinstance(image, dict) or not image.get("repository") or not image.get("tag"):
-        return None
-    return f"{image['repository']}:{image['tag']}"
+    """`repository:tag` users reach, from `helm get values -o json` (the image the factory set; on
+    a blue/green release, the live colour's: ADR-0046 slice 4). Pure."""
+    return blue_green.values_image(values_json)
 
 
 def normalize_digest(image_id: str) -> str | None:

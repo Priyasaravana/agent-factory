@@ -248,6 +248,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/deploy-strategy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)
+         * @description How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)
+         */
+        get: operations["get_deploy_strategy"];
+        put?: never;
+        /**
+         * Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)
+         * @description Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)
+         */
+        post: operations["set_deploy_strategy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/work-items/decide": {
         parameters: {
             query?: never;
@@ -2496,6 +2520,48 @@ export interface components {
             at: string;
         };
         /**
+         * DeployStrategyInput
+         * @description `strategy`: in-place or blue-green; None goes back to the stack pack's default.
+         */
+        DeployStrategyInput: {
+            /** Strategy */
+            strategy?: ("in-place" | "blue-green") | null;
+        };
+        /**
+         * DeployStrategyView
+         * @description How a product's new versions reach its users (ADR-0046 slice 4): the strategy, who chose it,
+         *     what its stack pack's chart supports, and on blue/green which colour serves users and which is
+         *     kept running for an instant switch back.
+         */
+        DeployStrategyView: {
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "in-place" | "blue-green";
+            /**
+             * Chosen By
+             * @enum {string}
+             */
+            chosen_by: "product" | "pack" | "factory";
+            /**
+             * Pack Default
+             * @enum {string}
+             */
+            pack_default: "in-place" | "blue-green";
+            /** Options */
+            options: ("in-place" | "blue-green")[];
+            /** Live Color */
+            live_color?: string | null;
+            /** Kept Color */
+            kept_color?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
          * DiscussTurn
          * @description One message in the discussion with the architect on the review page (ADR-0044 §1). A
          *     person's text is their input to the product's design, never instructions to the factory.
@@ -3527,6 +3593,8 @@ export interface components {
             /** Stack Matches */
             stack_matches?: components["schemas"]["StackMatch"][];
             release?: components["schemas"]["Release"] | null;
+            /** Deploy Strategy */
+            deploy_strategy?: ("in-place" | "blue-green") | null;
         };
         /** ProductDetail */
         ProductDetail: {
@@ -3640,6 +3708,8 @@ export interface components {
             revision?: number | null;
             /** Digest */
             digest?: string | null;
+            /** Color */
+            color?: string | null;
             /**
              * At
              * Format: date-time
@@ -5251,6 +5321,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NextIterationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deploy_strategy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployStrategyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_deploy_strategy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployStrategyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployStrategyView"];
                 };
             };
             /** @description Validation Error */

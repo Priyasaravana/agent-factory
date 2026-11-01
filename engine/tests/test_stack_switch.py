@@ -87,15 +87,15 @@ def test_the_create_form_gets_one_card_per_stack(two_stacks, make_factory):
     cards = {c.blueprint: c for c in get_config(f).stacks}
     assert set(cards) == {"fastapi-service", "node-web"}, "blueprints for existing repos are not stacks"
     api = cards["fastapi-service"]
-    assert (api.title, api.builds, api.pack) == ("FastAPI service", "service", "fastapi-service@1.0.0")
+    assert (api.title, api.builds, api.pack) == ("FastAPI service", "service", "fastapi-service@1.1.0")
     assert api.summary.startswith("Python FastAPI REST service") and "fastapi" in api.technologies
     web = cards["node-web"]
-    assert (web.title, web.builds, web.pack) == ("Node web app", "web-app", "node-web@1.0.0")
+    assert (web.title, web.builds, web.pack) == ("Node web app", "web-app", "node-web@1.1.0")
 
 
 def test_a_product_records_the_pack_it_builds_with(make_factory):
     f = make_factory()
-    assert f.manager.create_product(PRODUCT).pack == "fastapi-service@1.0.0"
+    assert f.manager.create_product(PRODUCT).pack == "fastapi-service@1.1.0"
 
 
 # ------------------------------------------------------------- switching --
@@ -113,15 +113,15 @@ async def test_a_conflict_before_the_first_build_may_switch_to_the_stack_that_bu
     await f.manager.switch_stack(change.id, "node-web", "ann")
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     product = f.store.get_product(product.id)
-    assert (product.blueprint, product.pack, product.node_port) == ("node-web", "node-web@1.0.0", 30150)
+    assert (product.blueprint, product.pack, product.node_port) == ("node-web", "node-web@1.1.0", 30150)
     events = f.store.list_events(change.id)
     switched = [e.data["stack_switch"] for e in events if "stack_switch" in e.data]
     assert switched == [
         {
             "from": "fastapi-service",
             "to": "node-web",
-            "from_pack": "fastapi-service@1.0.0",
-            "pack": "node-web@1.0.0",
+            "from_pack": "fastapi-service@1.1.0",
+            "pack": "node-web@1.1.0",
             "by": "ann",
         }
     ]
@@ -171,7 +171,7 @@ def test_the_shipped_stacks_offer_next_js_for_a_node_request(make_factory):
     cards = {c.blueprint: c for c in get_config(make_factory()).stacks}
     assert list(cards) == ["fastapi-service", "nextjs-web"]
     web = cards["nextjs-web"]
-    assert (web.title, web.builds, web.pack) == ("Next.js web app", "web-app", "nextjs-web@1.4.0")
+    assert (web.title, web.builds, web.pack) == ("Next.js web app", "web-app", "nextjs-web@1.5.0")
     techs = {c.blueprint: c.technologies for c in cards.values()}
     assert stack.switch_options(["Next.js"], techs) == stack.switch_options(["TypeScript"], techs) == ["nextjs-web"]
     assert stack.switch_options(["FastAPI"], techs) == ["fastapi-service"]

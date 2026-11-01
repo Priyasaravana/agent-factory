@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.4.0
+version: 1.5.0
 title: Next.js web app
 stack:
   builds: web-app
@@ -22,6 +22,10 @@ stack:
   port: 3000
   health: {live: /api/healthz, ready: /api/readyz}
   chart: deploy/chart
+  # how a new version reaches users (ADR-0046 slice 4): the strategies the chart supports, and
+  # what a product uses unless it chooses another. blue-green runs two colours on one database, so
+  # a schema change must also work with the version still running
+  deploy: {strategy: in-place, strategies: [in-place, blue-green]}
   # npm is already on the shared allowlist (registry.npmjs.org), and the browser is in the image,
   # so this pack's sandboxes need no egress of their own
   egress: []

@@ -7,7 +7,11 @@ spec:
   type: {{ .Values.service.type }}
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- if include "app.blueGreen" . }}
+    app.kubernetes.io/color: {{ include "app.live" . }}   # the switch (ADR-0046 slice 4)
+    {{- else }}
     app.kubernetes.io/component: web
+    {{- end }}
   ports:
     - name: http
       port: {{ .Values.service.port }}
@@ -15,3 +19,19 @@ spec:
       {{- if eq .Values.service.type "NodePort" }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+{{- if and (include "app.blueGreen" .) (include "app.colorImage" (dict "root" . "color" (include "app.idle" .))) }}
+---
+# the colour users don't reach: the factory tests it here before switching
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.name" . }}-preview
+  labels: {{- include "app.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/color: {{ include "app.idle" . }}
+  ports:
+    - {name: http, port: {{ .Values.service.port }}, targetPort: http}
+{{- end }}

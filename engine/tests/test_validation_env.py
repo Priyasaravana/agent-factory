@@ -129,7 +129,10 @@ async def test_a_change_is_validated_in_its_own_environment_then_the_tested_imag
     assert f"--namespace app-{temp} " in tested and "--namespace app-bookmarks-service " in promoted
     assert tested.split("image.tag=")[1].split()[0] == promoted.split("image.tag=")[1].split()[0]
     e2e = [c for c in ex.calls if "E2E_BASE_URL=" in c]
-    assert f"http://{temp}.localtest.me:8180" in e2e[0] and PROD in e2e[-1], "e2e in the temporary env, then production"
+    assert e2e and all(f"http://{temp}.localtest.me:8180" in c for c in e2e), "e2e only in the temporary env"
+    reads = [c for c in ex.calls if f'-o /dev/null ${{HTTP_PROXY:+--proxy "$HTTP_PROXY"}} {PROD}/' in c]
+    assert [c.rsplit(PROD, 1)[1] for c in reads] == ["/healthz", "/readyz"], "production: read-only checks only"
+    assert ex.calls.index(promoted) < ex.calls.index(reads[0])
 
     got = f.store.get_change(change.id)
     v = got.validation
@@ -177,12 +180,12 @@ async def test_a_failure_at_promotion_rolls_production_back_and_holds(make_facto
     f = make_factory(ex, agents)
     product, _ = await _delivered(f)
     healthy = product.release
-    ex.fail_on.append(f"E2E_BASE_URL={PROD} ")  # passes in the temporary environment, fails in production
+    ex.fail_on.append(f"{PROD}/readyz")  # production can't reach its database, say
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.held
 
     held = f.store.get_change(second.id)
-    assert "held at promote" in held.summary and "after promotion to production" in held.summary
+    assert "held at promote" in held.summary and "read-only check failed on production" in held.summary
     [cmd] = [c for c in ex.calls if " rollback " in c]
     assert f"rollback bookmarks-service {healthy.revision} " in cmd, "back to the recorded healthy revision"
     assert "Production was rolled back to iteration 1" in (held.last_failure or "")

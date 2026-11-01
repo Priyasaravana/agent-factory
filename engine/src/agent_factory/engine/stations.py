@@ -28,6 +28,7 @@ import yaml
 from agent_factory import (
     assess,
     base_images,
+    blue_green,
     checks,
     contract,
     hostclock,
@@ -38,6 +39,7 @@ from agent_factory import (
     risk,
     rollback,
     rollup,
+    schema_compat,
     stack,
     tools,
     traceability,
@@ -68,6 +70,7 @@ from agent_factory.models import (
     RequiredAction,
     StackMatch,
     StationOutcome,
+    Validation,
 )
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
@@ -1615,6 +1618,16 @@ async def _deploy_production(ctx: StationContext, ref: ImageRef) -> tuple[Statio
     replaced production; then what was installed (revision, digest), failing closed if it can't be
     told."""
     p = ctx.providers
+    restorable = _record_intent(ctx, str(ref))
+    res = await p.deploy.deploy(ctx, ref)
+    return await _deployed(ctx, res, restorable)
+
+
+def _record_intent(ctx: StationContext, image: str, color: str | None = None) -> bool:
+    """Save what this change is about to put on production before the cluster is touched
+    (ADR-0046), so whatever happens next (a failure, a hold, a crash) the engine knows production may
+    be serving it and restores the last healthy release. Returns whether the target can restore."""
+    p = ctx.providers
     restorable = rollback.can_restore(p.deploy)
     ident = (
         p.deploy.identity(ctx)  # type: ignore[attr-defined]
@@ -1624,16 +1637,24 @@ async def _deploy_production(ctx: StationContext, ref: ImageRef) -> tuple[Statio
     ctx.change.deployed = Release(
         change_id=ctx.change.id,
         iteration=ctx.change.iteration,
-        image=str(ref),
+        image=image,
         environment=ident["environment"],
         target=ident["target"],
         cluster=ident["cluster"],
         namespace=ident["namespace"],
         helm_release=ident["helm_release"],
+        color=color,
         at=datetime.now(UTC),
     )
     ctx.store.save_change(ctx.change)
-    res = await p.deploy.deploy(ctx, ref)
+    return restorable
+
+
+async def _deployed(ctx: StationContext, res: StepResult, restorable: bool) -> tuple[StationResult, StepResult]:
+    """Complete the release record from what the deploy installed (revision, digest), failing
+    closed if it can't be told; on a failure, the diagnostics before anything else."""
+    p = ctx.providers
+    assert ctx.change.deployed is not None  # noqa: S101 - _record_intent ran
     if res.ok:
         revision, digest = res.data.get("revision"), res.data.get("digest")
         ctx.change.deployed = ctx.change.deployed.model_copy(
@@ -1665,11 +1686,13 @@ async def _deploy_production(ctx: StationContext, ref: ImageRef) -> tuple[Statio
 async def promote(ctx: StationContext) -> StationResult:
     """Take exactly what was tested to production (ADR-0046 slice 3): the image validated in the
     change's temporary environment, never rebuilt, deployed over production; production must then
-    run the digest the tests ran, answer its liveness path (the provider's smoke check) and pass the
-    pack's e2e. A failure here is rolled back by the pipeline (diagnostics are collected first) and
-    holds for a person: the same image passed validation, so what differs is production. The
-    healthy release is recorded only after this station passes. A change validated in place has
-    nothing to promote: production already runs the tested image."""
+    run the digest the tests ran and pass read-only checks (liveness, readiness, the home page; no
+    sign-in, no writes: decided 2026-11-01, so no test ever touches users' data). The pack's e2e
+    and the verifier already passed on that digest in the temporary environment. A failure here is
+    rolled back by the pipeline (diagnostics are collected first) and holds for a person: the same
+    image passed validation, so what differs is production. The healthy release is recorded only
+    after this station passes. A change validated in place has nothing to promote: production
+    already runs the tested image."""
     v = ctx.change.validation
     if v is None:
         await ctx.emit(EventKind.decision, "nothing to promote: validated in place, production runs the tested image")
@@ -1679,6 +1702,8 @@ async def promote(ctx: StationContext) -> StationResult:
         ctx.stop = Stop(FailureClass.infra, why, rule="promote_unidentified")
         return StationResult(StationOutcome.failed, why)
     assert v.image is not None  # noqa: S101 - promote_problems checked it
+    if await _blue_green(ctx):
+        return await _promote_blue_green(ctx, v)
     repository, tag = v.image.rsplit(":", 1)
     await ctx.emit(
         EventKind.decision,
@@ -1693,17 +1718,201 @@ async def promote(ctx: StationContext) -> StationResult:
         why = f"promoted, but {wrong[0]}: production must run exactly what was tested"
         ctx.stop = Stop(FailureClass.infra, why, rule="promote_digest_mismatch")
         return StationResult(StationOutcome.failed, why, await ctx.providers.deploy.diagnostics(ctx))
-    if unreachable := await _probe_target(ctx):
-        return unreachable
-    admin = await _app_admin(ctx)
-    if failed_e2e := await _run_e2e(ctx, admin):
-        diag = await ctx.providers.deploy.diagnostics(ctx)
-        return replace(
-            failed_e2e,
-            summary=f"{failed_e2e.summary} after promotion to production",
-            failure_evidence=f"{failed_e2e.failure_evidence}\n--- diagnostics ---\n{diag}",
+    if failed := await _read_only_checks(ctx, "production"):
+        return failed
+    return StationResult(
+        StationOutcome.passed, f"promoted the tested image: {res.summary}; production passed its read-only checks"
+    )
+
+
+async def _blue_green(ctx: StationContext) -> bool:
+    """This product promotes blue/green (ADR-0046 slice 4): chosen by the product or its pack, and
+    possible now. When it isn't, the change is promoted in place and the event log says why."""
+    pack = ctx.blueprint.pack_binding
+    strategy, by = blue_green.chosen(ctx.product.deploy_strategy, pack.deploy_strategy if pack else None)
+    if strategy != blue_green.BLUE_GREEN:
+        return False
+    deploy_p = ctx.providers.deploy
+    renders = getattr(deploy_p, "renders_colors", None)
+    preview = blue_green.preview_release(ctx.product.slug)
+    taken = next((p.title for p in ctx.store.list_products() if p.slug == preview and p.archived_at is None), None)
+    why = blue_green.in_place_reason(
+        deploy_p,
+        validated=validation.live(ctx.change) is not None or ctx.change.validation is not None,
+        chart_renders_colors=bool(renders and await renders(ctx)),
+        preview_taken_by=taken,
+    )
+    if why:
+        await ctx.emit(
+            EventKind.decision,
+            f"blue/green ({by}'s choice) not possible for this change, promoting in place: {why}",
+            {"strategy": {"chosen": strategy, "by": by, "used": blue_green.IN_PLACE, "why": why}},
         )
-    return StationResult(StationOutcome.passed, f"promoted the tested image: {res.summary}; e2e passed in production")
+        return False
+    return True
+
+
+async def _promote_blue_green(ctx: StationContext, v: Validation) -> StationResult:
+    """Blue/green promotion (ADR-0046 slice 4): refused unless the schema change is additive (the
+    old colour keeps running on the same data); the tested image goes to the colour users don't
+    reach, beside the live one on the same database; it must run the tested digest and pass the
+    read-only checks at its preview address; then the Service is switched to it and production is
+    checked the same way. The colour that served before keeps running: a later rollback to the
+    recorded revision switches back to it without restarting it. The intent is saved before the
+    cluster is touched, so any failure restores the last healthy release (decision 3)."""
+    assert v.image is not None  # noqa: S101 - promote_problems checked it
+    deploy_p = ctx.providers.deploy
+    current, problem = await deploy_p.layout(ctx)  # type: ignore[attr-defined]
+    if problem:
+        why = f"can't tell what production runs, so nothing is switched: {problem}"
+        ctx.stop = Stop(FailureClass.infra, why, rule="blue_green_unknown")
+        return StationResult(StationOutcome.failed, why)
+    plan, problems = blue_green.plan(current, v.image, ctx.product.release)
+    if plan is None:
+        why = f"blue/green refused: {'; '.join(problems)}"
+        ctx.stop = Stop(FailureClass.infra, why, rule="blue_green_unexpected")
+        return StationResult(StationOutcome.failed, why)
+    if not plan.first and (refused := await _schema_guard(ctx, v)):
+        return refused
+    await ctx.emit(
+        EventKind.decision,
+        f"promoting {v.image} ({v.digest}) blue/green: "
+        + (
+            f"first release, as {plan.live}"
+            if plan.first
+            else f"staged on {plan.idle} while {plan.live} serves users, switched once it passes"
+        ),
+        {"promote": {"image": v.image, "digest": v.digest, "validated": v.helm_release, "strategy": "blue-green",
+                     "live": plan.live, "idle": plan.idle}},
+    )  # fmt: skip
+    restorable = _record_intent(ctx, v.image, plan.idle)
+    staged = await deploy_p.deploy_colors(ctx, plan.live, plan.images, check=plan.idle)  # type: ignore[attr-defined]
+    result, _ = await _deployed(ctx, staged, restorable)
+    if result.outcome != StationOutcome.passed:
+        return result
+    digest = ctx.change.deployed.digest if ctx.change.deployed else None
+    if wrong := validation.same_image(v, digest):
+        why = f"staged, but {wrong[0].replace('production', plan.idle)}: users must get exactly what was tested"
+        ctx.stop = Stop(FailureClass.infra, why, rule="promote_digest_mismatch")
+        return StationResult(StationOutcome.failed, why, await deploy_p.diagnostics(ctx))
+    if not plan.first:
+        preview = deploy_p.preview_url(ctx)  # type: ignore[attr-defined]
+        if failed := await _read_only_checks(
+            ctx, f"{plan.idle} before the switch (users still on {plan.live})", preview
+        ):
+            return failed
+        switched = await deploy_p.deploy_colors(ctx, plan.idle, plan.images, check=plan.idle)  # type: ignore[attr-defined]
+        await ctx.emit(
+            EventKind.decision,
+            f"users switched from {plan.live} to {plan.idle}" if switched.ok else f"switch to {plan.idle} failed",
+            {"switch": {"from": plan.live, "to": plan.idle, "ok": switched.ok}},
+        )
+        result, _ = await _deployed(ctx, switched, restorable)
+        if result.outcome != StationOutcome.passed:
+            return result
+        digest = ctx.change.deployed.digest if ctx.change.deployed else None
+        if wrong := validation.same_image(v, digest):
+            why = f"switched, but {wrong[0]}: production must run exactly what was tested"
+            ctx.stop = Stop(FailureClass.infra, why, rule="promote_digest_mismatch")
+            return StationResult(StationOutcome.failed, why, await deploy_p.diagnostics(ctx))
+    if failed := await _read_only_checks(ctx, "production"):
+        return failed
+    kept = "" if plan.first else f"; {plan.live} keeps running for an instant switch back"
+    return StationResult(
+        StationOutcome.passed,
+        f"promoted the tested image blue/green: users on {plan.idle} ({v.image}, {v.digest}){kept}",
+    )
+
+
+async def _read_only_checks(ctx: StationContext, where: str, url: str | None = None) -> StationResult | None:
+    """Checks that only read (decided 2026-11-01): production holds users' data, so nothing signs
+    in or writes there. From the sandbox, the way the test clients reach the app: the liveness path
+    (retried as `infra` while the address comes up), the readiness path (the app reaches its
+    database) and, for a web app, the home page. The pack's e2e and the verifier already passed on
+    this exact digest in the temporary environment. None: passed."""
+    target = url or internal_url(ctx)
+    if unreachable := await _probe_target(ctx, target):
+        return unreachable
+    paths = [ctx.blueprint.ready_path] + (["/"] if (b := ctx.blueprint.pack_binding) and b.builds == "web-app" else [])
+    for path in [p for p in paths if p]:
+        res = await ctx.cmd(target_probe_command(target, path), timeout=30, untrusted=True)
+        if not res.ok:
+            diag = await ctx.providers.deploy.diagnostics(ctx)
+            return StationResult(
+                StationOutcome.failed,
+                f"read-only check failed on {where}: GET {path} did not answer",
+                f"{res.output[-2000:]}\n--- diagnostics ---\n{diag}",
+            )
+    checked = [ctx.blueprint.health_path, *paths]
+    await ctx.emit(
+        EventKind.decision,
+        f"{where}: read-only checks passed ({', '.join(checked)}); no sign-in, nothing written",
+        {"production_checks": {"read_only": True, "url": target, "paths": checked}},
+    )
+    return None
+
+
+async def _schema_at(ctx: StationContext, sha: str) -> tuple[dict[str, str] | None, str]:
+    """The schema-source files of commit `sha` in the product's repo: (path -> content, problem)."""
+    if (
+        not re.fullmatch(r"[0-9a-f]{4,64}", sha)
+        or not (await ctx.ws.git(f"cat-file -e {sha}^{{commit}}", ctx.worktree)).ok
+    ):
+        return None, f"commit {sha} is not in the product's repository"
+    found = await ctx.ws.git(f"grep -l -I -i -E {shlex.quote(schema_compat.GREP)} {sha}", ctx.worktree)
+    if not found.ok and "fatal" in found.output.lower():
+        return None, f"could not search commit {sha}: {found.output.strip()[-300:]}"
+    paths = [
+        line.split(":", 1)[1]
+        for line in (found.output.splitlines() if found.ok else [])
+        if line.startswith(f"{sha}:") and schema_compat.is_schema_source(line.split(":", 1)[1])
+    ]
+    files: dict[str, str] = {}
+    for path in paths:
+        shown = await ctx.ws.git(f"show {shlex.quote(f'{sha}:{path}')}", ctx.worktree)
+        if not shown.ok:
+            return None, f"could not read {path} at {sha}"
+        files[path] = shown.output
+    return files, ""
+
+
+async def _schema_guard(ctx: StationContext, v: Validation) -> StationResult | None:
+    """Blue/green keeps the version users are on running on the same data, for an instant switch
+    back: refuse unless the change's schema is additive against that version (decided 2026-11-01,
+    `schema_compat`). Read from the product's repo at both commits (an image's tag is its commit).
+    A person decides: make the change additive, or release it in place. None: compatible."""
+    healthy = ctx.product.release
+    if healthy is None or v.image is None:
+        return None
+    old, new = healthy.image.rsplit(":", 1)[-1], v.image.rsplit(":", 1)[-1]
+    before, why_before = await _schema_at(ctx, old)
+    after, why_after = await _schema_at(ctx, new)
+    way = (
+        "To go ahead, make the change additive (add new tables now; change or remove old ones in a later "
+        "release, once no running version needs them), or set this product to In place under Releases and resume."
+    )
+    if before is None or after is None:
+        problems = [f"can't compare the schema with the release users are on: {why_before or why_after}"]
+    else:
+        problems = schema_compat.not_additive(schema_compat.read(before), schema_compat.read(after))
+    if problems:
+        why = (
+            f"blue/green refused: iteration {healthy.iteration} ({healthy.image}) keeps running on the same database "
+            f"for an instant switch back, and this schema change may break it: {'; '.join(problems)}. {way}"
+        )
+        await ctx.emit(
+            EventKind.decision, why, {"schema": {"additive": False, "problems": problems, "from": old, "to": new}}
+        )
+        ctx.stop = Stop(FailureClass.decision, why, rule="schema_not_additive")
+        return StationResult(StationOutcome.failed, why)
+    added = schema_compat.new_tables(schema_compat.read(before or {}), schema_compat.read(after or {}))
+    await ctx.emit(
+        EventKind.decision,
+        f"schema is additive against iteration {healthy.iteration}: "
+        + (f"new tables {', '.join(added)}" if added else "no schema change"),
+        {"schema": {"additive": True, "new_tables": added, "from": old, "to": new}},
+    )
+    return None
 
 
 async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnose: bool) -> tuple[bool, str]:
@@ -1895,13 +2104,13 @@ def target_probe_command(url: str, path: str) -> str:
     return f"curl --fail --silent --show-error --max-time 10 -o /dev/null {how} {target}"
 
 
-async def _probe_target(ctx: StationContext) -> StationResult | None:
+async def _probe_target(ctx: StationContext, url: str | None = None) -> StationResult | None:
     """Before live e2e and the verifier: the app's liveness path from the sandbox, the way the test
     clients reach it. Book lending (2026-10-25): Playwright couldn't resolve `dind`, the failure went
     to the developer as code work three times and held the change after ~$4.90. A target the sandbox
     can't reach is the factory's failure (`infra`): retried in place, then held, never repaired.
-    None: reached."""
-    url = internal_url(ctx)
+    None: reached. `url`: another address than the change's own (a blue/green preview)."""
+    url = url or internal_url(ctx)
     route = "directly" if is_loopback(url) else "through the egress proxy"
     command = target_probe_command(url, ctx.blueprint.health_path or "/")
     f = Failure(
@@ -1926,7 +2135,9 @@ async def _probe_target(ctx: StationContext) -> StationResult | None:
             return StationResult(StationOutcome.failed, f.cause, res.output[-2000:])
 
 
-async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> StationResult | None:
+async def _run_e2e(
+    ctx: StationContext, admin: dict[str, str] | None = None, url: str | None = None
+) -> StationResult | None:
     """The stack pack's own end-to-end suite against the deployed app (ADR-0041 §1), before the
     independent verifier: the builder's tests, so their output may go back to the builder. In the
     web packs it also runs the accessibility check (`a11y`). None: passed, or the pack has none.
@@ -1935,7 +2146,8 @@ async def _run_e2e(ctx: StationContext, admin: dict[str, str] | None = None) -> 
     if not command:
         return None
     _clear_screenshots(ctx)
-    res = await ctx.cmd(command.replace("{url}", internal_url(ctx)), timeout=900, untrusted=True, env=admin or None)
+    target = url or internal_url(ctx)  # `url`: a blue/green preview (ADR-0046 slice 4)
+    res = await ctx.cmd(command.replace("{url}", target), timeout=900, untrusted=True, env=admin or None)
     await _keep_screenshots(ctx, "live")
     if not res.ok:
         await ctx.emit(EventKind.decision, "end-to-end tests failed against the live app", {"e2e": {"ok": False}})
