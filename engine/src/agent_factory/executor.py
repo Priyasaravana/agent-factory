@@ -8,10 +8,13 @@ each command in a sandboxed pod — same interface.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 TAIL_CHARS = 6000
 
@@ -79,6 +82,64 @@ CLEAN_SCANS = {
 }
 
 
+_UPGRADE = re.compile(r"\bupgrade --install (\S+) .*?image\.repository=([^\s']+).*?image\.tag=([^\s']+)")
+_ROLLBACK = re.compile(r"\brollback (\S+) (\d+)\b")
+_REVISION = re.compile(r"--revision (\d+)")
+
+
+@dataclass
+class FakeHelm:
+    """A dry-run Helm: `upgrade --install` and `rollback` add revisions; `status`, `history`,
+    `get values` and the pods' imageIDs (`get pods … jsonpath`) answer from them. The digest of an
+    image is the SHA-256 of its name, so the same image always has the same digest."""
+
+    releases: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+    @staticmethod
+    def digest(image: str) -> str:
+        return "sha256:" + hashlib.sha256(image.encode()).hexdigest()
+
+    def answer(self, command: str) -> str | None:
+        if "helm" not in command and "kubectl" not in command:
+            return None
+        if m := _UPGRADE.search(command):
+            name, image = m.group(1), f"{m.group(2)}:{m.group(3)}"
+            self._add(name, image, "Upgrade complete" if name in self.releases else "Install complete")
+            return f"[dry-run] Release {name} has been upgraded."
+        if m := _ROLLBACK.search(command):
+            name, rev = m.group(1), int(m.group(2))
+            old = next((r for r in self.releases.get(name, []) if r["revision"] == rev), None)
+            if old is None:
+                return None
+            self._add(name, old["image"], f"Rollback to {rev}")
+            return "Rollback was a success! Happy Helming!"
+        for name, revs in self.releases.items():
+            if not revs or not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", command):
+                continue
+            latest = revs[-1]
+            if " status " in command and "-o json" in command:
+                return json.dumps({"name": name, "version": latest["revision"], "info": {"status": latest["status"]}})
+            if " history " in command and "-o json" in command:
+                return json.dumps([{k: r[k] for k in ("revision", "status", "description")} for r in revs])
+            if " get values " in command:
+                asked = _REVISION.search(command)
+                row = next((r for r in revs if r["revision"] == int(asked.group(1))), None) if asked else latest
+                if row is None:
+                    return None
+                repo, tag = row["image"].rsplit(":", 1)
+                return json.dumps({"image": {"repository": repo, "tag": tag}})
+            if "get pods" in command and "jsonpath" in command:
+                return f"|docker.io/library/{latest['image']}@{self.digest(latest['image'])} \n"
+        return None
+
+    def _add(self, name: str, image: str, description: str) -> None:
+        revs = self.releases.setdefault(name, [])
+        for r in revs:
+            if r["status"] == "deployed":
+                r["status"] = "superseded"
+        revs.append({"revision": len(revs) + 1, "status": "deployed", "description": description, "image": image})
+
+
 @dataclass
 class FakeExecutor:
     """Dry-run / test executor. Succeeds unless a substring in `fail_on` matches.
@@ -91,6 +152,9 @@ class FakeExecutor:
     scan_outputs: dict[str, str | list[str]] = field(default_factory=lambda: dict(CLEAN_SCANS))
     # what a failing command prints, by its `fail_on` needle (simulates an infra error, ADR-0043)
     fail_with: dict[str, str] = field(default_factory=dict)
+    # Helm's release history and the pods it runs, so dry-run deploys and rollbacks (ADR-0046) see
+    # real revisions, values and digests; `scan_outputs` still answers first
+    helm: FakeHelm = field(default_factory=lambda: FakeHelm())
 
     async def run(
         self,
@@ -112,4 +176,6 @@ class FakeExecutor:
                 if isinstance(output, list):
                     output = output.pop(0) if len(output) > 1 else output[0]
                 return CommandResult(command, 0, output)
+        if (helm := self.helm.answer(command)) is not None:
+            return CommandResult(command, 0, helm)
         return CommandResult(command, 0, f"[dry-run] ok: {command}")

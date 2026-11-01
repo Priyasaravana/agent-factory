@@ -11,15 +11,19 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   a production failure rolls back to the last healthy release (diagnostics first, `helm rollback` to the
   recorded revision, health checked), temporary environments are cleaned up, and the strategy (in place or
   blue/green) is chosen per product. Four slices; roadmap J2.
-- **In review:** `feat/j2-rollback` (one commit on `0c7cd84`): ADR-0046 and slice 1. Engine: `Release`
-  (`Product.release`, `Change.deployed`), pure `rollback.py` (`target`, `helm_revision`, `note`),
-  `DeployProvider.rollback` (local and helm: `helm rollback <slug> <rev> --wait`, then the liveness path),
-  deploy records the Helm revision (`helm status -o json`), handover records the healthy release, the
-  pipeline restores before routing a deploy or acceptance failure (`restore_last_healthy`,
-  `artifacts/<change>/rollbacks.json`), a failed rollback holds as `infra`; rollback events are `warn`
-  (`error` if it failed). Tests: `tests/test_rollback.py`, `tests/test_levels.py`. OpenAPI and
-  `schema.d.ts` regenerated (npm worked in the cloud on 2026-11-01). Products delivered before this have no
-  release on record: their next delivery records one, and only the change after that can roll back.
+- **In review:** PR #131, `feat/j2-rollback`: ADR-0046 and slice 1, with Saravana's review fixes (2026-11-01).
+  Engine: `Release` (`Product.release`, `Change.deployed`: environment, target, cluster, namespace, Helm
+  release, revision, digest); pure `rollback.py` (`target`, `serving_unaccepted`, `record_problems`,
+  `identity_problems`, `history_problems`, `restored_problems`, parsers); `providers/helm_release.py`
+  (`HelmRelease.installed`, `.rollback`: refuse → `helm rollback <rev>` → verify), used by `local` and `helm`
+  (`identity`, `rollback` under `rollback:<env>`); deploy saves its intent first and fails closed without a
+  revision and digest; the pipeline records the release when acceptance passes (`_record_release`), restores
+  before routing a deploy or acceptance failure, and settles production on every stop
+  (`settle_production`; `settle_interrupted` at start-up, before any auto-resume); a restore that is refused or
+  fails verification holds as `infra` and isn't retried unattended. Dry-run: `FakeExecutor.helm` (`FakeHelm`)
+  simulates revisions, history, values and pod digests. Tests: `tests/test_rollback.py` (24),
+  `tests/test_levels.py`. Products delivered before this have no release on record: their next delivery
+  records one, and only the change after that can roll back.
 - **Checks on the branch (cloud, 2026-11-01):** lint, mypy, auth, OpenAPI drift and web build clean; engine
   1037 passed, 5 failed (`test_tools.py` ×4, `test_checks.py::test_snyk_…`). The same 5 fail on clean main in
   this cloud workspace (its scanner tools change what the fakes see), so they aren't the branch's; CI decides.

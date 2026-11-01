@@ -102,11 +102,13 @@ class DeployProvider(Provider, Protocol):
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app
     def public_url(self, ctx: StationContext) -> str: ...  # where a person opens it
-    # data["revision"]: the target's revision of the release it installed, when it has one (ADR-0046)
+    # data["revision"], data["digest"]: what it installed; a deploy that can't tell them fails (ADR-0046)
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult: ...
     async def diagnostics(self, ctx: StationContext) -> str: ...
     async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
-    # restore an earlier release and check it answers its liveness path (ADR-0046)
+    # where this product's releases run: environment, target, cluster, namespace, helm_release (ADR-0046)
+    def identity(self, ctx: StationContext) -> dict[str, str]: ...
+    # restore a recorded release exactly, failing closed, and verify it (ADR-0046)
     async def rollback(self, ctx: StationContext, release: Release) -> StepResult: ...
 
 

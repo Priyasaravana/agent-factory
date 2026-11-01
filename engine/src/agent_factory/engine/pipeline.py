@@ -71,6 +71,8 @@ class RefusedError(FactoryError):
 
 
 # a change in one of these states has stopped: feedback may start the next iteration
+# how a hold says production could not be put back on its last healthy release (ADR-0046)
+RESTORE_FAILED = "production was NOT restored to its last healthy release: production needs a person"
 FEEDBACK_OPEN = {ChangeStatus.awaiting_feedback, ChangeStatus.held, ChangeStatus.failed, ChangeStatus.cancelled}
 
 
@@ -842,6 +844,9 @@ class ChangeManager:
                 change.id, EventKind.status, "engine restarted: change interrupted", station=change.current_station
             )
             touched.append(change.id)
+            product = self.store.get_product(change.product_id)
+            if product and rollback.serving_unaccepted(change, product):
+                continue  # settle_interrupted restores production first, then resumes (ADR-0046)
             if self.cfg.policies.recover.mode == "auto":
                 self.resume(change.id)
         for change in self.store.changes_with_status({ChangeStatus.paused_limits}):
@@ -902,6 +907,8 @@ class ChangeManager:
             assert product is not None
             try:
                 await self._drive(change, product)
+                if change.status != ChangeStatus.awaiting_feedback:
+                    await self.settle_production(change, product)
             except asyncio.CancelledError:
                 cancelled = True  # cancel() already persisted the cancelled status
                 raise
@@ -1003,6 +1010,10 @@ class ChangeManager:
         change = self.store.get_change(change_id)
         product = self.store.get_product(change.product_id) if change else None
         if change and product:
+            try:
+                await self.settle_production(change, product)
+            except Exception as exc:  # noqa: BLE001 - recorded; sealing must still happen
+                self.store.add_event(change.id, EventKind.log, f"production check failed: {type(exc).__name__}: {exc}")
             await self._seal(change, product)
             self._after_stop(change, product)
 
@@ -1172,6 +1183,11 @@ class ChangeManager:
                 data={"outcome": result.outcome},
             )
 
+            if result.outcome == StationOutcome.passed and handler in ("acceptance", "handover"):
+                if unrecorded := self._record_release(change, product, sid):
+                    change.hold_class = "infra"
+                    return self._hold(change, sid, unrecorded)
+
             if result.outcome == StationOutcome.passed:
                 if sid in flow.repair_targets() or station.only_on_fail:
                     change.last_failure = None  # the station that consumed the evidence succeeded
@@ -1232,8 +1248,7 @@ class ChangeManager:
                     return self._hold(
                         change,
                         sid,
-                        f"{result.summary}; rolling production back to iteration {last.iteration} failed: "
-                        "production needs a person",
+                        f"{result.summary}; {RESTORE_FAILED} (iteration {last.iteration})",
                         evidence,
                     )
                 result = replace(result, failure_evidence=evidence)
@@ -1356,6 +1371,114 @@ class ChangeManager:
                 for i in need.items
             )
         return False
+
+    def _record_release(self, change: Change, product: Product, sid: str) -> str | None:
+        """This change's release passed acceptance (or handover, in a lane without acceptance): it is
+        the product's healthy release now, saved at once so no later failure (a merge, a publish, a
+        crash) leaves an accepted release untracked (ADR-0046). Returns why it can't be recorded."""
+        if not rollback.serving_unaccepted(change, product) or change.deployed is None:
+            return None
+        if problems := rollback.record_problems(change.deployed):
+            return f"the release can't be recorded as healthy: {'; '.join(problems)}"
+        product.release = change.deployed
+        self.store.save_product(product)
+        self.store.save_change(change)
+        rel = product.release
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"healthy release recorded: iteration {rel.iteration}, {rel.image}, revision {rel.revision}, {rel.digest}",
+            station=sid,
+            data={"release": rel.model_dump(mode="json")},
+        )
+        return None
+
+    async def settle_production(self, change: Change, product: Product) -> None:
+        """A change stopped short of delivery (held, failed, paused, waiting, cancelled, interrupted)
+        while its own, unaccepted release may be serving: restore the product's last healthy release,
+        diagnostics first (ADR-0046). On success a resume redeploys (the change goes back to its
+        deploy station). If it can't be restored, the change holds as infra: production needs a
+        person. A first delivery has nothing to restore, and says so."""
+        product = self.store.get_product(product.id) or product
+        if not rollback.serving_unaccepted(change, product):
+            return
+        last = product.release
+        if last is None:
+            self.store.add_event(
+                change.id,
+                EventKind.decision,
+                f"production may be serving iteration {change.iteration}'s unaccepted release: there is no "
+                "healthy release on record to restore (a first delivery)",
+                data={"rollback": {"ok": None, "reason": "no healthy release on record"}},
+            )
+            return
+        if self._restore_already_failed(change):
+            return  # a person is already needed; trying again unattended could make it worse
+        flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+        ctx = StationContext(
+            self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, product, change,
+            self.ws.change_dir(change.id), "rollback", flow,
+        )  # fmt: skip
+        ctx.providers = self.providers.for_blueprint(product.blueprint)
+        ctx.secrets = self.secrets
+        if last.environment != ctx.providers.environment:
+            ok, note = False, f"the healthy release runs in '{last.environment}', not '{ctx.providers.environment}'"
+        else:
+            ok, note = await restore_last_healthy(ctx, last, diagnose=True)
+        if ok:
+            deploy_station = next((st.id for st in flow.stations if st.resolved_handler() == "deploy"), None)
+            if deploy_station and change.status not in TERMINAL:
+                change.current_station = deploy_station  # resume redeploys: production has the old release
+            self.store.add_event(
+                change.id,
+                EventKind.status,
+                f"production restored to iteration {last.iteration} after the change stopped"
+                + (
+                    f"; resume redeploys from {deploy_station}"
+                    if deploy_station and change.status not in TERMINAL
+                    else ""
+                ),
+                data={"rollback": {"ok": True, "to": last.model_dump(mode="json")}},
+            )
+        else:
+            change.hold_class = "infra"
+            if change.status not in (ChangeStatus.cancelled, ChangeStatus.failed):
+                change.status = ChangeStatus.held
+            change.summary = f"{change.summary or 'stopped'}; {RESTORE_FAILED} (iteration {last.iteration})"
+            change.last_failure = (change.last_failure or "") + note
+            self.store.add_event(
+                change.id, EventKind.status, change.summary, data={"evidence": note[-3000:], "rollback": {"ok": False}}
+            )
+        self.store.save_change(change)
+        self._sync_product(change)
+
+    def _restore_already_failed(self, change: Change) -> bool:
+        """The last restore attempt for this change failed: a person must look before another."""
+        import json
+
+        file = self.ws.data_dir / "artifacts" / change.id / "rollbacks.json"
+        try:
+            entries = json.loads(file.read_text()) if file.is_file() else []
+        except json.JSONDecodeError:
+            return False
+        return bool(entries) and isinstance(entries, list) and entries[-1].get("ok") is False
+
+    async def settle_interrupted(self, change_ids: list[str]) -> None:
+        """After a restart (`recover_on_startup`): changes interrupted while their unaccepted release
+        may serve get production restored first, then resume if the recover policy is auto."""
+        for change_id in change_ids:
+            change = self.store.get_change(change_id)
+            product = self.store.get_product(change.product_id) if change else None
+            if not change or not product or not rollback.serving_unaccepted(change, product):
+                continue
+            try:
+                await self.settle_production(change, product)
+            except Exception as exc:  # noqa: BLE001 - recorded; the change stays interrupted for a person
+                self.store.add_event(change.id, EventKind.log, f"production check failed: {type(exc).__name__}: {exc}")
+                continue
+            change = self._get(change_id)
+            if self.cfg.policies.recover.mode == "auto" and change.status == ChangeStatus.interrupted:
+                self.resume(change_id)
 
     def _hold_stop(self, change: Change, sid: str, stop: Stop, result: StationResult) -> None:
         self.store.add_event(

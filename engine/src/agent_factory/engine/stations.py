@@ -1559,17 +1559,38 @@ def internal_url(ctx: StationContext) -> str:
 async def deploy(ctx: StationContext) -> StationResult:
     p = ctx.providers
     ref = p.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
+    # the intent first, saved before the cluster is touched (ADR-0046): whatever happens next (a
+    # failure, a hold, a crash), the engine knows this change may have replaced production
+    ident = p.deploy.identity(ctx)
+    ctx.change.deployed = Release(
+        change_id=ctx.change.id,
+        iteration=ctx.change.iteration,
+        image=str(ref),
+        environment=ident["environment"],
+        target=ident["target"],
+        cluster=ident["cluster"],
+        namespace=ident["namespace"],
+        helm_release=ident["helm_release"],
+        at=datetime.now(UTC),
+    )
+    ctx.store.save_change(ctx.change)
     res = await p.deploy.deploy(ctx, ref)
     if res.ok:
-        revision = res.data.get("revision")
-        ctx.change.deployed = Release(
-            change_id=ctx.change.id,
-            iteration=ctx.change.iteration,
-            image=str(ref),
-            environment=p.environment,
-            revision=revision if isinstance(revision, int) else None,
-            at=datetime.now(UTC),
+        revision, digest = res.data.get("revision"), res.data.get("digest")
+        ctx.change.deployed = ctx.change.deployed.model_copy(
+            update={
+                "revision": revision if isinstance(revision, int) else None,
+                "digest": digest if isinstance(digest, str) else None,
+            }
         )
+        if problems := rollback.record_problems(ctx.change.deployed):
+            # fail closed: a release that can't be identified could never be restored; no repair
+            # agent can fix that, so a person looks (the pipeline restores production first)
+            seen = res.data.get("unidentified")
+            why = f"deployed, but the release can't be recorded: {'; '.join(problems)}" + (f" ({seen})" if seen else "")
+            ctx.stop = Stop(FailureClass.infra, why, rule="release_unidentified")
+            return StationResult(StationOutcome.failed, why)
+        ctx.store.save_change(ctx.change)
         return StationResult(StationOutcome.passed, res.summary)
     # diagnostics before anything else: a rollback (ADR-0046) would replace the failing pods
     diag = await p.deploy.diagnostics(ctx)
@@ -1577,15 +1598,18 @@ async def deploy(ctx: StationContext) -> StationResult:
 
 
 async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnose: bool) -> tuple[bool, str]:
-    """Put the product's last healthy release back after a failure (ADR-0046 slice 1): diagnostics
-    first when the failed station didn't collect them, then the provider's rollback, which checks the
-    restored release answers. Recorded in `artifacts/<change>/rollbacks.json` and the event log.
-    Returns (ok, the note for the repair station's evidence)."""
+    """Put the product's last healthy release back (ADR-0046 slice 1): diagnostics first when nothing
+    collected them yet, then the provider's rollback, which refuses an incomplete or mismatched
+    record, rolls back to the recorded revision exactly and verifies the result. Recorded in
+    `artifacts/<change>/rollbacks.json` and the event log. Returns (ok, the note for the evidence)."""
     deploy_p = ctx.providers.deploy
     diag = await deploy_p.diagnostics(ctx) if diagnose else ""
+    # the restore is the engine's action, not the failed station's: it runs under `rollback:<env>`
+    # only (ADR-0039 §4), whatever the station was granted
+    ctx = replace(ctx, grant=frozenset({f"rollback:{ctx.providers.environment}"}))
     await ctx.emit(
         EventKind.decision,
-        f"rolling production back to iteration {release.iteration} ({release.image})",
+        f"rolling production back to iteration {release.iteration} ({release.image}, revision {release.revision})",
         {"rollback": {"to": release.model_dump(mode="json"), "station": ctx.station_id}},
     )
     res = await deploy_p.rollback(ctx, release)
@@ -1597,6 +1621,8 @@ async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnos
         "to": release.model_dump(mode="json"),
         "ok": res.ok,
         "summary": res.summary,
+        "refused": res.data.get("refused", []),
+        "verify": res.data.get("verify", []),
     }
     out = artifacts_dir(ctx)
     out.mkdir(parents=True, exist_ok=True)
@@ -1608,11 +1634,12 @@ async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnos
     file.write_text(json.dumps([*(earlier if isinstance(earlier, list) else []), entry], indent=2))
     await ctx.emit(
         EventKind.decision,
-        f"production {'rolled back' if res.ok else 'rollback FAILED'}: {res.summary}",
+        f"production {'rolled back' if res.ok else 'NOT restored'}: {res.summary}",
         {"rollback": {"ok": res.ok, "to": release.model_dump(mode="json")}},
     )
     if res.ok:
         ctx.change.deployed = None
+        ctx.store.save_change(ctx.change)
     note = rollback.note(release, res.ok, res.summary)
     if diag:
         note += f"\n--- diagnostics before the rollback ---\n{diag}"
@@ -1912,10 +1939,6 @@ async def handover(ctx: StationContext) -> StationResult:
         notes.append(res.summary)
 
     ctx.product.app_url = ctx.providers.deploy.public_url(ctx)
-    if ctx.change.deployed is not None:  # this change's release passed acceptance: the healthy one now (ADR-0046)
-        ctx.product.release = ctx.change.deployed
-        rev = f", revision {ctx.change.deployed.revision}" if ctx.change.deployed.revision else ""
-        notes.append(f"release recorded (iteration {ctx.change.iteration}{rev})")
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.product.app_url}")
 
 

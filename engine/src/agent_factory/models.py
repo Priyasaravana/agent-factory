@@ -111,9 +111,16 @@ class Release(BaseModel):
 
     change_id: str
     iteration: int
-    image: str
+    image: str  # repository:tag the factory deployed
     environment: str  # the delivery environment it runs in (ProviderSet.environment)
+    # where it runs, checked before a rollback acts on it: the deploy integration, its cluster
+    # (kube context or kind cluster), the namespace and the Helm release
+    target: str = ""
+    cluster: str = ""
+    namespace: str = ""
+    helm_release: str = ""
     revision: int | None = None  # the deploy target's revision (Helm: the release's version)
+    digest: str | None = None  # sha256 digest every running container reported (immutable)
     at: datetime
 
 
@@ -175,8 +182,9 @@ class Change(BaseModel):
     # starts after the phases that would make them; schema-checked and sealed like any artifact
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
-    # what this change's deploy put on the target and is serving now (ADR-0046); cleared when a
-    # rollback restores the product's last healthy release
+    # what this change's deploy puts on the target (ADR-0046): written before the cluster is touched
+    # (revision and digest unknown yet), completed when the deploy passes; cleared when a rollback
+    # restores the product's last healthy release
     deployed: Release | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)

@@ -8885,6 +8885,26 @@
             "type": "string",
             "title": "Environment"
           },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": ""
+          },
+          "cluster": {
+            "type": "string",
+            "title": "Cluster",
+            "default": ""
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace",
+            "default": ""
+          },
+          "helm_release": {
+            "type": "string",
+            "title": "Helm Release",
+            "default": ""
+          },
           "revision": {
             "anyOf": [
               {
@@ -8895,6 +8915,17 @@
               }
             ],
             "title": "Revision"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
           },
           "at": {
             "type": "string",

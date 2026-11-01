@@ -213,10 +213,13 @@ per-pack evaluation is in the backlog.
 - **Validate, promote, roll back** (decided by Saravana 2026-11-01, replaces "rollback with `--atomic`";
   [ADR-0046](../adr/0046-validate-promote-rollback.md), proposed): production is never where a change is
   developed, debugged or repaired. Four slices (~6 days):
-  1. 🔄 **Last healthy release and rollback** (~1 day, branch `feat/j2-rollback`): the release is recorded at
-     delivery (`Product.release`, Helm revision); a deploy, smoke or live-acceptance failure with a healthy
-     release on record → diagnostics first → `helm rollback` to it → its health checked → repair as before.
-     A rollback that fails holds as `infra`. No `--atomic` (it removes the pods before the logs are kept).
+  1. 🔄 **Last healthy release and rollback** (~1.5 days, PR #131, `feat/j2-rollback`): deploy saves its
+     intent before touching the cluster, then the Helm revision and the running image digest; the release
+     is recorded and saved when acceptance passes. A deploy or acceptance failure, and any stop short of
+     delivery (hold, cancel, restart), restores it: diagnostics first, then, fail closed, `helm rollback` to
+     the recorded revision only if the record is complete, names this cluster, namespace and release, and
+     the revision is in the history with the recorded image; then history, image, rollout, digest, liveness
+     and readiness verified. Anything short of that holds as `infra` for a person. No `--atomic`.
   2. **Temporary validation environment** (~2 days): each change deploys to its own release and namespace
      (`<slug>-c<id>`, own ingress host, empty data); live e2e, verifier and repair run there; removed when the
      change stops and on archive, with a start-up sweep. The `local` NodePort provider validates in place.

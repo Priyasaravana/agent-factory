@@ -1,10 +1,19 @@
-"""Rollback to the last healthy release (ADR-0046 slice 1): the pure rules, and the pipeline in
-dry-run (fake commands and agents, real git): a delivery records the release; a later change that
-fails at deploy or live acceptance restores it, diagnostics first, before repair; a rollback that
-fails holds the change for a person."""
+"""Rollback to the last healthy release (ADR-0046 slice 1).
+
+The pure rules, then the pipeline in dry-run (fake agents, real git, and the executor's simulated
+Helm: revisions, history, values and pod digests). Every failure scenario fails closed:
+
+- a record missing its revision, or naming a revision, image or place Helm doesn't have → refused,
+  no `helm rollback` runs, the change holds for a person;
+- a rollback whose restored release fails verification (history, digest, readiness) → held;
+- a deploy that can't identify what it installed → held, nothing recorded;
+- a change interrupted after deploy (a crash, a hold, a cancel) → production restored on stop;
+- a failure after acceptance (handover) → the accepted release is already recorded, not rolled back.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -12,17 +21,25 @@ from conftest import PRODUCT, wait_run
 
 from agent_factory import rollback
 from agent_factory.agents import FakeAgentRunner
-from agent_factory.executor import CLEAN_SCANS, FakeExecutor
+from agent_factory.engine import stations as stations_mod
+from agent_factory.engine.stations import StationOutcome, StationResult
+from agent_factory.executor import CLEAN_SCANS, FakeExecutor, FakeHelm
 from agent_factory.models import Change, ChangeStatus, EventKind, Product, Release
 
 NOW = datetime(2026, 11, 1, tzinfo=UTC)
-STATUS = {"helm status": '{"name": "bookmarks-service", "version": 3, "info": {"status": "deployed"}}'}
+D1 = "sha256:" + "a" * 64
+WHERE = {
+    "environment": "local",
+    "target": "local",
+    "cluster": "kind:af",
+    "namespace": "app-app",
+    "helm_release": "app",
+}
 
 
-def _release(change_id: str = "c1", iteration: int = 1, env: str = "local", revision: int | None = 3) -> Release:
-    return Release(
-        change_id=change_id, iteration=iteration, image=f"app:{iteration}", environment=env, revision=revision, at=NOW
-    )
+def _release(change_id: str = "c1", iteration: int = 1, **kw) -> Release:
+    fields = {**WHERE, "revision": 3, "digest": D1, "image": f"app:{iteration}", **kw}
+    return Release(change_id=change_id, iteration=iteration, at=NOW, **fields)
 
 
 def _product(release: Release | None) -> Product:
@@ -42,7 +59,7 @@ def test_deploy_failure_restores_the_last_healthy_release():
     assert rollback.target("deploy", _change(), _product(last), "local") == last
 
 
-def test_acceptance_failure_restores_only_when_this_change_is_serving():
+def test_acceptance_failure_restores_only_while_this_change_is_serving():
     last = _release()
     serving = _release("c2", 2, revision=4)
     assert rollback.target("acceptance", _change(deployed=serving), _product(last), "local") == last
@@ -51,7 +68,7 @@ def test_acceptance_failure_restores_only_when_this_change_is_serving():
 
 def test_nothing_to_restore_without_a_healthy_release_or_elsewhere():
     assert rollback.target("deploy", _change(), _product(None), "local") is None, "first delivery"
-    assert rollback.target("deploy", _change(), _product(_release(env="prod")), "local") is None
+    assert rollback.target("deploy", _change(), _product(_release(environment="prod")), "local") is None
     assert rollback.target("deploy", _change(change_id="c1"), _product(_release()), "local") is None
 
 
@@ -60,29 +77,81 @@ def test_other_stations_never_roll_back():
         assert rollback.target(handler, _change(), _product(_release()), "local") is None
 
 
-def test_helm_revision_reads_the_release_version():
-    assert rollback.helm_revision(STATUS["helm status"]) == 3
+def test_an_incomplete_record_is_refused_never_guessed():
+    assert rollback.record_problems(_release()) == []
+    assert rollback.record_problems(_release(revision=None)) == ["no Helm revision recorded"]
+    assert rollback.record_problems(_release(revision=0)) == ["no Helm revision recorded"]
+    assert rollback.record_problems(_release(digest=None)) == ["no image digest recorded"]
+    assert rollback.record_problems(_release(digest="sha256:abc")) == ["no image digest recorded"]
+    assert rollback.record_problems(_release(namespace="", cluster="")) == ["no cluster, namespace recorded"]
+
+
+def test_a_record_for_another_place_is_refused():
+    assert rollback.identity_problems(_release(), WHERE) == []
+    moved = {**WHERE, "cluster": "kind:other", "namespace": "app-x"}
+    problems = rollback.identity_problems(_release(), moved)
+    assert problems == [
+        "recorded cluster 'kind:af' is not the current 'kind:other'",
+        "recorded namespace 'app-app' is not the current 'app-x'",
+    ]
+
+
+def test_the_revision_must_be_in_the_history_with_the_recorded_image():
+    rows = [
+        {"revision": 2, "status": "superseded", "description": "Install complete"},
+        {"revision": 3, "status": "superseded", "description": "Upgrade complete"},
+        {"revision": 4, "status": "failed", "description": "Upgrade failed"},
+    ]
+    assert rollback.history_problems(_release(), rows, "app:1") == []
+    assert rollback.history_problems(_release(revision=9), rows, None) == [
+        "revision 9 is not in the release history of app"
+    ]
+    assert rollback.history_problems(_release(revision=4), rows, "app:1") == [
+        "revision 4 is 'failed', not a release that ran"
+    ]
+    assert rollback.history_problems(_release(), rows, "app:2") == ["revision 3 runs app:2, not app:1"]
+
+
+def test_a_restored_release_must_be_the_rollback_running_the_recorded_digest():
+    latest = {"revision": 5, "status": "deployed", "description": "Rollback to 3"}
+    pods = f"|docker.io/library/app@{D1} \n2026-11-01T09:00:00Z|docker.io/library/app@sha256:{'b' * 64} \n"
+    assert rollback.restored_problems(_release(), latest, "app:1", pods) == [], "a terminating pod doesn't count"
+    wrong = {"revision": 5, "status": "deployed", "description": "Upgrade complete"}
+    assert rollback.restored_problems(_release(), wrong, "app:1", pods) == [
+        "the newest revision 5 is 'Upgrade complete', not 'Rollback to 3'"
+    ]
+    other = f"|app@sha256:{'c' * 64} \n"
+    assert rollback.restored_problems(_release(), latest, "app:1", other) == [
+        f"running pods use sha256:{'c' * 64}, not the recorded {D1}"
+    ]
+    assert rollback.restored_problems(_release(), latest, "app:2", "") == [
+        "the release now runs app:2, not app:1",
+        "no running pods of the release",
+    ]
+
+
+def test_parsers_read_helm_and_kubectl_output():
     assert rollback.helm_revision('WARNING: kubeconfig is group-readable\n{"version": 7}') == 7
     for text in ("", "[dry-run] ok: helm status", '{"version": "3"}', '{"version": 0}', "[1, 2]"):
         assert rollback.helm_revision(text) is None, text
+    assert rollback.values_image('{"image": {"repository": "app", "tag": "abc"}}') == "app:abc"
+    assert rollback.values_image('{"image": {"repository": "app"}}') is None
+    assert rollback.normalize_digest(f"docker.io/library/app@{D1}") == D1
+    assert rollback.one_digest("|app:1 \n") == (None, "a running container reports no image digest")
 
 
 def test_the_note_is_stable_for_the_no_progress_stop():
     assert rollback.note(_release(), True, "a") == rollback.note(_release(), True, "b")
     assert "iteration 1" in rollback.note(_release(), True, "") and "revision 3" in rollback.note(_release(), True, "")
-    assert "failed: helm rollback failed" in rollback.note(_release(), False, "helm rollback failed")
+    assert "NOT rolled back" in rollback.note(_release(), False, "refused")
 
 
 # ------------------------------------------------------------ pipeline --
-def _ex(**kw) -> FakeExecutor:
-    return FakeExecutor(scan_outputs={**CLEAN_SCANS, **STATUS}, **kw)
-
-
-async def _delivered(f) -> tuple[Product, Change]:
+async def _delivered(f) -> Product:
     product = f.manager.create_product(PRODUCT)
     first = f.manager.start_change(product)
     assert await wait_run(f, first.id) == ChangeStatus.awaiting_feedback
-    return f.store.get_product(product.id), f.store.get_change(first.id)
+    return f.store.get_product(product.id)
 
 
 def _rollbacks(f, change_id: str) -> list[dict]:
@@ -90,43 +159,58 @@ def _rollbacks(f, change_id: str) -> list[dict]:
     return json.loads(file.read_text()) if file.is_file() else []
 
 
-async def test_a_delivery_records_the_healthy_release(make_factory):
-    ex = _ex()
-    f = make_factory(ex)
-    product, first = await _delivered(f)
-    assert product.release is not None
-    assert (product.release.change_id, product.release.iteration, product.release.revision) == (first.id, 1, 3)
-    assert product.release.image.startswith("bookmarks-service:")
-    assert not any("helm rollback" in c for c in ex.calls), "the first delivery has nothing to restore"
+def _rollback_cmds(ex: FakeExecutor) -> list[str]:
+    return [c for c in ex.calls if " rollback " in c]
 
 
-async def test_a_failed_deploy_rolls_back_after_diagnostics_then_repairs(make_factory):
-    ex = _ex()
+def _set_release(f, product: Product, **update) -> Release:
+    product.release = product.release.model_copy(update=update)
+    f.store.save_product(product)
+    return product.release
+
+
+async def test_a_delivery_records_a_complete_release(make_factory):
+    ex = FakeExecutor()
     f = make_factory(ex)
-    product, _ = await _delivered(f)
+    product = await _delivered(f)
+    rel = product.release
+    assert rel is not None and rollback.record_problems(rel) == []
+    assert (rel.iteration, rel.revision, rel.helm_release, rel.namespace) == (1, 1, product.slug, f"app-{product.slug}")
+    assert rel.digest == FakeHelm.digest(rel.image) and rel.cluster.startswith("kind:")
+    assert not _rollback_cmds(ex), "the first delivery has nothing to restore"
+
+
+async def test_a_failed_deploy_rolls_back_to_the_recorded_revision_after_diagnostics(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
     healthy = product.release
     ex.fail_on.append("helm upgrade")
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
 
-    rb = next(i for i, c in enumerate(ex.calls) if "helm rollback" in c)
-    assert f"helm rollback bookmarks-service {healthy.revision} " in ex.calls[rb]
-    diag = max(i for i, c in enumerate(ex.calls[:rb]) if "describe pods" in c)
+    [cmd] = _rollback_cmds(ex)
+    assert f"rollback {product.slug} {healthy.revision} " in cmd, "the recorded revision, never 'the previous'"
+    rb = ex.calls.index(cmd)
     upgrade = max(i for i, c in enumerate(ex.calls[:rb]) if "helm upgrade" in c)
+    diag = max(i for i, c in enumerate(ex.calls[:rb]) if "describe pods" in c)
     assert upgrade < diag < rb, "diagnostics are collected after the failed upgrade, before the rollback"
+    after = ex.calls[rb:]
+    assert any("rollout status" in c for c in after), "the rollout is verified"
+    assert any(healthy and "/readyz" in c for c in after) and any("/healthz" in c for c in after)
 
     [entry] = _rollbacks(f, second.id)
-    assert entry["ok"] and entry["station"] == "deploy" and entry["to"]["change_id"] == healthy.change_id
+    assert entry["ok"] and entry["station"] == "deploy" and entry["to"]["revision"] == healthy.revision
     repair = next(e for e in f.store.list_events(second.id) if e.data.get("routed"))
     assert "Production was rolled back to iteration 1" in repair.data["routed"]["evidence"]
     assert f.store.get_product(product.id).release.change_id == second.id, "the repaired iteration is healthy now"
 
 
 async def test_a_failed_live_acceptance_rolls_back_with_diagnostics(make_factory):
-    ex = _ex()
+    ex = FakeExecutor()
     agents = FakeAgentRunner()
     f = make_factory(ex, agents)
-    product, _ = await _delivered(f)
+    product = await _delivered(f)
     agents.fail_once.append("verifier")
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
@@ -134,24 +218,193 @@ async def test_a_failed_live_acceptance_rolls_back_with_diagnostics(make_factory
     [entry] = _rollbacks(f, second.id)
     assert entry["ok"] and entry["station"] == "acceptance"
     assert entry["replaced"]["change_id"] == second.id, "it replaced this change's own release"
-    rb = next(i for i, c in enumerate(ex.calls) if "helm rollback" in c)
+    rb = ex.calls.index(_rollback_cmds(ex)[0])
     assert any("describe pods" in c for c in ex.calls[rb - 3 : rb]), "acceptance collects diagnostics first"
     levels = [e.level for e in f.store.list_events(second.id) if e.data.get("rollback")]
     assert levels and set(levels) == {"warn"}
 
 
-async def test_a_failed_rollback_holds_for_a_person(make_factory):
-    ex = _ex()
+async def _held_without_rollback(f, ex, product) -> Change:
+    ex.fail_on.append("helm upgrade")
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.held
+    held = f.store.get_change(second.id)
+    assert held.hold_class == "infra" and "production needs a person" in held.summary
+    assert not _rollback_cmds(ex), "nothing is rolled back on a record that can't be trusted"
+    started = [e.station for e in f.store.list_events(second.id) if e.kind == EventKind.station_started]
+    assert "deploy-repair" not in started
+    return held
+
+
+async def test_a_missing_revision_fails_closed(make_factory):
+    ex = FakeExecutor()
     f = make_factory(ex)
-    product, _ = await _delivered(f)
-    ex.fail_on += ["helm upgrade", "helm rollback"]
+    product = await _delivered(f)
+    _set_release(f, product, revision=None)
+    held = await _held_without_rollback(f, ex, product)
+    [entry] = _rollbacks(f, held.id)
+    assert entry["refused"] == ["no Helm revision recorded"]
+
+
+async def test_a_revision_not_in_the_history_fails_closed(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    _set_release(f, product, revision=42)
+    held = await _held_without_rollback(f, ex, product)
+    assert _rollbacks(f, held.id)[0]["refused"] == [f"revision 42 is not in the release history of {product.slug}"]
+
+
+async def test_a_revision_running_another_image_fails_closed(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    rel = _set_release(f, product, image=f"{product.slug}:not-what-ran")
+    held = await _held_without_rollback(f, ex, product)
+    [why] = _rollbacks(f, held.id)[0]["refused"]
+    assert why.startswith(f"revision {rel.revision} runs {product.slug}:") and why.endswith(f"not {rel.image}")
+
+
+async def test_a_record_for_another_namespace_fails_closed(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    _set_release(f, product, namespace="app-somewhere-else")
+    held = await _held_without_rollback(f, ex, product)
+    assert "recorded namespace 'app-somewhere-else'" in _rollbacks(f, held.id)[0]["refused"][0]
+
+
+async def test_a_restored_release_that_fails_verification_holds(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    ex.fail_on.append("helm upgrade")
+    ex.scan_outputs["jsonpath"] = f"|docker.io/library/x@sha256:{'e' * 64} \n"  # pods run something else
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.held
 
+    assert len(_rollback_cmds(ex)) == 1, "rolled back once, then a person is needed"
+    [entry] = _rollbacks(f, second.id)
+    assert not entry["ok"] and entry["verify"] == [
+        f"running pods use sha256:{'e' * 64}, not the recorded {product.release.digest}"
+    ]
     held = f.store.get_change(second.id)
     assert held.hold_class == "infra" and "production needs a person" in held.summary
-    started = [e.station for e in f.store.list_events(second.id) if e.kind == EventKind.station_started]
-    assert "deploy-repair" not in started
+    errors = [e for e in f.store.list_events(second.id) if e.data.get("rollback", {}).get("ok") is False]
+    assert errors and errors[0].level == "error"
+
+
+async def test_a_restored_release_that_is_not_ready_holds(make_factory):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    ex.fail_on += ["helm upgrade", "/readyz"]
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.held
     [entry] = _rollbacks(f, second.id)
-    assert not entry["ok"]
-    assert f.store.get_product(product.id).release == product.release, "the record still names the healthy release"
+    assert not entry["ok"] and entry["verify"][0].startswith("/readyz did not answer")
+
+
+async def test_a_deploy_that_cannot_identify_its_release_records_nothing(make_factory):
+    ex = FakeExecutor(scan_outputs={**CLEAN_SCANS, "helm status": "Error: release: not found"})
+    f = make_factory(ex)
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.held
+    held = f.store.get_change(change.id)
+    assert held.hold_class == "infra" and "can't be recorded" in held.summary
+    assert f.store.get_product(product.id).release is None
+    assert any("no healthy release on record" in e.message for e in f.store.list_events(change.id))
+
+
+async def test_an_interrupted_handover_keeps_the_accepted_release_recorded(make_factory, monkeypatch):
+    """The release is recorded and saved when acceptance passes, so a handover that fails (a merge, a
+    publish) can't leave an untracked release serving, and it isn't rolled back: it was accepted."""
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+
+    async def handover_held(ctx):
+        return StationResult(StationOutcome.held, "push to GitHub failed")
+
+    monkeypatch.setitem(stations_mod.STATIONS, "handover", handover_held)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.held
+    rel = f.store.get_product(product.id).release
+    assert rel.change_id == second.id and rel.iteration == 2 and rollback.record_problems(rel) == []
+    assert not _rollback_cmds(ex) and not _rollbacks(f, second.id)
+
+
+async def test_a_hold_after_deploy_restores_production_then_resume_redeploys(make_factory, monkeypatch):
+    """Held at acceptance by an infra stop (no repair route runs): the stop restores production, and a
+    resume starts again from deploy, since production no longer runs this change's release."""
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    healthy = product.release
+    real = stations_mod.STATIONS["acceptance"]
+
+    async def unreachable(ctx):
+        ctx.stop = stations_mod.Stop(stations_mod.FailureClass.infra, "target unreachable", rule="target_probe")
+        return StationResult(StationOutcome.failed, "target probe failed")
+
+    monkeypatch.setitem(stations_mod.STATIONS, "acceptance", unreachable)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.held
+    [cmd] = _rollback_cmds(ex)
+    assert f"rollback {product.slug} {healthy.revision} " in cmd
+    held = f.store.get_change(second.id)
+    assert held.deployed is None and held.current_station == "deploy"
+    assert f.store.get_product(product.id).release == healthy
+
+    monkeypatch.setitem(stations_mod.STATIONS, "acceptance", real)
+    f.manager.resume(second.id)
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_product(product.id).release.change_id == second.id
+
+
+async def test_a_crash_after_deploy_restores_production_on_restart(make_factory, monkeypatch):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    healthy = product.release
+    gate = asyncio.Event()
+
+    async def stuck(ctx):
+        gate.set()
+        await asyncio.sleep(3600)
+
+    monkeypatch.setitem(stations_mod.STATIONS, "acceptance", stuck)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    await asyncio.wait_for(gate.wait(), 30)
+    await f.manager.shutdown()  # the engine stops mid-acceptance: this change's release is serving
+    assert f.store.get_change(second.id).deployed.change_id == second.id, "the intent survived the crash"
+    assert not _rollback_cmds(ex)
+
+    interrupted = f.manager.recover_on_startup()
+    assert second.id in interrupted
+    await f.manager.settle_interrupted(interrupted)
+    [cmd] = _rollback_cmds(ex)
+    assert f"rollback {product.slug} {healthy.revision} " in cmd
+    after = f.store.get_change(second.id)
+    assert after.status == ChangeStatus.interrupted and after.deployed is None and after.current_station == "deploy"
+    assert _rollbacks(f, second.id)[0]["ok"]
+
+
+async def test_a_cancelled_change_puts_production_back(make_factory, monkeypatch):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    gate = asyncio.Event()
+
+    async def stuck(ctx):
+        gate.set()
+        await asyncio.sleep(3600)
+
+    monkeypatch.setitem(stations_mod.STATIONS, "acceptance", stuck)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    await asyncio.wait_for(gate.wait(), 30)
+    f.manager.cancel(second.id)
+    await asyncio.wait_for(f.manager._tasks[second.id], 30)
+    assert _rollbacks(f, second.id)[0]["ok"]
+    assert f.store.get_product(product.id).release == product.release

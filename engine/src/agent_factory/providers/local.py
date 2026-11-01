@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
-from agent_factory.rollback import helm_revision
+from agent_factory.providers.helm_release import HelmRelease
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
@@ -118,6 +118,23 @@ class LocalProvider:
     def public_url(self, ctx: StationContext) -> str:
         return f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}"
 
+    def identity(self, ctx: StationContext) -> dict[str, str]:
+        """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a
+        rollback acts on it."""
+        return {
+            "environment": ctx.providers.environment,
+            "target": self.name,
+            "cluster": f"kind:{ctx.settings.cluster_name}",
+            "namespace": namespace(ctx.product),
+            "helm_release": ctx.product.slug,
+        }
+
+    def _release(self, ctx: StationContext) -> HelmRelease:
+        async def run(cmd: str, timeout: float) -> CommandResult:
+            return await ctx.cmd(cmd, timeout=timeout)
+
+        return HelmRelease(run, "helm", "kubectl", ctx.product.slug, namespace(ctx.product))
+
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult:
         ns, slug = namespace(ctx.product), ctx.product.slug
         helm = (
@@ -126,40 +143,35 @@ class LocalProvider:
             f"--set service.nodePort={ctx.product.node_port} --wait --timeout 5m"
         )
         res = await ctx.cmd(helm, timeout=420)
-        if res.ok:
-            smoke = await self._smoke(ctx)
-            if smoke.ok:
-                status = await ctx.cmd(f"helm status {slug} --namespace {ns} -o json", timeout=60, record=False)
-                return StepResult(
-                    True,
-                    f"deployed {image} to {ns}; {ctx.blueprint.health_path.lstrip('/')} ok",
-                    data={"revision": helm_revision(status.output) if status.ok else None},
-                )
-            res = smoke
-        return StepResult(False, "deployment failed", res.output[-2500:])
+        if not res.ok:
+            return StepResult(False, "deployment failed", res.output[-2500:])
+        smoke = await self._probe(ctx, ctx.blueprint.health_path)
+        if not smoke.ok:
+            return StepResult(False, "deployment failed", smoke.output[-2500:])
+        revision, digest, why = await self._release(ctx).installed()
+        # what it installed, as far as the cluster says; the deploy station refuses to record an
+        # incomplete release (fail closed, ADR-0046), so `why` travels with it
+        return StepResult(
+            True,
+            f"deployed {image} to {ns} (revision {revision}, {digest}); {ctx.blueprint.health_path.lstrip('/')} ok",
+            data={"revision": revision, "digest": digest, "unidentified": why},
+        )
 
-    async def _smoke(self, ctx: StationContext) -> CommandResult:
-        live = f"{self.internal_url(ctx)}{ctx.blueprint.health_path}"  # the pack's liveness path
+    async def _probe(self, ctx: StationContext, path: str) -> CommandResult:
+        url = f"{self.internal_url(ctx)}{path}"
         return await ctx.cmd(
-            f"for i in $(seq 1 30); do curl -fsS {live} && exit 0; sleep 2; done; exit 1",
+            f"for i in $(seq 1 30); do curl -fsS {url} && exit 0; sleep 2; done; exit 1",
             timeout=90,
         )
 
     async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
-        """`helm rollback` to the recorded revision (the previous one if none was recorded), then the
-        liveness path must answer (ADR-0046)."""
-        ns, slug = namespace(ctx.product), ctx.product.slug
-        rev = f" {release.revision}" if release.revision else ""
-        cmd = f"helm rollback {slug}{rev} --namespace {ns} --wait --timeout 5m"
-        res = await ctx.cmd(cmd, timeout=420)
-        if not res.ok:
-            return StepResult(False, "helm rollback failed", failed_detail(cmd, res))
-        smoke = await self._smoke(ctx)
-        if not smoke.ok:
-            return StepResult(
-                False, f"rolled back, but {ctx.blueprint.health_path} did not answer", smoke.output[-2500:]
-            )
-        return StepResult(True, f"rolled back {slug} to {release.image}; {ctx.blueprint.health_path} ok")
+        """Restore `release` exactly, fail closed, and verify it (ADR-0046; `HelmRelease.rollback`)."""
+
+        async def probe(path: str) -> CommandResult:
+            return await self._probe(ctx, path)
+
+        paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
+        return await self._release(ctx).rollback(release, self.identity(ctx), probe, paths)
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

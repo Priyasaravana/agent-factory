@@ -3615,8 +3615,30 @@ export interface components {
             image: string;
             /** Environment */
             environment: string;
+            /**
+             * Target
+             * @default
+             */
+            target: string;
+            /**
+             * Cluster
+             * @default
+             */
+            cluster: string;
+            /**
+             * Namespace
+             * @default
+             */
+            namespace: string;
+            /**
+             * Helm Release
+             * @default
+             */
+            helm_release: string;
             /** Revision */
             revision?: number | null;
+            /** Digest */
+            digest?: string | null;
             /**
              * At
              * Format: date-time
