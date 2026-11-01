@@ -458,6 +458,17 @@ STATION_TYPES: dict[str, StationType] = {
             None,
             uses=["read-repo", "run-sandbox"],
         ),
+        # the tested image to production (ADR-0046 slice 3): deploys over production, runs the pack's
+        # e2e in the sandbox; a failure is rolled back by the engine under its own rollback grant
+        _t(
+            "promote",
+            "deliver",
+            ["image@1", "report.acceptance@1"],
+            ["url@1"],
+            "promote",
+            None,
+            uses=["read-repo", "run-sandbox", "deploy:*", "promote"],
+        ),
         _t("handover", "deliver", ["branch@1"], ["pr@1"], "handover", "pull-request", uses=["read-repo", "open-pr"]),
     ]
 }

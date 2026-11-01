@@ -80,7 +80,12 @@
   the Level), and their egress reaches only that product's sandboxes (`StationContext.pack_egress`).
   Tests in `tests/test_team_repo_packs.py`.
 - Every delivery provider implements `check()` (fast, read-only readiness) and
-  `undeploy()` (archive) besides its capability methods. New change-starting actions
+  `undeploy()` (archive) besides its capability methods. A deploy provider acts on `ctx.release_name`
+  (the change's temporary release when `ctx.slot` is set, else the product's), never on the slug
+  directly, and says whether it can give a change its own address (`validates_separately`, ADR-0046:
+  `helm` yes, `local` no, so it validates in place). Production is changed only by `promote` (or an
+  in-place deploy); rules in `validation.py` and `rollback.py`, tests in `tests/test_validation_env.py`
+  and `tests/test_rollback.py`. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
 - Changes to `images/`, Dockerfiles, `docker-compose.yml` or the golden path must
   keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's

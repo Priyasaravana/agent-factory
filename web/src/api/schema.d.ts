@@ -2098,6 +2098,7 @@ export interface components {
             /** Pr Url */
             pr_url?: string | null;
             deployed?: components["schemas"]["Release"] | null;
+            validation?: components["schemas"]["Validation"] | null;
             /** Last Failure */
             last_failure?: string | null;
             last_routed?: components["schemas"]["RoutedFailure"] | null;
@@ -4464,6 +4465,46 @@ export interface components {
             fail_on?: ("critical" | "high" | "medium" | "low" | "none") | null;
             /** Uses */
             uses?: string[] | null;
+        };
+        /**
+         * Validation
+         * @description A change's temporary validation environment (ADR-0046 slice 2): its own Helm release and
+         *     namespace with its own address and empty data, where live e2e, the verifier and repair run so
+         *     production is never touched before the change is accepted. Written before the cluster is
+         *     touched; removed when the change stops (`removed_at`), on archive, and by the start-up sweep.
+         */
+        Validation: {
+            /** Environment */
+            environment: string;
+            /** Target */
+            target: string;
+            /**
+             * Cluster
+             * @default
+             */
+            cluster: string;
+            /** Namespace */
+            namespace: string;
+            /** Helm Release */
+            helm_release: string;
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+            /** Image */
+            image?: string | null;
+            /** Revision */
+            revision?: number | null;
+            /** Digest */
+            digest?: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Removed At */
+            removed_at?: string | null;
         };
         /** ValidationError */
         ValidationError: {

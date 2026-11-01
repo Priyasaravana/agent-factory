@@ -106,7 +106,7 @@ def test_a_custom_step_gets_its_own_agent_that_must_be_written_before_publishing
 
 def test_the_drop_time_check_says_what_adding_a_station_would_break() -> None:
     doc = _lane("product-change")
-    doc.stations = [s for s in doc.stations if s.resolved_handler() not in ("build", "deploy", "acceptance")]
+    doc.stations = [s for s in doc.stations if s.resolved_handler() not in ("build", "deploy", "acceptance", "promote")]
     doc.stations = [s for s in doc.stations if s.id != "deploy-repair"]
     for s in doc.stations:
         s.on_fail = s.on_fail if s.on_fail in _ids(doc) else None

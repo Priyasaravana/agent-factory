@@ -36,4 +36,5 @@ stations:
   - {id: deploy,        type: deploy, on_fail: deploy-repair}
   - {id: deploy-repair, type: deploy-repair, agent: devops, next: test, only_on_fail: true}  # a code change: re-enters verify
   - {id: acceptance,    type: acceptance, agent: verifier, on_fail: implement}
+  - {id: promote,       type: promote}   # the tested image to production; a failure rolls back and holds (ADR-0046)
   - {id: handover,      type: handover}   # merge + tag, live URL

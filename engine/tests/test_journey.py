@@ -28,7 +28,7 @@ TOKEN = "ghp_" + "j" * 36  # low entropy: no secret-scan noise
 OPEN_QUESTION = "Should bookmarks be private to each user?"
 STATIONS = [
     "requirements", "design", "implement", "test", "preview-e2e", "quality-gate", "code-scan", "dependency-scan",
-    "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "handover",
+    "config-scan", "code-review", "change-risk", "build", "deploy", "acceptance", "promote", "handover",
 ]  # fmt: skip
 
 

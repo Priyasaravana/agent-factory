@@ -1,7 +1,7 @@
 # Agent Factory: build plan
 
-Updated 2026-11-01 (J2 slices 4 and 5 merged; J2 gains validate, promote and roll back, ADR-0046, decided by
-Saravana; rollback slice 1 in review).
+Updated 2026-11-01 (J2 slices 4 and 5 merged; J2 gains validate, promote and roll back, ADR-0046 accepted by
+Saravana; rollback slice 1 merged, #131; slices 2 and 3 built together, in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -213,18 +213,22 @@ per-pack evaluation is in the backlog.
 - **Validate, promote, roll back** (decided by Saravana 2026-11-01, replaces "rollback with `--atomic`";
   [ADR-0046](../adr/0046-validate-promote-rollback.md), proposed): production is never where a change is
   developed, debugged or repaired. Four slices (~6 days):
-  1. 🔄 **Last healthy release and rollback** (~1.5 days, PR #131, `feat/j2-rollback`): deploy saves its
+  1. ✅ **Last healthy release and rollback** (~1.5 days, PR #131, merged 2026-11-01, `8680c44`): deploy saves its
      intent before touching the cluster, then the Helm revision and the running image digest; the release
      is recorded and saved when acceptance passes. A deploy or acceptance failure, and any stop short of
      delivery (hold, cancel, engine error, restart), restores it: diagnostics first, then, fail closed, `helm rollback` to
      the recorded revision only if the record is complete, names this cluster, namespace and release, and
      the revision is in the history with the recorded image; then history, image, rollout, digest, liveness
      and readiness verified. Anything short of that holds as `infra` for a person. No `--atomic`.
-  2. **Temporary validation environment** (~2 days): each change deploys to its own release and namespace
-     (`<slug>-c<id>`, own ingress host, empty data); live e2e, verifier and repair run there; removed when the
-     change stops and on archive, with a start-up sweep. The `local` NodePort provider validates in place.
-  3. **Promote the tested image** (~1 day): a `promote` station deploys the same image to production, smoke
-     and e2e there, rollback on failure; only then is the release recorded.
+  2. 🔄 **Temporary validation environment** (~2 days; built with slice 3, decided by Saravana 2026-11-01, since
+     slice 2 alone would never update production on a `helm` target; `feat/j2-validate-promote`): each change
+     deploys to its own release and namespace (`<slug>-c<id>`, own ingress host, empty data, its own admin
+     Secret); live e2e, verifier and repair run there; removed when the change stops and on archive, with a
+     start-up sweep; a resumed change deploys a new one before acceptance. The `local` NodePort provider, and a
+     lane version without `promote`, validate in place, and the event log says why.
+  3. 🔄 **Promote the tested image** (~1 day, same PR): a `promote` station after acceptance deploys the same
+     image to production, checks it runs the tested digest, probes and runs e2e there; a failure rolls back and
+     holds for a person; only then is the release recorded. Tests: `tests/test_validation_env.py`.
   4. **Strategy per product** (~2 days): `in-place` (default) or `blue-green` (two releases, ingress switch,
      the old one kept for an instant switch back), defaulted by the pack.
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.

@@ -54,9 +54,13 @@ def _change(deployed: Release | None = None, change_id: str = "c2") -> Change:
 
 
 # ---------------------------------------------------------------- pure --
-def test_deploy_failure_restores_the_last_healthy_release():
+def test_a_failed_deploy_over_production_restores_the_last_healthy_release():
     last = _release()
-    assert rollback.target("deploy", _change(), _product(last), "local") == last
+    over_production = _change(deployed=_release("c2", 2, revision=None, digest=None))  # the intent, saved first
+    assert rollback.target("deploy", over_production, _product(last), "local") == last
+    assert rollback.target("promote", over_production, _product(last), "local") == last
+    # a deploy to the change's temporary environment records no intent on production (ADR-0046 slice 2)
+    assert rollback.target("deploy", _change(), _product(last), "local") is None, "production never touched"
 
 
 def test_acceptance_failure_restores_only_while_this_change_is_serving():
@@ -67,8 +71,9 @@ def test_acceptance_failure_restores_only_while_this_change_is_serving():
 
 
 def test_nothing_to_restore_without_a_healthy_release_or_elsewhere():
-    assert rollback.target("deploy", _change(), _product(None), "local") is None, "first delivery"
-    assert rollback.target("deploy", _change(), _product(_release(environment="prod")), "local") is None
+    serving = _release("c2", 2)
+    assert rollback.target("deploy", _change(serving), _product(None), "local") is None, "first delivery"
+    assert rollback.target("deploy", _change(serving), _product(_release(environment="prod")), "local") is None
     assert rollback.target("deploy", _change(change_id="c1"), _product(_release()), "local") is None
 
 

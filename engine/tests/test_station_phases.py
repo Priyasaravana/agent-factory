@@ -41,7 +41,7 @@ def test_the_default_lane_reads_in_phase_order() -> None:
     phases = doc.phases()
     assert [phases[s] for s in doc.plan().stations] == [
         "design", "design", "develop", "verify", "verify", "verify", "verify", "verify", "verify", "verify", "verify",
-        "deliver", "deliver", "deliver", "deliver",
+        "deliver", "deliver", "deliver", "deliver", "deliver",
     ]  # fmt: skip
     assert PHASE_IDS == ["discover", "design", "plan", "develop", "verify", "deliver", "operate"]
     assert {s.id: s.label() for s in doc.stations}["code-scan"] == "Code scan"

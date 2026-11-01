@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import failures, ledger, rollback
+from agent_factory import failures, ledger, rollback, validation
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
@@ -45,13 +45,14 @@ from agent_factory.models import (
     RiskHold,
     RoutedFailure,
     StationOutcome,
+    Validation,
     WorkItem,
 )
 from agent_factory.providers import Providers
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
-from agent_factory.workflow import target_of
+from agent_factory.workflow import WorkflowDoc, target_of
 
 if TYPE_CHECKING:
     from agent_factory.sandbox import SandboxManager
@@ -74,6 +75,11 @@ class RefusedError(FactoryError):
 # how a hold says production could not be put back on its last healthy release (ADR-0046)
 RESTORE_FAILED = "production was NOT restored to its last healthy release: production needs a person"
 FEEDBACK_OPEN = {ChangeStatus.awaiting_feedback, ChangeStatus.held, ChangeStatus.failed, ChangeStatus.cancelled}
+
+
+def _station_with(flow: WorkflowDoc, handler: str) -> str | None:
+    """The first station of the lane that runs `handler`."""
+    return next((st.id for st in flow.stations if st.resolved_handler() == handler), None)
 
 
 def _now() -> datetime:
@@ -302,6 +308,11 @@ class ChangeManager:
                 data={"archived_by": by},
             )
         elif latest is not None:
+            for c in changes:  # the temporary environments first (ADR-0046 slice 2)
+                if validation.live(c) is not None and not await self.remove_validation(c, product):
+                    raise FactoryError(
+                        f"archive stopped: the temporary environment of iteration {c.iteration} could not be removed"
+                    )
             ctx = StationContext(
                 self.cfg,
                 self.settings,
@@ -918,6 +929,8 @@ class ChangeManager:
                     # however the change stopped, an engine error included, production must not be
                     # left on its unaccepted release (ADR-0046)
                     await self._settle_safely(change, product)
+                # and its temporary environment goes, whatever the outcome (ADR-0046 slice 2)
+                await self.remove_validation(change, product)
             except asyncio.CancelledError:
                 cancelled = True  # cancel() already persisted the cancelled status
                 raise
@@ -1014,6 +1027,7 @@ class ChangeManager:
         product = self.store.get_product(change.product_id) if change else None
         if change and product:
             await self._settle_safely(change, product)
+            await self.remove_validation(change, product)
             self.store.save_change(change)
             await self._seal(change, product)
             self._after_stop(change, product)
@@ -1131,6 +1145,20 @@ class ChangeManager:
         while change.current_station:
             sid = change.current_station
             station = flow.station(sid)
+            handler = station.handler_for(plan.target) or station.resolved_handler()
+            if validation.needs_redeploy(handler, change) and (again := _station_with(flow, "deploy")):
+                # its temporary environment was removed when the change stopped: never test production
+                # instead; deploy a fresh one first (ADR-0046 slice 2)
+                change.current_station = again
+                self.store.save_change(change)
+                self.store.add_event(
+                    change.id,
+                    EventKind.decision,
+                    f"the temporary environment was removed when the change stopped: {again} deploys a new one "
+                    f"before {sid}",
+                    station=sid,
+                )
+                continue
             if time.monotonic() > deadline and change.status != ChangeStatus.needs_input:
                 why = f"this run used its {budget}-minute time budget; resume to give it another"
                 return self._hold(change, sid, why)
@@ -1152,6 +1180,8 @@ class ChangeManager:
             ctx.deadline = deadline
             ctx.grant = flow.grant(sid, self.workflows.phases)  # the capability boundary (ADR-0039 §4)
             ctx.env_check = self.env_check(product.blueprint, ctx.grant)
+            if handler in validation.VALIDATE_HANDLERS:
+                ctx.slot = self._validation_slot(ctx, flow, plan, handler)
             if self.workflows.library:
                 ctx.skill_pins = self.workflows.library.effective_pins(flow)
                 ctx.imported_plugin = self.workflows.library.materialise(ctx.skill_pins)
@@ -1159,7 +1189,6 @@ class ChangeManager:
                 change.attempts[sid] -= 1
                 return self._hold(change, sid, f"missing input artifact(s): {', '.join(missing)}")
             try:
-                handler = station.handler_for(plan.target) or station.resolved_handler()
                 result = await STATIONS[handler](ctx)
             except asyncio.CancelledError:
                 raise
@@ -1184,7 +1213,7 @@ class ChangeManager:
                 data={"outcome": result.outcome},
             )
 
-            if result.outcome == StationOutcome.passed and handler in ("acceptance", "handover"):
+            if result.outcome == StationOutcome.passed and handler in ("acceptance", "promote", "handover"):
                 if unrecorded := self._record_release(change, product, sid):
                     change.hold_class = "infra"
                     return self._hold(change, sid, unrecorded)
@@ -1241,7 +1270,7 @@ class ChangeManager:
             ):
                 # production goes back to the last healthy release before anyone repairs (ADR-0046);
                 # deploy collected its diagnostics already, acceptance did not
-                ok, note = await restore_last_healthy(ctx, last, diagnose=handler != "deploy")
+                ok, note = await restore_last_healthy(ctx, last, diagnose=handler not in ("deploy", "promote"))
                 evidence = (result.failure_evidence or result.summary) + note
                 if not ok:
                     change.hold_class = "infra"
@@ -1372,6 +1401,112 @@ class ChangeManager:
                 for i in need.items
             )
         return False
+
+    def _validation_slot(self, ctx: StationContext, flow: WorkflowDoc, plan: Any, handler: str) -> str | None:
+        """Where a validating station acts (ADR-0046 slice 2): the change's temporary release while it
+        exists; at deploy, a new one when the target and the lane allow it, recorded on the change
+        before the cluster is touched (so a crash leaves nothing the sweep can't find); else None:
+        in place, and the event log says why, once per change."""
+        change, product = ctx.change, ctx.product
+        if name := validation.slot(handler, change):
+            return name
+        if handler != "deploy":
+            return None
+        deploy_p = ctx.providers.deploy
+        lane = [flow.station(s).handler_for(plan.target) or flow.station(s).resolved_handler() for s in plan.stations]
+        if why := validation.in_place_reason(deploy_p, lane):
+            if not self.store.events_with_key([change.id], "validated_in_place"):
+                self.store.add_event(
+                    change.id,
+                    EventKind.decision,
+                    f"validating in place: {why}; a failure rolls production back to its last healthy release",
+                    station=ctx.station_id,
+                    data={"validated_in_place": why},
+                )
+            return None
+        ctx.slot = validation.release_name(product.slug, change.id)
+        ident = deploy_p.identity(ctx) if callable(getattr(deploy_p, "identity", None)) else {}  # type: ignore[attr-defined]
+        change.validation = Validation(
+            environment=ctx.providers.environment,
+            target=deploy_p.name,
+            cluster=str(ident.get("cluster", "")),
+            namespace=str(ident.get("namespace", "")),
+            helm_release=ctx.slot,
+            url=deploy_p.public_url(ctx),
+            at=_now(),
+        )
+        self.store.save_change(change)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"validating in a temporary environment: release {ctx.slot} at {change.validation.url}; production "
+            "is not touched until promote",
+            station=ctx.station_id,
+            data={"validation": change.validation.model_dump(mode="json")},
+        )
+        return ctx.slot
+
+    async def remove_validation(self, change: Change, product: Product) -> bool:
+        """Remove the change's temporary environment, if it has one (ADR-0046 slice 2): when the change
+        stops, whatever the outcome, on archive, and in the start-up sweep. Never raises and never
+        touches production: only a release the change recorded as its own, under a name that isn't
+        the product's, on a target that has temporary releases. Returns False if one is left behind
+        (the next sweep or the archive tries again)."""
+        v = validation.live(change)
+        if v is None:
+            return True
+        try:
+            deploy_p = self.providers.for_blueprint(product.blueprint).deploy
+            refuse = (
+                "its name is the product's own release"
+                if v.helm_release == product.slug or not v.helm_release
+                else f"deploy target {deploy_p.name} has no temporary releases"
+                if not getattr(deploy_p, "validates_separately", False)
+                else f"it was made by {v.target}, not {deploy_p.name}"
+                if v.target != deploy_p.name
+                else None
+            )
+            if refuse:
+                ok, summary, detail = False, f"not removed: {refuse}", ""
+            else:
+                flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
+                ctx = StationContext(
+                    self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, product, change,
+                    self.ws.change_dir(change.id), "cleanup", flow,
+                )  # fmt: skip
+                ctx.providers = self.providers.for_blueprint(product.blueprint)
+                ctx.secrets = self.secrets
+                ctx.slot = v.helm_release
+                res = await deploy_p.undeploy(ctx)
+                ok, summary, detail = res.ok, res.summary, res.detail
+        except Exception as exc:  # noqa: BLE001 - recorded; the sweep or the archive tries again
+            ok, summary, detail = False, f"removing it raised {type(exc).__name__}: {exc}", ""
+        if ok:
+            change.validation = v.model_copy(update={"removed_at": _now()})
+            self.store.save_change(change)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"temporary environment {v.helm_release} removed: {summary}"
+            if ok
+            else f"temporary environment {v.helm_release} NOT removed ({summary}); archive and the next start-up "
+            "try again",
+            station="cleanup",
+            data={"validation_removed": {"ok": ok, "release": v.helm_release, "detail": detail[-1500:]}},
+        )
+        return ok
+
+    async def sweep_validation(self) -> list[str]:
+        """At start-up: remove every temporary environment a change left behind (a crash, a failed
+        removal), except those of changes running again already. Returns the change ids it removed."""
+        removed = []
+        for product in self.store.list_products():
+            for change in self.store.list_changes(product.id):
+                if validation.live(change) is None or self.is_active(change.id):
+                    continue
+                if await self.remove_validation(change, product):
+                    removed.append(change.id)
+        return removed
 
     def _record_release(self, change: Change, product: Product, sid: str) -> str | None:
         """This change's release passed acceptance (or handover, in a lane without acceptance): it is

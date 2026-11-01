@@ -5244,6 +5244,16 @@
               }
             ]
           },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Validation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_failure": {
             "anyOf": [
               {
@@ -10885,6 +10895,96 @@
         "type": "object",
         "title": "UpdateStationInput",
         "description": "Only the fields that are sent are changed; send null to clear a route."
+      },
+      "Validation": {
+        "properties": {
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "cluster": {
+            "type": "string",
+            "title": "Cluster",
+            "default": ""
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "helm_release": {
+            "type": "string",
+            "title": "Helm Release"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "default": ""
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "removed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "environment",
+          "target",
+          "namespace",
+          "helm_release",
+          "at"
+        ],
+        "title": "Validation",
+        "description": "A change's temporary validation environment (ADR-0046 slice 2): its own Helm release and\nnamespace with its own address and empty data, where live e2e, the verifier and repair run so\nproduction is never touched before the change is accepted. Written before the cluster is\ntouched; removed when the change stops (`removed_at`), on archive, and by the start-up sweep."
       },
       "ValidationError": {
         "properties": {

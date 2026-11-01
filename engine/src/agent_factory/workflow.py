@@ -83,6 +83,7 @@ CHECK_HANDLERS = {
     "change-risk",
     "build",
     "deploy",
+    "promote",
     "handover",
     "onboard",
     "repo-scan",
@@ -154,6 +155,12 @@ HANDLER_INFO: dict[str, HandlerInfo] = {
     "deploy-repair": HandlerInfo(kind="agent", label="Deploy repair", phase="deliver", hint="repairs a failed deploy"),
     "acceptance": HandlerInfo(
         kind="agent", label="Acceptance", phase="deliver", hint="runs the hidden scenarios (observe-only)"
+    ),
+    "promote": HandlerInfo(
+        kind="check",
+        label="Promote",
+        phase="deliver",
+        hint="takes the image validated in a temporary environment to production; rolls back on failure (ADR-0046)",
     ),
     "handover": HandlerInfo(
         kind="check", label="Handover", phase="deliver", hint="commits, tags, opens the PR and hands over the app"

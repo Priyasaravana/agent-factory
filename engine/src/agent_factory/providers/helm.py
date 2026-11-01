@@ -47,6 +47,7 @@ class HelmProvider:
     kind = "helm"
     capabilities = frozenset({"deploy"})
     uses_node_ports = False
+    validates_separately = True  # a change gets its own release at its own host (ADR-0046 slice 2)
 
     def __init__(self, name: str, settings: dict[str, Any] | None = None) -> None:
         self.name = name
@@ -68,11 +69,12 @@ class HelmProvider:
         self.settings = s
 
     # ----------------------------------------------------------- addresses --
+    # the product's release, or the change's temporary one (`ctx.slot`, ADR-0046 slice 2)
     def host(self, ctx: StationContext) -> str:
-        return f"{ctx.product.slug}.{self.domain}"
+        return f"{ctx.release_name}.{self.domain}"
 
     def namespace(self, ctx: StationContext) -> str:
-        return f"{self.namespace_prefix}{ctx.product.slug}"[:63]
+        return f"{self.namespace_prefix}{ctx.release_name}"[:63]
 
     def _origin(self, host: str) -> str:
         default = 443 if self.scheme == "https" else 80
@@ -178,7 +180,7 @@ class HelmProvider:
         if env is None:
             return StepResult(False, f"deployment failed: kubeconfig {self._kube_ref} not available")
         kenv, kfile = env
-        ns, slug, host = self.namespace(ctx), ctx.product.slug, self.host(ctx)
+        ns, slug, host = self.namespace(ctx), ctx.release_name, self.host(ctx)
         chart = ctx.blueprint.chart_path
         h, k = f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}"
         sets = [
@@ -205,6 +207,11 @@ class HelmProvider:
                 f"ClusterIP and imagePullSecrets.\n{render.output[-1500:]}",
             )
         steps: list[str] = [f"{k} create namespace {ns} --dry-run=client -o yaml | {k} apply -f -"]
+        if ctx.slot:  # a temporary validation environment: findable by a person and by the sweep
+            steps.append(
+                f"{k} label namespace {ns} --overwrite agent-factory.io/validation={shlex.quote(ctx.change.id)} "
+                f"agent-factory.io/product={shlex.quote(ctx.product.slug)}"
+            )
         if self.pull_secret_ref:
             pull = ctx.secret(str(self.pull_secret_ref), "image pull secret", f"deploy:{ctx.providers.environment}")
             if pull is None:
@@ -258,7 +265,7 @@ class HelmProvider:
             "target": self.name,
             "cluster": self.kube_context or f"kubeconfig:{self._kube_ref or 'factory'}",
             "namespace": self.namespace(ctx),
-            "helm_release": ctx.product.slug,
+            "helm_release": ctx.release_name,
         }
 
     def _release(self, ctx: StationContext, kenv: dict[str, str], kfile: bool) -> HelmRelease:
@@ -266,7 +273,7 @@ class HelmProvider:
             return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv)
 
         return HelmRelease(
-            run, f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}", ctx.product.slug, self.namespace(ctx)
+            run, f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}", ctx.release_name, self.namespace(ctx)
         )
 
     async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
@@ -303,7 +310,7 @@ class HelmProvider:
         if env is None:
             return "kubeconfig not available"
         kenv, kfile = env
-        ns, slug, k = self.namespace(ctx), ctx.product.slug, f"kubectl{self._flags('kubectl')}"
+        ns, slug, k = self.namespace(ctx), ctx.release_name, f"kubectl{self._flags('kubectl')}"
         diag = await ctx.cmd(
             self._kube(
                 f"{k} -n {ns} get pods,svc,ingress -o wide; "
@@ -323,7 +330,7 @@ class HelmProvider:
         if env is None:
             return StepResult(False, f"could not archive: kubeconfig {self._kube_ref} not available")
         kenv, kfile = env
-        ns, slug = self.namespace(ctx), ctx.product.slug
+        ns, slug = self.namespace(ctx), ctx.release_name
         cmd = self._kube(
             f"helm{self._flags('helm')} uninstall {slug} --namespace {ns} --ignore-not-found --wait --timeout 2m && "
             f"kubectl{self._flags('kubectl')} delete namespace {ns} --ignore-not-found --wait=false",

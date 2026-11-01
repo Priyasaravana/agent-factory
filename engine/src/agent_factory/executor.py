@@ -85,11 +85,13 @@ CLEAN_SCANS = {
 _UPGRADE = re.compile(r"\bupgrade --install (\S+) .*?image\.repository=([^\s']+).*?image\.tag=([^\s']+)")
 _ROLLBACK = re.compile(r"\brollback (\S+) (\d+)\b")
 _REVISION = re.compile(r"--revision (\d+)")
+_UNINSTALL = re.compile(r"\buninstall (\S+) ")
 
 
 @dataclass
 class FakeHelm:
-    """A dry-run Helm: `upgrade --install` and `rollback` add revisions; `status`, `history`,
+    """A dry-run Helm: `upgrade --install` and `rollback` add revisions, `uninstall` removes a
+    release; `status`, `history`,
     `get values` and the pods' imageIDs (`get pods … jsonpath`) answer from them. The digest of an
     image is the SHA-256 of its name, so the same image always has the same digest."""
 
@@ -108,6 +110,9 @@ class FakeHelm:
             name, image = m.group(1), f"{m.group(2)}:{m.group(3)}"
             self._add(name, image, "Upgrade complete" if name in self.releases else "Install complete")
             return f"[dry-run] Release {name} has been upgraded."
+        if m := _UNINSTALL.search(command):  # the release and its history go (a temporary one, archive)
+            self.releases.pop(m.group(1), None)
+            return f"[dry-run] release {m.group(1)} uninstalled"
         if m := _ROLLBACK.search(command):
             name, rev = m.group(1), int(m.group(2))
             old = next((r for r in self.releases.get(name, []) if r["revision"] == rev), None)
