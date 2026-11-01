@@ -77,19 +77,29 @@ async def test_a_run_pushes_to_the_registry_and_deploys_behind_an_ingress(make_f
     push = next(c for c in ex.calls if "docker --config" in c and " push " in c)
     assert "docker tag bookmarks-service:" in push and "localhost:5001/factory/bookmarks-service:" in push
     assert not any(c.startswith("kind load") for c in ex.calls), "no side-loading"
-    helm = next(c for c in ex.calls if "helm upgrade --install bookmarks-service" in c)
-    for want in ("service.type=ClusterIP", "ingress.enabled=true", "ingress.host=bookmarks-service.localtest.me",
-                 "ingress.className=nginx", "ingress.tls=false", "--namespace app-bookmarks-service"):  # fmt: skip
-        assert want in helm, want
-    assert "nodePort" not in helm
-    smoke = next(c for c in ex.calls if "/healthz" in c)
+    # validated first in the change's own release, namespace and host (ADR-0046 slice 2) ...
+    temp = f"bookmarks-service-c{change.id}"
+    first = next(c for c in ex.calls if "helm upgrade --install" in c)
+    for want in ("service.type=ClusterIP", "ingress.enabled=true", f"ingress.host={temp}.localtest.me",
+                 "ingress.className=nginx", "ingress.tls=false", f"--namespace app-{temp}",
+                 f"agent-factory.io/validation={change.id}"):  # fmt: skip
+        assert want in first, want
+    assert f"upgrade --install {temp} " in first and "nodePort" not in first
+    verifier = next(c for c in runner.calls if c.role == "verifier")
+    assert f"http://{temp}.localtest.me:8180" in verifier.prompt, "acceptance tests the temporary environment"
+    # ... then the same image promoted to production at the product's own host (slice 3)
+    prod = next(c for c in ex.calls if "helm upgrade --install bookmarks-service " in c)
+    assert ex.calls.index(prod) > ex.calls.index(first)
+    assert "ingress.host=bookmarks-service.localtest.me" in prod and "--namespace app-bookmarks-service " in prod
+    image = lambda c: c.split("image.tag=", 1)[1].split()[0]  # noqa: E731
+    assert image(prod) == image(first), "the tested image, never rebuilt"
+    smoke = next(c for c in ex.calls if "bookmarks-service.localtest.me:8180/healthz" in c)
     assert "--connect-to bookmarks-service.localtest.me:8180:dind:8180" in smoke
-    assert "http://bookmarks-service.localtest.me:8180/healthz" in smoke
+    assert any(f"helm uninstall {temp} --namespace app-{temp}" in c for c in ex.calls), "removed when delivered"
 
     got = f.store.get_product(product.id)
     assert got.app_url == "http://bookmarks-service.localtest.me:8180"
-    verifier = next(c for c in runner.calls if c.role == "verifier")
-    assert "http://bookmarks-service.localtest.me:8180" in verifier.prompt, "acceptance tests the ingress URL"
+    assert got.release.helm_release == "bookmarks-service" and got.release.namespace == "app-bookmarks-service"
 
     await f.manager.archive(product.id, "saravana")
     assert any("helm uninstall bookmarks-service --namespace app-bookmarks-service" in c for c in ex.calls)

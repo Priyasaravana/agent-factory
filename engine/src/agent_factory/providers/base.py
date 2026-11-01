@@ -97,6 +97,10 @@ class ScanProvider(Provider, Protocol):
 
 class DeployProvider(Provider, Protocol):
     uses_node_ports: bool  # True: each product needs one of the blueprint's node_ports
+    # True: a change can run as its own release at its own address (`ctx.slot`), so it is validated
+    # there and promoted (ADR-0046 slice 2); False: it validates in place, relying on rollback.
+    # Every method acts on `ctx.release_name`, never on the product slug directly.
+    validates_separately: bool
 
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app

@@ -36,6 +36,9 @@ class LocalProvider:
     kind = "local"
     capabilities = frozenset(CAPABILITIES)
     uses_node_ports = True
+    # one node port per product: no second address, so a change validates in place and relies on
+    # rollback (ADR-0046 slice 2)
+    validates_separately = False
 
     def __init__(self, name: str = "local", settings: dict[str, Any] | None = None) -> None:
         self.name = name
@@ -192,6 +195,8 @@ class LocalProvider:
         return diag.output[-3500:]
 
     async def undeploy(self, ctx: StationContext) -> StepResult:
+        if ctx.slot:  # never mistake a temporary release for production: this target has none
+            return StepResult(False, f"the local target has no temporary release {ctx.slot} to remove")
         ns, slug = namespace(ctx.product), ctx.product.slug
         cmd = (
             f"helm uninstall {slug} --namespace {ns} --ignore-not-found --wait --timeout 2m && "

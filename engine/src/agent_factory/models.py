@@ -124,6 +124,25 @@ class Release(BaseModel):
     at: datetime
 
 
+class Validation(BaseModel):
+    """A change's temporary validation environment (ADR-0046 slice 2): its own Helm release and
+    namespace with its own address and empty data, where live e2e, the verifier and repair run so
+    production is never touched before the change is accepted. Written before the cluster is
+    touched; removed when the change stops (`removed_at`), on archive, and by the start-up sweep."""
+
+    environment: str  # the delivery environment (ProviderSet.environment)
+    target: str  # the deploy integration
+    cluster: str = ""
+    namespace: str
+    helm_release: str
+    url: str = ""  # where a person can open it while the change runs
+    image: str | None = None  # repository:tag deployed there, once a deploy passed
+    revision: int | None = None
+    digest: str | None = None  # what ran in the tests: promote checks production runs the same
+    at: datetime
+    removed_at: datetime | None = None
+
+
 class Product(BaseModel):
     id: str
     title: str
@@ -186,6 +205,8 @@ class Change(BaseModel):
     # (revision and digest unknown yet), completed when the deploy passes; cleared when a rollback
     # restores the product's last healthy release
     deployed: Release | None = None
+    # where this change is validated before promotion (ADR-0046 slice 2); None: validated in place
+    validation: Validation | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision

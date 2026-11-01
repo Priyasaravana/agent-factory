@@ -3,36 +3,36 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-01)
-- **Main** (`0c7cd84` on GitHub): J2 slices 1–5 merged, including slice 5 (`61096f5`, one flow for the next
-  iteration).
-- **Decided 2026-11-01 (Saravana):** J2 gains validate, promote and roll back ([ADR-0046](../adr/0046-validate-promote-rollback.md),
-  proposed): each change is validated in a temporary environment, production gets only the tested image,
-  a production failure rolls back to the last healthy release (diagnostics first, `helm rollback` to the
-  recorded revision, health checked), temporary environments are cleaned up, and the strategy (in place or
-  blue/green) is chosen per product. Four slices; roadmap J2.
-- **In review:** PR #131, `feat/j2-rollback`: ADR-0046 and slice 1, with Saravana's review fixes (2026-11-01).
-  Engine: `Release` (`Product.release`, `Change.deployed`: environment, target, cluster, namespace, Helm
-  release, revision, digest); pure `rollback.py` (`target`, `serving_unaccepted`, `record_problems`,
-  `identity_problems`, `history_problems`, `restored_problems`, parsers); `providers/helm_release.py`
-  (`HelmRelease.installed`, `.rollback`: refuse → `helm rollback <rev>` → verify), used by `local` and `helm`
-  (`identity`, `rollback` under `rollback:<env>`); deploy saves its intent first and fails closed without a
-  revision and digest; the pipeline records the release when acceptance passes (`_record_release`), restores
-  before routing a deploy or acceptance failure, and settles production on every stop
-  (`settle_production`, also after an engine error via `_settle_safely`; `settle_interrupted` at start-up,
-  before any auto-resume); digests are read from the app's own containers only (`rollback.app_digests`,
-  sidecars ignored); a restore that is refused or
-  fails verification holds as `infra` and isn't retried unattended. Dry-run: `FakeExecutor.helm` (`FakeHelm`)
-  simulates revisions, history, values and pod digests (with a sidecar). Tests: `tests/test_rollback.py` (27),
-  `tests/test_levels.py`. Products delivered before this have no release on record: their next delivery
-  records one, and only the change after that can roll back.
-- **Checks on the branch (cloud, 2026-11-01, `09ed536`):** ruff, mypy (no new errors), auth (9 passed), OpenAPI
-  drift and web (gen:api unchanged, tsc + vite) clean; engine 1064 passed, 5 failed: `test_tools.py` ×4 and
-  `test_checks.py::test_snyk_…`, which fail the same way on clean main `0c7cd84` in this cloud workspace (its
-  scanner tools change what the fakes see). `golden-path` and `images` need Docker and Helm, absent here; the
-  branch touches no pack, template, image or Dockerfile. GitHub CI is the gate.
-- **Next:** Saravana accepts ADR-0046 (or changes it) and merges slice 1; iteration 4 on Kudos board from the
-  card (records Kudos board's first release); then slice 2, the temporary validation environment.
+## Current state (2026-11-01, evening)
+- **Main** (`8680c44` on GitHub): J2 slices 1–5 and ADR-0046 slice 1 (rollback, PR #131) merged.
+- **Decided 2026-11-01 (Saravana):** ADR-0046 accepted; slices 2 (temporary validation environment) and 3
+  (promote the tested image) go in one PR, because slice 2 alone would never update production on a `helm`
+  target.
+- **In review:** `feat/j2-validate-promote`: ADR-0046 slices 2 and 3.
+  - Engine: `validation.py` (pure: `release_name`, `in_place_reason`, `slot`, `needs_redeploy`,
+    `promote_problems`, `same_image`); `Change.validation` (`models.Validation`); `StationContext.slot` /
+    `release_name`, which the `helm` provider uses for host, namespace, release, Secrets and diagnostics
+    (`validates_separately = True`; `local` is `False` and refuses to undeploy a slot).
+  - Pipeline: `_validation_slot` records the temporary environment before deploy touches the cluster;
+    `remove_validation` at every stop (`_execute`, cancel), on archive and in `sweep_validation` at start-up
+    (`app_factory`), refusing unless the target's identity now equals the recorded one
+    (`validation.removal_problems`; review fix P1, 2026-11-01); a resumed change redeploys before acceptance; the healthy release is recorded at
+    `promote` (still at acceptance in place); `rollback.target` restores only while the change's own release
+    may serve production.
+  - Stations: `deploy` splits into `_deploy_for_validation` and `_deploy_production`; new `promote` station
+    (contract type in the Deliver column, uses `deploy:*` + `promote`), added after acceptance in the New
+    product and Product change lanes. Existing DB lanes keep validating in place until "Back to factory
+    default" (or an edit) adds `promote`.
+  - Tests: `tests/test_validation_env.py` (17); `test_cluster_target`, `test_rollback`, `test_journey` updated.
+    `FakeHelm` handles `uninstall`.
+- **Checks on the branch (cloud, 2026-11-01):** lint, mypy (no new errors), auth, OpenAPI drift and web (tsc +
+  vite) clean; engine 1084 passed, 5 failed: `test_tools.py` ×4 and `test_checks.py::test_snyk_…`, the same
+  five that fail on clean main in this cloud workspace (its scanner tools change what the fakes see).
+  `golden-path` and `images` need Docker and Helm, absent here; no pack, template, image or Dockerfile is
+  touched. GitHub CI is the gate.
+- **Next:** Saravana reviews and merges; iteration 4 on Kudos board from the card (on `local`: in place,
+  records its first release); a live run on `local-ingress` exercises the temporary environment for real
+  (egress `*.localtest.me:8180` already covers `<slug>-c<id>` hosts); then slice 4, strategy per product.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
   `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
   `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's

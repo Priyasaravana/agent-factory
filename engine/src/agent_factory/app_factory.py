@@ -172,6 +172,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         interrupted = f.manager.recover_on_startup()
         # a change cut off while its unaccepted release served: production goes back first (ADR-0046)
         await f.manager.settle_interrupted(interrupted)
+        # temporary validation environments left behind by a crash or a failed removal (ADR-0046)
+        await f.manager.sweep_validation()
         from agent_factory.evals import recover_on_startup as recover_evals
 
         await recover_evals(f.manager)  # evaluations cut short by a restart are cancelled (ADR-0025)

@@ -23,8 +23,10 @@ from typing import Any
 from agent_factory.models import Change, Product, Release
 
 # the station handlers whose failure means production may be serving this change's release:
-# deploy (the upgrade may have half-applied) and acceptance (it tests the deployed release)
-ROLLBACK_HANDLERS = frozenset({"deploy", "acceptance"})
+# deploy in place (the upgrade may have half-applied), acceptance in place (it tests the deployed
+# release) and promote (it put the tested image on production, ADR-0046 slice 3). A change validated
+# in a temporary environment never touches production at deploy or acceptance (slice 2).
+ROLLBACK_HANDLERS = frozenset({"deploy", "acceptance", "promote"})
 # what identifies where a release runs; recorded at deploy, checked before a rollback
 IDENTITY = ("environment", "target", "cluster", "namespace", "helm_release")
 # history states a revision can be restored from (never a failed or pending one)
@@ -41,14 +43,16 @@ def target(handler: str, change: Change, product: Product, environment: str) -> 
     """The release to restore after `handler` failed, or None: nothing to do. Pure.
 
     Only a product with a healthy release on record in the same environment can be rolled back
-    (the first delivery has none). Deploy always restores, since a failed upgrade may have
-    replaced pods; acceptance only when this change's release is what is serving."""
+    (the first delivery has none), and only while this change's release may be serving there: its
+    deploy intent on production is recorded before the cluster is touched, so a failed upgrade that
+    may have replaced pods counts. A deploy or acceptance in a temporary environment records no
+    such intent (ADR-0046 slice 2): production was never touched, so nothing is rolled back."""
     last = product.release
     if handler not in ROLLBACK_HANDLERS or last is None or last.environment != environment:
         return None
     if last.change_id == change.id:
         return None  # this change is the healthy release: nothing older to restore
-    if handler == "acceptance" and not serving_unaccepted(change, product):
+    if not serving_unaccepted(change, product):
         return None
     return last
 

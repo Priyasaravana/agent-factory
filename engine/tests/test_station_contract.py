@@ -312,7 +312,7 @@ def test_a_type_picks_its_handler_per_target() -> None:
     [
         ("new-product", "factory", ["new"], ["requirements", "design", "implement", "test", "preview-e2e",
          "quality-gate", "code-scan", "dependency-scan", "config-scan", "code-review", "change-risk", "build", "deploy",
-         "acceptance", "handover"]),
+         "acceptance", "promote", "handover"]),
         ("product-change", "factory", ["feature", "bug", "upkeep"], None),
         ("repo-assessment", "repo", ["assess"], ["onboard", "repo-scan", "assess", "code-scan",
          "dependency-scan", "config-scan", "report"]),
@@ -365,7 +365,8 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
         ("entry", "request@1"), ("entry", "branch@1"), ("requirements", "spec@1"), ("design", "design@1"),
         ("implement", "branch@1"), ("test", "report.test@1"), ("quality-gate", "report.readiness@1"),
         ("code-scan", "report.scan@1"), ("code-review", "report.review@1"), ("change-risk", "report.risk@1"),
-        ("build", "image@1"), ("deploy", "url@1"), ("acceptance", "report.acceptance@1"), ("handover", "pr@1"),
+        ("build", "image@1"), ("deploy", "url@1"), ("acceptance", "report.acceptance@1"), ("promote", "url@1"),
+        ("handover", "pr@1"),
     ]:  # fmt: skip
         assert pair in by_station, pair
     for e in ledger.entries():
@@ -378,7 +379,7 @@ async def test_a_delivered_change_has_a_sealed_ledger(make_factory) -> None:
     assert {"ledger.json", "plan.json"} <= {x["path"] for x in manifest["files"]}
     plan = json.loads((folder / "plan.json").read_text())  # the lane's plan
     assert plan["target"] == "factory" and plan["skipped"] == []
-    assert any(e.message.startswith("lane new-product: 15 stations") for e in f.store.list_events(change.id))
+    assert any(e.message.startswith("lane new-product: 16 stations") for e in f.store.list_events(change.id))
     assert manifest["artifacts"]["entries"] == len(ledger.entries())
 
 

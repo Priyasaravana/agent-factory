@@ -1,8 +1,9 @@
 # ADR-0046: Validate in a temporary environment, promote the tested image, roll back to the last healthy release
 
-**Status:** proposed · 2026-11-01 · direction decided by Saravana 2026-11-01; slice 1 built on
-`feat/j2-rollback` (PR #131, review fixes 2026-11-01: fail closed, crash-safe recording, verified rollback; engine errors
-settle production; sidecar-safe digests) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
+**Status:** accepted · 2026-11-01 (accepted by Saravana 2026-11-01) · direction decided by Saravana 2026-11-01;
+slice 1 merged (PR #131, `8680c44`: fail closed, crash-safe recording, verified rollback; engine errors settle
+production; sidecar-safe digests); slices 2 and 3 built together on `feat/j2-validate-promote` (decided
+2026-11-01: slice 2 alone would never update production on a `helm` target) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
 [ADR-0039](0039-lanes-phases.md) §6 (gated promotion), [ADR-0043](0043-failure-classes.md)
 (failure classes) and [ADR-0023](0023-evidence-manifest.md) (sealed evidence)
 
@@ -62,10 +63,33 @@ choice per product, not imposed on every small app.
    when the change stops, whatever the outcome, and on archive; a sweep at start-up removes any left over.
    It starts with empty data and its own first-admin Secret. A provider that can't give a second address
    (the `local` NodePort provider) validates in place and relies on rollback, and the evidence says so.
+   *As built:* the temporary release is `validation.release_name` (the slug shortened, never the change
+   id, to fit Helm's 53 characters); the pipeline records it on `Change.validation` (environment, target,
+   cluster, namespace, release, URL) before the cluster is touched, and deploy adds the image, revision and
+   digest; a digest it can't read holds as `infra` (`validation_unidentified`): it could never be promoted
+   as exactly what was tested. Only deploy, deploy-repair and acceptance act on it (`validation.slot`);
+   nothing records an intent on production there, so a failure in it rolls nothing back (`rollback.target`
+   now restores only while the change's own release may serve production). The namespace is labelled
+   `agent-factory.io/validation=<change>` for a person; removal and the sweep go by the change records,
+   only for a release the change recorded as its own, never the product's name, and fail closed like a
+   rollback: the target's identity for that name now (environment, target, cluster, namespace, release)
+   must equal the recorded one (`validation.removal_problems`, review of PR #132). If the configuration has
+   moved (another cluster or context), nothing is deleted, the environment stays on record as not removed
+   (a warning), and archive stops: a same-named release elsewhere is never removed in its place. A resumed change whose
+   temporary environment was removed deploys a new one before acceptance, never testing production
+   instead (`validation.needs_redeploy`). A lane version without a `promote` station (older pinned
+   versions) also validates in place, since production would otherwise never be updated; "Back to factory
+   default" brings the station. In place, the healthy release is still recorded when acceptance passes.
 6. **Promote the exact tested image** (slice 3). A `promote` station after acceptance deploys the same image
    reference (by digest where the registry gives one; never rebuilt) to production, runs the smoke check and
    the pack's e2e against it, and rolls back (decision 3) if either fails. Only then is the release recorded
    (decision 2).
+   *As built:* `promote` (Deliver column, uses `deploy:*` and `promote`) deploys the recorded
+   `repository:tag` over production (its intent saved first, as in decision 1), then requires production's
+   running digest to equal the tested one (`promote_digest_mismatch`, `infra`), probes the target from the
+   sandbox, and runs the pack's e2e signed in as production's admin. A failure is rolled back by the
+   pipeline (decision 3) and holds for a person: the same image passed validation, so what differs is
+   production, not the code. A change validated in place passes promote with nothing to do.
 7. **Strategy per product** (slice 4). `in-place` (Helm upgrade, rolling, the default) or `blue-green` (two
    releases, the ingress switched to the new one after its checks, the old one kept for an instant switch
    back until the next promotion). Set per product, defaulted by the pack.

@@ -156,8 +156,9 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
   - React SPA;
   - per-pack evaluation;
   - then full-stack.
-- **Now (J2, ADR-0046):** 🟡 rollback to the last healthy release, diagnostics first (slice 1); validation in a
-  temporary environment, promotion of the tested image, deployment strategy per product (slices 2–4).
+- **Now (J2, ADR-0046):** ✅ rollback to the last healthy release, diagnostics first (slice 1); 🟡 validation in a
+  temporary environment and promotion of the tested image, digest-checked (slices 2–3, on the `helm` target;
+  `local` validates in place); deployment strategy per product (slice 4).
 - **Then:**
   - live check of the cluster target on `local-ingress`;
   - secret store, then gated promotion;

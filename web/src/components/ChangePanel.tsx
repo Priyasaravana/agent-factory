@@ -243,6 +243,23 @@ export default function ChangePanel({
         {r.summary && !STOPPED.has(r.status) && (
           <p className="m-0 text-sm text-muted-foreground">{r.summary}</p>
         )}
+        {r.status === "running" && r.validation && !r.validation.removed_at && (
+          <p className="m-0 text-sm text-muted-foreground" data-testid="validation-env">
+            Testing in a temporary environment; production is untouched until promote:{" "}
+            {r.validation.url ? (
+              <a
+                href={r.validation.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline underline-offset-2"
+              >
+                {r.validation.url}
+              </a>
+            ) : (
+              <code>{r.validation.helm_release}</code>
+            )}
+          </p>
+        )}
         {STOPPED.has(r.status) && (
           <Panel
             id="hold"

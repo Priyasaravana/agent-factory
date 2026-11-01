@@ -42,6 +42,7 @@ from agent_factory import (
     tools,
     traceability,
     ui_review,
+    validation,
 )
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
@@ -71,7 +72,7 @@ from agent_factory.models import (
 from agent_factory.observe import AgentCall
 from agent_factory.pillars import BY_ID, IDS
 from agent_factory.providers import LocalProvider, ProviderSet
-from agent_factory.providers.base import StepResult
+from agent_factory.providers.base import ImageRef, StepResult
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
 from agent_factory.review import REVIEW_SCHEMA, judge
@@ -148,6 +149,14 @@ class StationContext:
     # after a failure, what is down in the environment the command depends on and what was checked
     # (`failures.needed_checks`); None: not checked (dry-run)
     env_check: Callable[[bool], Awaitable[tuple[list[str], list[str]]]] | None = None
+    # the Helm release this station's deploy steps act on instead of production's: the change's
+    # temporary validation environment (ADR-0046 slice 2, `validation.slot`); None: production
+    slot: str | None = None
+
+    @property
+    def release_name(self) -> str:
+        """The Helm release the deploy target acts on: the temporary one, else the product's."""
+        return self.slot or self.product.slug
 
     @property
     def blueprint(self) -> Blueprint:
@@ -1557,10 +1566,55 @@ def internal_url(ctx: StationContext) -> str:
 
 
 async def deploy(ctx: StationContext) -> StationResult:
+    """Deploy the change's image: to its temporary validation environment when it has one
+    (`ctx.slot`, ADR-0046 slice 2), production untouched; else in place, over production."""
+    ref = ctx.providers.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
+    if ctx.slot:
+        return await _deploy_for_validation(ctx, ref)
+    result, _ = await _deploy_production(ctx, ref)
+    return result
+
+
+async def _deploy_for_validation(ctx: StationContext, ref: ImageRef) -> StationResult:
+    """The change's own release, namespace and address (the pipeline recorded them before this
+    station ran). What it runs is recorded on `Change.validation`, never as production's: the image
+    and its digest are what `promote` takes to production, so a digest that can't be read fails
+    closed here, before any test, rather than at promotion."""
     p = ctx.providers
-    ref = p.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
-    # the intent first, saved before the cluster is touched (ADR-0046): whatever happens next (a
-    # failure, a hold, a crash), the engine knows this change may have replaced production
+    res = await p.deploy.deploy(ctx, ref)
+    if not res.ok:
+        diag = await p.deploy.diagnostics(ctx)
+        return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}")
+    revision, digest = res.data.get("revision"), res.data.get("digest")
+    v = ctx.change.validation
+    assert v is not None  # noqa: S101 - set by the pipeline whenever ctx.slot is
+    ctx.change.validation = v.model_copy(
+        update={
+            "image": str(ref),
+            "revision": revision if isinstance(revision, int) else None,
+            "digest": digest if isinstance(digest, str) else None,
+        }
+    )
+    ctx.store.save_change(ctx.change)
+    if problems := validation.promote_problems(ctx.change.validation):
+        seen = res.data.get("unidentified")
+        why = (
+            "deployed to the temporary environment, but what runs there can't be identified, so it could never "
+            f"be promoted as exactly what was tested: {'; '.join(problems)}" + (f" ({seen})" if seen else "")
+        )
+        ctx.stop = Stop(FailureClass.infra, why, rule="validation_unidentified")
+        return StationResult(StationOutcome.failed, why)
+    return StationResult(
+        StationOutcome.passed, f"{res.summary} (temporary environment {ctx.slot}; production not touched)"
+    )
+
+
+async def _deploy_production(ctx: StationContext, ref: ImageRef) -> tuple[StationResult, StepResult]:
+    """Deploy `ref` over production: the intent first, saved before the cluster is touched (ADR-0046),
+    so whatever happens next (a failure, a hold, a crash) the engine knows this change may have
+    replaced production; then what was installed (revision, digest), failing closed if it can't be
+    told."""
+    p = ctx.providers
     restorable = rollback.can_restore(p.deploy)
     ident = (
         p.deploy.identity(ctx)  # type: ignore[attr-defined]
@@ -1600,12 +1654,56 @@ async def deploy(ctx: StationContext) -> StationResult:
             seen = res.data.get("unidentified")
             why = f"deployed, but the release can't be recorded: {'; '.join(problems)}" + (f" ({seen})" if seen else "")
             ctx.stop = Stop(FailureClass.infra, why, rule="release_unidentified")
-            return StationResult(StationOutcome.failed, why)
+            return StationResult(StationOutcome.failed, why), res
         ctx.store.save_change(ctx.change)
-        return StationResult(StationOutcome.passed, res.summary)
+        return StationResult(StationOutcome.passed, res.summary), res
     # diagnostics before anything else: a rollback (ADR-0046) would replace the failing pods
     diag = await p.deploy.diagnostics(ctx)
-    return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}")
+    return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}"), res
+
+
+async def promote(ctx: StationContext) -> StationResult:
+    """Take exactly what was tested to production (ADR-0046 slice 3): the image validated in the
+    change's temporary environment, never rebuilt, deployed over production; production must then
+    run the digest the tests ran, answer its liveness path (the provider's smoke check) and pass the
+    pack's e2e. A failure here is rolled back by the pipeline (diagnostics are collected first) and
+    holds for a person: the same image passed validation, so what differs is production. The
+    healthy release is recorded only after this station passes. A change validated in place has
+    nothing to promote: production already runs the tested image."""
+    v = ctx.change.validation
+    if v is None:
+        await ctx.emit(EventKind.decision, "nothing to promote: validated in place, production runs the tested image")
+        return StationResult(StationOutcome.passed, "validated in place: production already runs the tested image")
+    if problems := validation.promote_problems(v):
+        why = f"nothing safe to promote: {'; '.join(problems)}"
+        ctx.stop = Stop(FailureClass.infra, why, rule="promote_unidentified")
+        return StationResult(StationOutcome.failed, why)
+    assert v.image is not None  # noqa: S101 - promote_problems checked it
+    repository, tag = v.image.rsplit(":", 1)
+    await ctx.emit(
+        EventKind.decision,
+        f"promoting {v.image} ({v.digest}), validated at {v.url or v.helm_release}, to production",
+        {"promote": {"image": v.image, "digest": v.digest, "validated": v.helm_release}},
+    )
+    result, res = await _deploy_production(ctx, ImageRef(repository, tag))
+    if result.outcome != StationOutcome.passed:
+        return result
+    digest = ctx.change.deployed.digest if ctx.change.deployed else None
+    if wrong := validation.same_image(v, digest):
+        why = f"promoted, but {wrong[0]}: production must run exactly what was tested"
+        ctx.stop = Stop(FailureClass.infra, why, rule="promote_digest_mismatch")
+        return StationResult(StationOutcome.failed, why, await ctx.providers.deploy.diagnostics(ctx))
+    if unreachable := await _probe_target(ctx):
+        return unreachable
+    admin = await _app_admin(ctx)
+    if failed_e2e := await _run_e2e(ctx, admin):
+        diag = await ctx.providers.deploy.diagnostics(ctx)
+        return replace(
+            failed_e2e,
+            summary=f"{failed_e2e.summary} after promotion to production",
+            failure_evidence=f"{failed_e2e.failure_evidence}\n--- diagnostics ---\n{diag}",
+        )
+    return StationResult(StationOutcome.passed, f"promoted the tested image: {res.summary}; e2e passed in production")
 
 
 async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnose: bool) -> tuple[bool, str]:
@@ -1765,7 +1863,7 @@ async def _app_admin(ctx: StationContext) -> dict[str, str]:
     read = getattr(ctx.providers.deploy, "read_secret", None)
     if where is None or read is None:
         return {}
-    name = where.secret_name(ctx.product.slug)
+    name = where.secret_name(ctx.release_name)  # a temporary environment has its own (ADR-0046)
     data = await read(ctx, name)
     email, password = (data or {}).get(where.email), (data or {}).get(where.password)
     if not email or not password:
@@ -2791,6 +2889,7 @@ STATIONS: dict[str, Station] = {
     "deploy": deploy,
     "deploy-repair": deploy_repair,
     "acceptance": acceptance,
+    "promote": promote,
     "handover": handover,
     "agent": generic_agent,
     "onboard": onboard,
