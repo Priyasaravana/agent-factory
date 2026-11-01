@@ -112,22 +112,50 @@ def test_the_revision_must_be_in_the_history_with_the_recorded_image():
     assert rollback.history_problems(_release(), rows, "app:2") == ["revision 3 runs app:2, not app:1"]
 
 
+SIDECAR = f"docker.io/istio/proxyv2:1.24.0=docker.io/istio/proxyv2@sha256:{'f' * 64}"
+
+
+def _pod(digest: str, image: str = "docker.io/library/app:1", deleting: str = "", sidecar: bool = True) -> str:
+    return f"{deleting}|{image}=docker.io/library/app@{digest} " + (f"{SIDECAR} " if sidecar else "") + "\n"
+
+
 def test_a_restored_release_must_be_the_rollback_running_the_recorded_digest():
     latest = {"revision": 5, "status": "deployed", "description": "Rollback to 3"}
-    pods = f"|docker.io/library/app@{D1} \n2026-11-01T09:00:00Z|docker.io/library/app@sha256:{'b' * 64} \n"
+    pods = _pod(D1) + _pod(f"sha256:{'b' * 64}", deleting="2026-11-01T09:00:00Z")
     assert rollback.restored_problems(_release(), latest, "app:1", pods) == [], "a terminating pod doesn't count"
     wrong = {"revision": 5, "status": "deployed", "description": "Upgrade complete"}
     assert rollback.restored_problems(_release(), wrong, "app:1", pods) == [
         "the newest revision 5 is 'Upgrade complete', not 'Rollback to 3'"
     ]
-    other = f"|app@sha256:{'c' * 64} \n"
+    other = _pod(f"sha256:{'c' * 64}")
     assert rollback.restored_problems(_release(), latest, "app:1", other) == [
         f"running pods use sha256:{'c' * 64}, not the recorded {D1}"
     ]
     assert rollback.restored_problems(_release(), latest, "app:2", "") == [
         "the release now runs app:2, not app:1",
-        "no running pods of the release",
+        "no running container of app",
     ]
+
+
+def test_sidecars_never_cause_a_digest_mismatch():
+    """Only the release's own containers are compared: a mesh proxy or log shipper on its own image
+    is ignored, whatever its digest; a pod with only a sidecar running is not the release."""
+    assert rollback.one_digest(_pod(D1), "app:1") == (D1, "")
+    assert rollback.one_digest(_pod(D1, sidecar=False), "app:1") == (D1, "")
+    two_sidecars = (
+        f"|docker.io/library/app:1=docker.io/library/app@{D1} {SIDECAR} fluent/fluent-bit:3=x@sha256:{'9' * 64} \n"
+    )
+    assert rollback.one_digest(two_sidecars, "app:1") == (D1, "")
+    assert rollback.one_digest(f"|{SIDECAR} \n", "app:1") == (None, "no running container of app")
+    split = _pod(D1) + _pod(f"sha256:{'c' * 64}")
+    assert rollback.one_digest(split, "app:1")[1].startswith("running pods disagree on the image")
+    # the image a runtime reports may carry a registry, a tag or a digest: the repository decides
+    for ran in ("app:1", "docker.io/library/app:1", "app@" + D1, "index.docker.io/library/app:2"):
+        assert rollback.repository(ran) == "app", ran
+    assert rollback.repository("registry.local:5000/team/app:1") == "registry.local:5000/team/app"
+    assert rollback.one_digest(
+        f"|123.dkr.ecr.eu-west-2.amazonaws.com/f/app:1=x@{D1} \n", "123.dkr.ecr.eu-west-2.amazonaws.com/f/app:1"
+    ) == (D1, "")
 
 
 def test_parsers_read_helm_and_kubectl_output():
@@ -137,7 +165,7 @@ def test_parsers_read_helm_and_kubectl_output():
     assert rollback.values_image('{"image": {"repository": "app", "tag": "abc"}}') == "app:abc"
     assert rollback.values_image('{"image": {"repository": "app"}}') is None
     assert rollback.normalize_digest(f"docker.io/library/app@{D1}") == D1
-    assert rollback.one_digest("|app:1 \n") == (None, "a running container reports no image digest")
+    assert rollback.one_digest("|app:1=app:1 \n", "app:1") == (None, "a running container reports no image digest")
 
 
 def test_the_note_is_stable_for_the_no_progress_stop():
@@ -279,7 +307,8 @@ async def test_a_restored_release_that_fails_verification_holds(make_factory):
     f = make_factory(ex)
     product = await _delivered(f)
     ex.fail_on.append("helm upgrade")
-    ex.scan_outputs["jsonpath"] = f"|docker.io/library/x@sha256:{'e' * 64} \n"  # pods run something else
+    image = product.release.image  # the app's own containers run another build after the rollback
+    ex.scan_outputs["jsonpath"] = f"|docker.io/library/{image}=x@sha256:{'e' * 64} {SIDECAR} \n"
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.held
 
@@ -408,3 +437,51 @@ async def test_a_cancelled_change_puts_production_back(make_factory, monkeypatch
     await asyncio.wait_for(f.manager._tasks[second.id], 30)
     assert _rollbacks(f, second.id)[0]["ok"]
     assert f.store.get_product(product.id).release == product.release
+
+
+async def test_an_engine_error_after_deploy_still_restores_production(make_factory, monkeypatch):
+    """`_drive` raises after this change's release went live (here: recording it after acceptance):
+    the change fails with its own evidence, and production is still put back (ADR-0046)."""
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+    healthy = product.release
+
+    def boom(*_a, **_k):
+        raise RuntimeError("store unavailable while recording the release")
+
+    monkeypatch.setattr(f.manager, "_record_release", boom)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.failed
+
+    failed = f.store.get_change(second.id)
+    assert failed.summary.startswith("engine error: store unavailable"), "the failure is still what it was"
+    assert "RuntimeError: store unavailable" in failed.last_failure, "with its traceback as evidence"
+    assert any("traceback" in e.data for e in f.store.list_events(second.id))
+    [cmd] = _rollback_cmds(ex)
+    assert f"rollback {product.slug} {healthy.revision} " in cmd
+    [entry] = _rollbacks(f, second.id)
+    assert entry["ok"] and entry["replaced"]["change_id"] == second.id
+    assert f.store.get_product(product.id).release == healthy
+    assert failed.deployed is None
+
+
+async def test_a_fault_in_the_restore_itself_is_reported_not_raised(make_factory, monkeypatch):
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product = await _delivered(f)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("store unavailable while recording the release")
+
+    async def broken(*_a, **_k):
+        raise OSError("artifacts disk full")
+
+    monkeypatch.setattr(f.manager, "_record_release", boom)
+    monkeypatch.setattr(stations_mod, "restore_last_healthy", broken)
+    monkeypatch.setattr("agent_factory.engine.pipeline.restore_last_healthy", broken)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.failed
+    failed = f.store.get_change(second.id)
+    assert failed.summary.startswith("engine error: store unavailable")
+    assert "production state unknown, needs a person" in failed.summary and failed.hold_class == "infra"

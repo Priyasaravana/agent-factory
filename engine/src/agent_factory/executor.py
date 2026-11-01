@@ -94,6 +94,8 @@ class FakeHelm:
     image is the SHA-256 of its name, so the same image always has the same digest."""
 
     releases: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # a mesh proxy in every pod, on its own image: digests are read for the app's containers only
+    sidecar: str = "docker.io/istio/proxyv2:1.24.0=docker.io/istio/proxyv2@sha256:" + "f" * 64
 
     @staticmethod
     def digest(image: str) -> str:
@@ -129,7 +131,9 @@ class FakeHelm:
                 repo, tag = row["image"].rsplit(":", 1)
                 return json.dumps({"image": {"repository": repo, "tag": tag}})
             if "get pods" in command and "jsonpath" in command:
-                return f"|docker.io/library/{latest['image']}@{self.digest(latest['image'])} \n"
+                repo = latest["image"].rsplit(":", 1)[0]
+                app = f"docker.io/library/{latest['image']}=docker.io/library/{repo}@{self.digest(latest['image'])}"
+                return f"|{app} {self.sidecar} \n"
         return None
 
     def _add(self, name: str, image: str, description: str) -> None:

@@ -216,7 +216,7 @@ per-pack evaluation is in the backlog.
   1. 🔄 **Last healthy release and rollback** (~1.5 days, PR #131, `feat/j2-rollback`): deploy saves its
      intent before touching the cluster, then the Helm revision and the running image digest; the release
      is recorded and saved when acceptance passes. A deploy or acceptance failure, and any stop short of
-     delivery (hold, cancel, restart), restores it: diagnostics first, then, fail closed, `helm rollback` to
+     delivery (hold, cancel, engine error, restart), restores it: diagnostics first, then, fail closed, `helm rollback` to
      the recorded revision only if the record is complete, names this cluster, namespace and release, and
      the revision is in the history with the recorded image; then history, image, rollout, digest, liveness
      and readiness verified. Anything short of that holds as `infra` for a person. No `--atomic`.

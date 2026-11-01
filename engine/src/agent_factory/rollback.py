@@ -147,26 +147,45 @@ def normalize_digest(image_id: str) -> str | None:
     return found[-1] if found else None
 
 
-def live_digests(pods_output: str) -> list[str | None]:
-    """One digest per container of every pod not being deleted, from lines of
-    `<deletionTimestamp>|<imageID> <imageID> …` (the provider's jsonpath). None for a container
-    whose imageID has no digest. Pure."""
+def repository(ref: str) -> str:
+    """The repository of an image reference, without tag or digest, and without Docker Hub's implied
+    `docker.io/library/` prefix: `docker.io/library/app:1` and `app@sha256:…` are both `app`. Pure."""
+    ref = (ref or "").strip().split("@", 1)[0]
+    slash = ref.rfind("/")
+    if ref.rfind(":") > slash:
+        ref = ref[: ref.rfind(":")]
+    for prefix in ("docker.io/library/", "docker.io/", "index.docker.io/library/"):
+        if ref.startswith(prefix):
+            return ref[len(prefix) :]
+    return ref
+
+
+def app_digests(pods_output: str, image: str) -> list[str | None]:
+    """One digest per running container of the release's own image, from lines of
+    `<deletionTimestamp>|<image>=<imageID> <image>=<imageID> …` (the provider's jsonpath). Pods being
+    deleted are skipped (their release no longer serves), and so are containers of any other image:
+    sidecars (a mesh proxy, a log shipper) run their own images and are not the release. None for a
+    container whose imageID has no digest. Pure."""
+    want = repository(image)
     out: list[str | None] = []
     for line in (pods_output or "").splitlines():
         if "|" not in line:
             continue
-        deleting, ids = line.split("|", 1)
+        deleting, containers = line.split("|", 1)
         if deleting.strip():
-            continue  # a pod on its way out: the release it belonged to is no longer serving
-        out += [normalize_digest(i) for i in ids.split()]
+            continue
+        for entry in containers.split():
+            ran, _, image_id = entry.partition("=")
+            if repository(ran) == want:
+                out.append(normalize_digest(image_id))
     return out
 
 
-def one_digest(pods_output: str) -> tuple[str | None, str]:
-    """The single digest every live container runs, or (None, why not). Pure."""
-    digests = live_digests(pods_output)
+def one_digest(pods_output: str, image: str) -> tuple[str | None, str]:
+    """The single digest every running container of `image` reports, or (None, why not). Pure."""
+    digests = app_digests(pods_output, image)
     if not digests:
-        return None, "no running pods of the release"
+        return None, f"no running container of {repository(image)}"
     if None in digests:
         return None, "a running container reports no image digest"
     if len(set(digests)) > 1:
@@ -193,8 +212,8 @@ def restored_problems(
     release: Release, latest: dict[str, Any] | None, image_now: str | None, pods_output: str
 ) -> list[str]:
     """After `helm rollback`: Helm's newest revision is the rollback to the recorded one and
-    deployed, its values carry the recorded image, and every live container runs the recorded
-    digest. Pure. (Rollout and the health paths are checked by the provider.)"""
+    deployed, its values carry the recorded image, and every running container of that image runs the
+    recorded digest (sidecars aside). Pure. (Rollout and the health paths are checked by the provider.)"""
     out = []
     want = f"Rollback to {release.revision}"
     if latest is None:
@@ -206,7 +225,7 @@ def restored_problems(
             out.append(f"the newest revision {latest['revision']} is '{latest['description']}', not '{want}'")
     if image_now != release.image:
         out.append(f"the release now runs {image_now or 'an unknown image'}, not {release.image}")
-    digest, why = one_digest(pods_output)
+    digest, why = one_digest(pods_output, release.image)
     if digest is None:
         out.append(why)
     elif digest != release.digest:

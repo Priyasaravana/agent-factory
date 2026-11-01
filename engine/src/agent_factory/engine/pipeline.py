@@ -906,18 +906,21 @@ class ChangeManager:
             product = self.store.get_product(change.product_id)
             assert product is not None
             try:
-                await self._drive(change, product)
+                try:
+                    await self._drive(change, product)
+                except Exception as exc:  # noqa: BLE001 - engine faults become a visible failure
+                    trace = traceback.format_exc()[-4000:]
+                    change.status = ChangeStatus.failed
+                    change.summary = f"engine error: {exc}"
+                    change.last_failure = f"engine error: {exc}\n{trace}"
+                    self.store.add_event(change.id, EventKind.status, change.summary, data={"traceback": trace})
                 if change.status != ChangeStatus.awaiting_feedback:
-                    await self.settle_production(change, product)
+                    # however the change stopped, an engine error included, production must not be
+                    # left on its unaccepted release (ADR-0046)
+                    await self._settle_safely(change, product)
             except asyncio.CancelledError:
                 cancelled = True  # cancel() already persisted the cancelled status
                 raise
-            except Exception as exc:  # noqa: BLE001 - engine faults become a visible failure
-                change.status = ChangeStatus.failed
-                change.summary = f"engine error: {exc}"
-                self.store.add_event(
-                    change.id, EventKind.status, change.summary, data={"traceback": traceback.format_exc()[-4000:]}
-                )
             finally:
                 if not cancelled:
                     self.store.save_change(change)
@@ -1010,10 +1013,8 @@ class ChangeManager:
         change = self.store.get_change(change_id)
         product = self.store.get_product(change.product_id) if change else None
         if change and product:
-            try:
-                await self.settle_production(change, product)
-            except Exception as exc:  # noqa: BLE001 - recorded; sealing must still happen
-                self.store.add_event(change.id, EventKind.log, f"production check failed: {type(exc).__name__}: {exc}")
+            await self._settle_safely(change, product)
+            self.store.save_change(change)
             await self._seal(change, product)
             self._after_stop(change, product)
 
@@ -1453,6 +1454,24 @@ class ChangeManager:
             )
         self.store.save_change(change)
         self._sync_product(change)
+
+    async def _settle_safely(self, change: Change, product: Product) -> None:
+        """`settle_production`, where a fault in the restore itself is recorded, never raised: the
+        change keeps its own failure evidence, and production's state is reported as unknown."""
+        try:
+            await self.settle_production(change, product)
+        except Exception as exc:  # noqa: BLE001
+            change.hold_class = "infra"
+            if change.status not in (ChangeStatus.cancelled, ChangeStatus.failed):
+                change.status = ChangeStatus.held
+            note = f"restoring production raised {type(exc).__name__}: {exc}; production state unknown, needs a person"
+            change.summary = f"{change.summary or 'stopped'}; {note}"
+            self.store.add_event(
+                change.id,
+                EventKind.status,
+                change.summary,
+                data={"traceback": traceback.format_exc()[-4000:], "rollback": {"ok": False}},
+            )
 
     def _restore_already_failed(self, change: Change) -> bool:
         """The last restore attempt for this change failed: a person must look before another."""

@@ -19,9 +19,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   (`identity`, `rollback` under `rollback:<env>`); deploy saves its intent first and fails closed without a
   revision and digest; the pipeline records the release when acceptance passes (`_record_release`), restores
   before routing a deploy or acceptance failure, and settles production on every stop
-  (`settle_production`; `settle_interrupted` at start-up, before any auto-resume); a restore that is refused or
+  (`settle_production`, also after an engine error via `_settle_safely`; `settle_interrupted` at start-up,
+  before any auto-resume); digests are read from the app's own containers only (`rollback.app_digests`,
+  sidecars ignored); a restore that is refused or
   fails verification holds as `infra` and isn't retried unattended. Dry-run: `FakeExecutor.helm` (`FakeHelm`)
-  simulates revisions, history, values and pod digests. Tests: `tests/test_rollback.py` (24),
+  simulates revisions, history, values and pod digests (with a sidecar). Tests: `tests/test_rollback.py` (27),
   `tests/test_levels.py`. Products delivered before this have no release on record: their next delivery
   records one, and only the change after that can roll back.
 - **Checks on the branch (cloud, 2026-11-01, `09ed536`):** ruff, mypy (no new errors), auth (9 passed), OpenAPI

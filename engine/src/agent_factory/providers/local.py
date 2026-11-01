@@ -148,7 +148,7 @@ class LocalProvider:
         smoke = await self._probe(ctx, ctx.blueprint.health_path)
         if not smoke.ok:
             return StepResult(False, "deployment failed", smoke.output[-2500:])
-        revision, digest, why = await self._release(ctx).installed()
+        revision, digest, why = await self._release(ctx).installed(str(image))
         # what it installed, as far as the cluster says; the deploy station refuses to record an
         # incomplete release (fail closed, ADR-0046), so `why` travels with it
         return StepResult(

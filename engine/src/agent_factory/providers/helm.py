@@ -234,7 +234,7 @@ class HelmProvider:
                 f"deployed, but {url}{ctx.blueprint.health_path} did not answer through the ingress",
                 smoke.output[-2500:],
             )
-        revision, digest, why = await self._release(ctx, kenv, kfile).installed()
+        revision, digest, why = await self._release(ctx, kenv, kfile).installed(str(image))
         # what it installed, as far as the cluster says; the deploy station refuses to record an
         # incomplete release (fail closed, ADR-0046), so `why` travels with it
         return StepResult(

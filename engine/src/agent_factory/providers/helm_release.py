@@ -20,10 +20,11 @@ from agent_factory.providers.base import StepResult
 Run = Callable[[str, float], Awaitable[CommandResult]]  # (command, timeout) -> result, on the release's cluster
 Probe = Callable[[str], Awaitable[CommandResult]]  # (path) -> the app answered it, retried for a while
 
-# per live pod: its deletion timestamp (empty unless terminating), then every container's imageID
-PODS_JSONPATH = (
-    "{range .items[*]}{.metadata.deletionTimestamp}|{range .status.containerStatuses[*]}{.imageID} {end}{'\\n'}{end}"
-)
+# per pod: its deletion timestamp (empty unless terminating), then each container as image=imageID,
+# so the release's own containers can be told from sidecars (`rollback.app_digests`)
+_POD = "{.metadata.deletionTimestamp}|"
+_CONTAINERS = "{range .status.containerStatuses[*]}{.image}={.imageID} {end}"
+PODS_JSONPATH = "{range .items[*]}" + _POD + _CONTAINERS + "{'\\n'}{end}"
 
 
 @dataclass
@@ -37,8 +38,8 @@ class HelmRelease:
     def _ns(self) -> str:
         return f"--namespace {shlex.quote(self.namespace)}"
 
-    async def digest(self) -> tuple[str | None, str]:
-        """The one image digest every live container of the release runs."""
+    async def digest(self, image: str) -> tuple[str | None, str]:
+        """The one digest every running container of the release's image reports (sidecars aside)."""
         res = await self.run(
             f"{self.kubectl} get pods {self._ns()} -l app.kubernetes.io/instance={shlex.quote(self.name)} "
             f"-o jsonpath={shlex.quote(PODS_JSONPATH)}",
@@ -46,16 +47,16 @@ class HelmRelease:
         )
         if not res.ok:
             return None, f"could not read the running pods: {res.output.strip()[-300:]}"
-        return rollback.one_digest(res.output)
+        return rollback.one_digest(res.output, image)
 
-    async def installed(self) -> tuple[int | None, str | None, str]:
+    async def installed(self, image: str) -> tuple[int | None, str | None, str]:
         """After `helm upgrade --wait`: (revision, digest, problem). Both are needed to record the
         release; a deploy that can't tell them fails closed."""
         status = await self.run(f"{self.helm} status {shlex.quote(self.name)} {self._ns()} -o json", 60)
         revision = rollback.helm_revision(status.output) if status.ok else None
         if revision is None:
             return None, None, "Helm reported no revision for the release"
-        digest, why = await self.digest()
+        digest, why = await self.digest(image)
         return revision, digest, why
 
     async def _history(self) -> list[dict[str, object]]:

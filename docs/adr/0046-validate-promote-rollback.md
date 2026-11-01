@@ -1,7 +1,8 @@
 # ADR-0046: Validate in a temporary environment, promote the tested image, roll back to the last healthy release
 
 **Status:** proposed · 2026-11-01 · direction decided by Saravana 2026-11-01; slice 1 built on
-`feat/j2-rollback` (PR #131, review fixes 2026-11-01: fail closed, crash-safe recording, verified rollback) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
+`feat/j2-rollback` (PR #131, review fixes 2026-11-01: fail closed, crash-safe recording, verified rollback; engine errors
+settle production; sidecar-safe digests) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
 [ADR-0039](0039-lanes-phases.md) §6 (gated promotion), [ADR-0043](0043-failure-classes.md)
 (failure classes) and [ADR-0023](0023-evidence-manifest.md) (sealed evidence)
 
@@ -26,7 +27,8 @@ choice per product, not imposed on every small app.
    saves its intent on the change (`Change.deployed`: change, iteration, image, and where it runs: delivery
    environment, deploy integration, cluster, namespace, Helm release). After `helm upgrade --wait` and the
    liveness check it adds the release's revision (`helm status -o json`) and the immutable image digest
-   every running container reports (`kubectl get pods`, imageID). A deploy that can't tell either one fails
+   the release's own containers report (`kubectl get pods`, imageID; containers are matched to the release by
+   image repository, so sidecars on other images are ignored). A deploy that can't tell either one fails
    closed: it holds as `infra` (no repair agent can fix it) and nothing is recorded as healthy.
 2. **The healthy release is recorded the moment it is accepted** (slice 1). When acceptance passes (or
    handover, in a lane without acceptance), the change's complete release becomes `Product.release` and is
@@ -41,15 +43,16 @@ choice per product, not imposed on every small app.
    (`deployed` or `superseded`) with the recorded image in its values. It then runs
    `helm rollback <release> <recorded revision> --wait`, never "the previous revision", and (c) **verifies**
    the result: Helm's newest revision is deployed and reads `Rollback to <revision>`, its values carry the
-   recorded image, `kubectl rollout status` completes, every live container runs the recorded digest
-   (terminating pods aside), and the pack's liveness **and** readiness paths answer. Everything is recorded
+   recorded image, `kubectl rollout status` completes, every running container of the release's image runs
+   the recorded digest (terminating pods and sidecars aside), and the pack's liveness **and** readiness paths answer. Everything is recorded
    in `artifacts/<change>/rollbacks.json` (what was replaced, the target, the outcome, any refusal or
    failed check) and the event log (`warn`; `error` if it failed). On success the failure goes to repair as
    before, with a note that production is back on the healthy release. A refusal, a failed rollback or a
    failed check holds the change as `infra`: production needs a person, and nothing tries again unattended.
    No `--atomic`: it removes the failing pods before their logs are kept.
 4. **Every stop settles production** (slice 1). A change that stops short of delivery while its own,
-   unaccepted release may be serving (held, failed, paused, waiting, cancelled, or interrupted by a restart,
+   unaccepted release may be serving (held, failed, paused, waiting, cancelled, an engine error in the
+   pipeline itself, or interrupted by a restart,
    where the restore runs at start-up before any automatic resume) gets the same restore. On success its
    resume starts again from deploy; if the restore can't be done, it holds as `infra`. A first delivery has
    no healthy release to restore: the event log says production may be serving the unaccepted release.
