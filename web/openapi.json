@@ -5234,6 +5234,16 @@
             ],
             "title": "Pr Url"
           },
+          "deployed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Release"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_failure": {
             "anyOf": [
               {
@@ -8679,6 +8689,16 @@
             },
             "type": "array",
             "title": "Stack Matches"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Release"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -8846,6 +8866,52 @@
         ],
         "title": "RefDoc",
         "description": "Team knowledge (standards, conventions, architecture rules) attached to agents."
+      },
+      "Release": {
+        "properties": {
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          },
+          "iteration": {
+            "type": "integer",
+            "title": "Iteration"
+          },
+          "image": {
+            "type": "string",
+            "title": "Image"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "change_id",
+          "iteration",
+          "image",
+          "environment",
+          "at"
+        ],
+        "title": "Release",
+        "description": "A release of a product on a deploy target (ADR-0046): what a change put there, and once it is\ndelivered, the product's last healthy release, which a later failure restores."
       },
       "ReorderStationsInput": {
         "properties": {

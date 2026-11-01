@@ -54,6 +54,9 @@ def level_of(kind: str, message: str, data: Mapping[str, Any] | None) -> EventLe
             return EventLevel.warn
         return EventLevel.info
     if kind == "decision":
+        rb = d.get("rollback")
+        if isinstance(rb, Mapping):  # production rolled back (ADR-0046): attention; a failed one is an error
+            return EventLevel.error if rb.get("ok") is False else EventLevel.warn
         if "retry" in d or "denied" in d or "no_progress" in d:
             return EventLevel.warn
         failure = d.get("failure")

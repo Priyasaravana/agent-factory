@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
+    from agent_factory.models import Release
 
 Capability = Literal["registry", "scan", "deploy", "publish"]
 CAPABILITIES: tuple[Capability, ...] = ("registry", "scan", "deploy", "publish")
@@ -101,9 +102,12 @@ class DeployProvider(Provider, Protocol):
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app
     def public_url(self, ctx: StationContext) -> str: ...  # where a person opens it
+    # data["revision"]: the target's revision of the release it installed, when it has one (ADR-0046)
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult: ...
     async def diagnostics(self, ctx: StationContext) -> str: ...
     async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
+    # restore an earlier release and check it answers its liveness path (ADR-0046)
+    async def rollback(self, ctx: StationContext, release: Release) -> StepResult: ...
 
 
 def secret_data(output: str) -> dict[str, str] | None:

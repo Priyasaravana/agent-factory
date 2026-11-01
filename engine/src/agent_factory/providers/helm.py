@@ -32,9 +32,11 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
+from agent_factory.rollback import helm_revision
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
+    from agent_factory.models import Release
 
 KUBECONFIG_ENV = "AF_KUBECONFIG"
 PULL_ENV = "AF_PULL_SECRET"
@@ -225,17 +227,53 @@ class HelmProvider:
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
         url = self.public_url(ctx)
-        smoke = await ctx.cmd(
-            f"for i in $(seq 1 30); do {self._curl(url + ctx.blueprint.health_path)} && exit 0; sleep 2; done; exit 1",
-            timeout=90,
-        )
+        smoke = await self._smoke(ctx)
         if not smoke.ok:
             return StepResult(
                 False,
                 f"deployed, but {url}{ctx.blueprint.health_path} did not answer through the ingress",
                 smoke.output[-2500:],
             )
-        return StepResult(True, f"deployed {image} to {ns}; {url}{ctx.blueprint.health_path} ok", data={"url": url})
+        status = await ctx.cmd(
+            self._kube(f"{h} status {slug} --namespace {ns} -o json", kfile), timeout=60, env=kenv, record=False
+        )
+        return StepResult(
+            True,
+            f"deployed {image} to {ns}; {url}{ctx.blueprint.health_path} ok",
+            data={"url": url, "revision": helm_revision(status.output) if status.ok else None},
+        )
+
+    async def _smoke(self, ctx: StationContext) -> Any:
+        url = self.public_url(ctx) + ctx.blueprint.health_path
+        return await ctx.cmd(
+            f"for i in $(seq 1 30); do {self._curl(url)} && exit 0; sleep 2; done; exit 1",
+            timeout=90,
+        )
+
+    async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
+        """`helm rollback` to the recorded revision (the previous one if none was recorded), then the
+        liveness path must answer through the ingress (ADR-0046)."""
+        env = self._env(ctx, "rollback")
+        if env is None:
+            return StepResult(False, f"rollback failed: kubeconfig {self._kube_ref} not available")
+        kenv, kfile = env
+        ns, slug = self.namespace(ctx), ctx.product.slug
+        rev = f" {release.revision}" if release.revision else ""
+        res = await ctx.cmd(
+            self._kube(f"helm{self._flags('helm')} rollback {slug}{rev} --namespace {ns} --wait --timeout 5m", kfile),
+            timeout=420,
+            env=kenv,
+        )
+        if not res.ok:
+            return StepResult(False, "helm rollback failed", res.output[-2500:])
+        smoke = await self._smoke(ctx)
+        if not smoke.ok:
+            return StepResult(
+                False,
+                f"rolled back, but {ctx.blueprint.health_path} did not answer through the ingress",
+                smoke.output[-2500:],
+            )
+        return StepResult(True, f"rolled back {slug} to {release.image}; {ctx.blueprint.health_path} ok")
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

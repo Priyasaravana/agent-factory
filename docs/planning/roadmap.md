@@ -1,7 +1,7 @@
 # Agent Factory: build plan
 
-Updated 2026-10-31 (J2 slice 4 merged; Kudos board iteration 3 delivered live; slice 5, one flow for the next
-iteration, in review; readiness outcomes folded into J1, J2 and J4, phases after J5 named, backlog added).
+Updated 2026-11-01 (J2 slices 4 and 5 merged; J2 gains validate, promote and roll back, ADR-0046, decided by
+Saravana; rollback slice 1 in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -21,7 +21,7 @@ launch → design choices agreed → build a good product → verify → publish
 team repo PR → run and maintain → end of life.
 
 - **Freeze:** no new ADRs and no new control surface until J5 has run live once. Only the ADRs the
-  milestones below need (ADR-0043, a trimmed ADR-0044) go ahead.
+  milestones below need (ADR-0043, a trimmed ADR-0044, ADR-0046 for J2) go ahead.
 - **Each milestone ends with a live run** whose sealed evidence is kept as the demo record, and a short demo.
 - **A journey acceptance test** (scripted, dry-run, in CI) grows with each milestone, so a working step
   never silently breaks. J1 steps merged 2026-10-27 (`engine/tests/test_journey.py`, `fd81b9c`); each
@@ -146,7 +146,7 @@ per-pack evaluation is in the backlog.
   template 1.4.1, meets the same bar **on its first delivery, without an iteration**, with tap targets measured
   by the pack's e2e so a miss fails the build. Kudos board alone needed iteration 2, so J1 stays open until then.
 
-**J2. Iterate safely (~4.5 days)**
+**J2. Iterate safely (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01)**
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
   through the feedback box or by ticking items in the Work items panel (pillar roadmap deferrals as
   "recommendation" items, image CVEs), but nothing suggests the product's **next features**, and the panel
@@ -195,7 +195,7 @@ per-pack evaluation is in the backlog.
     without a reason, nothing said what would start, and the card disappeared while a change ran; (2) the designer
     found no live screenshots (`screenshots/live/` missing) and suggested from `docs/ui.md` instead (backlog);
     (3) the host slept 5 min during implement (retried fine).
-    **Slice 5, in review** (branch `feat/j2-next-iteration-one-flow`, 2026-10-31; layout decided by Claude at
+    **Slice 5, merged** (`61096f5`, 2026-10-31; layout decided by Claude at
     Saravana's request, his review of the feel to follow): one place starts an iteration. On factory products the
     Work items panel has **Add to next iteration** (ticks the item on the card) instead of its own start button
     and kind dropdown; team repos keep "Make a change". The card shows all three groups, an empty one says why
@@ -210,7 +210,20 @@ per-pack evaluation is in the backlog.
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
   a person's earlier answers survive iteration 2 unchanged.
-- **Rollback to the last good release** when iteration 2+ fails after deploy (last-good record, `--atomic`).
+- **Validate, promote, roll back** (decided by Saravana 2026-11-01, replaces "rollback with `--atomic`";
+  [ADR-0046](../adr/0046-validate-promote-rollback.md), proposed): production is never where a change is
+  developed, debugged or repaired. Four slices (~6 days):
+  1. 🔄 **Last healthy release and rollback** (~1 day, branch `feat/j2-rollback`): the release is recorded at
+     delivery (`Product.release`, Helm revision); a deploy, smoke or live-acceptance failure with a healthy
+     release on record → diagnostics first → `helm rollback` to it → its health checked → repair as before.
+     A rollback that fails holds as `infra`. No `--atomic` (it removes the pods before the logs are kept).
+  2. **Temporary validation environment** (~2 days): each change deploys to its own release and namespace
+     (`<slug>-c<id>`, own ingress host, empty data); live e2e, verifier and repair run there; removed when the
+     change stops and on archive, with a start-up sweep. The `local` NodePort provider validates in place.
+  3. **Promote the tested image** (~1 day): a `promote` station deploys the same image to production, smoke
+     and e2e there, rollback on failure; only then is the release recorded.
+  4. **Strategy per product** (~2 days): `in-place` (default) or `blue-green` (two releases, ingress switch,
+     the old one kept for an instant switch back), defaulted by the pack.
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
 - **"Ready for" statement** (decided 2026-10-31): each delivery states its tier, **demo**, **pilot** or
   **production**, worked out by the engine (pure, tested) from the sealed evidence, plus what the next tier
@@ -219,7 +232,10 @@ per-pack evaluation is in the backlog.
   in the evidence; a product with no owner can't be above demo.
 - **Done when:** iteration 2 is started from the "Next iteration" card with a suggested feature and a CVE fix,
   and a deliberately broken iteration rolls back while the previous version keeps serving. **And** every
-  delivered change states what it's ready for and what the next tier needs (decided 2026-10-31).
+  delivered change states what it's ready for and what the next tier needs (decided 2026-10-31). **And**
+  (decided 2026-11-01) a change is validated in a temporary environment that is gone when it stops,
+  production changes only by promoting the tested image, and one product runs blue/green while another
+  stays in place.
 
 **J3. Team repo (~3 days)**
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
@@ -341,9 +357,10 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 43. The environment check: a failed command is checked against what it depended on (host sleep, disk, sandbox, the delivery environment's integrations) before it goes to the developer (`6438826`, `d3fec2b`).
 44. J2 slice 2: next features suggested at each delivery by the architect and the designer, vetted and folded into the work ledger (`94ec787`, `b6538a6`).
 45. J2 slice 3: the engine picks the change kind from the ticked items; `GET /api/products/{id}/next-iteration` (`f21ebdb`).
+46. J2 slices 4 and 5: the "Next iteration" card, and one flow to start an iteration (`4c19e26`, `61096f5`).
 
 ## 🔄 In review
-- `feat/j2-next-iteration-card` (2026-10-30): J2 slice 4, the "Next iteration" card; the feedback box stays for team repos only.
+- `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
 - **Readiness outcomes** (added 2026-10-31, from the capability review: discovery, design, engineering,
@@ -358,8 +375,8 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
     release's data, and a rollback path; a release with an unmigrated schema change fails Level 3.
   - **Performance budget:** the pack declares a latency target for key routes; a short load smoke test in
     acceptance records p95 in the evidence (measured, not asserted by an agent).
-  - **Staged releases:** canary or blue/green on the cluster target, promoted on health, before production
-    tier is claimed (with gated promotion, ADR-0039 Q2).
+  - **Staged releases:** canary on the cluster target, promoted on health, before production tier is claimed
+    (with gated promotion, ADR-0039 Q2). Blue/green moved into J2 (ADR-0046 slice 4, decided 2026-11-01).
   - **Interruption recovery beyond host sleep:** a killed agent call, a lost sandbox and a cluster restart each
     resume or hold with a cause, tested (the environment check covers host sleep and disk today).
   - **Defect trends on Outcomes:** escaped defects (a fix change that follows a delivery), rollbacks and

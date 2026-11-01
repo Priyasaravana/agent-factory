@@ -11,15 +11,16 @@ import time
 import traceback
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import failures, ledger
+from agent_factory import failures, ledger, rollback
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
-from agent_factory.engine.stations import STATIONS, StationContext, StationResult, Stop
+from agent_factory.engine.stations import STATIONS, StationContext, StationResult, Stop, restore_last_healthy
 from agent_factory.engine.workflows import WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor
@@ -1217,6 +1218,25 @@ class ChangeManager:
                     return None
                 self.store.save_change(change)
                 continue
+
+            if result.outcome == StationOutcome.failed and (
+                last := rollback.target(handler, change, product, ctx.providers.environment)
+            ):
+                # production goes back to the last healthy release before anyone repairs (ADR-0046);
+                # deploy collected its diagnostics already, acceptance did not
+                ok, note = await restore_last_healthy(ctx, last, diagnose=handler != "deploy")
+                evidence = (result.failure_evidence or result.summary) + note
+                if not ok:
+                    change.hold_class = "infra"
+                    self.store.save_change(change)
+                    return self._hold(
+                        change,
+                        sid,
+                        f"{result.summary}; rolling production back to iteration {last.iteration} failed: "
+                        "production needs a person",
+                        evidence,
+                    )
+                result = replace(result, failure_evidence=evidence)
 
             if result.outcome == StationOutcome.failed:
                 change.loops += 1

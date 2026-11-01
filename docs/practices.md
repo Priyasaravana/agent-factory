@@ -156,13 +156,15 @@ Readiness signals only (21 + secret scan), pinned by `tests/test_pillars.py`. Tr
   - React SPA;
   - per-pack evaluation;
   - then full-stack.
+- **Now (J2, ADR-0046):** 🟡 rollback to the last healthy release, diagnostics first (slice 1); validation in a
+  temporary environment, promotion of the tested image, deployment strategy per product (slices 2–4).
 - **Then:**
   - live check of the cluster target on `local-ingress`;
   - secret store, then gated promotion;
   - ECR + Argo CD.
 - **Later:**
   - intake from GitHub issues;
-  - staged rollout and rollback;
+  - staged rollout (blue/green per product: ADR-0046 slice 4, in J2);
   - image signing;
   - provider fallback;
   - parallel tasks.

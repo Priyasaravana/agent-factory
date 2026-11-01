@@ -17,9 +17,11 @@ from typing import TYPE_CHECKING, Any
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
+from agent_factory.rollback import helm_revision
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
+    from agent_factory.models import Release
 
 
 def failed_detail(cmd: str, res: CommandResult) -> str:
@@ -125,15 +127,39 @@ class LocalProvider:
         )
         res = await ctx.cmd(helm, timeout=420)
         if res.ok:
-            live = f"{self.internal_url(ctx)}{ctx.blueprint.health_path}"  # the pack's liveness path
-            smoke = await ctx.cmd(
-                f"for i in $(seq 1 30); do curl -fsS {live} && exit 0; sleep 2; done; exit 1",
-                timeout=90,
-            )
+            smoke = await self._smoke(ctx)
             if smoke.ok:
-                return StepResult(True, f"deployed {image} to {ns}; {ctx.blueprint.health_path.lstrip('/')} ok")
+                status = await ctx.cmd(f"helm status {slug} --namespace {ns} -o json", timeout=60, record=False)
+                return StepResult(
+                    True,
+                    f"deployed {image} to {ns}; {ctx.blueprint.health_path.lstrip('/')} ok",
+                    data={"revision": helm_revision(status.output) if status.ok else None},
+                )
             res = smoke
         return StepResult(False, "deployment failed", res.output[-2500:])
+
+    async def _smoke(self, ctx: StationContext) -> CommandResult:
+        live = f"{self.internal_url(ctx)}{ctx.blueprint.health_path}"  # the pack's liveness path
+        return await ctx.cmd(
+            f"for i in $(seq 1 30); do curl -fsS {live} && exit 0; sleep 2; done; exit 1",
+            timeout=90,
+        )
+
+    async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
+        """`helm rollback` to the recorded revision (the previous one if none was recorded), then the
+        liveness path must answer (ADR-0046)."""
+        ns, slug = namespace(ctx.product), ctx.product.slug
+        rev = f" {release.revision}" if release.revision else ""
+        cmd = f"helm rollback {slug}{rev} --namespace {ns} --wait --timeout 5m"
+        res = await ctx.cmd(cmd, timeout=420)
+        if not res.ok:
+            return StepResult(False, "helm rollback failed", failed_detail(cmd, res))
+        smoke = await self._smoke(ctx)
+        if not smoke.ok:
+            return StepResult(
+                False, f"rolled back, but {ctx.blueprint.health_path} did not answer", smoke.output[-2500:]
+            )
+        return StepResult(True, f"rolled back {slug} to {release.image}; {ctx.blueprint.health_path} ok")
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

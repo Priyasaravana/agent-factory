@@ -1,23 +1,30 @@
-# Agent Factory: handoff (updated 2026-10-31)
+# Agent Factory: handoff (updated 2026-11-01)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-31, end of session)
-- **Main** (`4c19e26` on GitHub): J2 slice 4 merged (the "Next iteration" card), on top of slices 1–3, the
-  environment check, decisions surviving iterations, scanner digests and the journey acceptance test. The Mac's
-  local main was at `f21ebdb` at the start of the session; Saravana pulled and rebuilt (`make up-live`).
-- **In review:** `feat/j2-next-iteration-one-flow` (one commit on `4c19e26`): J2 slice 5, one flow for the next
-  iteration (roadmap J2). Saravana found the page confusing after starting iteration 3, and asked Claude to decide
-  the layout; his review of the feel is next. Engine: `NextIterationView` + `latest_iteration`, `latest_kind`,
-  `latest_request` (`tests/test_suggest.py`). Web: `NextIteration.tsx` (all groups shown with an empty reason,
-  "show N more", a summary before start, a running state with **Follow it**; the picked set now lives in
-  `ProductPage`), `WorkLedger.tsx` (**Add to next iteration** on factory products instead of "Make a change"),
-  `ProductPage.tsx` (`#change` wrapper to scroll to). Built, type-checked and screenshotted (desktop, 390 px)
-  against a dry-run engine in the cloud: npm and PyPI both worked here on 2026-10-31.
-- **Next:** Saravana's review of the page; then iteration 4 on Kudos board from the card with a suggested
-  feature (five are open after iteration 3); a CVE fix if one is open (none at iteration 3). Then J2's rollback
-  and the accepted/closed state.
+## Current state (2026-11-01)
+- **Main** (`0c7cd84` on GitHub): J2 slices 1–5 merged, including slice 5 (`61096f5`, one flow for the next
+  iteration).
+- **Decided 2026-11-01 (Saravana):** J2 gains validate, promote and roll back ([ADR-0046](../adr/0046-validate-promote-rollback.md),
+  proposed): each change is validated in a temporary environment, production gets only the tested image,
+  a production failure rolls back to the last healthy release (diagnostics first, `helm rollback` to the
+  recorded revision, health checked), temporary environments are cleaned up, and the strategy (in place or
+  blue/green) is chosen per product. Four slices; roadmap J2.
+- **In review:** `feat/j2-rollback` (one commit on `0c7cd84`): ADR-0046 and slice 1. Engine: `Release`
+  (`Product.release`, `Change.deployed`), pure `rollback.py` (`target`, `helm_revision`, `note`),
+  `DeployProvider.rollback` (local and helm: `helm rollback <slug> <rev> --wait`, then the liveness path),
+  deploy records the Helm revision (`helm status -o json`), handover records the healthy release, the
+  pipeline restores before routing a deploy or acceptance failure (`restore_last_healthy`,
+  `artifacts/<change>/rollbacks.json`), a failed rollback holds as `infra`; rollback events are `warn`
+  (`error` if it failed). Tests: `tests/test_rollback.py`, `tests/test_levels.py`. OpenAPI and
+  `schema.d.ts` regenerated (npm worked in the cloud on 2026-11-01). Products delivered before this have no
+  release on record: their next delivery records one, and only the change after that can roll back.
+- **Checks on the branch (cloud, 2026-11-01):** lint, mypy, auth, OpenAPI drift and web build clean; engine
+  1037 passed, 5 failed (`test_tools.py` ×4, `test_checks.py::test_snyk_…`). The same 5 fail on clean main in
+  this cloud workspace (its scanner tools change what the fakes see), so they aren't the branch's; CI decides.
+- **Next:** Saravana accepts ADR-0046 (or changes it) and merges slice 1; iteration 4 on Kudos board from the
+  card (records Kudos board's first release); then slice 2, the temporary validation environment.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
   `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
   `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's

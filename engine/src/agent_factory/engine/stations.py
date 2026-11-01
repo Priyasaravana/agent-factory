@@ -18,6 +18,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,6 +36,7 @@ from agent_factory import (
     packs,
     repo_change,
     risk,
+    rollback,
     rollup,
     stack,
     tools,
@@ -61,6 +63,7 @@ from agent_factory.models import (
     EventKind,
     Product,
     ProductTarget,
+    Release,
     RequiredAction,
     StackMatch,
     StationOutcome,
@@ -1558,9 +1561,64 @@ async def deploy(ctx: StationContext) -> StationResult:
     ref = p.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
     res = await p.deploy.deploy(ctx, ref)
     if res.ok:
+        revision = res.data.get("revision")
+        ctx.change.deployed = Release(
+            change_id=ctx.change.id,
+            iteration=ctx.change.iteration,
+            image=str(ref),
+            environment=p.environment,
+            revision=revision if isinstance(revision, int) else None,
+            at=datetime.now(UTC),
+        )
         return StationResult(StationOutcome.passed, res.summary)
+    # diagnostics before anything else: a rollback (ADR-0046) would replace the failing pods
     diag = await p.deploy.diagnostics(ctx)
     return StationResult(StationOutcome.failed, res.summary, f"{res.detail}\n--- diagnostics ---\n{diag}")
+
+
+async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnose: bool) -> tuple[bool, str]:
+    """Put the product's last healthy release back after a failure (ADR-0046 slice 1): diagnostics
+    first when the failed station didn't collect them, then the provider's rollback, which checks the
+    restored release answers. Recorded in `artifacts/<change>/rollbacks.json` and the event log.
+    Returns (ok, the note for the repair station's evidence)."""
+    deploy_p = ctx.providers.deploy
+    diag = await deploy_p.diagnostics(ctx) if diagnose else ""
+    await ctx.emit(
+        EventKind.decision,
+        f"rolling production back to iteration {release.iteration} ({release.image})",
+        {"rollback": {"to": release.model_dump(mode="json"), "station": ctx.station_id}},
+    )
+    res = await deploy_p.rollback(ctx, release)
+    entry = {
+        "at": datetime.now(UTC).isoformat(),
+        "station": ctx.station_id,
+        "change_iteration": ctx.change.iteration,
+        "replaced": ctx.change.deployed.model_dump(mode="json") if ctx.change.deployed else None,
+        "to": release.model_dump(mode="json"),
+        "ok": res.ok,
+        "summary": res.summary,
+    }
+    out = artifacts_dir(ctx)
+    out.mkdir(parents=True, exist_ok=True)
+    file = out / "rollbacks.json"
+    try:
+        earlier = json.loads(file.read_text()) if file.is_file() else []
+    except json.JSONDecodeError:
+        earlier = []
+    file.write_text(json.dumps([*(earlier if isinstance(earlier, list) else []), entry], indent=2))
+    await ctx.emit(
+        EventKind.decision,
+        f"production {'rolled back' if res.ok else 'rollback FAILED'}: {res.summary}",
+        {"rollback": {"ok": res.ok, "to": release.model_dump(mode="json")}},
+    )
+    if res.ok:
+        ctx.change.deployed = None
+    note = rollback.note(release, res.ok, res.summary)
+    if diag:
+        note += f"\n--- diagnostics before the rollback ---\n{diag}"
+    if not res.ok and res.detail:
+        note += f"\n--- rollback output ---\n{res.detail[-1500:]}"
+    return res.ok, note
 
 
 async def deploy_repair(ctx: StationContext) -> StationResult:
@@ -1854,6 +1912,10 @@ async def handover(ctx: StationContext) -> StationResult:
         notes.append(res.summary)
 
     ctx.product.app_url = ctx.providers.deploy.public_url(ctx)
+    if ctx.change.deployed is not None:  # this change's release passed acceptance: the healthy one now (ADR-0046)
+        ctx.product.release = ctx.change.deployed
+        rev = f", revision {ctx.change.deployed.revision}" if ctx.change.deployed.revision else ""
+        notes.append(f"release recorded (iteration {ctx.change.iteration}{rev})")
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.product.app_url}")
 
 

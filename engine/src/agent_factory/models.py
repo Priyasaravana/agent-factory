@@ -105,6 +105,18 @@ class StackMatch(BaseModel):
     egress: list[str] = Field(default_factory=list)  # what the repo's sandboxes may reach for it
 
 
+class Release(BaseModel):
+    """A release of a product on a deploy target (ADR-0046): what a change put there, and once it is
+    delivered, the product's last healthy release, which a later failure restores."""
+
+    change_id: str
+    iteration: int
+    image: str
+    environment: str  # the delivery environment it runs in (ProviderSet.environment)
+    revision: int | None = None  # the deploy target's revision (Helm: the release's version)
+    at: datetime
+
+
 class Product(BaseModel):
     id: str
     title: str
@@ -136,6 +148,9 @@ class Product(BaseModel):
     # a team repo (target repo): the stack packs detected at its last assessment, per folder
     # (ADR-0041 §5). Guidance for its changes' agents and advisory signals; never its build.
     stack_matches: list[StackMatch] = Field(default_factory=list)
+    # the last healthy release, recorded when a change is delivered (ADR-0046); None: nothing
+    # delivered since releases were recorded
+    release: Release | None = None
 
 
 class Change(BaseModel):
@@ -160,6 +175,9 @@ class Change(BaseModel):
     # starts after the phases that would make them; schema-checked and sealed like any artifact
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
+    # what this change's deploy put on the target and is serving now (ADR-0046); cleared when a
+    # rollback restores the product's last healthy release
+    deployed: Release | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
