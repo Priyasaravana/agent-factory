@@ -1,7 +1,7 @@
 # Agent Factory: build plan
 
 Updated 2026-11-01 (J2 slices 4 and 5 merged; J2 gains validate, promote and roll back, ADR-0046 accepted by
-Saravana; rollback slice 1 merged, #131; slices 2 and 3 built together, in review).
+Saravana; rollback slice 1 merged, #131; slices 2 and 3 merged, #132; slice 4, blue/green per product, in review).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -220,17 +220,24 @@ per-pack evaluation is in the backlog.
      the recorded revision only if the record is complete, names this cluster, namespace and release, and
      the revision is in the history with the recorded image; then history, image, rollout, digest, liveness
      and readiness verified. Anything short of that holds as `infra` for a person. No `--atomic`.
-  2. 🔄 **Temporary validation environment** (~2 days; built with slice 3, decided by Saravana 2026-11-01, since
-     slice 2 alone would never update production on a `helm` target; `feat/j2-validate-promote`): each change
+  2. ✅ **Temporary validation environment** (~2 days; built with slice 3, decided by Saravana 2026-11-01, since
+     slice 2 alone would never update production on a `helm` target; PR #132, merged 2026-11-01, `72a7f7c`): each change
      deploys to its own release and namespace (`<slug>-c<id>`, own ingress host, empty data, its own admin
      Secret); live e2e, verifier and repair run there; removed when the change stops and on archive, with a
      start-up sweep; a resumed change deploys a new one before acceptance. The `local` NodePort provider, and a
      lane version without `promote`, validate in place, and the event log says why.
-  3. 🔄 **Promote the tested image** (~1 day, same PR): a `promote` station after acceptance deploys the same
+  3. ✅ **Promote the tested image** (~1 day, same PR): a `promote` station after acceptance deploys the same
      image to production, checks it runs the tested digest, probes and runs e2e there; a failure rolls back and
      holds for a person; only then is the release recorded. Tests: `tests/test_validation_env.py`.
-  4. **Strategy per product** (~2 days): `in-place` (default) or `blue-green` (two releases, ingress switch,
-     the old one kept for an instant switch back), defaulted by the pack.
+  4. 🔄 **Strategy per product** (~2 days; `feat/j2-blue-green`, in review): `in-place` (default) or `blue-green`,
+     defaulted by the pack. **Shape decided by Saravana 2026-11-01:** two colours in production's one Helm
+     release sharing its database (the charts run Postgres in the release, so two releases would split the
+     data). Charts nextjs-web 1.5.0 and fastapi-service 1.1.0 render a Deployment per colour (blue is the one the
+     app always had); `promote` stages the tested image on the idle colour, checks its digest, probes and runs e2e
+     at `<release>-next`, then switches the Service; the old colour keeps running, so a rollback to the recorded
+     revision switches users back without restarting it. Products made before these pack versions, the `local`
+     target, and changes validated in place are promoted in place, and the event log says why. A **Releases**
+     panel on the product page sets it per product. Tests: `tests/test_blue_green.py`.
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
 - **"Ready for" statement** (decided 2026-10-31): each delivery states its tier, **demo**, **pilot** or
   **production**, worked out by the engine (pure, tested) from the sealed evidence, plus what the next tier
@@ -370,6 +377,10 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
+- **Blue/green follow-ups** (added 2026-11-01, slice 4): migrations as a signal (both colours share the data, so
+  a schema change must work with the version still running); an upkeep change that brings an existing product's
+  chart up to its pack's version (Kudos board and Book lending predate colours); a "switch back" button needs
+  a person-facing control, so it waits for the freeze to lift.
 - **Readiness outcomes** (added 2026-10-31, from the capability review: discovery, design, engineering,
   delivery, operations, team collaboration, continuous improvement). Items the J-milestones don't already carry:
   - **Representative product set:** 3–5 product shapes (CRUD with sign-in, public read-only site, admin

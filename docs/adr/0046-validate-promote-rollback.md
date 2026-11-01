@@ -2,8 +2,10 @@
 
 **Status:** accepted · 2026-11-01 (accepted by Saravana 2026-11-01) · direction decided by Saravana 2026-11-01;
 slice 1 merged (PR #131, `8680c44`: fail closed, crash-safe recording, verified rollback; engine errors settle
-production; sidecar-safe digests); slices 2 and 3 built together on `feat/j2-validate-promote` (decided
-2026-11-01: slice 2 alone would never update production on a `helm` target) · builds on [ADR-0026](0026-cluster-target.md) (cluster target),
+production; sidecar-safe digests); slices 2 and 3 merged together (PR #132, `72a7f7c`; decided 2026-11-01:
+slice 2 alone would never update production on a `helm` target); slice 4 built on `feat/j2-blue-green`
+(shape decided by Saravana 2026-11-01: two colours in production's one release, sharing its database) ·
+builds on [ADR-0026](0026-cluster-target.md) (cluster target),
 [ADR-0039](0039-lanes-phases.md) §6 (gated promotion), [ADR-0043](0043-failure-classes.md)
 (failure classes) and [ADR-0023](0023-evidence-manifest.md) (sealed evidence)
 
@@ -93,6 +95,31 @@ choice per product, not imposed on every small app.
 7. **Strategy per product** (slice 4). `in-place` (Helm upgrade, rolling, the default) or `blue-green` (two
    releases, the ingress switched to the new one after its checks, the old one kept for an instant switch
    back until the next promotion). Set per product, defaulted by the pack.
+   *Decided by Saravana 2026-11-01:* two colours **in production's one Helm release**, not two releases. The
+   packs' charts run Postgres inside the release, so two releases would mean two databases and a switch would
+   lose the data; one release keeps one database under both colours.
+   *As built:* the charts (nextjs-web 1.5.0, fastapi-service 1.1.0) render one Deployment per colour. Blue is
+   the Deployment the app always had (same name and selector, plus a `color` label), so an in-place product
+   moves to blue/green without replacing its pods; green has a selector of its own, so neither selects the
+   other's pods. With `strategy=blue-green` the Service selects `blueGreen.live`, and a preview Service and
+   Ingress (`<release>-next.<domain>`) reach the idle colour. `promote` on a blue/green product
+   (`blue_green.py`, pure: `chosen`, `layout`, `plan`, `sets`, `in_place_reason`) reads production's Helm values,
+   refuses unless production serves the recorded healthy image (`blue_green_unexpected`, `infra`), saves the
+   intent, stages the tested image on the idle colour with the live colour unchanged, requires the tested digest
+   on the idle colour's own pods, probes the preview from the sandbox and runs the pack's e2e there (production's
+   admin: both colours share the Secret and the data), switches the Service, requires the tested digest again and
+   probes production. The first blue/green release goes straight in as blue. The healthy release records its
+   colour (`Release.color`). Rollback is unchanged: `helm rollback` to the recorded revision puts the Service back
+   on the old colour, whose pods kept running, and the checks read the live colour's image from the values and
+   that colour's pods only. A product is promoted in place, and the event log says why, when its target can't
+   give the idle colour an address (`local`), the change was validated in place, its chart renders no colours
+   (products made before these pack versions; an upkeep change from the pack brings the chart), or the preview
+   address is another product's. The strategy is a product setting (`Product.deploy_strategy`; `GET`/`POST
+   /api/products/{id}/deploy-strategy`, creator or admin), shown in the product page's **Releases** panel; both
+   packs default to in place (`deploy:` in `pack.yaml`). Tests: `tests/test_blue_green.py`.
+   *Known limits:* both colours share the data, so a schema change must work with the version still running
+   (expand, then contract; backlog: migrations as a signal); production runs two copies of the app; e2e on the
+   preview writes into production's data, as e2e after an in-place promotion already does.
 
 ## Consequences
 - Users keep the last healthy release whenever a change fails after build: from slice 1 for every deploy

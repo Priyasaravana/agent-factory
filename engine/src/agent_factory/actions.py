@@ -60,6 +60,8 @@ from agent_factory.models import (
     DeliveryBinding,
     DeliveryView,
     DenialView,
+    DeployStrategyInput,
+    DeployStrategyView,
     DraftTemplatesView,
     DraftView,
     DuplicateAgentInput,
@@ -512,6 +514,62 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
         latest_kind=latest.kind,
         latest_request=asked or None,
     )
+
+
+def _strategy_view(f: Factory, product: Product) -> DeployStrategyView:
+    from agent_factory import blue_green
+
+    pack = f.cfg.blueprints[product.blueprint].pack_binding if product.blueprint in f.cfg.blueprints else None
+    default = pack.deploy_strategy if pack else blue_green.IN_PLACE
+    options = list(pack.deploy_strategies) if pack else [blue_green.IN_PLACE]
+    strategy, by = blue_green.chosen(product.deploy_strategy, default)
+    rel = product.release
+    live = rel.color if rel else None
+    kept = blue_green.other(live) if live and strategy == blue_green.BLUE_GREEN and rel and rel.iteration > 1 else None
+    note = (
+        "Each new version is tested on the colour users don't reach, then users are switched to it; the other "
+        "colour keeps running until the next version, so switching back is instant. Both colours share the "
+        "database, and production runs two copies of the app."
+        if strategy == blue_green.BLUE_GREEN
+        else "Each new version replaces the running one, rolling; a failure is rolled back to the last healthy release."
+    )
+    return DeployStrategyView.model_validate(
+        {"strategy": strategy, "chosen_by": by, "pack_default": default, "options": options,
+         "live_color": live, "kept_color": kept, "note": note}
+    )  # fmt: skip
+
+
+@action(
+    "get_deploy_strategy",
+    "How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green "
+    "which colour serves (ADR-0046)",
+    "GET",
+    "/api/products/{product_id}/deploy-strategy",
+)
+def get_deploy_strategy(f: Factory, product_id: str) -> DeployStrategyView:
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    return _strategy_view(f, product)
+
+
+@action(
+    "set_deploy_strategy",
+    "Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); "
+    "none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)",
+    "POST",
+    "/api/products/{product_id}/deploy-strategy",
+)
+def set_deploy_strategy(f: Factory, product_id: str, body: DeployStrategyInput) -> DeployStrategyView:
+    _may_steer(f, product_id)
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    if body.strategy is not None and body.strategy not in _strategy_view(f, product).options:
+        raise InvalidRequestError(f"{product.title}'s stack pack doesn't support {body.strategy}")
+    product.deploy_strategy = body.strategy
+    f.store.save_product(product)
+    return _strategy_view(f, product)
 
 
 @action(

@@ -26,4 +26,35 @@ spec:
               service:
                 name: {{ include "app.name" . }}
                 port: {name: http}
+{{- if and (include "app.blueGreen" .) .Values.blueGreen.previewHost (include "app.colorImage" (dict "root" . "color" (include "app.idle" .))) }}
+---
+# the idle colour's own address (ADR-0046 slice 4): the factory tests the new version here first
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "app.name" . }}-preview
+  labels: {{- include "app.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [{{ .Values.blueGreen.previewHost | quote }}]
+      secretName: {{ include "app.name" . }}-preview-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.blueGreen.previewHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "app.name" . }}-preview
+                port: {name: http}
+{{- end }}
 {{- end }}

@@ -1525,7 +1525,8 @@ class ChangeManager:
         self.store.add_event(
             change.id,
             EventKind.decision,
-            f"healthy release recorded: iteration {rel.iteration}, {rel.image}, revision {rel.revision}, {rel.digest}",
+            f"healthy release recorded: iteration {rel.iteration}, {rel.image}, revision {rel.revision}, {rel.digest}"
+            + (f", serving as {rel.color}" if rel.color else ""),
             station=sid,
             data={"release": rel.model_dump(mode="json")},
         )

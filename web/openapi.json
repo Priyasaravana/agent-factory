@@ -561,6 +561,100 @@
         }
       }
     },
+    "/api/products/{product_id}/deploy-strategy": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)",
+        "description": "How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)",
+        "operationId": "get_deploy_strategy",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployStrategyView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)",
+        "description": "Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)",
+        "operationId": "set_deploy_strategy",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployStrategyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployStrategyView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/work-items/decide": {
       "post": {
         "tags": [
@@ -6270,6 +6364,104 @@
         ],
         "title": "DenialView"
       },
+      "DeployStrategyInput": {
+        "properties": {
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in-place",
+                  "blue-green"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          }
+        },
+        "type": "object",
+        "title": "DeployStrategyInput",
+        "description": "`strategy`: in-place or blue-green; None goes back to the stack pack's default."
+      },
+      "DeployStrategyView": {
+        "properties": {
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "in-place",
+              "blue-green"
+            ],
+            "title": "Strategy"
+          },
+          "chosen_by": {
+            "type": "string",
+            "enum": [
+              "product",
+              "pack",
+              "factory"
+            ],
+            "title": "Chosen By"
+          },
+          "pack_default": {
+            "type": "string",
+            "enum": [
+              "in-place",
+              "blue-green"
+            ],
+            "title": "Pack Default"
+          },
+          "options": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "in-place",
+                "blue-green"
+              ]
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "live_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Color"
+          },
+          "kept_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept Color"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy",
+          "chosen_by",
+          "pack_default",
+          "options"
+        ],
+        "title": "DeployStrategyView",
+        "description": "How a product's new versions reach its users (ADR-0046 slice 4): the strategy, who chose it,\nwhat its stack pack's chart supports, and on blue/green which colour serves users and which is\nkept running for an instant switch back."
+      },
       "DiscussTurn": {
         "properties": {
           "role": {
@@ -8709,6 +8901,21 @@
                 "type": "null"
               }
             ]
+          },
+          "deploy_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in-place",
+                  "blue-green"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deploy Strategy"
           }
         },
         "type": "object",
@@ -8936,6 +9143,17 @@
               }
             ],
             "title": "Digest"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
           },
           "at": {
             "type": "string",

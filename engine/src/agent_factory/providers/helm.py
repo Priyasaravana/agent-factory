@@ -31,6 +31,7 @@ from __future__ import annotations
 import shlex
 from typing import TYPE_CHECKING, Any
 
+from agent_factory import blue_green
 from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
 
@@ -48,6 +49,7 @@ class HelmProvider:
     capabilities = frozenset({"deploy"})
     uses_node_ports = False
     validates_separately = True  # a change gets its own release at its own host (ADR-0046 slice 2)
+    # deploy_colors: blue/green in production's release, the idle colour at <release>-next (slice 4)
 
     def __init__(self, name: str, settings: dict[str, Any] | None = None) -> None:
         self.name = name
@@ -176,6 +178,57 @@ class HelmProvider:
 
     # --------------------------------------------------------------- deploy --
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult:
+        """In place: the release's one Deployment runs `image` (rolling update)."""
+        sets = [f"image.repository={image.repository}", f"image.tag={image.tag}"]
+        return await self._upgrade(ctx, sets, str(image), self.host(ctx), color=None)
+
+    async def deploy_colors(self, ctx: StationContext, live: str, images: dict[str, str], check: str) -> StepResult:
+        """Blue/green (ADR-0046 slice 4): production's release with both colours' `images`, users
+        sent to `live`. `check` is the colour this step is about: its pods are identified (revision
+        and digest) and its address probed, the preview host for the idle colour, production's for
+        the live one."""
+        sets = blue_green.sets(live, images, self.preview_host(ctx))
+        host = self.host(ctx) if check == live else self.preview_host(ctx)
+        return await self._upgrade(ctx, sets, images[check], host, color=check)
+
+    def preview_host(self, ctx: StationContext) -> str:
+        return f"{blue_green.preview_release(ctx.release_name)}.{self.domain}"
+
+    def preview_url(self, ctx: StationContext) -> str:
+        return self._origin(self.preview_host(ctx))
+
+    async def layout(self, ctx: StationContext) -> tuple[blue_green.Layout | None, str]:
+        """What production runs now, from its Helm values: (layout, problem). (None, "") when
+        nothing is installed yet."""
+        env = self._env(ctx, "deploy")
+        if env is None:
+            return None, f"kubeconfig {self._kube_ref} not available"
+        kenv, kfile = env
+        values, why = await self._release(ctx, kenv, kfile).values()
+        if values is None:
+            return None, why
+        found = blue_green.layout(values)
+        if found is None:
+            return None, "production's Helm values name no image the factory set"
+        return found, ""
+
+    async def renders_colors(self, ctx: StationContext) -> bool:
+        """The product's chart renders blue and green (packs from slice 4 on). Dry-run renders
+        nothing, so it is taken as yes there."""
+        probe = {blue_green.BLUE: "probe/app:blue", blue_green.GREEN: "probe/app:green"}
+        sets = blue_green.sets(blue_green.BLUE, probe, self.preview_host(ctx))
+        res = await ctx.cmd(
+            f"helm template {ctx.release_name} {ctx.blueprint.chart_path} "
+            + " ".join(f"--set {shlex.quote(x)}" for x in sets),
+            timeout=120,
+        )
+        if getattr(ctx.settings, "factory_mode", "live") != "live":
+            return res.ok
+        return res.ok and blue_green.renders_colors(res.output)
+
+    async def _upgrade(
+        self, ctx: StationContext, values: list[str], image: str, probe_host: str, color: str | None
+    ) -> StepResult:
         env = self._env(ctx, "deploy")
         if env is None:
             return StepResult(False, f"deployment failed: kubeconfig {self._kube_ref} not available")
@@ -184,8 +237,7 @@ class HelmProvider:
         chart = ctx.blueprint.chart_path
         h, k = f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}"
         sets = [
-            f"image.repository={image.repository}",
-            f"image.tag={image.tag}",
+            *values,
             "service.type=ClusterIP",
             "ingress.enabled=true",
             f"ingress.host={host}",
@@ -233,25 +285,26 @@ class HelmProvider:
         res = await ctx.cmd(self._kube("; ".join(["set -e", *steps]), kfile), timeout=420, env=kenv)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
-        url = self.public_url(ctx)
-        smoke = await self._probe(ctx, ctx.blueprint.health_path)
+        url = self._origin(probe_host)
+        smoke = await self._probe(ctx, ctx.blueprint.health_path, probe_host)
         if not smoke.ok:
             return StepResult(
                 False,
                 f"deployed, but {url}{ctx.blueprint.health_path} did not answer through the ingress",
                 smoke.output[-2500:],
             )
-        revision, digest, why = await self._release(ctx, kenv, kfile).installed(str(image))
+        revision, digest, why = await self._release(ctx, kenv, kfile).installed(image, color)
         # what it installed, as far as the cluster says; the deploy station refuses to record an
         # incomplete release (fail closed, ADR-0046), so `why` travels with it
+        where = f"{ns}" + (f", colour {color}" if color else "")
         return StepResult(
             True,
-            f"deployed {image} to {ns} (revision {revision}, {digest}); {url}{ctx.blueprint.health_path} ok",
-            data={"url": url, "revision": revision, "digest": digest, "unidentified": why},
+            f"deployed {image} to {where} (revision {revision}, {digest}); {url}{ctx.blueprint.health_path} ok",
+            data={"url": url, "revision": revision, "digest": digest, "unidentified": why, "color": color},
         )
 
-    async def _probe(self, ctx: StationContext, path: str) -> Any:
-        url = self.public_url(ctx) + path
+    async def _probe(self, ctx: StationContext, path: str, host: str | None = None) -> Any:
+        url = self._origin(host or self.host(ctx)) + path
         return await ctx.cmd(
             f"for i in $(seq 1 30); do {self._curl(url)} && exit 0; sleep 2; done; exit 1",
             timeout=90,

@@ -45,7 +45,7 @@ def _write_readiness(pack: Path, data: dict) -> None:
 # ------------------------------------------------------------ the format --
 def test_the_fastapi_pack_is_a_stack_pack_that_proves_every_stack_signal():
     pack = load_pack(FASTAPI)
-    assert pack.source == "fastapi-service@1.0.0" and pack.stack is not None
+    assert pack.source == "fastapi-service@1.1.0" and pack.stack is not None
     assert pack.stack.builds == "service" and pack.stack.port == 8000 and pack.stack.verify == "make verify"
     assert pack.skill_name == "fastapi-golden-path"
     assert pack.rules is not None and {s.id for s in pack.rules.signals} == set(STACK_SIGNALS)
@@ -257,12 +257,12 @@ async def test_a_change_records_its_pack_and_the_coding_agents_get_its_skill(mak
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     pack = load_pack(FASTAPI)
-    expected = {"id": "fastapi-service", "version": "1.0.0", "sha256": pack.sha256, "overrides": {}}
+    expected = {"id": "fastapi-service", "version": "1.1.0", "sha256": pack.sha256, "overrides": {}}
 
     events = f.store.list_events(change.id)
     recorded = [e for e in events if "stack_pack" in e.data]
     assert len(recorded) == 1 and recorded[0].data["stack_pack"] == expected
-    assert recorded[0].message == f"stack pack fastapi-service@1.0.0 (sha256 {pack.sha256[:12]})"
+    assert recorded[0].message == f"stack pack fastapi-service@1.1.0 (sha256 {pack.sha256[:12]})"
     card = next(e for e in events if e.message.startswith("agent readiness"))
     assert card.data["readiness"]["level"] == 3, "the pack's rules hold the product at Level 3"
 

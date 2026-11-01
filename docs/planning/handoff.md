@@ -1,38 +1,35 @@
-# Agent Factory: handoff (updated 2026-11-01)
+# Agent Factory: handoff (updated 2026-11-01, late evening)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-01, evening)
-- **Main** (`8680c44` on GitHub): J2 slices 1–5 and ADR-0046 slice 1 (rollback, PR #131) merged.
-- **Decided 2026-11-01 (Saravana):** ADR-0046 accepted; slices 2 (temporary validation environment) and 3
-  (promote the tested image) go in one PR, because slice 2 alone would never update production on a `helm`
-  target.
-- **In review:** `feat/j2-validate-promote`: ADR-0046 slices 2 and 3.
-  - Engine: `validation.py` (pure: `release_name`, `in_place_reason`, `slot`, `needs_redeploy`,
-    `promote_problems`, `same_image`); `Change.validation` (`models.Validation`); `StationContext.slot` /
-    `release_name`, which the `helm` provider uses for host, namespace, release, Secrets and diagnostics
-    (`validates_separately = True`; `local` is `False` and refuses to undeploy a slot).
-  - Pipeline: `_validation_slot` records the temporary environment before deploy touches the cluster;
-    `remove_validation` at every stop (`_execute`, cancel), on archive and in `sweep_validation` at start-up
-    (`app_factory`), refusing unless the target's identity now equals the recorded one
-    (`validation.removal_problems`; review fix P1, 2026-11-01); a resumed change redeploys before acceptance; the healthy release is recorded at
-    `promote` (still at acceptance in place); `rollback.target` restores only while the change's own release
-    may serve production.
-  - Stations: `deploy` splits into `_deploy_for_validation` and `_deploy_production`; new `promote` station
-    (contract type in the Deliver column, uses `deploy:*` + `promote`), added after acceptance in the New
-    product and Product change lanes. Existing DB lanes keep validating in place until "Back to factory
-    default" (or an edit) adds `promote`.
-  - Tests: `tests/test_validation_env.py` (17); `test_cluster_target`, `test_rollback`, `test_journey` updated.
-    `FakeHelm` handles `uninstall`.
-- **Checks on the branch (cloud, 2026-11-01):** lint, mypy (no new errors), auth, OpenAPI drift and web (tsc +
-  vite) clean; engine 1084 passed, 5 failed: `test_tools.py` ×4 and `test_checks.py::test_snyk_…`, the same
-  five that fail on clean main in this cloud workspace (its scanner tools change what the fakes see).
-  `golden-path` and `images` need Docker and Helm, absent here; no pack, template, image or Dockerfile is
-  touched. GitHub CI is the gate.
-- **Next:** Saravana reviews and merges; iteration 4 on Kudos board from the card (on `local`: in place,
-  records its first release); a live run on `local-ingress` exercises the temporary environment for real
-  (egress `*.localtest.me:8180` already covers `<slug>-c<id>` hosts); then slice 4, strategy per product.
+## Current state (2026-11-01, late evening)
+- **Main** (`72a7f7c` on GitHub): J2 slices 1–5 and ADR-0046 slices 1–3 merged (rollback #131; temporary
+  validation environment and promotion of the tested image #132).
+- **Decided 2026-11-01 (Saravana):** blue/green (ADR-0046 slice 4) is two colours in production's **one** Helm
+  release sharing its database, not two releases (the charts run Postgres in the release).
+- **In review:** `feat/j2-blue-green`: ADR-0046 slice 4, strategy per product.
+  - Charts (nextjs-web **1.5.0**, fastapi-service **1.1.0**): a Deployment per colour; blue is the Deployment the
+    app always had (same name and selector, plus `app.kubernetes.io/color`), green has its own selector
+    (component `web-green` / `api-green`); `strategy=blue-green` points the Service at `blueGreen.live`, a preview
+    Service and Ingress at `<release>-next.<domain>` reach the idle colour; bad values `fail` at render. Rendered
+    in the cloud with a stdlib-only text/template stand-in (no Helm there: get.helm.sh and the Go proxy are
+    refused); CI's golden path is the real check.
+  - Engine: `blue_green.py` (pure: `chosen`, `layout`, `values_image`, `plan`, `sets`, `in_place_reason`,
+    `renders_colors`); `HelmProvider.deploy_colors` / `layout` / `renders_colors` / `preview_url` over a shared
+    `_upgrade`; `HelmRelease` reads one colour's pods and the release values; `rollback.values_image` reads the
+    live colour's image; `Release.color`; `Product.deploy_strategy`; `PackDeploy` (`deploy:` in `pack.yaml`, both
+    packs default in place). Stations: `_record_intent` / `_deployed` split out of `_deploy_production`;
+    `promote` → `_blue_green` (or in place, with the reason in the event log) → `_promote_blue_green` (stage on
+    idle, digest, preview probe + e2e, switch, digest, production probe). `_probe_target` / `_run_e2e` take a URL.
+  - API and UI: `GET`/`POST /api/products/{id}/deploy-strategy` (creator or admin; in `MEMBER_ACTIONS` and
+    `STEERING`); **Releases** panel on the product page (`ReleaseStrategy.tsx`), screenshotted at desktop and
+    390 px against a seeded dry-run engine (users on green, blue kept).
+  - Tests: `tests/test_blue_green.py` (18), `FakeHelm` keeps each revision's `--set` values and answers per colour;
+    pack version pins updated.
+- **Next:** Saravana reviews and merges; then a live run on `local-ingress` with a **new** product set to
+  blue/green (existing products' charts predate colours) to prove the J2 "one blue/green, another in place";
+  iteration 4 on Kudos board from the card; the "ready for" statement.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
   `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
   `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's
