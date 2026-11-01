@@ -31,9 +31,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     `promote`: the schema-defining code at the healthy release's commit and the tested commit (git, in the change's
     worktree); anything but new tables/indexes holds as `decision` (`schema_not_additive`) before production is
     touched. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
-    sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); `main` protected: CI
-    checks required before merge.
-- **Next:** Saravana reviews and merges; then a live run on `local-ingress` with a **new** product set to
+    sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); a branch rule on `main` requiring engine, web,
+    golden-path and charts is Saravana's to set in GitHub (the session's proxy refuses branch-protection writes).
+- **Next:** Saravana sets the branch rule on `main`, reviews and merges; then a live run on `local-ingress` with a **new** product set to
   blue/green (existing products' charts predate colours) to prove the J2 "one blue/green, another in place";
   iteration 4 on Kudos board from the card; the "ready for" statement.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1

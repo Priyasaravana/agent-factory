@@ -131,7 +131,7 @@ choice per product, not imposed on every small app.
      later release) or set the product to in place under Releases and resume. A commit that can't be read
      holds the same way (fail closed).
    - **No test writes to users' data.** The preview gets the read-only checks of decision 6, never e2e.
-   - **Charts checked by real Helm in CI.** `scripts/check-charts.py` (job `charts`, required on `main`) lints and
+   - **Charts checked by real Helm in CI.** `scripts/check-charts.py` (job `charts`; a branch rule on `main` requires it, with engine, web and golden-path) lints and
      renders both packs' charts in place, as a first blue/green release, staged and switched, and checks the
      structure the engine relies on; bad values must fail the render.
 

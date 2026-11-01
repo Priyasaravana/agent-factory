@@ -78,7 +78,7 @@ jobs:
 
   # The stack packs' charts in every deploy strategy (ADR-0046 slice 4), rendered by real Helm: blue
   # keeps the Deployment the app always had, the colours never select each other's pods, users reach
-  # only the live colour and the preview only the idle one, bad values fail. Required on main.
+  # only the live colour and the preview only the idle one, bad values fail. Required on main (branch rule).
   charts:
     runs-on: ubuntu-latest
     steps:
