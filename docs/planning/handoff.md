@@ -24,9 +24,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   simulates revisions, history, values and pod digests. Tests: `tests/test_rollback.py` (24),
   `tests/test_levels.py`. Products delivered before this have no release on record: their next delivery
   records one, and only the change after that can roll back.
-- **Checks on the branch (cloud, 2026-11-01):** lint, mypy, auth, OpenAPI drift and web build clean; engine
-  1037 passed, 5 failed (`test_tools.py` ×4, `test_checks.py::test_snyk_…`). The same 5 fail on clean main in
-  this cloud workspace (its scanner tools change what the fakes see), so they aren't the branch's; CI decides.
+- **Checks on the branch (cloud, 2026-11-01, `09ed536`):** ruff, mypy (no new errors), auth (9 passed), OpenAPI
+  drift and web (gen:api unchanged, tsc + vite) clean; engine 1064 passed, 5 failed: `test_tools.py` ×4 and
+  `test_checks.py::test_snyk_…`, which fail the same way on clean main `0c7cd84` in this cloud workspace (its
+  scanner tools change what the fakes see). `golden-path` and `images` need Docker and Helm, absent here; the
+  branch touches no pack, template, image or Dockerfile. GitHub CI is the gate.
 - **Next:** Saravana accepts ADR-0046 (or changes it) and merges slice 1; iteration 4 on Kudos board from the
   card (records Kudos board's first release); then slice 2, the temporary validation environment.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
