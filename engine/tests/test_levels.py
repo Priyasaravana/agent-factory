@@ -47,6 +47,10 @@ L = EventLevel
         ("decision", "held for infra", {"failure": {"class": "infra"}}, L.warn),
         ("decision", "work failure routed to implement", {"failure": {"class": "work"}}, L.info),
         ("decision", "work item: feature from ui, asked by priya", {}, L.info),
+        # production rolled back (ADR-0046): attention; a rollback that failed is an error
+        ("decision", "rolling production back to iteration 1", {"rollback": {"to": {}, "station": "deploy"}}, L.warn),
+        ("decision", "production rolled back: ok", {"rollback": {"ok": True}}, L.warn),
+        ("decision", "production rollback FAILED: helm rollback failed", {"rollback": {"ok": False}}, L.error),
         # agent detail is debug: useful when digging, noise otherwise
         ("agent", "Let me read the spec first.", {}, L.debug),
         ("log", "Read: docs/spec.md", {"tool": "Read"}, L.debug),

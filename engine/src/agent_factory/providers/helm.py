@@ -32,9 +32,11 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
+from agent_factory.providers.helm_release import HelmRelease
 
 if TYPE_CHECKING:
     from agent_factory.engine.stations import StationContext
+    from agent_factory.models import Release
 
 KUBECONFIG_ENV = "AF_KUBECONFIG"
 PULL_ENV = "AF_PULL_SECRET"
@@ -111,11 +113,11 @@ class HelmProvider:
             f'printf %s "${KUBECONFIG_ENV}" > "$K"; export KUBECONFIG="$K"; {body}'
         )
 
-    def _env(self, ctx: Any, purpose: str) -> tuple[dict[str, str], bool] | None:
+    def _env(self, ctx: Any, purpose: str, capability: str = "deploy") -> tuple[dict[str, str], bool] | None:
         if not self._kube_ref:
             return {}, False
         value = (
-            ctx.secret(self._kube_ref, purpose, f"deploy:{ctx.providers.environment}")
+            ctx.secret(self._kube_ref, purpose, f"{capability}:{ctx.providers.environment}")
             if hasattr(ctx, "change")
             else ctx.secret(self._kube_ref)
         )
@@ -225,17 +227,61 @@ class HelmProvider:
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
         url = self.public_url(ctx)
-        smoke = await ctx.cmd(
-            f"for i in $(seq 1 30); do {self._curl(url + ctx.blueprint.health_path)} && exit 0; sleep 2; done; exit 1",
-            timeout=90,
-        )
+        smoke = await self._probe(ctx, ctx.blueprint.health_path)
         if not smoke.ok:
             return StepResult(
                 False,
                 f"deployed, but {url}{ctx.blueprint.health_path} did not answer through the ingress",
                 smoke.output[-2500:],
             )
-        return StepResult(True, f"deployed {image} to {ns}; {url}{ctx.blueprint.health_path} ok", data={"url": url})
+        revision, digest, why = await self._release(ctx, kenv, kfile).installed(str(image))
+        # what it installed, as far as the cluster says; the deploy station refuses to record an
+        # incomplete release (fail closed, ADR-0046), so `why` travels with it
+        return StepResult(
+            True,
+            f"deployed {image} to {ns} (revision {revision}, {digest}); {url}{ctx.blueprint.health_path} ok",
+            data={"url": url, "revision": revision, "digest": digest, "unidentified": why},
+        )
+
+    async def _probe(self, ctx: StationContext, path: str) -> Any:
+        url = self.public_url(ctx) + path
+        return await ctx.cmd(
+            f"for i in $(seq 1 30); do {self._curl(url)} && exit 0; sleep 2; done; exit 1",
+            timeout=90,
+        )
+
+    def identity(self, ctx: StationContext) -> dict[str, str]:
+        """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a
+        rollback acts on it. The cluster is the kube context, else the kubeconfig the integration uses."""
+        return {
+            "environment": ctx.providers.environment,
+            "target": self.name,
+            "cluster": self.kube_context or f"kubeconfig:{self._kube_ref or 'factory'}",
+            "namespace": self.namespace(ctx),
+            "helm_release": ctx.product.slug,
+        }
+
+    def _release(self, ctx: StationContext, kenv: dict[str, str], kfile: bool) -> HelmRelease:
+        async def run(cmd: str, timeout: float) -> Any:
+            return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv)
+
+        return HelmRelease(
+            run, f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}", ctx.product.slug, self.namespace(ctx)
+        )
+
+    async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
+        """Restore `release` exactly, fail closed, and verify it through the ingress (ADR-0046;
+        `HelmRelease.rollback`)."""
+        env = self._env(ctx, "rollback", "rollback")  # the engine's restore, under its own capability
+        if env is None:
+            return StepResult(False, f"rollback refused: kubeconfig {self._kube_ref} not available")
+        kenv, kfile = env
+
+        async def probe(path: str) -> Any:
+            return await self._probe(ctx, path)
+
+        paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
+        return await self._release(ctx, kenv, kfile).rollback(release, self.identity(ctx), probe, paths)
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

@@ -101,9 +101,15 @@ class DeployProvider(Provider, Protocol):
     def target(self, ctx: StationContext) -> str: ...  # human description, used in repair prompts
     def internal_url(self, ctx: StationContext) -> str: ...  # where the engine/verifier reach the app
     def public_url(self, ctx: StationContext) -> str: ...  # where a person opens it
+    # data["revision"], data["digest"]: what it installed; a deploy that can't tell them fails (ADR-0046)
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult: ...
     async def diagnostics(self, ctx: StationContext) -> str: ...
     async def undeploy(self, ctx: StationContext) -> StepResult: ...  # remove the app (archive)
+
+    # Optional, for a target that can restore releases (ADR-0046; `rollback.can_restore` checks):
+    #   identity(ctx) -> {environment, target, cluster, namespace, helm_release}: where releases run
+    #   async rollback(ctx, release) -> StepResult: restore a recorded release exactly, fail closed, verify
+    # A target without them records no releases and rolls nothing back, and the evidence says so.
 
 
 def secret_data(output: str) -> dict[str, str] | None:

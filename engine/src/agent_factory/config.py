@@ -93,6 +93,12 @@ class Blueprint(BaseModel):
         return self._pack.health_live if self._pack else "/healthz"
 
     @property
+    def ready_path(self) -> str:
+        """The readiness path (dependencies reachable): the pack's, else `/readyz`. Checked with the
+        liveness path after a rollback (ADR-0046)."""
+        return self._pack.health_ready if self._pack else "/readyz"
+
+    @property
     def e2e_command(self) -> str | None:
         """The pack's end-to-end command against the deployed app ({url}), if it has one."""
         return self._pack.e2e if self._pack else None

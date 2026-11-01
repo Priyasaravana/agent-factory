@@ -1,23 +1,38 @@
-# Agent Factory: handoff (updated 2026-10-31)
+# Agent Factory: handoff (updated 2026-11-01)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-10-31, end of session)
-- **Main** (`4c19e26` on GitHub): J2 slice 4 merged (the "Next iteration" card), on top of slices 1–3, the
-  environment check, decisions surviving iterations, scanner digests and the journey acceptance test. The Mac's
-  local main was at `f21ebdb` at the start of the session; Saravana pulled and rebuilt (`make up-live`).
-- **In review:** `feat/j2-next-iteration-one-flow` (one commit on `4c19e26`): J2 slice 5, one flow for the next
-  iteration (roadmap J2). Saravana found the page confusing after starting iteration 3, and asked Claude to decide
-  the layout; his review of the feel is next. Engine: `NextIterationView` + `latest_iteration`, `latest_kind`,
-  `latest_request` (`tests/test_suggest.py`). Web: `NextIteration.tsx` (all groups shown with an empty reason,
-  "show N more", a summary before start, a running state with **Follow it**; the picked set now lives in
-  `ProductPage`), `WorkLedger.tsx` (**Add to next iteration** on factory products instead of "Make a change"),
-  `ProductPage.tsx` (`#change` wrapper to scroll to). Built, type-checked and screenshotted (desktop, 390 px)
-  against a dry-run engine in the cloud: npm and PyPI both worked here on 2026-10-31.
-- **Next:** Saravana's review of the page; then iteration 4 on Kudos board from the card with a suggested
-  feature (five are open after iteration 3); a CVE fix if one is open (none at iteration 3). Then J2's rollback
-  and the accepted/closed state.
+## Current state (2026-11-01)
+- **Main** (`0c7cd84` on GitHub): J2 slices 1–5 merged, including slice 5 (`61096f5`, one flow for the next
+  iteration).
+- **Decided 2026-11-01 (Saravana):** J2 gains validate, promote and roll back ([ADR-0046](../adr/0046-validate-promote-rollback.md),
+  proposed): each change is validated in a temporary environment, production gets only the tested image,
+  a production failure rolls back to the last healthy release (diagnostics first, `helm rollback` to the
+  recorded revision, health checked), temporary environments are cleaned up, and the strategy (in place or
+  blue/green) is chosen per product. Four slices; roadmap J2.
+- **In review:** PR #131, `feat/j2-rollback`: ADR-0046 and slice 1, with Saravana's review fixes (2026-11-01).
+  Engine: `Release` (`Product.release`, `Change.deployed`: environment, target, cluster, namespace, Helm
+  release, revision, digest); pure `rollback.py` (`target`, `serving_unaccepted`, `record_problems`,
+  `identity_problems`, `history_problems`, `restored_problems`, parsers); `providers/helm_release.py`
+  (`HelmRelease.installed`, `.rollback`: refuse → `helm rollback <rev>` → verify), used by `local` and `helm`
+  (`identity`, `rollback` under `rollback:<env>`); deploy saves its intent first and fails closed without a
+  revision and digest; the pipeline records the release when acceptance passes (`_record_release`), restores
+  before routing a deploy or acceptance failure, and settles production on every stop
+  (`settle_production`, also after an engine error via `_settle_safely`; `settle_interrupted` at start-up,
+  before any auto-resume); digests are read from the app's own containers only (`rollback.app_digests`,
+  sidecars ignored); a restore that is refused or
+  fails verification holds as `infra` and isn't retried unattended. Dry-run: `FakeExecutor.helm` (`FakeHelm`)
+  simulates revisions, history, values and pod digests (with a sidecar). Tests: `tests/test_rollback.py` (27),
+  `tests/test_levels.py`. Products delivered before this have no release on record: their next delivery
+  records one, and only the change after that can roll back.
+- **Checks on the branch (cloud, 2026-11-01, `09ed536`):** ruff, mypy (no new errors), auth (9 passed), OpenAPI
+  drift and web (gen:api unchanged, tsc + vite) clean; engine 1064 passed, 5 failed: `test_tools.py` ×4 and
+  `test_checks.py::test_snyk_…`, which fail the same way on clean main `0c7cd84` in this cloud workspace (its
+  scanner tools change what the fakes see). `golden-path` and `images` need Docker and Helm, absent here; the
+  branch touches no pack, template, image or Dockerfile. GitHub CI is the gate.
+- **Next:** Saravana accepts ADR-0046 (or changes it) and merges slice 1; iteration 4 on Kudos board from the
+  card (records Kudos board's first release); then slice 2, the temporary validation environment.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
   `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
   `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's
@@ -73,8 +88,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 
 ## How we work
 ### People and permissions
-- **Saravana** owns the repo, runs fetch, push and merge ("Rebase and merge"). Agents never commit to main
-  and never push.
+- **Saravana** owns the repo, reviews and merges ("Rebase and merge"). **Since 2026-11-01** (his call) an agent
+  in the cloud workspace pushes its feature branch and opens or updates the PR itself; he reviews, comments
+  and merges, and the agent pushes the fixes to the same branch. Agents never push to main, never merge, and
+  never force-push a branch under review (new commits only).
 - **Repo on the Mac:** `/Users/saravana/Saravana_Repos/agent-factory` (through the remote-device bridge:
   `$HOME/mnt/agent-factory`).
 - **His local config edits:** uncommitted edits in `.agent-factory/config.yaml` (environment `local-ingress`,
@@ -92,7 +109,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 
 ### The loop (cloud workspace ↔ Mac)
 - The agent's shell on the Mac has no network (npm and pypi unreachable since 2026-10-18; GitHub and Docker Hub
-  also refused when checked on 2026-10-28). Saravana's own terminal does the fetch, push and Docker Hub lookups.
+  also refused when checked on 2026-10-28). Saravana's own terminal does Docker Hub lookups; branches and PRs go
+  from the cloud workspace to GitHub (needs the GitHub account connected to Claude to have write access).
 - **Cloud:** the repo is public: `GIT_LFS_SKIP_SMUDGE=1 git clone --depth 30 https://github.com/Priyasaravana/agent-factory`.
   First check GitHub main equals his local main (`git -C $HOME/mnt/agent-factory log -1 main`). If his local
   main is ahead, or a branch exists only on the Mac, bring it over as a bundle
