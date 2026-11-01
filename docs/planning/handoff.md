@@ -25,8 +25,14 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   - API and UI: `GET`/`POST /api/products/{id}/deploy-strategy` (creator or admin; in `MEMBER_ACTIONS` and
     `STEERING`); **Releases** panel on the product page (`ReleaseStrategy.tsx`), screenshotted at desktop and
     390 px against a seeded dry-run engine (users on green, blue kept).
-  - Tests: `tests/test_blue_green.py` (18), `FakeHelm` keeps each revision's `--set` values and answers per colour;
+  - Tests: `tests/test_blue_green.py`, `FakeHelm` keeps each revision's `--set` values and answers per colour;
     pack version pins updated.
+  - **Safeguards asked for before merge (Saravana, 2026-11-01):** `schema_compat.py` (pure) + `_schema_guard` in
+    `promote`: the schema-defining code at the healthy release's commit and the tested commit (git, in the change's
+    worktree); anything but new tables/indexes holds as `decision` (`schema_not_additive`) before production is
+    touched. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
+    sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); `main` protected: CI
+    checks required before merge.
 - **Next:** Saravana reviews and merges; then a live run on `local-ingress` with a **new** product set to
   blue/green (existing products' charts predate colours) to prove the J2 "one blue/green, another in place";
   iteration 4 on Kudos board from the card; the "ready for" statement.

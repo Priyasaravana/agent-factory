@@ -238,6 +238,11 @@ per-pack evaluation is in the backlog.
      revision switches users back without restarting it. Products made before these pack versions, the `local`
      target, and changes validated in place are promoted in place, and the event log says why. A **Releases**
      panel on the product page sets it per product. Tests: `tests/test_blue_green.py`.
+     **Safeguards before merge (decided by Saravana 2026-11-01):** blue/green holds for a person unless the schema
+     change is additive against the version kept for the switch back (`schema_compat.py`); production gets
+     read-only checks only, on the preview and after any promotion (ADR-0046 decision 6 changed: e2e and the
+     verifier run only in the temporary environment); the charts are checked in every strategy by real Helm in CI
+     (`scripts/check-charts.py`, job `charts`), and `main` requires CI to pass before merge.
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
 - **"Ready for" statement** (decided 2026-10-31): each delivery states its tier, **demo**, **pilot** or
   **production**, worked out by the engine (pure, tested) from the sealed evidence, plus what the next tier
@@ -377,8 +382,8 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
-- **Blue/green follow-ups** (added 2026-11-01, slice 4): migrations as a signal (both colours share the data, so
-  a schema change must work with the version still running); an upkeep change that brings an existing product's
+- **Blue/green follow-ups** (added 2026-11-01, slice 4): a migration tool in the packs with expand/contract
+  steps the schema guard understands (today it reads `create table` SQL and SQLAlchemy models); an upkeep change that brings an existing product's
   chart up to its pack's version (Kudos board and Book lending predate colours); a "switch back" button needs
   a person-facing control, so it waits for the freeze to lift.
 - **Readiness outcomes** (added 2026-10-31, from the capability review: discovery, design, engineering,

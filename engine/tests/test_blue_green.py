@@ -140,9 +140,12 @@ async def test_a_new_version_is_tested_on_the_idle_colour_then_users_switch(make
     staged, switched = _prod_upgrades(ex)[1:]
     assert "blueGreen.live=blue" in staged and "blueGreen.live=green" in switched, "staged with blue serving"
     assert f"blueGreen.blue.tag={healthy.image.rsplit(':', 1)[1]}" in staged, "blue keeps the healthy image"
-    e2e = [c for c in ex.calls if "E2E_BASE_URL=" in c]
-    assert PREVIEW in e2e[-1], "the new colour is tested at its preview address, before users reach it"
-    assert ex.calls.index(e2e[-1]) < ex.calls.index(switched), "tested before the switch"
+    assert not [c for c in ex.calls if "E2E_BASE_URL=" in c and ("-next." in c or PROD in c)], "no e2e on users' data"
+    reads = [c for c in ex.calls if f'-o /dev/null ${{HTTP_PROXY:+--proxy "$HTTP_PROXY"}} {PREVIEW}/' in c]
+    assert [c.rsplit(PREVIEW, 1)[1] for c in reads] == ["/healthz", "/readyz"], "the new colour, read-only"
+    assert ex.calls.index(reads[-1]) < ex.calls.index(switched), "checked before the switch"
+    additive = "schema is additive against iteration 1: no schema change"
+    assert any(m.startswith(additive) for m in _messages(f, second.id))
 
     now = f.store.get_product(product.id).release
     assert now is not None and now.change_id == second.id and now.color == "green"
@@ -161,7 +164,7 @@ async def test_a_failure_on_the_idle_colour_never_reaches_users(make_factory, cf
     f = make_factory(ex)
     product, _ = await _blue_green_product(f)
     healthy = product.release
-    ex.fail_on.append(f"E2E_BASE_URL={PREVIEW} ")  # passes in the temporary environment, fails on green
+    ex.fail_on.append(f"{PREVIEW}/readyz")  # green doesn't get ready
     second = f.manager.feedback(product.id, "Add full-text search over notes.")
     assert await wait_run(f, second.id) == ChangeStatus.held
 
@@ -271,3 +274,105 @@ def test_the_event_level_of_a_switch():
     from agent_factory.levels import level_of
 
     assert level_of(EventKind.decision, "users switched from blue to green", {"switch": {"ok": True}}) is not None
+
+
+# ------------------------------------------------- schema guard (2026-11-01) --
+def test_only_new_tables_and_indexes_are_additive():
+    from agent_factory import schema_compat as sc
+
+    base = {"src/lib/schema.ts": "export const SCHEMA = `\ncreate table if not exists notes (id text primary key);\n`;"}
+    more = {
+        **base,
+        "src/lib/teams.ts": "const T = `create table if not exists teams (id text); create index t_i on teams(id);`",
+    }
+    assert sc.not_additive(sc.read(base), sc.read(more)) == [] and sc.new_tables(sc.read(base), sc.read(more)) == [
+        "teams"
+    ]
+    changed = {"src/lib/schema.ts": base["src/lib/schema.ts"].replace("primary key", "primary key, body text")}
+    assert sc.not_additive(sc.read(base), sc.read(changed)) == ["table notes's definition changed"]
+    assert sc.not_additive(sc.read(base), sc.read({})) == ["table notes is no longer created (dropped or renamed)"]
+    alter = {**base, "src/lib/up.ts": "await db.exec(`ALTER TABLE notes DROP COLUMN body`);"}
+    assert sc.not_additive(sc.read(base), sc.read(alter)) == [
+        "new schema statement: alter table notes drop column body"
+    ]
+    op = {"migrations/versions/2.py": "def upgrade():\n    op.drop_column('notes', 'body')\n"}
+    assert sc.not_additive(sc.read({}), sc.read(op)) == ["new schema statement: op.drop_column('notes', 'body')"]
+    tests_only = {
+        **base,
+        "e2e/notes.spec.ts": "await db.exec(`drop table notes`)",
+        "tests/test_x.py": "op.drop_table('x')",
+    }
+    assert sc.not_additive(sc.read(base), sc.read(tests_only)) == [], "tests are not schema"
+
+
+def test_sqlalchemy_models_compare_by_table():
+    from agent_factory import schema_compat as sc
+
+    note = "class Note(Base):\n    __tablename__ = 'notes'\n    id = mapped_column(Integer, primary_key=True)  # pk\n"
+    old = {"app/models.py": note}
+    new = {"app/models.py": old["app/models.py"] + "    body = mapped_column(String)\n"}
+    assert sc.not_additive(sc.read(old), sc.read(new)) == ["table notes's definition changed"]
+    teams = {**old, "app/teams.py": "class Team(Base):\n    __tablename__ = 'teams'\n    id = mapped_column(Integer)\n"}
+    assert sc.not_additive(sc.read(old), sc.read(teams)) == [] and sc.new_tables(sc.read(old), sc.read(teams)) == [
+        "teams"
+    ]
+
+
+def _commit_to_main(f, product: Product, path: str, content: str) -> None:
+    """What the next change's developer would have written: on main, so its worktree starts from it."""
+    import subprocess
+
+    repo = f.manager.ws.product_dir(product.slug)
+    (repo / path).parent.mkdir(parents=True, exist_ok=True)
+    (repo / path).write_text(content)
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
+           "PATH": __import__("os").environ["PATH"], "HOME": str(repo)}  # fmt: skip
+    for args in (["add", "-A"], ["commit", "-q", "-m", f"schema: {path}"]):
+        subprocess.run(["git", "-c", f"safe.directory={repo}", *args], cwd=repo, env=env, check=True)
+
+
+MODEL = (
+    "from app.db import Base\nfrom sqlalchemy import Integer, String\nfrom sqlalchemy.orm import mapped_column\n\n\n"
+    "class Note(Base):\n    __tablename__ = 'notes'\n    id = mapped_column(Integer, primary_key=True)\n"
+)
+
+
+async def test_a_new_table_is_released_blue_green(make_factory, cfg):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _ = await _blue_green_product(f)
+    _commit_to_main(f, product, "app/models.py", MODEL)
+    second = f.manager.feedback(product.id, "Keep notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback, _messages(f, second.id)[-5:]
+    assert "schema is additive against iteration 1: new tables notes" in _messages(f, second.id)
+    assert f.store.get_product(product.id).release.color == "green"
+
+
+async def test_a_changed_table_holds_blue_green_for_a_person_then_goes_in_place(make_factory, cfg):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _ = await _blue_green_product(f)
+    _commit_to_main(f, product, "app/models.py", MODEL)
+    second = f.manager.feedback(product.id, "Keep notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
+    healthy = f.store.get_product(product.id).release
+    upgrades = len(_prod_upgrades(ex))
+    _commit_to_main(f, product, "app/models.py", MODEL + "    body = mapped_column(String)\n")
+    third = f.manager.feedback(product.id, "Notes get a body.")
+    assert await wait_run(f, third.id) == ChangeStatus.held
+
+    held = f.store.get_change(third.id)
+    assert held.hold_class == "decision" and "table notes's definition changed" in held.summary
+    assert "set this product to In place under Releases and resume" in held.summary
+    assert len(_prod_upgrades(ex)) == upgrades, "production untouched: users stay on the healthy colour"
+    assert not [c for c in ex.calls if " rollback " in c]
+
+    product = f.store.get_product(product.id)
+    product.deploy_strategy = "in-place"
+    f.store.save_product(product)
+    f.manager.resume(third.id)
+    assert await wait_run(f, third.id) == ChangeStatus.awaiting_feedback, _messages(f, third.id)[-5:]
+    now = f.store.get_product(product.id).release
+    assert now.change_id == third.id and now.color is None and now.revision > healthy.revision
