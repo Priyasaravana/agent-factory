@@ -216,6 +216,8 @@ class Change(BaseModel):
     deployed: Release | None = None
     # where this change is validated before promotion (ADR-0046 slice 2); None: validated in place
     validation: Validation | None = None
+    # a person's approval of a schema change the check couldn't read (ADR-0046 slice 4)
+    schema_approval: SchemaApproval | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
@@ -350,9 +352,30 @@ class OpenQuestionView(BaseModel):
 class RequiredAction(BaseModel):
     """What a person must do before a held change can resume (ADR-0043 §4)."""
 
-    kind: Literal["accept_risk"]
+    # accept_risk: on the work ledger; approve_schema: the schema check couldn't read the change, a
+    # person approves compatibility (or releases in place); schema_in_place: the schema change isn't
+    # additive, so it goes out in place (ADR-0046 slice 4)
+    kind: Literal["accept_risk", "approve_schema", "schema_in_place"]
     text: str  # the instruction, shown on the change page and when a resume is refused
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
+    commits: list[str] = Field(default_factory=list)  # approve_schema: [users' commit, tested commit]
+    unsure: list[str] = Field(default_factory=list)  # approve_schema: what the check couldn't read
+
+
+class SchemaApproval(BaseModel):
+    """A person's approval that a schema change it couldn't read is compatible with the version kept
+    running for the switch back (ADR-0046 slice 4). Valid only for this exact pair of commits."""
+
+    by: str
+    at: datetime
+    from_commit: str
+    to_commit: str
+    note: str
+    unsure: list[str] = Field(default_factory=list)  # what the check couldn't read, as shown when approving
+
+
+class SchemaApprovalInput(BaseModel):
+    note: str = Field(min_length=10, max_length=2000)  # why it is compatible, in the person's words
 
 
 class RoutedFailure(BaseModel):
@@ -1135,8 +1158,9 @@ class PendingAction(BaseModel):
     change pages, so nobody has to scroll to find what is blocking."""
 
     kind: Literal[
-        "answer_questions", "align", "approve_risk", "accept_risk", "resume", "factory_hold", "wait", "feedback"
-    ]
+        "answer_questions", "align", "approve_risk", "accept_risk", "approve_schema", "resume", "factory_hold",
+        "wait", "feedback",
+    ]  # fmt: skip
     title: str  # what to do, as a button would say it
     detail: str = ""  # why, in one or two sentences
     station: str | None = None

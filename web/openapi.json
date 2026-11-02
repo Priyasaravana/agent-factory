@@ -1127,6 +1127,59 @@
         }
       }
     },
+    "/api/changes/{change_id}/schema-approval": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)",
+        "description": "Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)",
+        "operationId": "approve_schema",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchemaApprovalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/resume": {
       "post": {
         "tags": [
@@ -4980,6 +5033,7 @@
               "align",
               "approve_risk",
               "accept_risk",
+              "approve_schema",
               "resume",
               "factory_hold",
               "wait",
@@ -5342,6 +5396,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/Validation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema_approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SchemaApproval"
               },
               {
                 "type": "null"
@@ -8448,6 +8512,7 @@
               "align",
               "approve_risk",
               "accept_risk",
+              "approve_schema",
               "resume",
               "factory_hold",
               "wait",
@@ -9192,7 +9257,11 @@
         "properties": {
           "kind": {
             "type": "string",
-            "const": "accept_risk",
+            "enum": [
+              "accept_risk",
+              "approve_schema",
+              "schema_in_place"
+            ],
             "title": "Kind"
           },
           "text": {
@@ -9205,6 +9274,20 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "commits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Commits"
+          },
+          "unsure": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unsure"
           }
         },
         "type": "object",
@@ -9589,6 +9672,63 @@
           "then"
         ],
         "title": "ScenarioView"
+      },
+      "SchemaApproval": {
+        "properties": {
+          "by": {
+            "type": "string",
+            "title": "By"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "from_commit": {
+            "type": "string",
+            "title": "From Commit"
+          },
+          "to_commit": {
+            "type": "string",
+            "title": "To Commit"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "unsure": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unsure"
+          }
+        },
+        "type": "object",
+        "required": [
+          "by",
+          "at",
+          "from_commit",
+          "to_commit",
+          "note"
+        ],
+        "title": "SchemaApproval",
+        "description": "A person's approval that a schema change it couldn't read is compatible with the version kept\nrunning for the switch back (ADR-0046 slice 4). Valid only for this exact pair of commits."
+      },
+      "SchemaApprovalInput": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "note"
+        ],
+        "title": "SchemaApprovalInput"
       },
       "ScopePresetInfo": {
         "properties": {

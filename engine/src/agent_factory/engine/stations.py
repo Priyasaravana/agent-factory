@@ -1852,67 +1852,119 @@ async def _read_only_checks(ctx: StationContext, where: str, url: str | None = N
     return None
 
 
-async def _schema_at(ctx: StationContext, sha: str) -> tuple[dict[str, str] | None, str]:
-    """The schema-source files of commit `sha` in the product's repo: (path -> content, problem)."""
-    if (
-        not re.fullmatch(r"[0-9a-f]{4,64}", sha)
-        or not (await ctx.ws.git(f"cat-file -e {sha}^{{commit}}", ctx.worktree)).ok
-    ):
-        return None, f"commit {sha} is not in the product's repository"
-    found = await ctx.ws.git(f"grep -l -I -i -E {shlex.quote(schema_compat.GREP)} {sha}", ctx.worktree)
-    if not found.ok and "fatal" in found.output.lower():
-        return None, f"could not search commit {sha}: {found.output.strip()[-300:]}"
-    paths = [
-        line.split(":", 1)[1]
-        for line in (found.output.splitlines() if found.ok else [])
-        if line.startswith(f"{sha}:") and schema_compat.is_schema_source(line.split(":", 1)[1])
-    ]
-    files: dict[str, str] = {}
-    for path in paths:
-        shown = await ctx.ws.git(f"show {shlex.quote(f'{sha}:{path}')}", ctx.worktree)
-        if not shown.ok:
-            return None, f"could not read {path} at {sha}"
-        files[path] = shown.output
-    return files, ""
+_COMMIT = re.compile(r"[0-9a-f]{4,64}")
+
+
+async def _commit_diff(
+    ctx: StationContext, old: str, new: str
+) -> tuple[dict[str, tuple[str | None, str | None]] | None, str]:
+    """Every file that differs between two commits of the product's repo, both versions in full:
+    (path -> (before, after), problem). Git writes to files, never through the command output,
+    which the executor keeps only the tail of."""
+    import tempfile
+
+    for sha in (old, new):
+        if not _COMMIT.fullmatch(sha) or not (await ctx.ws.git(f"cat-file -e {sha}^{{commit}}", ctx.worktree)).ok:
+            return None, f"commit {sha} is not in the product's repository"
+    with tempfile.TemporaryDirectory(prefix="schema-") as tmp:
+        listing = Path(tmp) / "changed"
+        res = await ctx.ws.git(
+            f"diff --name-status -z --no-renames {old} {new} > {shlex.quote(str(listing))}", ctx.worktree
+        )
+        if not res.ok:
+            return None, f"could not list what changed: {res.output.strip()[-300:]}"
+        fields = listing.read_bytes().decode(errors="replace").split("\0")
+        changed: dict[str, tuple[str | None, str | None]] = {}
+        for status, path in zip(fields[0::2], fields[1::2], strict=False):
+            if not path:
+                continue
+            versions: list[str | None] = []
+            for sha, exists in ((old, status[:1] != "A"), (new, status[:1] != "D")):
+                if not exists:
+                    versions.append(None)
+                    continue
+                out = Path(tmp) / f"{len(changed)}-{sha}"
+                shown = await ctx.ws.git(f"show {shlex.quote(f'{sha}:{path}')} > {shlex.quote(str(out))}", ctx.worktree)
+                if not shown.ok:
+                    return None, f"could not read {path} at {sha}"
+                versions.append(out.read_bytes().decode(errors="replace"))
+            changed[path] = (versions[0], versions[1])
+        return changed, ""
 
 
 async def _schema_guard(ctx: StationContext, v: Validation) -> StationResult | None:
     """Blue/green keeps the version users are on running on the same data, for an instant switch
-    back: refuse unless the change's schema is additive against that version (decided 2026-11-01,
-    `schema_compat`). Read from the product's repo at both commits (an image's tag is its commit).
-    A person decides: make the change additive, or release it in place. None: compatible."""
+    back. The schema of every file that differs between that version's commit and the tested one is
+    read (`schema_compat`, decided 2026-11-01, tightened 2026-11-02): additive goes ahead; not
+    additive holds until the product is set to in place; anything the check can't read holds until
+    a person approves compatibility for this exact pair of commits, or sets it to in place. An image's
+    tag is its commit. None: go ahead."""
     healthy = ctx.product.release
     if healthy is None or v.image is None:
         return None
     old, new = healthy.image.rsplit(":", 1)[-1], v.image.rsplit(":", 1)[-1]
-    before, why_before = await _schema_at(ctx, old)
-    after, why_after = await _schema_at(ctx, new)
-    way = (
-        "To go ahead, make the change additive (add new tables now; change or remove old ones in a later "
-        "release, once no running version needs them), or set this product to In place under Releases and resume."
+    changed, problem = await _commit_diff(ctx, old, new)
+    verdict = (
+        schema_compat.compare(changed)
+        if changed is not None
+        else schema_compat.Verdict(schema_compat.UNSURE, unsure=[f"can't read the two versions: {problem}"])
     )
-    if before is None or after is None:
-        problems = [f"can't compare the schema with the release users are on: {why_before or why_after}"]
-    else:
-        problems = schema_compat.not_additive(schema_compat.read(before), schema_compat.read(after))
-    if problems:
-        why = (
-            f"blue/green refused: iteration {healthy.iteration} ({healthy.image}) keeps running on the same database "
-            f"for an instant switch back, and this schema change may break it: {'; '.join(problems)}. {way}"
-        )
+    data = {
+        "schema": {
+            "verdict": verdict.status,
+            "from": old,
+            "to": new,
+            "problems": verdict.problems,
+            "unsure": verdict.unsure,
+            "new_objects": verdict.new_objects,
+            "files": verdict.files,
+        }
+    }
+    kept = (
+        f"iteration {healthy.iteration} ({healthy.image}) keeps running on the same database for an instant switch back"
+    )
+    if verdict.status == schema_compat.ADDITIVE:
+        what = f"new {', '.join(verdict.new_objects)}" if verdict.new_objects else "no schema change"
+        await ctx.emit(EventKind.decision, f"schema is additive against iteration {healthy.iteration}: {what}", data)
+        return None
+    approval = ctx.change.schema_approval
+    if (
+        verdict.status == schema_compat.UNSURE
+        and approval is not None
+        and (approval.from_commit, approval.to_commit) == (old, new)
+    ):
         await ctx.emit(
-            EventKind.decision, why, {"schema": {"additive": False, "problems": problems, "from": old, "to": new}}
+            EventKind.decision,
+            f"schema compatibility approved by {approval.by} for {old}→{new}: {approval.note}",
+            {**data, "approved": approval.model_dump(mode="json")},
         )
-        ctx.stop = Stop(FailureClass.decision, why, rule="schema_not_additive")
-        return StationResult(StationOutcome.failed, why)
-    added = schema_compat.new_tables(schema_compat.read(before or {}), schema_compat.read(after or {}))
-    await ctx.emit(
-        EventKind.decision,
-        f"schema is additive against iteration {healthy.iteration}: "
-        + (f"new tables {', '.join(added)}" if added else "no schema change"),
-        {"schema": {"additive": True, "new_tables": added, "from": old, "to": new}},
-    )
-    return None
+        return None
+    if verdict.status == schema_compat.NOT_ADDITIVE:
+        why = (
+            f"blue/green refused: {kept}, and this schema change isn't additive: {'; '.join(verdict.problems)}. "
+            "Set this product to In place under Releases, then resume; or cancel and ask for an additive change "
+            "(add new tables now, change or remove old ones in a later release)."
+        )
+        required = RequiredAction(
+            kind="schema_in_place", text="Set this product to In place under Releases, then resume."
+        )
+        rule = "schema_not_additive"
+    else:
+        why = (
+            f"blue/green held: {kept}, and the schema check can't tell whether this change is compatible with it: "
+            f"{'; '.join(verdict.unsure[:5])}{' …' if len(verdict.unsure) > 5 else ''}. Approve compatibility for "
+            "this change (say why the running version still works), or set this product to In place, then resume."
+        )
+        required = RequiredAction(
+            kind="approve_schema",
+            text="Approve the schema's compatibility (or set the product to In place under Releases), then resume.",
+            commits=[old, new],
+            unsure=verdict.unsure,
+        )
+        rule = "schema_unsure"
+    await ctx.emit(EventKind.decision, why, {**data, "rule": rule})
+    # a person's decision, with the action named (ADR-0043 §4); production was never touched
+    return StationResult(StationOutcome.held, why, required=required)
 
 
 async def restore_last_healthy(ctx: StationContext, release: Release, *, diagnose: bool) -> tuple[bool, str]:

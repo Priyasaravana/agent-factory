@@ -101,6 +101,7 @@ from agent_factory.models import (
     RiskDecisionInput,
     RiskFindingView,
     ScenarioView,
+    SchemaApprovalInput,
     ScopePresetInfo,
     ScreenshotRun,
     ScreenshotsView,
@@ -863,6 +864,18 @@ def _stack_cards(f: Factory) -> list[StackCard]:
             )
         )
     return out
+
+
+@action(
+    "approve_schema",
+    "Approve that a schema change the check couldn't read is compatible with the version kept running for "
+    "the blue/green switch back, for this change's exact commits; then resume (ADR-0046)",
+    "POST",
+    "/api/changes/{change_id}/schema-approval",
+)
+def approve_schema(f: Factory, change_id: str, body: SchemaApprovalInput) -> Change:
+    _may_steer_change(f, change_id)
+    return f.manager.approve_schema(change_id, body.note, current_identity().user or "anonymous")
 
 
 @action("resume_change", "Resume a held, interrupted or paused change", "POST", "/api/changes/{change_id}/resume")

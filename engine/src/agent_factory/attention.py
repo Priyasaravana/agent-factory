@@ -87,6 +87,18 @@ def pending_actions(product: Product | None, change: Change, since: datetime) ->
         ]
 
     if st == ChangeStatus.held:
+        if change.required_action is not None and change.required_action.kind in ("approve_schema", "schema_in_place"):
+            approve = change.required_action.kind == "approve_schema"
+            return [
+                act(
+                    "approve_schema",
+                    "Approve the schema's compatibility, or release in place"
+                    if approve
+                    else "Release this change in place",
+                    change.summary or change.required_action.text,
+                    "hold",
+                )
+            ]
         if change.required_action is not None:
             return [
                 act(

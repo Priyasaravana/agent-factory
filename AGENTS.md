@@ -87,7 +87,8 @@
   in-place deploy); rules in `validation.py` and `rollback.py`, tests in `tests/test_validation_env.py`
   and `tests/test_rollback.py`. A provider that can run blue/green has `deploy_colors`, `layout`,
   `renders_colors` and `preview_url` (`helm`); the rules are in `blue_green.py`, tests in
-  `tests/test_blue_green.py`; blue/green holds unless the schema change is additive (`schema_compat.py`).
+  `tests/test_blue_green.py`; blue/green holds unless the schema change is additive (`schema_compat.py`,
+  which parses; a form it can't read must make the verdict `unsure`, never additive).
   Production only ever gets read-only checks (`_read_only_checks`): never run e2e, sign in or write there.
   A pack chart keeps blue the Deployment the app always had (name and selector unchanged), so a product
   can move to blue/green without replacing its pods; `scripts/check-charts.py` (CI job `charts`) checks it. New change-starting actions

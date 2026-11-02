@@ -122,14 +122,29 @@ choice per product, not imposed on every small app.
    /api/products/{id}/deploy-strategy`, creator or admin), shown in the product page's **Releases** panel; both
    packs default to in place (`deploy:` in `pack.yaml`). Tests: `tests/test_blue_green.py`.
    *Safeguards (decided by Saravana 2026-11-01, before merge):*
-   - **Schema compatible with the version kept running.** Before staging, `promote` reads the schema-defining
-     code of the commit users are on (an image's tag is its commit) and of the tested commit (`schema_compat.py`,
-     pure: SQL `create table` and other DDL in source and `.sql` files, SQLAlchemy models, Alembic-style
-     operations; tests excluded). Only new tables and indexes are additive. A changed or no-longer-created
-     table, or any new `alter`, `drop`, `truncate` or `rename`, holds the change as a **decision** for a person
-     (`schema_not_additive`) before production is touched: make the change additive (expand now, contract in a
-     later release) or set the product to in place under Releases and resume. A commit that can't be read
-     holds the same way (fail closed).
+   - **Schema compatible with the version kept running** (tightened 2026-11-02 after Saravana's review: the first
+     cut matched text patterns, stopped reading SQL at a quote, missed a migration that only calls `op.*`, read
+     files through the executor's 6000-character output tail, and let a form it couldn't read in both versions
+     pass as unchanged). Before staging, `promote` reads every file that differs between the commit users are on
+     and the tested commit (an image's tag is its commit), in full (git writes them to files), and
+     `schema_compat.py` (pure) gives one of three verdicts. It reads Python through `ast` (string constants,
+     SQLAlchemy models with a constant `__tablename__`, `Table(...)`, Alembic `op.*` when `op` comes from
+     Alembic), `.ts`/`.js` through a lexer for strings, template literals and comments, and SQL through a
+     tokenizer that knows quoted identifiers, literals, dollar quoting and comments; definitions are compared
+     token by token.
+     - **additive** (only new tables, indexes, views ...; every schema-looking line in every changed file read):
+       blue/green goes ahead.
+     - **not additive** (an object changed or no longer created; a new `alter`, `drop`, `truncate`, `rename`,
+       `comment`, `grant` or `revoke`): held (`schema_in_place`) until the product is set to In place.
+     - **unsure** (a schema library it doesn't read, such as Prisma or Drizzle, or one newly added to the
+       manifest; SQL built from `${…}` or f-strings; a `.tsx`, `.prisma` or other file with schema in it; text
+       that mentions DDL but isn't a statement; a file it can't lex): never additive. Held (`approve_schema`)
+       until a person approves compatibility for **this exact pair of commits**, saying why (recorded with who
+       and when, `Change.schema_approval`, `POST /api/changes/{id}/schema-approval`, creator or admin), or sets
+       the product to In place. A file not read exactly in either version isn't compared, so a part it couldn't
+       read is never reported as dropped. A new tested commit (a repair) needs a new approval.
+     Not checked: data changes (`update`, `insert`, `delete`), and schema built entirely at run time without
+     any SQL keyword or known schema library in the changed files. Tests: `tests/test_blue_green.py`.
    - **No test writes to users' data.** The preview gets the read-only checks of decision 6, never e2e.
    - **Charts checked by real Helm in CI.** `scripts/check-charts.py` (job `charts`, a required check in the `Main` ruleset on `main`) lints and
      renders both packs' charts in place, as a first blue/green release, staged and switched, and checks the

@@ -452,6 +452,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/schema-approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)
+         * @description Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)
+         */
+        post: operations["approve_schema"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/resume": {
         parameters: {
             query?: never;
@@ -1977,7 +1997,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
             /** Title */
             title: string;
             /**
@@ -2123,6 +2143,7 @@ export interface components {
             pr_url?: string | null;
             deployed?: components["schemas"]["Release"] | null;
             validation?: components["schemas"]["Validation"] | null;
+            schema_approval?: components["schemas"]["SchemaApproval"] | null;
             /** Last Failure */
             last_failure?: string | null;
             last_routed?: components["schemas"]["RoutedFailure"] | null;
@@ -3419,7 +3440,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
             /** Title */
             title: string;
             /**
@@ -3728,13 +3749,17 @@ export interface components {
         RequiredAction: {
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "accept_risk";
+            kind: "accept_risk" | "approve_schema" | "schema_in_place";
             /** Text */
             text: string;
             /** Items */
             items?: string[];
+            /** Commits */
+            commits?: string[];
+            /** Unsure */
+            unsure?: string[];
         };
         /** RequirementView */
         RequirementView: {
@@ -3911,6 +3936,33 @@ export interface components {
             then: string;
             /** Covers */
             covers?: string[];
+        };
+        /**
+         * SchemaApproval
+         * @description A person's approval that a schema change it couldn't read is compatible with the version kept
+         *     running for the switch back (ADR-0046 slice 4). Valid only for this exact pair of commits.
+         */
+        SchemaApproval: {
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** From Commit */
+            from_commit: string;
+            /** To Commit */
+            to_commit: string;
+            /** Note */
+            note: string;
+            /** Unsure */
+            unsure?: string[];
+        };
+        /** SchemaApprovalInput */
+        SchemaApprovalInput: {
+            /** Note */
+            note: string;
         };
         /** ScopePresetInfo */
         ScopePresetInfo: {
@@ -5673,6 +5725,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SwitchStackInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_schema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchemaApprovalInput"];
             };
         };
         responses: {

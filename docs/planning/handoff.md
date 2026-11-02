@@ -27,10 +27,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     390 px against a seeded dry-run engine (users on green, blue kept).
   - Tests: `tests/test_blue_green.py`, `FakeHelm` keeps each revision's `--set` values and answers per colour;
     pack version pins updated.
-  - **Safeguards asked for before merge (Saravana, 2026-11-01):** `schema_compat.py` (pure) + `_schema_guard` in
-    `promote`: the schema-defining code at the healthy release's commit and the tested commit (git, in the change's
-    worktree); anything but new tables/indexes holds as `decision` (`schema_not_additive`) before production is
-    touched. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
+  - **Safeguards asked for before merge (Saravana, 2026-11-01; schema check tightened after his review
+    2026-11-02):** `schema_compat.py` (pure: Python `ast`, a `.ts`/`.js` lexer, a SQL tokenizer; verdict additive,
+    not additive or unsure) + `_schema_guard` / `_commit_diff` in `promote` (every changed file between the healthy
+    release's commit and the tested one, in full via files, never the executor's 6000-character tail). Not additive
+    holds with `RequiredAction` `schema_in_place` (resume once the product is In place); unsure holds with
+    `approve_schema` (resume once `POST /api/changes/{id}/schema-approval` recorded an approval for those exact
+    commits, or In place). `SchemaHold.tsx` on the change page; "Needs you" kind `approve_schema`. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
     sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); the `Main` ruleset on `main` requires
     engine, auth, web, golden-path, images, e2e and charts (Saravana adds `charts`; the session's proxy refuses ruleset writes).
 - **Next:** Saravana adds `charts` to the `Main` ruleset, reviews and merges; then a live run on `local-ingress` with a **new** product set to

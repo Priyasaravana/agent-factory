@@ -42,6 +42,7 @@ import EvidencePanel from "./EvidencePanel";
 import PillarBars, { type PillarRow } from "./QualityPillars";
 import DecisionsPanel from "./DecisionsPanel";
 import SpecPanel from "./SpecPanel";
+import SchemaHold from "./SchemaHold";
 import IterationSummary from "./IterationSummary";
 import { buildsOf } from "./StackCards";
 import StationStrip from "./StationStrip";
@@ -292,7 +293,11 @@ export default function ChangePanel({
                 then resume.
               </p>
             )}
-            {r.status === "held" && r.required_action && (
+            {r.status === "held" &&
+              (r.required_action?.kind === "approve_schema" || r.required_action?.kind === "schema_in_place") && (
+                <SchemaHold change={r} productId={productId} onDone={refresh} />
+              )}
+            {r.status === "held" && r.required_action && r.required_action.kind === "accept_risk" && (
               <p className="note m-0" data-testid="required-action">
                 <span className="font-medium">Before you resume:</span>{" "}
                 {r.required_action.text}

@@ -238,8 +238,10 @@ per-pack evaluation is in the backlog.
      revision switches users back without restarting it. Products made before these pack versions, the `local`
      target, and changes validated in place are promoted in place, and the event log says why. A **Releases**
      panel on the product page sets it per product. Tests: `tests/test_blue_green.py`.
-     **Safeguards before merge (decided by Saravana 2026-11-01):** blue/green holds for a person unless the schema
-     change is additive against the version kept for the switch back (`schema_compat.py`); production gets
+     **Safeguards before merge (decided by Saravana 2026-11-01, schema check tightened after his review
+     2026-11-02):** blue/green holds for a person unless the schema change is additive against the version kept
+     for the switch back (`schema_compat.py`: parsed, not pattern-matched; anything it can't read needs a person's
+     approval for those exact commits, or In place); production gets
      read-only checks only, on the preview and after any promotion (ADR-0046 decision 6 changed: e2e and the
      verifier run only in the temporary environment); the charts are checked in every strategy by real Helm in CI
      (`scripts/check-charts.py`, job `charts`), and the `Main` ruleset on `main` requires engine, auth, web, golden-path, images, e2e and charts to pass
