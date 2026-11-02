@@ -7,5 +7,12 @@ import { Toaster as Sonner } from "sonner";
 export { toast } from "sonner";
 
 export function Toaster() {
-  return <Sonner position="bottom-right" richColors closeButton />;
+  return (
+    <Sonner
+      position="bottom-right"
+      richColors
+      closeButton
+      toastOptions={{ classNames: { closeButton: "phone:min-h-[44px] phone:min-w-[44px]" } }}
+    />
+  );
 }

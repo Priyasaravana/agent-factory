@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 // shadcn/ui button (copied, not a dependency): use it for every action, `asChild` for links.
 export const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 phone:min-h-[44px] phone:min-w-[44px] [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {

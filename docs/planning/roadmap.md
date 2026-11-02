@@ -1,7 +1,8 @@
 # Agent Factory: build plan
 
-Updated 2026-11-01 (J2 slices 4 and 5 merged; J2 gains validate, promote and roll back, ADR-0046 accepted by
-Saravana; rollback slice 1 merged, #131; slices 2 and 3 merged, #132; slice 4, blue/green per product, in review).
+Updated 2026-11-02 (ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
+blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
 - How the plan is kept (and kept from drifting): [README.md](README.md).
 - Why this plan: [critique-2026-10-21.md](critique-2026-10-21.md) (critical review, journey step by step).
@@ -134,17 +135,27 @@ per-pack evaluation is in the backlog.
    it is all available", `d3fec2b`); a hidden scenario caught a real phone bug (a 60-character name made the board
    scroll sideways), fixed by the loop; 11/11 verified live; Level 3. Not exercised: the sleep retry (the Mac
    stayed awake). **Found:** (1) the cause is the template: the *neutral-compact* look scales spacing by 0.75 and
-   the root font to 14 px, so `min-h-11` renders ~29 px in every product on that look (backlog: template 1.4.1);
+   the root font to 14 px, so `min-h-11` renders ~29 px in every product on that look (template 1.4.1, shipped as **1.5.1**);
    (2) the verifier has no browser and judged the phone layout from the CSS, estimating widths (backlog); (3) on
    phones the header became a ~110 px two-row block and no longer shows the signed-in email (a candidate first
    suggested feature for J2). **J1 status (2026-10-29):** Kudos board meets the "Done when" after iteration 2;
-   a new product would still start with small controls until template 1.4.1. Closing J1 on this run, or after
-   1.4.1 and a new-product run, is Saravana's call. J2 starts in the next session.
+   a new product would still start with small controls until template 1.5.1. Closing J1 on this run, or after
+   1.5.1 and a new-product run, is Saravana's call (decided 2026-10-31: after, see "Done when"). J2 starts in the next session.
 - **Done when:** a new product, built from scratch, is one Saravana would show a client: agreed design
   choices, auth on protected writes, a polished responsive UI, published repo, deployed, Level 3.
   **And repeatable (decided 2026-10-31):** a second product of a different shape, built from scratch on
   template 1.4.1, meets the same bar **on its first delivery, without an iteration**, with tap targets measured
   by the pack's e2e so a miss fails the build. Kudos board alone needed iteration 2, so J1 stays open until then.
+  🔄 **Template 1.4.1 ships as nextjs-web 1.5.1** (`feat/template-1.5.1`, in review; 1.5.0 was taken by the blue/green
+  charts): a `phone` variant in px (`@media (width < 640px)`) and `phone:min-h-[44px]` on Button (also `min-w`),
+  Input, Select, Textarea, the dialog and toast close buttons, the app name and the nav links; `e2e/tap-targets.spec.ts`
+  measures every route at 390 px in every look (signed in where the route needs it) and fails on a control under
+  44 × 44 px; the UI design skill says so. Run in the cloud session against `make preview` with local sign-in: before the
+  fix every look failed (inputs and the sign-in button 40 px in the default look, 26 px in neutral-compact; the
+  app name 21–24 px), after it the whole e2e suite passed (23/23). Engine test:
+  `test_every_control_is_phone_sized_in_every_look_and_e2e_measures_it`.
+  **Order (decided by Saravana 2026-11-02):** 1.5.1 first; then the blue/green live run (J2) is a **new product of a
+  different shape** from Kudos board, built from scratch on 1.5.1, so the same run is J1's repeatability proof.
 
 **J2. Iterate safely (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01)**
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
@@ -206,6 +217,8 @@ per-pack evaluation is in the backlog.
     desktop and 390 px against a dry-run engine.
     **Next:** Saravana reviews the page; then iteration 4 on Kudos board from the card with a suggested feature
     (and a CVE fix if one is open: none was at iteration 3, so that half is his call), then rollback.
+    **CVE half decided by Saravana 2026-11-02:** include a CVE fix if one is open when iteration 4 starts; if none
+    is, the feature alone meets the Done when, and the evidence says no CVE with a released fix was open.
 - Feedback → change → redeploy, run live on the **J1 acceptance product** (decided 2026-10-25: built on
   nextjs-web 1.4.0 with modules and the new look; not Book keeping, which predates modules).
 - **Iterations keep agreed design decisions** (fixed 2026-10-28, see J1 item 5): the J2 live run checks that
@@ -229,7 +242,7 @@ per-pack evaluation is in the backlog.
   3. ✅ **Promote the tested image** (~1 day, same PR): a `promote` station after acceptance deploys the same
      image to production, checks it runs the tested digest, probes and runs e2e there; a failure rolls back and
      holds for a person; only then is the release recorded. Tests: `tests/test_validation_env.py`.
-  4. 🔄 **Strategy per product** (~2 days; `feat/j2-blue-green`, in review): `in-place` (default) or `blue-green`,
+  4. ✅ **Strategy per product** (~2 days; PR #134, merged 2026-11-02, `56f12dc`): `in-place` (default) or `blue-green`,
      defaulted by the pack. **Shape decided by Saravana 2026-11-01:** two colours in production's one Helm
      release sharing its database (the charts run Postgres in the release, so two releases would split the
      data). Charts nextjs-web 1.5.0 and fastapi-service 1.1.0 render a Deployment per colour (blue is the one the
@@ -396,7 +409,7 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
     cases with hidden scenarios and visual checks; repeated runs per case. Feeds J1's second product and phase I.
   - **Visual standards enforced, not reported:** UI review blocking once calibrated against the product set
     (the rubric already scores; today it only reports); tap targets and sideways scroll at 390 px measured in
-    the pack's e2e (template 1.4.1).
+    the pack's e2e (template 1.4.1, shipped as 1.5.1: tap targets done; sideways scroll still open).
   - **Database migrations as a signal:** a schema change ships a forward migration, tested against the last
     release's data, and a rollback path; a release with an unmigrated schema change fails Level 3.
   - **Performance budget:** the pack declares a latency target for key routes; a short load smoke test in
@@ -407,7 +420,8 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
     resume or hold with a cause, tested (the environment check covers host sleep and disk today).
   - **Defect trends on Outcomes:** escaped defects (a fix change that follows a delivery), rollbacks and
     incidents per product and per pack version, so quality is a trend and not one run.
-- **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29): the *neutral-compact*
+- 🔄 **Template 1.4.1, phone-ready controls in every look** (found on Kudos board, 2026-10-29; building as
+  nextjs-web 1.5.1, see J1 "Done when"): the *neutral-compact*
   look scales spacing by 0.75 and the root font to 14 px, so the template's `min-h-11` renders ~29 px. Recipe
   proven by Kudos board iteration 2: a `phone` custom variant in px (`@media (width < 640px)`) with
   `phone:min-h-[44px]` in the base Button, Input, Select and Textarea, the shell's nav links, the dialog close and

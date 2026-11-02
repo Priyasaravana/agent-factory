@@ -1,14 +1,23 @@
-# Agent Factory: handoff (updated 2026-11-01, late evening)
+# Agent Factory: handoff (updated 2026-11-02, evening)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-01, late evening)
-- **Main** (`72a7f7c` on GitHub): J2 slices 1–5 and ADR-0046 slices 1–3 merged (rollback #131; temporary
-  validation environment and promotion of the tested image #132).
+## Current state (2026-11-02, evening)
+- **Main** (`6ecd8ce` on GitHub): J2 slices 1–5 and ADR-0046 slices 1–4 merged (rollback #131; temporary
+  validation environment and promotion of the tested image #132; strategy per product, blue/green, #134);
+  Dependabot roll-up #135.
+- **Decided 2026-11-02 (Saravana):** template 1.4.1 (shipped as nextjs-web **1.5.1**) comes before the blue/green
+  live run, and that run is a new product of a different shape, so it also proves J1's repeatability bar.
+  Iteration 4 on Kudos board includes a CVE fix if one is open when it starts.
+- **In review:** `feat/template-1.5.1`: phone-ready controls in every look (roadmap J1 "Done when"). The template's
+  e2e was run in the cloud session (npm reached the registry; Playwright's browser download is refused, so the
+  run used the image's `/usr/bin/google-chrome` through a local config, not committed). Note for checking it by
+  hand: the template's pages are prerendered, so `AUTH=local` at run time doesn't turn sign-in on; set
+  `DEFAULTS.auth` to `local` and rebuild (then revert) to measure the sign-in form.
 - **Decided 2026-11-01 (Saravana):** blue/green (ADR-0046 slice 4) is two colours in production's **one** Helm
   release sharing its database, not two releases (the charts run Postgres in the release).
-- **In review:** `feat/j2-blue-green`: ADR-0046 slice 4, strategy per product.
+- **Merged 2026-11-02 (#134):** ADR-0046 slice 4, strategy per product.
   - Charts (nextjs-web **1.5.0**, fastapi-service **1.1.0**): a Deployment per colour; blue is the Deployment the
     app always had (same name and selector, plus `app.kubernetes.io/color`), green has its own selector
     (component `web-green` / `api-green`); `strategy=blue-green` points the Service at `blueGreen.live`, a preview
@@ -36,9 +45,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     commits, or In place). `SchemaHold.tsx` on the change page; "Needs you" kind `approve_schema`. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
     sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); the `Main` ruleset on `main` requires
     engine, auth, web, golden-path, images, e2e and charts (Saravana adds `charts`; the session's proxy refuses ruleset writes).
-- **Next:** Saravana adds `charts` to the `Main` ruleset, reviews and merges; then a live run on `local-ingress` with a **new** product set to
-  blue/green (existing products' charts predate colours) to prove the J2 "one blue/green, another in place";
-  iteration 4 on Kudos board from the card; the "ready for" statement.
+- **Next:** Saravana reviews and merges `feat/template-1.5.1`; reviews the Next iteration card's feel; then a live run
+  on `local-ingress` with a **new** product of a different shape from Kudos board (a form- or table-heavy app), on
+  nextjs-web 1.5.1, Design decisions set to ask, set to blue/green (existing products' charts predate colours): it
+  must pass on its first delivery (J1 repeatability) and prove J2's "one blue/green, another in place"; then
+  iteration 4 on Kudos board from the card (suggested feature, plus a CVE fix if one is open); a deliberately
+  broken iteration that rolls back; the "ready for" statement; the accepted/closed state.
 - **Live: Kudos board** (`software-factory-apps/kudos`, look neutral-compact decided by admin): iteration 1
   `75fd61391452` ($6.38), iteration 2 `d5e3de869ac0` (44 px phone controls, $6.02) and iteration 3
   `2d17c4f736c8` (signed-in email in the phone header, R12, ~$4.9, 2026-10-31), all delivered. Iteration 3's

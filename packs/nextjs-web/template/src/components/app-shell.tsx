@@ -29,7 +29,7 @@ export function AppShell({
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
           <Link
             href="/"
-            className="text-base font-semibold text-foreground no-underline hover:no-underline"
+            className="inline-flex items-center text-base font-semibold text-foreground no-underline hover:no-underline phone:min-h-[44px] phone:min-w-[44px]"
           >
             {APP_NAME}
           </Link>
@@ -39,7 +39,7 @@ export function AppShell({
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className="block rounded-md px-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-accent hover:text-accent-foreground hover:no-underline"
+                    className="flex items-center rounded-md px-3 py-1.5 text-sm phone:min-h-[44px] text-muted-foreground no-underline hover:bg-accent hover:text-accent-foreground hover:no-underline"
                   >
                     {item.label}
                   </Link>

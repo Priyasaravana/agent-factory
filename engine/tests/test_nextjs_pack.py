@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_signals():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.5.0" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.5.1" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -197,6 +197,31 @@ def test_live_e2e_goes_through_the_sandbox_proxy_and_the_preview_does_not():
     assert "process.env.HTTPS_PROXY" in cfg and "process.env.HTTP_PROXY" in cfg
     assert re.search(r"use:\s*\{[^}]*\bproxy\b", cfg), "the proxy reaches Playwright's use options"
     assert "127\\.0\\.0\\.1" in cfg and "localhost" in cfg, "loopback (the preview) stays direct"
+
+
+PHONE_MIN = "phone:min-h-[44px]"
+
+
+def test_every_control_is_phone_sized_in_every_look_and_e2e_measures_it():
+    """Template 1.5.1 (Kudos board, 2026-10-29): the neutral-compact look scales spacing by 0.75 and
+    the root font to 14 px, so `h-10` was ~26 px on a phone. The phone minimum is in px, outside the
+    scaled spacing, on every tappable base component; the e2e suite measures every route at 390 px in
+    every look, so a miss fails the build instead of only lowering the UI review's score."""
+    css = (TEMPLATE / "src" / "app" / "globals.css").read_text()
+    assert re.search(r"@custom-variant phone \(@media \(width < \d+px\)\)", css), "in px, not rem"
+    ui = TEMPLATE / "src" / "components" / "ui"
+    for name in ("button", "input", "select", "textarea", "dialog", "toast"):
+        assert PHONE_MIN in (ui / f"{name}.tsx").read_text(), name
+    shell = (TEMPLATE / "src" / "components" / "app-shell.tsx").read_text()
+    assert shell.count(PHONE_MIN) == 2, "the app name and each navigation link"
+
+    spec = (TEMPLATE / "e2e" / "tap-targets.spec.ts").read_text()
+    assert "for (const look of LOOKS)" in spec and "for (const route of ROUTES)" in spec
+    assert re.search(r"const MIN = 44;", spec) and re.search(r"width: 390\b", spec)
+    assert "SIGNED_IN_ROUTES" in spec, "signed-in pages are measured signed in"
+    pack = yaml.safe_load((PACK / "pack.yaml").read_text())
+    assert pack["stack"]["e2e"].startswith("make e2e"), "the spec runs wherever e2e runs"
+    assert "npx playwright test" in (TEMPLATE / "Makefile").read_text(), "the whole suite, not a subset"
 
 
 def test_the_template_needs_no_web_fonts_or_remote_assets():
@@ -346,7 +371,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.5.0"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.5.1"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)

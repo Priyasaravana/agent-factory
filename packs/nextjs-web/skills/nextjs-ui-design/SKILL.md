@@ -27,6 +27,12 @@ the developer can build it without guessing and the reviewer can check it agains
   (client component: confirmations), `toast` / `Toaster` (sonner: "Saved", "Deleted"), `EmptyState`.
   Add another shadcn/ui component only by copying its source into `src/components/ui/` and say why in
   `docs/ui.md`.
+- **Phone-sized controls**: on a phone every control a person taps is at least 44 × 44 px, in every
+  look. The base components already carry `phone:min-h-[44px]` (a px media variant, so compact looks
+  can't shrink it): build with them, and give anything tappable you make yourself (a link styled as a
+  card, an icon button, a checkbox's label) the same `phone:min-h-[44px] phone:min-w-[44px]`.
+  `e2e/tap-targets.spec.ts` measures every route at 390 px in every look and fails the build on a
+  smaller one. Fix the control; never exempt it.
 
 ## Write docs/ui.md
 
