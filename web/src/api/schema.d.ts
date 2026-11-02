@@ -248,6 +248,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/deploy-strategy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)
+         * @description How a product's new versions reach its users: in place or blue/green, who chose it, and on blue/green which colour serves (ADR-0046)
+         */
+        get: operations["get_deploy_strategy"];
+        put?: never;
+        /**
+         * Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)
+         * @description Choose how a product's new versions reach its users: in-place or blue-green (one its stack pack supports); none goes back to the pack's default. Takes effect at the next promotion (ADR-0046)
+         */
+        post: operations["set_deploy_strategy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/work-items/decide": {
         parameters: {
             query?: never;
@@ -422,6 +446,26 @@ export interface paths {
          * @description Answer a stack conflict by building on another installed stack (before the first build only)
          */
         post: operations["switch_stack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/schema-approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)
+         * @description Approve that a schema change the check couldn't read is compatible with the version kept running for the blue/green switch back, for this change's exact commits; then resume (ADR-0046)
+         */
+        post: operations["approve_schema"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1953,7 +1997,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
             /** Title */
             title: string;
             /**
@@ -2099,6 +2143,7 @@ export interface components {
             pr_url?: string | null;
             deployed?: components["schemas"]["Release"] | null;
             validation?: components["schemas"]["Validation"] | null;
+            schema_approval?: components["schemas"]["SchemaApproval"] | null;
             /** Last Failure */
             last_failure?: string | null;
             last_routed?: components["schemas"]["RoutedFailure"] | null;
@@ -2494,6 +2539,48 @@ export interface components {
              * Format: date-time
              */
             at: string;
+        };
+        /**
+         * DeployStrategyInput
+         * @description `strategy`: in-place or blue-green; None goes back to the stack pack's default.
+         */
+        DeployStrategyInput: {
+            /** Strategy */
+            strategy?: ("in-place" | "blue-green") | null;
+        };
+        /**
+         * DeployStrategyView
+         * @description How a product's new versions reach its users (ADR-0046 slice 4): the strategy, who chose it,
+         *     what its stack pack's chart supports, and on blue/green which colour serves users and which is
+         *     kept running for an instant switch back.
+         */
+        DeployStrategyView: {
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "in-place" | "blue-green";
+            /**
+             * Chosen By
+             * @enum {string}
+             */
+            chosen_by: "product" | "pack" | "factory";
+            /**
+             * Pack Default
+             * @enum {string}
+             */
+            pack_default: "in-place" | "blue-green";
+            /** Options */
+            options: ("in-place" | "blue-green")[];
+            /** Live Color */
+            live_color?: string | null;
+            /** Kept Color */
+            kept_color?: string | null;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /**
          * DiscussTurn
@@ -3353,7 +3440,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
             /** Title */
             title: string;
             /**
@@ -3527,6 +3614,8 @@ export interface components {
             /** Stack Matches */
             stack_matches?: components["schemas"]["StackMatch"][];
             release?: components["schemas"]["Release"] | null;
+            /** Deploy Strategy */
+            deploy_strategy?: ("in-place" | "blue-green") | null;
         };
         /** ProductDetail */
         ProductDetail: {
@@ -3640,6 +3729,8 @@ export interface components {
             revision?: number | null;
             /** Digest */
             digest?: string | null;
+            /** Color */
+            color?: string | null;
             /**
              * At
              * Format: date-time
@@ -3658,13 +3749,17 @@ export interface components {
         RequiredAction: {
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "accept_risk";
+            kind: "accept_risk" | "approve_schema" | "schema_in_place";
             /** Text */
             text: string;
             /** Items */
             items?: string[];
+            /** Commits */
+            commits?: string[];
+            /** Unsure */
+            unsure?: string[];
         };
         /** RequirementView */
         RequirementView: {
@@ -3841,6 +3936,33 @@ export interface components {
             then: string;
             /** Covers */
             covers?: string[];
+        };
+        /**
+         * SchemaApproval
+         * @description A person's approval that a schema change it couldn't read is compatible with the version kept
+         *     running for the switch back (ADR-0046 slice 4). Valid only for this exact pair of commits.
+         */
+        SchemaApproval: {
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** From Commit */
+            from_commit: string;
+            /** To Commit */
+            to_commit: string;
+            /** Note */
+            note: string;
+            /** Unsure */
+            unsure?: string[];
+        };
+        /** SchemaApprovalInput */
+        SchemaApprovalInput: {
+            /** Note */
+            note: string;
         };
         /** ScopePresetInfo */
         ScopePresetInfo: {
@@ -5264,6 +5386,72 @@ export interface operations {
             };
         };
     };
+    get_deploy_strategy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployStrategyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_deploy_strategy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeployStrategyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployStrategyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     decide_work_items: {
         parameters: {
             query?: never;
@@ -5537,6 +5725,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SwitchStackInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_schema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchemaApprovalInput"];
             };
         };
         responses: {

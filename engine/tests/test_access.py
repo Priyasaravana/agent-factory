@@ -37,6 +37,8 @@ MEMBER_ACTIONS = {
     "send_back_risk",
     "archive_product",
     "decide_work_items",
+    "set_deploy_strategy",
+    "approve_schema",
     "run_preflight",
     "log_decision",
 }
@@ -53,6 +55,8 @@ STEERING = {
     "send_back_risk",
     "archive_product",
     "decide_work_items",
+    "set_deploy_strategy",
+    "approve_schema",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
 
@@ -120,6 +124,8 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
             ("POST", f"/api/changes/{change_id}/cancel", None),
             ("POST", f"/api/products/{oid}/archive", None),
             ("POST", f"/api/changes/{change_id}/align", {"message": "why Postgres?"}),
+            ("POST", f"/api/products/{oid}/deploy-strategy", {"strategy": "blue-green"}),
+            ("POST", f"/api/changes/{change_id}/schema-approval", {"note": "only adds a nullable column"}),
         ]
         for method, url, body in attempts:
             r = await c.request(method, url, json=body, headers=OTHER)

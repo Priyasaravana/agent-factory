@@ -105,6 +105,10 @@ class StackMatch(BaseModel):
     egress: list[str] = Field(default_factory=list)  # what the repo's sandboxes may reach for it
 
 
+# how a new version of a product reaches its users (ADR-0046 slice 4)
+DeployStrategy = Literal["in-place", "blue-green"]
+
+
 class Release(BaseModel):
     """A release of a product on a deploy target (ADR-0046): what a change put there, and once it is
     delivered, the product's last healthy release, which a later failure restores."""
@@ -121,6 +125,9 @@ class Release(BaseModel):
     helm_release: str = ""
     revision: int | None = None  # the deploy target's revision (Helm: the release's version)
     digest: str | None = None  # sha256 digest every running container reported (immutable)
+    # blue/green (ADR-0046 slice 4): the colour this release runs as, so its pods and image can be
+    # told from the other colour's; None: in place, one Deployment
+    color: str | None = None
     at: datetime
 
 
@@ -177,6 +184,8 @@ class Product(BaseModel):
     # the last healthy release, recorded when a change is delivered (ADR-0046); None: nothing
     # delivered since releases were recorded
     release: Release | None = None
+    # how a new version reaches users (ADR-0046 slice 4); None: the stack pack's default
+    deploy_strategy: DeployStrategy | None = None
 
 
 class Change(BaseModel):
@@ -207,6 +216,8 @@ class Change(BaseModel):
     deployed: Release | None = None
     # where this change is validated before promotion (ADR-0046 slice 2); None: validated in place
     validation: Validation | None = None
+    # a person's approval of a schema change the check couldn't read (ADR-0046 slice 4)
+    schema_approval: SchemaApproval | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
@@ -341,9 +352,30 @@ class OpenQuestionView(BaseModel):
 class RequiredAction(BaseModel):
     """What a person must do before a held change can resume (ADR-0043 §4)."""
 
-    kind: Literal["accept_risk"]
+    # accept_risk: on the work ledger; approve_schema: the schema check couldn't read the change, a
+    # person approves compatibility (or releases in place); schema_in_place: the schema change isn't
+    # additive, so it goes out in place (ADR-0046 slice 4)
+    kind: Literal["accept_risk", "approve_schema", "schema_in_place"]
     text: str  # the instruction, shown on the change page and when a resume is refused
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
+    commits: list[str] = Field(default_factory=list)  # approve_schema: [users' commit, tested commit]
+    unsure: list[str] = Field(default_factory=list)  # approve_schema: what the check couldn't read
+
+
+class SchemaApproval(BaseModel):
+    """A person's approval that a schema change it couldn't read is compatible with the version kept
+    running for the switch back (ADR-0046 slice 4). Valid only for this exact pair of commits."""
+
+    by: str
+    at: datetime
+    from_commit: str
+    to_commit: str
+    note: str
+    unsure: list[str] = Field(default_factory=list)  # what the check couldn't read, as shown when approving
+
+
+class SchemaApprovalInput(BaseModel):
+    note: str = Field(min_length=10, max_length=2000)  # why it is compatible, in the person's words
 
 
 class RoutedFailure(BaseModel):
@@ -1126,8 +1158,9 @@ class PendingAction(BaseModel):
     change pages, so nobody has to scroll to find what is blocking."""
 
     kind: Literal[
-        "answer_questions", "align", "approve_risk", "accept_risk", "resume", "factory_hold", "wait", "feedback"
-    ]
+        "answer_questions", "align", "approve_risk", "accept_risk", "approve_schema", "resume", "factory_hold",
+        "wait", "feedback",
+    ]  # fmt: skip
     title: str  # what to do, as a button would say it
     detail: str = ""  # why, in one or two sentences
     station: str | None = None
@@ -1396,6 +1429,26 @@ class NextIterationView(BaseModel):
     latest_iteration: int | None = None
     latest_kind: ChangeKind | None = None
     latest_request: str | None = None  # the first line of what was asked for it
+
+
+class DeployStrategyView(BaseModel):
+    """How a product's new versions reach its users (ADR-0046 slice 4): the strategy, who chose it,
+    what its stack pack's chart supports, and on blue/green which colour serves users and which is
+    kept running for an instant switch back."""
+
+    strategy: DeployStrategy
+    chosen_by: Literal["product", "pack", "factory"]
+    pack_default: DeployStrategy
+    options: list[DeployStrategy]  # what the product's stack pack supports
+    live_color: str | None = None  # blue/green: the colour users reach, from the last healthy release
+    kept_color: str | None = None  # blue/green: the colour that served before it, still running
+    note: str = ""  # what changes, in plain words
+
+
+class DeployStrategyInput(BaseModel):
+    """`strategy`: in-place or blue-green; None goes back to the stack pack's default."""
+
+    strategy: DeployStrategy | None = None
 
 
 class ChangeEntryView(BaseModel):

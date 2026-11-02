@@ -1,41 +1,54 @@
+{{- /*
+One Deployment per colour (ADR-0046 slice 4). In place, only blue runs: it keeps the name and
+selector the app always had, so a product can move to blue/green without replacing its pods.
+Blue/green adds green with a selector of its own; the two never select each other's pods.
+*/ -}}
+{{- include "app.checkStrategy" . -}}
+{{- range $color := include "app.colors" . | splitList " " }}
+{{- $image := include "app.colorImage" (dict "root" $ "color" $color) }}
+{{- if $image }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "app.name" . }}
-  labels: {{- include "app.labels" . | nindent 4 }}
+  name: {{ include "app.colorName" (dict "root" $ "color" $color) }}
+  labels:
+    {{- include "app.labels" $ | nindent 4 }}
+    app.kubernetes.io/color: {{ $color }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ $.Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: web
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ include "app.colorComponent" (dict "component" "web" "color" $color) }}
   template:
     metadata:
       labels:
-        {{- include "app.labels" . | nindent 8 }}
-        app.kubernetes.io/component: web
+        {{- include "app.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ include "app.colorComponent" (dict "component" "web" "color" $color) }}
+        app.kubernetes.io/color: {{ $color }}
     spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532}   # distroless `nonroot`
-      {{- with .Values.imagePullSecrets }}
+      {{- with $.Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: web
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports: [{name: http, containerPort: {{ .Values.containerPort }}}]
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: {{ $.Values.containerPort }}}]
           env:
-            - {name: PORT, value: {{ .Values.containerPort | quote }}}
-            - {name: OTEL_SERVICE_NAME, value: {{ include "app.name" . | quote }}}
-            {{- if .Values.postgres.enabled }}
+            - {name: PORT, value: {{ $.Values.containerPort | quote }}}
+            - {name: OTEL_SERVICE_NAME, value: {{ include "app.name" $ | quote }}}
+            {{- if $.Values.postgres.enabled }}
             - name: DATABASE_URL
-              valueFrom: {secretKeyRef: {name: {{ include "app.dbSecret" . }}, key: database-url}}
+              valueFrom: {secretKeyRef: {name: {{ include "app.dbSecret" $ }}, key: database-url}}
             {{- end }}
             - name: ADMIN_EMAIL
-              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" . }}, key: email}}
+              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" $ }}, key: email}}
             - name: ADMIN_PASSWORD
-              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" . }}, key: password}}
-            {{- range $k, $v := .Values.env }}
+              valueFrom: {secretKeyRef: {name: {{ include "app.adminSecret" $ }}, key: password}}
+            {{- range $k, $v := $.Values.env }}
             - {name: {{ $k }}, value: {{ $v | quote }}}
             {{- end }}
           readinessProbe:
@@ -45,7 +58,7 @@ spec:
           livenessProbe:
             httpGet: {path: /api/healthz, port: http}
             initialDelaySeconds: 10
-          resources: {{- toYaml .Values.resources | nindent 12 }}
+          resources: {{- toYaml $.Values.resources | nindent 12 }}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
@@ -53,3 +66,5 @@ spec:
       volumes:
         - {name: tmp, emptyDir: {}}
         - {name: cache, emptyDir: {}}
+{{- end }}
+{{- end }}

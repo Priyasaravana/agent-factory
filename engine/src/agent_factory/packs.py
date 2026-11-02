@@ -40,11 +40,12 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from agent_factory import base_images
 from agent_factory.base_images import BaseImage
 from agent_factory.decisions import Catalogue, CatalogueError, load_catalogue
+from agent_factory.models import DeployStrategy
 from agent_factory.readiness import RuleError, StackRules, parse_stack_rules
 from agent_factory.ui_review import Rubric, RubricError, parse_rubric
 
@@ -142,6 +143,23 @@ class PackUi(BaseModel):
     screenshots: str = Field(default="e2e-screenshots", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$")
 
 
+class PackDeploy(BaseModel):
+    """How a new version reaches users (ADR-0046 slice 4): the strategies this pack's chart supports
+    (`in-place` always) and the one its products use unless a product chooses another."""
+
+    model_config = ConfigDict(extra="forbid")
+    strategy: DeployStrategy = "in-place"
+    strategies: list[DeployStrategy] = Field(default_factory=lambda: list[DeployStrategy](["in-place"]))
+
+    @model_validator(mode="after")
+    def _default_is_supported(self) -> PackDeploy:
+        if "in-place" not in self.strategies:
+            raise ValueError("deploy.strategies must include in-place")
+        if self.strategy not in self.strategies:
+            raise ValueError(f"deploy.strategy {self.strategy} is not in deploy.strategies")
+        return self
+
+
 class PackStack(BaseModel):
     """What a stack pack builds (ADR-0041 §1). Paths are inside the pack folder."""
 
@@ -167,6 +185,7 @@ class PackStack(BaseModel):
     # approved runtime images, default first (ADR-0045): stages of the template's Dockerfile
     base_images: list[BaseImage] = Field(default_factory=list, max_length=6)
     ui: PackUi | None = None  # designer, screenshots and UI review (ADR-0044 §4)
+    deploy: PackDeploy = PackDeploy()  # deploy strategies the chart supports (ADR-0046 slice 4)
 
 
 class Pack(BaseModel):
@@ -375,6 +394,9 @@ class PackBinding:
     ui_skill_file: Path | None = None
     ui_rubric: Rubric | None = None
     ui_screenshots: str | None = None
+    # deploy strategies the chart supports and its products' default (ADR-0046 slice 4)
+    deploy_strategy: str = "in-place"
+    deploy_strategies: tuple[str, ...] = ("in-place",)
 
     @property
     def source(self) -> str:
@@ -461,6 +483,8 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         ui_skill_file=pack.path(stack.ui.skill) / "SKILL.md" if stack.ui else None,
         ui_rubric=pack._rubric,
         ui_screenshots=stack.ui.screenshots if stack.ui else None,
+        deploy_strategy=stack.deploy.strategy,
+        deploy_strategies=tuple(stack.deploy.strategies),
     )
 
 

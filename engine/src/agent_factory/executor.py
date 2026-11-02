@@ -82,18 +82,33 @@ CLEAN_SCANS = {
 }
 
 
-_UPGRADE = re.compile(r"\bupgrade --install (\S+) .*?image\.repository=([^\s']+).*?image\.tag=([^\s']+)")
+_UPGRADE = re.compile(r"\bupgrade --install (\S+) ")
+_SET = re.compile(r"--set (?:'([^']*)'|(\S+))")
 _ROLLBACK = re.compile(r"\brollback (\S+) (\d+)\b")
 _REVISION = re.compile(r"--revision (\d+)")
 _UNINSTALL = re.compile(r"\buninstall (\S+) ")
+_COLOR = re.compile(r"app\.kubernetes\.io/color=(\w+)")
+
+
+def _values(command: str) -> dict[str, Any]:
+    """The `--set a.b=c` values of a Helm command, nested as `helm get values -o json` prints them."""
+    out: dict[str, Any] = {}
+    for quoted, bare in _SET.findall(command.split(" upgrade --install ", 1)[-1]):
+        key, _, value = (quoted or bare).partition("=")
+        *path, last = re.split(r"(?<!\\)\.", key)
+        node = out
+        for part in path:
+            node = node.setdefault(part.replace("\\.", "."), {})
+        node[last.replace("\\.", ".")] = value
+    return out
 
 
 @dataclass
 class FakeHelm:
-    """A dry-run Helm: `upgrade --install` and `rollback` add revisions, `uninstall` removes a
-    release; `status`, `history`,
-    `get values` and the pods' imageIDs (`get pods … jsonpath`) answer from them. The digest of an
-    image is the SHA-256 of its name, so the same image always has the same digest."""
+    """A dry-run Helm: `upgrade --install` and `rollback` add revisions with the values they set,
+    `uninstall` removes a release; `status`, `history`, `get values` and the pods' imageIDs (`get
+    pods … jsonpath`, one colour's on a blue/green release) answer from them. The digest of an image
+    is the SHA-256 of its name, so the same image always has the same digest."""
 
     releases: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # a mesh proxy in every pod, on its own image: digests are read for the app's containers only
@@ -103,50 +118,72 @@ class FakeHelm:
     def digest(image: str) -> str:
         return "sha256:" + hashlib.sha256(image.encode()).hexdigest()
 
-    def answer(self, command: str) -> str | None:
+    @staticmethod
+    def images(values: dict[str, Any]) -> dict[str, str]:
+        """The image each colour runs (in place: blue only), from a revision's values."""
+        from agent_factory import blue_green
+
+        found = blue_green.layout(json.dumps(values))
+        return dict(found.images) if found else {}
+
+    def answer(self, command: str) -> tuple[int, str] | None:
         if "helm" not in command and "kubectl" not in command:
             return None
         if m := _UPGRADE.search(command):
-            name, image = m.group(1), f"{m.group(2)}:{m.group(3)}"
-            self._add(name, image, "Upgrade complete" if name in self.releases else "Install complete")
-            return f"[dry-run] Release {name} has been upgraded."
+            name = m.group(1)
+            self._add(name, _values(command), "Upgrade complete" if name in self.releases else "Install complete")
+            return 0, f"[dry-run] Release {name} has been upgraded."
         if m := _UNINSTALL.search(command):  # the release and its history go (a temporary one, archive)
             self.releases.pop(m.group(1), None)
-            return f"[dry-run] release {m.group(1)} uninstalled"
+            return 0, f"[dry-run] release {m.group(1)} uninstalled"
         if m := _ROLLBACK.search(command):
             name, rev = m.group(1), int(m.group(2))
             old = next((r for r in self.releases.get(name, []) if r["revision"] == rev), None)
             if old is None:
                 return None
-            self._add(name, old["image"], f"Rollback to {rev}")
-            return "Rollback was a success! Happy Helming!"
+            self._add(name, old["values"], f"Rollback to {rev}")
+            return 0, "Rollback was a success! Happy Helming!"
         for name, revs in self.releases.items():
             if not revs or not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", command):
                 continue
             latest = revs[-1]
             if " status " in command and "-o json" in command:
-                return json.dumps({"name": name, "version": latest["revision"], "info": {"status": latest["status"]}})
+                return 0, json.dumps(
+                    {"name": name, "version": latest["revision"], "info": {"status": latest["status"]}}
+                )
             if " history " in command and "-o json" in command:
-                return json.dumps([{k: r[k] for k in ("revision", "status", "description")} for r in revs])
+                return 0, json.dumps([{k: r[k] for k in ("revision", "status", "description")} for r in revs])
             if " get values " in command:
                 asked = _REVISION.search(command)
                 row = next((r for r in revs if r["revision"] == int(asked.group(1))), None) if asked else latest
-                if row is None:
-                    return None
-                repo, tag = row["image"].rsplit(":", 1)
-                return json.dumps({"image": {"repository": repo, "tag": tag}})
+                return (0, json.dumps(row["values"])) if row else None
             if "get pods" in command and "jsonpath" in command:
-                repo = latest["image"].rsplit(":", 1)[0]
-                app = f"docker.io/library/{latest['image']}=docker.io/library/{repo}@{self.digest(latest['image'])}"
-                return f"|{app} {self.sidecar} \n"
+                images = self.images(latest["values"])
+                color = _COLOR.search(command)
+                running = [images[color.group(1)]] if color and color.group(1) in images else list(images.values())
+                lines = []
+                for image in running:
+                    repo = image.rsplit(":", 1)[0]
+                    app = f"docker.io/library/{image}=docker.io/library/{repo}@{self.digest(image)}"
+                    lines.append(f"|{app} {self.sidecar} ")
+                return 0, "\n".join(lines) + "\n"
+        if " get values " in command:  # a release Helm doesn't have
+            return 1, "Error: release: not found"
         return None
 
-    def _add(self, name: str, image: str, description: str) -> None:
+    def latest_image(self, name: str) -> str | None:
+        """What users of release `name` reach now (blue/green: the live colour)."""
+        from agent_factory import blue_green
+
+        revs = self.releases.get(name) or []
+        return blue_green.values_image(json.dumps(revs[-1]["values"])) if revs else None
+
+    def _add(self, name: str, values: dict[str, Any], description: str) -> None:
         revs = self.releases.setdefault(name, [])
         for r in revs:
             if r["status"] == "deployed":
                 r["status"] = "superseded"
-        revs.append({"revision": len(revs) + 1, "status": "deployed", "description": description, "image": image})
+        revs.append({"revision": len(revs) + 1, "status": "deployed", "description": description, "values": values})
 
 
 @dataclass
@@ -186,5 +223,5 @@ class FakeExecutor:
                     output = output.pop(0) if len(output) > 1 else output[0]
                 return CommandResult(command, 0, output)
         if (helm := self.helm.answer(command)) is not None:
-            return CommandResult(command, 0, helm)
+            return CommandResult(command, *helm)
         return CommandResult(command, 0, f"[dry-run] ok: {command}")

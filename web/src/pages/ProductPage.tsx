@@ -19,6 +19,8 @@ import NeedsYou, { useAttention } from "../components/NeedsYou";
 import NextIteration from "../components/NextIteration";
 import { Panel } from "../components/ui/panel";
 import SpendCard from "../components/SpendCard";
+import { useAuth } from "../auth";
+import ReleaseStrategy from "../components/ReleaseStrategy";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
@@ -43,6 +45,7 @@ export default function ProductPage() {
   const attention = useAttention(productId, true);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const qc = useQueryClient();
+  const auth = useAuth();
   const archive = useMutation({
     mutationFn: () =>
       unwrap(
@@ -65,6 +68,13 @@ export default function ProductPage() {
   if (detail.error) return <p className="error">{detail.error.message}</p>;
   const { product, changes, feedback, spend } = detail.data!;
   const changeId = selected ?? product.latest_change_id ?? changes[0]?.id;
+  // the product's creator or an admin steers it (the engine checks it too)
+  const canSteer =
+    auth.kind === "open" ||
+    (auth.kind === "signed-in" &&
+      (auth.me.role === "admin" ||
+        !product.created_by ||
+        product.created_by === auth.me.username));
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
@@ -265,6 +275,13 @@ export default function ProductPage() {
           </div>
         )}
       </Panel>
+
+      {product.target !== "repo" && (
+        <ReleaseStrategy
+          productId={product.id}
+          canChange={!product.archived_at && canSteer}
+        />
+      )}
 
       <WorkLedger
         productId={product.id}

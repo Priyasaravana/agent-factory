@@ -12,7 +12,7 @@ import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from agent_factory import rollback
+from agent_factory import blue_green, rollback
 from agent_factory.executor import CommandResult
 from agent_factory.models import Release
 from agent_factory.providers.base import StepResult
@@ -38,26 +38,40 @@ class HelmRelease:
     def _ns(self) -> str:
         return f"--namespace {shlex.quote(self.namespace)}"
 
-    async def digest(self, image: str) -> tuple[str | None, str]:
-        """The one digest every running container of the release's image reports (sidecars aside)."""
-        res = await self.run(
-            f"{self.kubectl} get pods {self._ns()} -l app.kubernetes.io/instance={shlex.quote(self.name)} "
-            f"-o jsonpath={shlex.quote(PODS_JSONPATH)}",
-            60,
-        )
+    def _pods(self, color: str | None) -> str:
+        """The release's pods; on a blue/green release only one colour's (ADR-0046 slice 4), since
+        both colours run the same repository and only the tag tells them apart."""
+        selector = f"app.kubernetes.io/instance={self.name}" + (f",{blue_green.COLOR_LABEL}={color}" if color else "")
+        jsonpath = shlex.quote(PODS_JSONPATH)
+        return f"{self.kubectl} get pods {self._ns()} -l {shlex.quote(selector)} -o jsonpath={jsonpath}"
+
+    async def digest(self, image: str, color: str | None = None) -> tuple[str | None, str]:
+        """The one digest every running container of the release's image reports (sidecars aside);
+        `color`: of that colour's pods only."""
+        res = await self.run(self._pods(color), 60)
         if not res.ok:
             return None, f"could not read the running pods: {res.output.strip()[-300:]}"
         return rollback.one_digest(res.output, image)
 
-    async def installed(self, image: str) -> tuple[int | None, str | None, str]:
+    async def installed(self, image: str, color: str | None = None) -> tuple[int | None, str | None, str]:
         """After `helm upgrade --wait`: (revision, digest, problem). Both are needed to record the
         release; a deploy that can't tell them fails closed."""
         status = await self.run(f"{self.helm} status {shlex.quote(self.name)} {self._ns()} -o json", 60)
         revision = rollback.helm_revision(status.output) if status.ok else None
         if revision is None:
             return None, None, "Helm reported no revision for the release"
-        digest, why = await self.digest(image)
+        digest, why = await self.digest(image, color)
         return revision, digest, why
+
+    async def values(self) -> tuple[str | None, str]:
+        """`helm get values -o json` of the release: (output, problem). (None, "") when Helm has no
+        such release: nothing is installed yet."""
+        res = await self.run(f"{self.helm} get values {shlex.quote(self.name)} {self._ns()} -o json", 60)
+        if res.ok:
+            return res.output, ""
+        if "not found" in res.output.lower():
+            return None, ""
+        return None, f"could not read the release's values: {res.output.strip()[-300:]}"
 
     async def _history(self) -> list[dict[str, object]]:
         res = await self.run(f"{self.helm} history {shlex.quote(self.name)} {self._ns()} -o json", 60)
@@ -89,11 +103,7 @@ class HelmRelease:
         problems = [] if rollout.ok else [f"rollout did not complete: {rollout.output.strip()[-300:]}"]
         rows = await self._history()
         latest = max(rows, key=lambda r: int(str(r["revision"]))) if rows else None
-        pods = await self.run(
-            f"{self.kubectl} get pods {self._ns()} -l app.kubernetes.io/instance={shlex.quote(self.name)} "
-            f"-o jsonpath={shlex.quote(PODS_JSONPATH)}",
-            60,
-        )
+        pods = await self.run(self._pods(release.color), 60)  # blue/green: the colour restored to users
         problems += rollback.restored_problems(release, latest, await self._image(), pods.output if pods.ok else "")
         for path in paths:
             answered = await probe(path)

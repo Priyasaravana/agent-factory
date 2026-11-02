@@ -7,6 +7,19 @@ image:
 
 imagePullSecrets: []           # e.g. [{name: factory-pull}] for a private registry
 
+# how a new version reaches users (ADR-0046 slice 4), set per product by the factory:
+#   in-place    one Deployment, updated rolling; it runs `image`
+#   blue-green  blue and green Deployments on this release's one database; the Service sends users
+#               to blueGreen.live, and previewHost reaches the other colour, tested before the switch.
+#               The old colour keeps running until the next promotion: switching back is instant.
+#               Both colours share the data, so a schema change must work with the old version too.
+strategy: in-place
+blueGreen:
+  live: blue
+  previewHost: ""
+  blue: {repository: "", tag: ""}
+  green: {repository: "", tag: ""}
+
 replicaCount: 1
 containerPort: 3000
 

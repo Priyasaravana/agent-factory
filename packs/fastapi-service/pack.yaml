@@ -3,7 +3,7 @@
 # where and how this install runs it (environment, ports, scan commands, minimum level).
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: fastapi-service
-version: 1.0.0
+version: 1.1.0
 title: FastAPI service
 stack:
   builds: service
@@ -18,5 +18,9 @@ stack:
   port: 8000
   health: {live: /healthz, ready: /readyz}
   chart: deploy/chart
+  # how a new version reaches users (ADR-0046 slice 4): the strategies the chart supports, and
+  # what a product uses unless it chooses another. blue-green runs two colours on one database, so
+  # a schema change must also work with the version still running
+  deploy: {strategy: in-place, strategies: [in-place, blue-green]}
   detect: {files: [pyproject.toml], deps: [fastapi]}
   readiness: readiness.yaml           # how this stack proves the stack-specific signals

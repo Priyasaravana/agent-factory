@@ -44,6 +44,7 @@ from agent_factory.models import (
     RiskApproval,
     RiskHold,
     RoutedFailure,
+    SchemaApproval,
     StationOutcome,
     Validation,
     WorkItem,
@@ -1400,7 +1401,50 @@ class ChangeManager:
                 and (it.accepted_until is None or it.accepted_until > now)
                 for i in need.items
             )
+        if need.kind in ("approve_schema", "schema_in_place"):  # ADR-0046 slice 4
+            if not self._blue_green(change):
+                return True  # set to in place: promotion no longer keeps the old version running
+            ok = change.schema_approval
+            return need.kind == "approve_schema" and ok is not None and [ok.from_commit, ok.to_commit] == need.commits
         return False
+
+    def _blue_green(self, change: Change) -> bool:
+        """The change's product promotes blue/green, by its own choice or its pack's default."""
+        from agent_factory import blue_green
+
+        product = self.store.get_product(change.product_id)
+        if product is None:
+            return False
+        bp = self.cfg.blueprints.get(product.blueprint)
+        pack = bp.pack_binding if bp is not None else None
+        strategy, _ = blue_green.chosen(product.deploy_strategy, pack.deploy_strategy if pack else None)
+        return strategy == blue_green.BLUE_GREEN
+
+    def approve_schema(self, change_id: str, note: str, by: str) -> Change:
+        """A person approves that a schema change the check couldn't read is compatible with the
+        version kept running for the switch back (ADR-0046 slice 4): for this change's exact pair of
+        commits, recorded with who, when, why and what the check couldn't read."""
+        change = self._get(change_id)
+        need = change.required_action
+        if change.status != ChangeStatus.held or need is None or need.kind != "approve_schema":
+            raise InvalidRequestError("this change isn't waiting for a schema approval")
+        change.schema_approval = SchemaApproval(
+            by=by,
+            at=_now(),
+            from_commit=need.commits[0],
+            to_commit=need.commits[1],
+            note=note.strip(),
+            unsure=need.unsure,
+        )
+        self.store.save_change(change)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"schema compatibility approved by {by} for {need.commits[0]}→{need.commits[1]}: {note.strip()}",
+            station=change.current_station,
+            data={"schema_approval": change.schema_approval.model_dump(mode="json")},
+        )
+        return change
 
     def _validation_slot(self, ctx: StationContext, flow: WorkflowDoc, plan: Any, handler: str) -> str | None:
         """Where a validating station acts (ADR-0046 slice 2): the change's temporary release while it
@@ -1525,7 +1569,8 @@ class ChangeManager:
         self.store.add_event(
             change.id,
             EventKind.decision,
-            f"healthy release recorded: iteration {rel.iteration}, {rel.image}, revision {rel.revision}, {rel.digest}",
+            f"healthy release recorded: iteration {rel.iteration}, {rel.image}, revision {rel.revision}, {rel.digest}"
+            + (f", serving as {rel.color}" if rel.color else ""),
             station=sid,
             data={"release": rel.model_dump(mode="json")},
         )
