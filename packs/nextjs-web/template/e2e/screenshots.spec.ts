@@ -16,28 +16,27 @@ const OUT = process.env.SCREENSHOT_DIR || "e2e-screenshots";
 const slug = (route: string) =>
   route.replace(/^\/+|\/+$/g, "").replace(/[^a-z0-9]+/gi, "-") || "home";
 
-for (const route of ROUTES) {
-  for (const size of SIZES) {
-    for (const scheme of SCHEMES) {
-      test(`screenshot ${route} ${size.name} ${scheme}`, async ({ browser, baseURL }) => {
-        const context = await browser.newContext({
-          baseURL,
-          viewport: { width: size.width, height: size.height },
-          colorScheme: scheme,
+// The configured `page` fixture with each size and scheme, not a context made here: the config's
+// `use` (its `proxy` above all: the live app is reachable only through it) then always applies.
+for (const size of SIZES) {
+  for (const scheme of SCHEMES) {
+    test.describe(`${size.name} ${scheme}`, () => {
+      test.use({ viewport: { width: size.width, height: size.height }, colorScheme: scheme });
+
+      for (const route of ROUTES) {
+        test(`screenshot ${route} ${size.name} ${scheme}`, async ({ page }) => {
+          if (SIGNED_IN_ROUTES.includes(route) && (await authEnabled(page.request))) {
+            await signIn(page, route);
+          } else {
+            await page.goto(route);
+          }
+          await expect(page.locator("main")).toBeVisible();
+          await page.screenshot({
+            path: `${OUT}/${slug(route)}-${size.name}-${scheme}.png`,
+            fullPage: true,
+          });
         });
-        const page = await context.newPage();
-        if (SIGNED_IN_ROUTES.includes(route) && (await authEnabled(page.request))) {
-          await signIn(page, route);
-        } else {
-          await page.goto(route);
-        }
-        await expect(page.locator("main")).toBeVisible();
-        await page.screenshot({
-          path: `${OUT}/${slug(route)}-${size.name}-${scheme}.png`,
-          fullPage: true,
-        });
-        await context.close();
-      });
-    }
+      }
+    });
   }
 }

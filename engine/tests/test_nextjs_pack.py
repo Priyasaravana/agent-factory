@@ -197,6 +197,11 @@ def test_live_e2e_goes_through_the_sandbox_proxy_and_the_preview_does_not():
     assert "process.env.HTTPS_PROXY" in cfg and "process.env.HTTP_PROXY" in cfg
     assert re.search(r"use:\s*\{[^}]*\bproxy\b", cfg), "the proxy reaches Playwright's use options"
     assert "127\\.0\\.0\\.1" in cfg and "localhost" in cfg, "loopback (the preview) stays direct"
+    # specs set viewport and scheme with test.use on the configured fixtures, not a context of their
+    # own, so the config's proxy can't be left out (PR #136 review, 2026-11-02; Playwright 1.64's
+    # runner happens to fill config options into such contexts too, but that isn't documented)
+    for spec in (TEMPLATE / "e2e").glob("*.ts"):
+        assert "newContext(" not in spec.read_text(), f"{spec.name} makes its own browser context"
 
 
 PHONE_MIN = "phone:min-h-[44px]"

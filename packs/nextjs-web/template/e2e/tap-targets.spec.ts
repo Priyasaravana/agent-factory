@@ -50,18 +50,16 @@ async function open(page: Page, route: string, look: string): Promise<void> {
   }, look);
 }
 
+// The configured `page` fixture with phone options, not a context made here: the config's `use`
+// (its `proxy` above all: the live app is reachable only through it) then always applies.
+test.use({ viewport: PHONE, hasTouch: true });
+
 for (const look of LOOKS) {
   for (const route of ROUTES) {
-    test(`${route} has phone-sized tap targets in the ${look} look`, async ({
-      browser,
-      baseURL,
-    }) => {
-      const context = await browser.newContext({ baseURL, viewport: PHONE, hasTouch: true });
-      const page = await context.newPage();
+    test(`${route} has phone-sized tap targets in the ${look} look`, async ({ page }) => {
       await open(page, route, look);
       const small = (await page.evaluate(`(${MEASURE})(${MIN})`)) as string[];
       expect(small, `controls under ${MIN} px on a ${PHONE.width} px phone`).toEqual([]);
-      await context.close();
     });
   }
 }
