@@ -242,8 +242,8 @@ per-pack evaluation is in the backlog.
      change is additive against the version kept for the switch back (`schema_compat.py`); production gets
      read-only checks only, on the preview and after any promotion (ADR-0046 decision 6 changed: e2e and the
      verifier run only in the temporary environment); the charts are checked in every strategy by real Helm in CI
-     (`scripts/check-charts.py`, job `charts`), and a branch rule on `main` requires engine, web, golden-path and
-     charts to pass before merge (set by Saravana in GitHub: the session's proxy refuses branch-protection writes).
+     (`scripts/check-charts.py`, job `charts`), and the `Main` ruleset on `main` requires engine, auth, web, golden-path, images, e2e and charts to pass
+     before merge (`charts` added by Saravana 2026-11-02; the session's proxy refuses ruleset writes).
 - An **accepted / closed** state for a delivered change, so Outcomes can tell done from waiting.
 - **"Ready for" statement** (decided 2026-10-31): each delivery states its tier, **demo**, **pilot** or
   **production**, worked out by the engine (pure, tested) from the sealed evidence, plus what the next tier
