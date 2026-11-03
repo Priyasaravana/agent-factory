@@ -1,7 +1,9 @@
 """Release identity survives large Helm status responses and still fails closed."""
 
+import os
 import shlex
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,3 +36,34 @@ async def test_installed_status_is_compacted_before_executor_truncation(tmp_path
         assert (revision, digest, problem) == (7, "sha256:" + "a" * 64, "")
     else:
         assert revision is None and digest is None and problem
+
+
+@pytest.mark.parametrize("mode", ["large", "failed", "legacy"])
+async def test_colour_render_is_compacted_before_executor_truncation(tmp_path, mode):
+    from agent_factory.providers.helm import HelmProvider
+
+    helm = tmp_path / "helm"
+    labels = "app.kubernetes.io/color: blue\napp.kubernetes.io/color: green\n"
+    helm.write_text(
+        f"#!{sys.executable}\n" + f"print({labels!r} + '#' * 24000)\n"
+        if mode != "legacy"
+        else f"#!{sys.executable}\nprint('kind: Deployment')\n"
+    )
+    if mode == "failed":
+        with helm.open("a") as f:
+            f.write("import sys; sys.exit(2)\n")
+    helm.chmod(0o755)
+    executor = LocalExecutor()
+
+    async def cmd(command, timeout):
+        env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"}
+        return await executor.run(command, timeout=timeout, env=env)
+
+    ctx = SimpleNamespace(
+        release_name="app",
+        blueprint=SimpleNamespace(chart_path="deploy/chart"),
+        settings=SimpleNamespace(factory_mode="live"),
+        cmd=cmd,
+    )
+    provider = HelmProvider("test", {"ingress_domain": "localtest.me"})
+    assert await provider.renders_colors(ctx) is (mode == "large")
