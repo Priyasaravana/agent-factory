@@ -10,6 +10,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Decided 2026-11-02 (Saravana):** template 1.4.1 (shipped as nextjs-web **1.5.1**) comes before the blue/green
   live run, and that run is a new product of a different shape, so it also proves J1's repeatability bar.
   Iteration 4 on Kudos board includes a CVE fix if one is open when it starts.
+- **Live run 2026-11-03, Expense claims** (new product, nextjs-web 1.5.1, blue/green, decisions asked): held at
+  change risk on `src/lib/validation.ts:82`, `/^(\d{4})-(\d{2})-(\d{2})$/.exec(s)`, a date check: rule
+  `exf-dynamic-exec` matched `.exec(` on a regex. Approved as a false positive (break-glass after the cooling-off).
+  **In review:** `fix/risk-regex-exec` (#146): every `exec(` and `.exec(` still holds except right after a regex
+  literal with no flags (`/…/.exec(`; with flags it reads like division, `1/g.exec(x)`); a regex in a variable still waits for a person, since a name proves nothing and the
+  scan sees only added lines (Saravana's review: `cp.exec(userInput)`, `builtins.exec(source)`); `new Function(`,
+  `child_process` and the sync calls added; tests both ways in `tests/test_change_risk.py`.
 - **In review:** `feat/template-1.5.1`: phone-ready controls in every look (roadmap J1 "Done when"). The template's
   e2e was run in the cloud session (npm reached the registry; Playwright's browser download is refused, so the
   run used the image's `/usr/bin/google-chrome` through a local config, not committed). Note for checking it by
