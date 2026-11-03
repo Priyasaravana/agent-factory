@@ -217,11 +217,20 @@ class HelmProvider:
         nothing, so it is taken as yes there."""
         probe = {blue_green.BLUE: "probe/app:blue", blue_green.GREEN: "probe/app:green"}
         sets = blue_green.sets(blue_green.BLUE, probe, self.preview_host(ctx))
-        res = await ctx.cmd(
-            f"helm template {ctx.release_name} {ctx.blueprint.chart_path} "
-            + " ".join(f"--set {shlex.quote(x)}" for x in sets),
-            timeout=120,
+        # Inspect the complete render before the executor keeps only its output tail.
+        # Both labels may precede a large manifest (or comments), so a truncated render
+        # must never turn a colour-capable chart into an in-place release.
+        labels = tuple(f"{blue_green.COLOR_LABEL}: {c}" for c in blue_green.COLORS)
+        extract = (
+            "import subprocess, sys; "
+            "rendered = subprocess.check_output(sys.argv[1:], text=True); "
+            f"print('\\n'.join(label for label in {labels!r} "
+            "if label in rendered))"
         )
+        command = f"helm template {shlex.quote(ctx.release_name)} {shlex.quote(ctx.blueprint.chart_path)} " + " ".join(
+            f"--set {shlex.quote(x)}" for x in sets
+        )
+        res = await ctx.cmd(f"python3 -c {shlex.quote(extract)} {command}", timeout=120)
         if getattr(ctx.settings, "factory_mode", "live") != "live":
             return res.ok
         return res.ok and blue_green.renders_colors(res.output)

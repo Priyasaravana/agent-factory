@@ -4,6 +4,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-02, evening)
+- **2026-11-03, live-test blocker:** full Helm chart renders exceeded the executor's 6000-character tail,
+  hiding colour labels and falsely selecting the in-place compatibility fallback. Compact colour evidence
+  before executor truncation, preserving Helm failure and legacy-chart detection. The controlled drill
+  delivered in place, so rollback is **not proven**; repeat only after the fix is installed.
+
 - **Live-test blocker 2026-11-03:** Expense claims iteration 2 `096d8e827e4d` reached a healthy temporary ingress deployment, then held because large Helm status JSON loses its revision at the executor output-tail boundary. Branch `fix/helm-status-metadata` extracts only revision metadata before truncation; regression tests cover large output, failed Helm, malformed JSON and missing revision. Validation: 1,171 engine tests passed (10 skipped), 9 auth tests passed, lint/format clean, no new mypy errors, OpenAPI current; isolated tests use the committed default configuration rather than this install's ingress overrides. Not installed yet; run 1 first-delivery proof was skipped by Saravana due to pre-start workflow assignment limitation.
 - **Main** (`6ecd8ce` on GitHub): J2 slices 1–5 and ADR-0046 slices 1–4 merged (rollback #131; temporary
   validation environment and promotion of the tested image #132; strategy per product, blue/green, #134);
