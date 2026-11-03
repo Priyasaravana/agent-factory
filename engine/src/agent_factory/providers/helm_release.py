@@ -56,7 +56,15 @@ class HelmRelease:
     async def installed(self, image: str, color: str | None = None) -> tuple[int | None, str | None, str]:
         """After `helm upgrade --wait`: (revision, digest, problem). Both are needed to record the
         release; a deploy that can't tell them fails closed."""
-        status = await self.run(f"{self.helm} status {shlex.quote(self.name)} {self._ns()} -o json", 60)
+        # Helm includes the chart and rendered manifests in status JSON. Reduce it before
+        # the executor keeps only its output tail, or large charts lose their revision.
+        extract = (
+            "import json, subprocess, sys; "
+            "doc = json.loads(subprocess.check_output(sys.argv[1:], text=True)); "
+            "print(json.dumps({'version': doc.get('version')}))"
+        )
+        command = f"{self.helm} status {shlex.quote(self.name)} {self._ns()} -o json"
+        status = await self.run(f"python3 -c {shlex.quote(extract)} {command}", 60)
         revision = rollback.helm_revision(status.output) if status.ok else None
         if revision is None:
             return None, None, "Helm reported no revision for the release"
