@@ -14,7 +14,7 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   change risk on `src/lib/validation.ts:82`, `/^(\d{4})-(\d{2})-(\d{2})$/.exec(s)`, a date check: rule
   `exf-dynamic-exec` matched `.exec(` on a regex. Approved as a false positive (break-glass after the cooling-off).
   **In review:** `fix/risk-regex-exec` (#146): every `exec(` and `.exec(` still holds except right after a regex
-  literal (`/…/flags.exec(`); a regex in a variable still waits for a person, since a name proves nothing and the
+  literal with no flags (`/…/.exec(`; with flags it reads like division, `1/g.exec(x)`); a regex in a variable still waits for a person, since a name proves nothing and the
   scan sees only added lines (Saravana's review: `cp.exec(userInput)`, `builtins.exec(source)`); `new Function(`,
   `child_process` and the sync calls added; tests both ways in `tests/test_change_risk.py`.
 - **In review:** `feat/template-1.5.1`: phone-ready controls in every look (roadmap J1 "Done when"). The template's

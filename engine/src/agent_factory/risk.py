@@ -228,9 +228,10 @@ class LineRule:
         return fnmatch(path, self.files) or fnmatch(path.rsplit("/", 1)[-1], self.files)
 
 
-# `/…/flags.` just before a call: a regex literal's method (Python's `re` needs fixed-width
-# lookbehinds, so one per number of flags; JavaScript has eight: dgimsuyv).
-_NOT_AFTER_REGEX_LITERAL = "".join(rf"(?<!/[dgimsuyv]{{{n}}}\.)" for n in range(9))
+# `/.` just before a call: the method of a regex literal with no flags. `x / .exec(…)` isn't valid
+# JavaScript, so this can't be division. With flags it can: `/\w+/g.exec(s)` and
+# `1/g.exec(userInput)` read the same in one line (PR #146 review), so a literal with flags holds.
+_NOT_AFTER_REGEX_LITERAL = r"(?<!/\.)"
 
 
 LINE_RULES: tuple[LineRule, ...] = (
@@ -293,9 +294,9 @@ LINE_RULES: tuple[LineRule, ...] = (
         4,
         "runs dynamic code or a shell",
         # every `exec(` and `.exec(` (Node's `cp.exec`, Python's `builtins.exec`) except right after
-        # a regex literal, the one receiver that is certainly a RegExp (a date check held Expense
-        # claims, 2026-11-03; PR #146 review). A regex in a variable still waits for a person: a
-        # name can't prove what it holds, and the scan sees only added lines, not the imports.
+        # a regex literal with no flags, the one receiver that is certainly a RegExp (a date check
+        # held Expense claims, 2026-11-03; PR #146 review). A regex in a variable or with flags still
+        # waits for a person: neither can be told from a call that runs code, in one added line.
         r"(?<![\w$])eval\(|(?<![\w$])" + _NOT_AFTER_REGEX_LITERAL + r"exec\(|\bnew\s+Function\("
         r"|[\"'](node:)?child_process[\"']|\b(execSync|execFileSync|spawnSync)\(|pickle\.loads?\("
         r"|os\.system\(|subprocess\.\w+\([^)]*shell\s*=\s*True|yaml\.load\((?![^)]*SafeLoader)",

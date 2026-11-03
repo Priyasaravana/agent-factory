@@ -154,8 +154,8 @@ def _exec_rule(line: str, path: str = "src/lib/x.ts") -> bool:
     "line",
     [
         "const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);",  # Expense claims, 2026-11-03
-        "const words = /\\w+/gi.exec(text);",
-        "while ((match = /a|b/dgimsuyv.exec(text)) !== null) {",
+        "while ((match = /a|b/.exec(text)) !== null) {",
+        "const ok = /^[a-z]+$/.exec(name) !== null;",
         "const retrieval = evaluate(model);",
         "executor.execute(job)",
     ],
@@ -180,6 +180,10 @@ def test_a_regex_match_or_a_lookalike_name_is_not_dynamic_code(line: str) -> Non
         # a regex in a variable: a name proves nothing, so a person decides
         ("const m = DATE_RE.exec(value);", "src/lib/x.ts"),
         ("new RegExp(p).exec(s)", "src/lib/x.ts"),
+        # with flags a literal reads the same as division by a name (PR #146 review), so it holds
+        ("const n = 1/g.exec(userInput);", "src/lib/x.ts"),
+        ("const n = a/b/g.exec(cmd);", "src/lib/x.ts"),
+        ("const words = /\\w+/gi.exec(text);", "src/lib/x.ts"),
         ('execSync("rm -rf /tmp/x")', "src/lib/x.ts"),
         ("exec(source)", "app/x.py"),
         ("os.system(cmd)", "app/x.py"),
