@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
 /*
+ * Phones, in px so a compact look (smaller root font and spacing) can't shrink it: every control a
+ * person taps is at least 44 px there (`phone:min-h-[44px]`), in every look. e2e/tap-targets.spec.ts
+ * measures it at 390 px and fails the build if one is smaller.
+ */
+@custom-variant phone (@media (width < 640px));
+
+/*
  * Design tokens (ADR-0044 §4). Components use these through Tailwind (bg-background, text-primary,
  * rounded-lg, …), never raw colours, so the whole app follows the product's `look` decision
  * (docs/decisions.yaml → src/app/look.ts → <html data-look>) and the reader's light or dark mode.
