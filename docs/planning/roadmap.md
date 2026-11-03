@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-02 (ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-03 (live-test usability findings filed as a separate backlog task, [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -398,6 +398,12 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
+- **Live-test usability findings** (added 2026-11-03, a separate task from the four-run live campaign, which
+  hasn't started): 14 findings from the Expense claims delivery and campaign set-up, in
+  [plans/live-test-usability.md](plans/live-test-usability.md), with proposed slices. Three are High and block
+  a clean campaign set-up: a new product can't get a dedicated lane before its first change starts (UX-01), an
+  engine upgrade keeps an old published lane without Promote (UX-02), and the upgrade's CLI check can pass while
+  the server reports the sandbox failed (UX-03). Ordering, and UX-01/UX-02 during the freeze, are Saravana's call.
 - **Blue/green follow-ups** (added 2026-11-01, slice 4): a migration tool in the packs with expand/contract
   steps the schema guard understands (today it reads `create table` SQL and SQLAlchemy models); an upkeep change that brings an existing product's
   chart up to its pack's version (Kudos board and Book lending predate colours); a "switch back" button needs
