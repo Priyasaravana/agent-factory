@@ -228,6 +228,11 @@ class LineRule:
         return fnmatch(path, self.files) or fnmatch(path.rsplit("/", 1)[-1], self.files)
 
 
+# `/…/flags.` just before a call: a regex literal's method (Python's `re` needs fixed-width
+# lookbehinds, so one per number of flags; JavaScript has eight: dgimsuyv).
+_NOT_AFTER_REGEX_LITERAL = "".join(rf"(?<!/[dgimsuyv]{{{n}}}\.)" for n in range(9))
+
+
 LINE_RULES: tuple[LineRule, ...] = (
     # 1 · weakening security
     LineRule("sec-cors-wildcard", 1, "CORS opened to every origin", r"allow_origins\s*=\s*\[\s*[\"']\*[\"']"),
@@ -287,12 +292,13 @@ LINE_RULES: tuple[LineRule, ...] = (
         "exf-dynamic-exec",
         4,
         "runs dynamic code or a shell",
-        # `exec(` only as a call of its own: `.exec(` is a method (RegExp.prototype.exec matches a
-        # string; a date check held Expense claims, 2026-11-03), and Node's shell is caught by its
-        # module and its sync calls instead. `eval(` stays caught after a dot (`window.eval(`).
-        r"(?<![\w$])eval\(|(?<![\w$.])exec\(|\bnew\s+Function\(|[\"'](node:)?child_process[\"']"
-        r"|\b(execSync|execFileSync|spawnSync)\(|pickle\.loads?\(|os\.system\("
-        r"|subprocess\.\w+\([^)]*shell\s*=\s*True|yaml\.load\((?![^)]*SafeLoader)",
+        # every `exec(` and `.exec(` (Node's `cp.exec`, Python's `builtins.exec`) except right after
+        # a regex literal, the one receiver that is certainly a RegExp (a date check held Expense
+        # claims, 2026-11-03; PR #146 review). A regex in a variable still waits for a person: a
+        # name can't prove what it holds, and the scan sees only added lines, not the imports.
+        r"(?<![\w$])eval\(|(?<![\w$])" + _NOT_AFTER_REGEX_LITERAL + r"exec\(|\bnew\s+Function\("
+        r"|[\"'](node:)?child_process[\"']|\b(execSync|execFileSync|spawnSync)\(|pickle\.loads?\("
+        r"|os\.system\(|subprocess\.\w+\([^)]*shell\s*=\s*True|yaml\.load\((?![^)]*SafeLoader)",
     ),
     LineRule(
         "exf-hidden-route",

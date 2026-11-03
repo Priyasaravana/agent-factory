@@ -154,8 +154,8 @@ def _exec_rule(line: str, path: str = "src/lib/x.ts") -> bool:
     "line",
     [
         "const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);",  # Expense claims, 2026-11-03
-        "const m = DATE_RE.exec(value);",
-        "while ((match = pattern.exec(text)) !== null) {",
+        "const words = /\\w+/gi.exec(text);",
+        "while ((match = /a|b/dgimsuyv.exec(text)) !== null) {",
         "const retrieval = evaluate(model);",
         "executor.execute(job)",
     ],
@@ -173,6 +173,13 @@ def test_a_regex_match_or_a_lookalike_name_is_not_dynamic_code(line: str) -> Non
         ('import { exec } from "node:child_process";', "src/lib/x.ts"),
         ("const cp = require('child_process');", "src/lib/x.js"),
         ("exec(cmd, (err) => {});", "src/lib/x.ts"),
+        # PR #146 review: the import is in an unchanged line, so only the call is in the diff
+        ("cp.exec(userInput);", "src/lib/x.ts"),
+        ("require('child_process').exec(cmd)", "src/lib/x.js"),
+        ("builtins.exec(source)", "app/x.py"),
+        # a regex in a variable: a name proves nothing, so a person decides
+        ("const m = DATE_RE.exec(value);", "src/lib/x.ts"),
+        ("new RegExp(p).exec(s)", "src/lib/x.ts"),
         ('execSync("rm -rf /tmp/x")', "src/lib/x.ts"),
         ("exec(source)", "app/x.py"),
         ("os.system(cmd)", "app/x.py"),
