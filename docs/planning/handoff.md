@@ -58,6 +58,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     commits, or In place). `SchemaHold.tsx` on the change page; "Needs you" kind `approve_schema`. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
     sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); the `Main` ruleset on `main` requires
     engine, auth, web, golden-path, images, e2e and charts (Saravana adds `charts`; the session's proxy refuses ruleset writes).
+- **Filed 2026-11-03, separate task:** 14 usability findings from Expense claims and the campaign set-up
+  ([plans/live-test-usability.md](plans/live-test-usability.md); roadmap backlog). #146 (UX-10) and
+  `feat/template-1.5.1` (#136) are merged. The four-run campaign has not started.
 - **Next:** Saravana reviews and merges `feat/template-1.5.1`; reviews the Next iteration card's feel; then a live run
   on `local-ingress` with a **new** product of a different shape from Kudos board (a form- or table-heavy app), on
   nextjs-web 1.5.1, Design decisions set to ask, set to blue/green (existing products' charts predate colours): it
