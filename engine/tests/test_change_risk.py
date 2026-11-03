@@ -145,6 +145,44 @@ def test_each_category_is_found_and_docs_are_ignored() -> None:
     assert findings[0].severity == "hold" and findings[0].category == 1, "most serious first"
 
 
+def _exec_rule(line: str, path: str = "src/lib/x.ts") -> bool:
+    diff = f"diff --git a/{path} b/{path}\n@@ -1,0 +1,1 @@\n+{line}\n"
+    return "exf-dynamic-exec" in {f.rule for f in risk.check_diff(risk.parse_diff(diff))}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(s);",  # Expense claims, 2026-11-03
+        "const m = DATE_RE.exec(value);",
+        "while ((match = pattern.exec(text)) !== null) {",
+        "const retrieval = evaluate(model);",
+        "executor.execute(job)",
+    ],
+)
+def test_a_regex_match_or_a_lookalike_name_is_not_dynamic_code(line: str) -> None:
+    assert not _exec_rule(line)
+
+
+@pytest.mark.parametrize(
+    ("line", "path"),
+    [
+        ("const out = eval(userInput);", "src/lib/x.ts"),
+        ("window.eval(code)", "src/lib/x.ts"),
+        ("const f = new Function(body);", "src/lib/x.ts"),
+        ('import { exec } from "node:child_process";', "src/lib/x.ts"),
+        ("const cp = require('child_process');", "src/lib/x.js"),
+        ("exec(cmd, (err) => {});", "src/lib/x.ts"),
+        ('execSync("rm -rf /tmp/x")', "src/lib/x.ts"),
+        ("exec(source)", "app/x.py"),
+        ("os.system(cmd)", "app/x.py"),
+        ("subprocess.run(cmd, shell=True)", "app/x.py"),
+    ],
+)
+def test_dynamic_code_and_shells_are_still_found(line: str, path: str) -> None:
+    assert _exec_rule(line, path)
+
+
 def test_an_allowed_host_and_safe_hosts_are_not_findings() -> None:
     diff = 'diff --git a/app/x.py b/app/x.py\n@@ -1,0 +1,2 @@\n+URL = "https://api.partner.io/v1"\n+LOCAL = "http://localhost:8000"\n'
     assert [f.rule for f in risk.check_diff(risk.parse_diff(diff))] == ["exf-new-host"]

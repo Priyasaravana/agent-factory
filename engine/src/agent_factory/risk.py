@@ -287,7 +287,12 @@ LINE_RULES: tuple[LineRule, ...] = (
         "exf-dynamic-exec",
         4,
         "runs dynamic code or a shell",
-        r"\b(eval|exec)\(|pickle\.loads?\(|os\.system\(|subprocess\.\w+\([^)]*shell\s*=\s*True|yaml\.load\((?![^)]*SafeLoader)",
+        # `exec(` only as a call of its own: `.exec(` is a method (RegExp.prototype.exec matches a
+        # string; a date check held Expense claims, 2026-11-03), and Node's shell is caught by its
+        # module and its sync calls instead. `eval(` stays caught after a dot (`window.eval(`).
+        r"(?<![\w$])eval\(|(?<![\w$.])exec\(|\bnew\s+Function\(|[\"'](node:)?child_process[\"']"
+        r"|\b(execSync|execFileSync|spawnSync)\(|pickle\.loads?\(|os\.system\("
+        r"|subprocess\.\w+\([^)]*shell\s*=\s*True|yaml\.load\((?![^)]*SafeLoader)",
     ),
     LineRule(
         "exf-hidden-route",
