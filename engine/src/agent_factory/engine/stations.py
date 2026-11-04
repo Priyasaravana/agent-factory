@@ -2825,11 +2825,13 @@ def base_ref(ctx: StationContext) -> str:
 async def _changed_files(ctx: StationContext) -> list[str]:
     """Every file the change touched. It scopes the scans, the review and the pull request, so it is
     read whole (L-1: a tail would leave the cut-off files unscanned) and a listing git can't give
-    stops the station: an empty list would read as "nothing changed" and let findings through."""
-    res = await ctx.ws.git(f"diff --name-only {base_ref(ctx)}...HEAD", ctx.worktree)
+    stops the station: an empty list would read as "nothing changed" and let findings through.
+    NUL-separated and never stripped: git quotes and escapes a name like `café.py` or one with a tab
+    in its plain listing, and that spelling would not match a finding on the real path."""
+    res = await ctx.ws.git(f"diff --name-only -z {base_ref(ctx)}...HEAD", ctx.worktree)
     if not res.ok:
         raise RuntimeError(f"could not list the files the change touched: {res.output.strip()[-300:]}")
-    return res.lines()
+    return [name for name in res.whole().split("\0") if name]
 
 
 def _latest_assessment(ctx: StationContext) -> str:

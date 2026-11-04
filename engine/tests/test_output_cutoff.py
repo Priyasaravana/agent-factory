@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_factory import run_report
+from agent_factory import run_report, tools
 from agent_factory.engine import design_station, stations
 from agent_factory.executor import TAIL_CHARS, CommandResult, LocalExecutor, OutputCutOff, finished
 from agent_factory.models import ProductTarget
@@ -97,6 +97,67 @@ async def test_the_design_guard_undoes_every_file_past_the_tail(repo: Path):
 async def test_the_design_guard_stops_when_it_cannot_read_the_worktree(tmp_path: Path):
     with pytest.raises(RuntimeError, match="worktree's status"):
         await design_station._keep_to_design_docs(_ctx(tmp_path))  # not a git repo
+
+
+# ------------------- names git quotes in its plain listings (review of #151) --
+QUOTED = ["src/café.py", "src/tab\tname.py", 'src/"quoted".py']  # git prints each as "src/caf\303\251.py", …
+
+
+def _commit(repo: Path, message: str) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", message)
+
+
+async def test_a_blocking_finding_on_a_name_git_quotes_still_blocks(repo: Path):
+    for n in QUOTED:
+        (repo / n).parent.mkdir(parents=True, exist_ok=True)
+        (repo / n).write_text("eval(input())\n")
+    _commit(repo, "quoted names")
+    changed = await stations._changed_files(_ctx(repo))
+    assert sorted(changed) == sorted(QUOTED)
+    finding = tools.Finding("semgrep", "eval", "critical", "eval() on user input", file="src/café.py", line=1)
+    report = tools.judge(tools.TOOLS["semgrep"], [finding], "high", changed)
+    assert not report.passed and report.blocking == [finding]
+
+
+def test_porcelain_paths_keep_names_and_both_sides_of_a_rename():
+    raw = "?? src/tab\tname.ts\0 M src/café.py\0R  docs/new.md\0docs/old.md\0"
+    assert design_station.porcelain_paths(raw) == ["src/tab\tname.ts", "src/café.py", "docs/new.md", "docs/old.md"]
+    assert design_station.porcelain_paths("") == []
+
+
+async def test_the_design_guard_undoes_names_git_quotes_and_renames(repo: Path):
+    (repo / "src").mkdir()
+    (repo / "src/café.py").write_text("v1\n")
+    (repo / "src/old.py").write_text("old\n")
+    _commit(repo, "tracked")
+    (repo / "src/café.py").write_text("changed by the architect\n")
+    (repo / "src/tab\tname.ts").write_text("new\n")
+    _git(repo, "mv", "src/old.py", "src/new.py")  # a staged rename: "R  src/new.py\0src/old.py"
+    (repo / "docs").mkdir()
+    (repo / "docs/spec.md").write_text("kept\n")
+    undone = await design_station._keep_to_design_docs(_ctx(repo))
+    assert undone == sorted(["src/café.py", "src/tab\tname.ts", "src/new.py", "src/old.py"])
+    assert (repo / "src/café.py").read_text() == "v1\n" and (repo / "src/old.py").read_text() == "old\n"
+    assert not (repo / "src/tab\tname.ts").exists() and not (repo / "src/new.py").exists()
+    assert (repo / "docs/spec.md").read_text() == "kept\n"
+
+
+async def test_the_design_guard_stops_when_a_restore_fails(repo: Path):
+    (repo / "app.py").write_text("v1\n")
+    _commit(repo, "tracked")
+    (repo / "app.py").write_text("changed\n")
+    ctx = _ctx(repo)
+    real = ctx.ws.git
+
+    async def git(args: str, cwd: Path) -> CommandResult:
+        if " checkout HEAD -- " in f" {args}":
+            return CommandResult(f"git {args}", 1, "error: unable to write file app.py")
+        return await real(args, cwd)
+
+    ctx.ws.git = git
+    with pytest.raises(RuntimeError, match="could not restore 'app.py'"):
+        await design_station._keep_to_design_docs(ctx)
 
 
 # ------------------------------------------------ UX-13: failing tests first --

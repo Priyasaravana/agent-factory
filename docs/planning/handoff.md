@@ -4,12 +4,17 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-04)
-- **Merged 2026-11-04 (#150):** L-3, blue/green fails closed. Still open for Saravana: whether a hold whose
-  cause a person fixes elsewhere should resume without In place; today it needs In place or a cancel.
+- **Merged 2026-11-04 (#150):** L-3, blue/green fails closed. **Decided by Saravana 2026-11-04 (review of
+  #151):** an explicit Resume reruns the blue/green checks after a person fixes the cause elsewhere: pass,
+  carry on in blue/green; fail, keep the hold. Switching to In place stays a separate release decision.
+  Follow-up branch `fix/blue-green-resume`.
 - **In review, `fix/truncated-output` (2026-11-04):** item 2 of "Now", cut-off output as a class (UX-13,
   UX-16, L-1, L-2, #147/#148's call sites); detail in the roadmap. Two behaviour changes to look at in
   review: a scan, review or PR station whose changed-file listing fails now stops with an engine error
-  instead of scanning nothing, and the design guards do the same when `git status` fails. Checks: lint,
+  instead of scanning nothing, and the design guards do the same when `git status` fails (kept, Saravana
+  2026-11-04). Review fixes: changed files and worktree status are read NUL-separated (`-z`), so names git
+  quotes (`café.py`, a tab) match findings and are undone; renames undo both paths; a restore git refuses,
+  or a path still changed afterwards, stops the guard. Checks: lint,
   mypy, openapi, web, auth clean; engine 1,193 passed, 5 failed, the same five that fail on main in the
   cloud image (`test_checks.py` snyk, four in `test_tools.py`). **Next:** item 3, waiting and budgets minimum.
 - **Live campaign closed 2026-11-04 01:42** ($21.05 of $25; main `cd20e55`). Proved: in-place → blue/green migration
