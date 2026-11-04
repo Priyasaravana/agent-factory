@@ -1,9 +1,15 @@
-# Agent Factory: handoff (updated 2026-11-02, evening)
+# Agent Factory: handoff (updated 2026-11-04)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-02, evening)
+## Current state (2026-11-04)
+- **Live campaign closed 2026-11-04 01:42** ($21.05 of $25; main `cd20e55`). Proved: in-place → blue/green migration
+  (Expense iteration 2), one product blue/green and one in place (Kudos iteration 4), temporary validation and
+  promotion of the tested image, rollback of an idle-colour failure before the switch (`e56fb20c67ad`). Not proved:
+  J1's fresh-product first delivery (skipped, UX-01), recovery after the switch, a CVE fix from the card.
+  Results and the assessment: [plans/live-test-usability.md](plans/live-test-usability.md). Left open: held trial
+  `e56fb20c67ad`; Expense's drill fault cleaned locally (`4f31bed`), published at the next Deliver.
 - **2026-11-03, live-test blocker:** full Helm chart renders exceeded the executor's 6000-character tail,
   hiding colour labels and falsely selecting the in-place compatibility fallback. Compact colour evidence
   before executor truncation, preserving Helm failure and legacy-chart detection. The controlled drill
@@ -58,9 +64,6 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     commits, or In place). `SchemaHold.tsx` on the change page; "Needs you" kind `approve_schema`. `_read_only_checks` replaces e2e at promote everywhere (liveness, readiness, `/` for web apps; no
     sign-in). `scripts/check-charts.py` + CI job `charts` (real Helm, every strategy); the `Main` ruleset on `main` requires
     engine, auth, web, golden-path, images, e2e and charts (Saravana adds `charts`; the session's proxy refuses ruleset writes).
-- **Filed 2026-11-03, separate task:** 14 usability findings from Expense claims and the campaign set-up
-  ([plans/live-test-usability.md](plans/live-test-usability.md); roadmap backlog). #146 (UX-10) and
-  `feat/template-1.5.1` (#136) are merged. The four-run campaign has not started.
 - **Next:** Saravana reviews and merges `feat/template-1.5.1`; reviews the Next iteration card's feel; then a live run
   on `local-ingress` with a **new** product of a different shape from Kudos board (a form- or table-heavy app), on
   nextjs-web 1.5.1, Design decisions set to ask, set to blue/green (existing products' charts predate colours): it
