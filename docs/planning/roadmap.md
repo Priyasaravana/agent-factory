@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-03 (live-test usability findings filed as a separate backlog task, [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-04 (live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -404,6 +404,10 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
   a clean campaign set-up: a new product can't get a dedicated lane before its first change starts (UX-01), an
   engine upgrade keeps an old published lane without Promote (UX-02), and the upgrade's CLI check can pass while
   the server reports the sandbox failed (UX-03). Ordering, and UX-01/UX-02 during the freeze, are Saravana's call.
+  **Updated 2026-11-04** after the campaign: 22 findings plus 5 latent ones from the code. The biggest class is
+  decisions made on truncated command output (UX-17, UX-20 fixed in #147, #148; still live in the team-repo
+  check scope and the design guard). Before another blue/green run: promote must fail closed when production
+  already runs two colours (L-3).
 - **Blue/green follow-ups** (added 2026-11-01, slice 4): a migration tool in the packs with expand/contract
   steps the schema guard understands (today it reads `create table` SQL and SQLAlchemy models); an upkeep change that brings an existing product's
   chart up to its pack's version (Kudos board and Book lending predate colours); a "switch back" button needs
