@@ -233,7 +233,7 @@ class HelmProvider:
         res = await ctx.cmd(f"python3 -c {shlex.quote(extract)} {command}", timeout=120)
         if getattr(ctx.settings, "factory_mode", "live") != "live":
             return res.ok
-        return res.ok and blue_green.renders_colors(res.output)
+        return res.ok and blue_green.renders_colors(res.whole())
 
     async def _upgrade(
         self, ctx: StationContext, values: list[str], image: str, probe_host: str, color: str | None
@@ -258,7 +258,7 @@ class HelmProvider:
             timeout=120,
         )
         live = getattr(ctx.settings, "factory_mode", "live") == "live"  # dry-run renders nothing
-        if not render.ok or (live and "kind: Ingress" not in render.output):
+        if not render.ok or (live and "kind: Ingress" not in render.whole()):
             return StepResult(
                 False,
                 "deployment failed: the chart has no Ingress",
@@ -365,7 +365,7 @@ class HelmProvider:
             env=kenv,
             record=False,
         )
-        return secret_data(res.output) if res.ok else None
+        return secret_data(res.whole()) if res.ok else None
 
     async def diagnostics(self, ctx: StationContext) -> str:
         env = self._env(ctx, "diagnostics")

@@ -21,11 +21,12 @@ import os
 import shlex
 import shutil
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_factory.config import SandboxConfig
-from agent_factory.executor import CommandResult, Executor, LocalExecutor
+from agent_factory.executor import CommandResult, Executor, LocalExecutor, OutputCutOff
 from agent_factory.providers.base import Readiness
 from agent_factory.sandbox import egress, toolchain
 from agent_factory.sandbox.spec import (
@@ -226,7 +227,7 @@ class SandboxManager:
         net = self.cfg.network
         if (await self._sh(f"docker network inspect {net} >/dev/null 2>&1")).ok:
             internal = await self._sh(f"docker network inspect -f '{{{{.Internal}}}}' {net}")
-            if internal.output.strip().endswith("true"):
+            if internal.whole().strip().endswith("true"):
                 return None
             return f"network {net} exists but is not --internal; remove it (docker network rm {net})"
         res = await self._sh(f"docker network create --internal --label {LABEL}=network {net}")
@@ -238,7 +239,7 @@ class SandboxManager:
         cur = await self._sh(
             f"docker inspect -f '{{{{index .Config.Labels \"af.egress\"}}}} {{{{.State.Running}}}}' {name}"
         )
-        if cur.ok and cur.output.strip().split()[-2:] == [want, "true"]:
+        if cur.ok and cur.whole().strip().split()[-2:] == [want, "true"]:
             return None
         await self._sh(f"docker rm -f {name} >/dev/null 2>&1")
         rules = [*self.cfg.egress, *(r for r in extra if r not in self.cfg.egress)]
@@ -258,7 +259,7 @@ class SandboxManager:
             return f"could not attach egress proxy to {self.cfg.network}: {res.output[-500:]}"
         for _ in range(40):  # ready once it logged "listening" (a fresh start takes a moment)
             logs = await self._sh(f"docker logs {name} 2>&1 | head -5")
-            if '"listening"' in logs.output:
+            if '"listening"' in logs.whole():
                 return None
             await asyncio.sleep(0.25)
         return f"egress proxy did not start listening:\n{logs.output[-800:]}"
@@ -332,7 +333,9 @@ class SandboxManager:
         )
         res = await self.ex.run(shlex.join(spec.argv(["python3", "-c", script])), timeout=120)
         try:
-            return json.loads(res.output.strip().splitlines()[-1])
+            return json.loads(res.whole().strip().splitlines()[-1])
+        except OutputCutOff:
+            return [{"check": "probe ran", "ok": False, "detail": f"its report was cut off: {res.output[-1500:]}"}]
         except (ValueError, IndexError):
             return [{"check": "probe ran", "ok": False, "detail": res.output[-1500:]}]
 
@@ -380,4 +383,4 @@ class SandboxExecutor:
         res = await self.mgr.ex.run(shlex.join(argv), timeout=timeout, env=secret or None)
         if res.timed_out:
             await self.mgr.remove(name)
-        return CommandResult(command, res.returncode, res.output, res.timed_out)
+        return replace(res, command=command)  # the tail and the whole, under the command that was asked

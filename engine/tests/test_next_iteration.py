@@ -164,3 +164,25 @@ def test_the_engine_picks_the_change_kind():
     assert ledger.pick_kind([cve, feature]) == "feature"  # a feature carries the fixes
     assert ledger.pick_kind([cve, bug]) == "bug"
     assert ledger.pick_kind([]) == "feature"  # free text only asks for new behaviour
+
+
+def test_a_ticked_suggestion_reaches_intake_whole():
+    """UX-16: the CSV export picked on the card reached intake cut off mid-sentence ("with dat")."""
+    reqs = [f"R{n}: the CSV export includes column {n} with data from every claim in the period" for n in range(10)]
+    detail = "Export the claims list as CSV so finance can reconcile it in their own tools. " * 8
+    items: list[WorkItem] = []
+    _fold(items, [_suggestion("CSV export", detail=detail.strip(), requirements=reqs)])
+    text = ledger.request_text("Next iteration", items)
+    assert detail.strip() in text.replace("\n  ", "\n")
+    for r in reqs:
+        assert r in text
+
+
+def test_a_suggestion_too_long_to_carry_goes_back_rather_than_being_cut():
+    eleven = [f"R{n}: something" for n in range(11)]
+    _, errors = ledger.parse_suggestions([_suggestion("CSV export", requirements=eleven)])
+    assert errors == ["suggestion 1 (CSV export): at most 10 requirements: split it into two suggestions"]
+    _, errors = ledger.parse_suggestions([_suggestion("CSV export", detail="d" * 1001)])
+    assert errors == ["suggestion 1 (CSV export): say what it does in at most 1000 characters"]
+    _, errors = ledger.parse_suggestions([_suggestion("CSV export", requirements=["R1: " + "x" * 300])])
+    assert errors == ["suggestion 1 (CSV export): each requirement in at most 300 characters"]

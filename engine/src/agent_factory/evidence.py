@@ -189,7 +189,7 @@ async def seal(mgr: Any, change: Any, product: Any) -> str:
     repo = mgr.ws.product_dir(product.slug)
     if repo.is_dir():
         res = await mgr.ws.git(f"rev-parse --verify -q run/{change.id}", repo)
-        commit = res.output.strip().splitlines()[-1] if res.ok and res.output.strip() else None
+        commit = next(reversed(res.lines()), None) if res.ok else None
     images = mgr.store.events_with_key([change.id], "image")
     facts = {
         "run": {
