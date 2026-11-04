@@ -266,7 +266,7 @@ def _assert_kept(f, ex: FakeExecutor, change_id: str, healthy: Release, upgrades
     assert not [c for c in ex.calls if " rollback " in c], "nothing to roll back: nothing was touched"
     assert not any(", promoting in place: " in m for m in _messages(f, change_id)), "never says it did"
     [action] = pending_actions(f.store.get_product(held.product_id), held, NOW)
-    assert action.kind == "approve_schema" and action.title == "Release this change in place"
+    assert action.kind == "approve_schema" and action.title == "Fix the cause and resume, or release in place"
 
 
 async def test_a_fallback_never_removes_the_kept_colour(make_factory, cfg):
@@ -281,8 +281,10 @@ async def test_a_fallback_never_removes_the_kept_colour(make_factory, cfg):
     third = f.manager.feedback(product.id, "Export notes as CSV.")
     assert await wait_run(f, third.id) == ChangeStatus.held
     _assert_kept(f, ex, third.id, healthy, upgrades, "predates blue/green")
-    with pytest.raises(Exception, match="not yet"):
-        f.manager.resume(third.id)  # still blue/green: resuming would only hold again
+    ex.fail_on.append("blueGreen.blue.repository=probe/app")  # the cause is still there
+    f.manager.resume(third.id)  # decided 2026-11-04: Resume runs the blue/green checks again
+    assert await wait_run(f, third.id) == ChangeStatus.held
+    _assert_kept(f, ex, third.id, healthy, upgrades, "predates blue/green")
 
     product = f.store.get_product(product.id)
     product.deploy_strategy = "in-place"  # a person releases it in place, knowing blue goes
@@ -689,3 +691,27 @@ async def test_a_person_approves_through_the_api(make_factory, cfg):
         r = await c.post(url, json={"note": "adds a table nothing old reads"})
         assert r.status_code == 200 and r.json()["schema_approval"]["note"] == "adds a table nothing old reads"
     await ctx.__aexit__(None, None, None)
+
+
+async def test_a_cause_fixed_elsewhere_resumes_blue_green(make_factory, cfg):
+    """Decided by Saravana 2026-11-04 (review of #151): after a person fixes the cause outside the
+    factory, Resume runs the blue/green checks again and, when they pass, carries on blue/green: the
+    tested image goes to the idle colour, users switch, the colour they left is kept. No In place."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, healthy = await _two_colours(f, ex)
+    upgrades = len(_prod_upgrades(ex))
+    ex.fail_on.append("blueGreen.blue.repository=probe/app")  # the render check misses the colours
+    third = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, third.id) == ChangeStatus.held
+    _assert_kept(f, ex, third.id, healthy, upgrades, "predates blue/green")
+
+    f.manager.resume(third.id)  # fixed elsewhere: the render now shows both colours
+    assert await wait_run(f, third.id) == ChangeStatus.awaiting_feedback, _messages(f, third.id)[-5:]
+    assert "strategy=blue-green" in _prod_upgrades(ex)[-1]
+    product = f.store.get_product(product.id)
+    assert product.deploy_strategy != "in-place"
+    assert product.release.change_id == third.id and product.release.color == "blue"
+    values = ex.helm.releases["bookmarks-service"][-1]["values"]
+    assert FakeHelm.images(values)["green"] == healthy.image, "the colour users left is kept"

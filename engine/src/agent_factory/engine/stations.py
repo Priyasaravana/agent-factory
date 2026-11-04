@@ -1589,7 +1589,9 @@ async def _keep_colors(ctx: StationContext, why: str) -> StationResult | None:
     that promotes blue/green (by its own or its pack's choice) must not run two colours there; an
     in-place release would remove the kept one, the rollback target. Holds for a person instead, with
     `why` the change would have gone in place; only setting the product to In place under Releases
-    releases it in place. Production is never touched here. None: nothing to keep."""
+    releases it in place. A Resume without that runs this check again (decided 2026-11-04): a cause fixed
+    elsewhere carries on blue/green, otherwise it holds again. Production is never touched here. None:
+    nothing to keep."""
     pack = ctx.blueprint.pack_binding
     strategy, by = blue_green.chosen(ctx.product.deploy_strategy, pack.deploy_strategy if pack else None)
     read = getattr(ctx.providers.deploy, "layout", None)
@@ -1615,7 +1617,9 @@ async def _keep_colors(ctx: StationContext, why: str) -> StationResult | None:
         StationOutcome.held,
         refused,
         required=RequiredAction(
-            kind="colors_in_place", text="Set this product to In place under Releases, then resume."
+            kind="colors_in_place",
+            text="Fix the cause and resume (the blue/green checks run again), "
+            "or set this product to In place under Releases, then resume.",
         ),
     )
 

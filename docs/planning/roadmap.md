@@ -54,6 +54,9 @@ The remaining usability findings wait in the backlog until J2 is done.
    change in place" under "Needs you"), production untouched; resume only once the product is set to In place
    under Releases. A layout that can't be read holds as `infra`. Tests in `tests/test_blue_green.py`, including
    UX-20's case (the render check missing the colours).
+   🔄 **Follow-up in review, `fix/blue-green-resume` (decided by Saravana 2026-11-04, review of #151):** a
+   Resume without In place runs the blue/green checks again, so a cause a person fixed elsewhere carries
+   on blue/green; if they still fail it holds again, production untouched. In place stays a separate choice.
 2. **Cut-off output as a class (~1.5 days):** the executor keeps the full output in a file and marks a result
    `truncated`; code that decides on output reads structured output or refuses a truncated result, and a test
    finds decision code reading `.output`. Covers UX-13 (failing assertion kept apart from server logs), L-1
