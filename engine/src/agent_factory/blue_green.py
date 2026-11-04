@@ -169,7 +169,8 @@ def in_place_refused(current: Layout | None, why: str) -> str | None:
     over a production running blue/green it would remove green, which is either the colour users are
     on or the one kept for the switch back (the rollback target). A fallback reason (`why`: the change
     was validated in place, the chart seems to render no colours, …) is never enough to do that;
-    only a person setting the product to In place under Releases is. Pure."""
+    only a person setting the product to In place under Releases is. A Resume after fixing the cause
+    elsewhere runs the checks again (decided 2026-11-04). Pure."""
     if current is None or current.strategy != BLUE_GREEN:
         return None
     if current.live == BLUE and set(current.images) <= {BLUE}:
@@ -179,8 +180,9 @@ def in_place_refused(current: Layout | None, why: str) -> str | None:
     removed = "the colour users are on" if current.live != BLUE else f"{kept}, the rollback target"
     return (
         f"production runs blue/green ({running}), and promoting in place would remove {removed}: {why}. "
-        "Nothing was changed in production. Set this product to In place under Releases to release in place "
-        "anyway (the kept colour is removed), then resume; or cancel."
+        "Nothing was changed in production. Fix the cause and resume: the blue/green checks run again, and it "
+        "carries on blue/green if they pass or holds again if not. Or set this product to In place under Releases "
+        "to release in place (the kept colour is removed), then resume; or cancel."
     )
 
 

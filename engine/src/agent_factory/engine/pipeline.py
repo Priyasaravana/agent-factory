@@ -1401,7 +1401,12 @@ class ChangeManager:
                 and (it.accepted_until is None or it.accepted_until > now)
                 for i in need.items
             )
-        if need.kind in ("approve_schema", "schema_in_place", "colors_in_place"):  # ADR-0046 slice 4, L-3
+        if need.kind == "colors_in_place":
+            # decided by Saravana 2026-11-04 (review of #151): a person may fix the cause elsewhere (the idle
+            # colour's address, the chart); Resume runs the blue/green checks again: they pass, it carries on
+            # blue/green; they fail, it holds again, production untouched. In place stays a separate choice.
+            return True
+        if need.kind in ("approve_schema", "schema_in_place"):  # ADR-0046 slice 4
             if not self._blue_green(change):
                 return True  # set to in place: promotion no longer keeps the old version running
             ok = change.schema_approval
