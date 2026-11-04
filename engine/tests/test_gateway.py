@@ -167,6 +167,14 @@ async def test_the_change_budget_stops_new_calls(monkeypatch):
     assert (await gw.open(other)).key  # another change is unaffected
 
 
+async def test_the_change_budget_counts_what_the_change_recorded_before_a_restart(monkeypatch):
+    # L-5: the gateway's own tally is in memory; a new engine starts it at nothing, the change doesn't
+    gw = gateway(monkeypatch, FakeLiteLLM(spend=0.0), change_budget_usd=1.0)
+    with pytest.raises(GatewayRefused, match=r"\$1\.20 of \$1\.00"):
+        await gw.open(CallScope("c-1", "implement", "developer", "sonnet", spent_usd=1.2))
+    assert (await gw.open(CallScope("c-1", "implement", "developer", "sonnet", spent_usd=0.5))).key
+
+
 async def test_no_key_means_the_call_is_refused_not_run_direct(monkeypatch):
     with pytest.raises(GatewayRefused):
         await gateway(monkeypatch, FakeLiteLLM(generate_status=500)).open(SCOPE)

@@ -2158,6 +2158,7 @@ export interface components {
             switch_to?: string[];
             /** Resume At */
             resume_at?: string | null;
+            pause?: components["schemas"]["Pause"] | null;
             /** Summary */
             summary?: string | null;
             /**
@@ -2165,6 +2166,11 @@ export interface components {
              * @default 0
              */
             cost_usd: number;
+            /**
+             * Gateway Spend Usd
+             * @default 0
+             */
+            gateway_spend_usd: number;
             /** Spec Approved By */
             spec_approved_by?: string | null;
             risk_hold?: components["schemas"]["RiskHold"] | null;
@@ -3428,6 +3434,32 @@ export interface components {
              * @default
              */
             hint: string;
+        };
+        /**
+         * Pause
+         * @description Why a paused change waits and until when (UX-18): a spent subscription window (`quota`, its
+         *     reset from the provider) or a provider throttle (`throttle`, an estimate). `known` says which.
+         */
+        Pause: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "quota" | "throttle";
+            /**
+             * Resume At
+             * Format: date-time
+             */
+            resume_at: string;
+            /** Known */
+            known: boolean;
+            /**
+             * Throttles
+             * @default 0
+             */
+            throttles: number;
+            /** Window */
+            window?: string | null;
         };
         /**
          * PendingAction

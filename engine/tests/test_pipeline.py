@@ -3,6 +3,8 @@ real git). These encode the factory's contract: routes, loops, holds, gates."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from conftest import PRODUCT, wait_run
 
 from agent_factory.agents import FakeAgentRunner
@@ -110,6 +112,20 @@ async def test_usage_limit_pauses_instead_of_failing(make_factory):
     assert await wait_run(f, change.id) == ChangeStatus.paused_limits
     r = f.store.get_change(change.id)
     assert r.resume_at is not None and r.attempts.get("requirements", 0) == 0
+    # no window named: a throttle, and its time is the factory's estimate, said so (UX-18)
+    assert r.pause.kind == "throttle" and not r.pause.known and r.pause.throttles == 1
+    assert "rate limiting (not the usage quota)" in r.summary and "(estimate" in r.summary
+
+
+async def test_a_spent_quota_pauses_until_the_providers_reset(make_factory):
+    resets = int((datetime.now(UTC) + timedelta(hours=2)).timestamp())
+    agents = FakeAgentRunner(rate_limit_once=True, rate_limit_type="five_hour", rate_limit_resets_at=resets)
+    f = make_factory(agents=agents)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    r = f.store.get_change(change.id)
+    assert r.pause.kind == "quota" and r.pause.known and r.pause.window == "five-hour"
+    assert int(r.resume_at.timestamp()) == resets and "(from the provider)" in r.summary
 
 
 async def test_feedback_starts_next_iteration(make_factory):

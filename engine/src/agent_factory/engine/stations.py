@@ -46,6 +46,7 @@ from agent_factory import (
     traceability,
     ui_review,
     validation,
+    waiting,
 )
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
@@ -94,6 +95,7 @@ class StationResult:
     questions: list[str] = field(default_factory=list)
     switch_to: list[str] = field(default_factory=list)  # needs_input: stacks it may switch to (ADR-0041)
     resets_at: int | None = None
+    limit: waiting.Limit | None = None  # paused_limits: a spent quota or a throttle (UX-18)
     approval_digest: str | None = None  # needs_approval: what an approval must cover (ADR-0027)
     approval_findings: int = 0  # needs_approval: how many findings wait
     required: RequiredAction | None = None  # held: what a person must do before resuming (ADR-0043 §4)
@@ -376,6 +378,24 @@ class StationContext:
         then = "resume to try again" if f.retryable else "fix the factory's setup, then resume"
         self.stop = Stop(f.cls, f"infrastructure: {f.cause}{tried}; {then}", evidence, f.rule)
 
+    def _stop_budget(self, f: Failure, res: AgentResult, role: str) -> None:
+        """A model budget stopped the call: hold, budget first (UX-15). Never raised or retried."""
+        g = self.cfg.model_gateway
+        per_call = f.rule == "call_budget"
+        gateway = g.provider != "direct"
+        use = waiting.BudgetUse(
+            scope="call" if per_call else "change",
+            cap_usd=g.call_budget_usd if per_call else (g.change_budget_usd or 0.0),
+            call_cli_usd=res.cost_usd,
+            call_gateway_usd=_gateway_usd(res) if gateway else None,
+            change_cli_usd=self.change.cost_usd,
+            change_gateway_usd=self.change.gateway_spend_usd if gateway else None,
+            role=role,
+        )
+        text = waiting.budget_hold(use)
+        evidence = "\n".join(x for x in (text, res.error or "", res.text[-1500:]) if x)
+        self.stop = Stop(FailureClass.decision, text.split("\n", 1)[0], evidence, f.rule)
+
     async def _wait_to_retry(self, f: Failure, attempt: int, what: str) -> bool:
         """Record the retry and wait for it. False when the wait would run past the time budget."""
         b = self.cfg.budgets
@@ -459,6 +479,7 @@ class StationContext:
             subagent_model=self.cfg.models.fast,
             egress=list(self.pack_egress),
             secret_env=dict(secret_env or {}),
+            spent_usd=max(self.change.cost_usd, self.change.gateway_spend_usd),
         )
         attempt = 0
         while True:
@@ -473,10 +494,14 @@ class StationContext:
             )
             res = await self._watched(req, call.wrap(sink))
             self.change.cost_usd += res.cost_usd
+            self.change.gateway_spend_usd += _gateway_usd(res) or 0.0
             await call.finish(res)
             if res.ok or res.rate_limited or self.stop is not None:
                 return res
             f = classify_agent(res.error, res.text)
+            if f.rule in ("call_budget", "model_budget"):
+                self._stop_budget(f, res, spec.id)
+                return res
             if f.cls == FailureClass.work:
                 return res
             if f.cls == FailureClass.decision or not f.retryable or attempt >= self.cfg.budgets.infra_retries:
@@ -630,9 +655,17 @@ Station = Callable[[StationContext], Awaitable[StationResult]]
 
 
 def _limit_result(res: AgentResult) -> StationResult | None:
-    if res.rate_limited:
-        return StationResult(StationOutcome.paused_limits, "usage limit reached", resets_at=res.limit_resets_at)
-    return None
+    if not res.rate_limited:
+        return None
+    limit = waiting.classify_limit(res.limit_type, "\n".join((res.error or "", res.text[-2000:])))
+    summary = "usage limit reached" if limit.kind == "quota" else "the model provider is rate limiting"
+    return StationResult(StationOutcome.paused_limits, summary, resets_at=res.limit_resets_at, limit=limit)
+
+
+def _gateway_usd(res: AgentResult) -> float | None:
+    """The gateway's price of the call (its meter), or None when the call went direct."""
+    v = (res.gateway or {}).get("spend_usd")
+    return float(v) if isinstance(v, int | float) else None
 
 
 def _read(p: Path) -> str:

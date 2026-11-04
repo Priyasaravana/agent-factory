@@ -230,8 +230,12 @@ class Change(BaseModel):
     # the product may switch to one instead of answering (ADR-0041 §2)
     switch_to: list[str] = Field(default_factory=list)
     resume_at: datetime | None = None
+    pause: Pause | None = None  # paused_limits: what it waits on and whether the time is known (UX-18)
     summary: str | None = None
+    # model spend on two meters (L-5): the agent CLI's own price of each call (Anthropic list prices),
+    # and, with a model gateway (ADR-0036), the gateway's, which its per-call cap is enforced on
     cost_usd: float = 0.0
+    gateway_spend_usd: float = 0.0
     spec_approved_by: str | None = None  # spec review gate
     # change risk (ADR-0027): the findings now waiting, and every approval given
     risk_hold: RiskHold | None = None
@@ -361,6 +365,17 @@ class RequiredAction(BaseModel):
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
     commits: list[str] = Field(default_factory=list)  # approve_schema: [users' commit, tested commit]
     unsure: list[str] = Field(default_factory=list)  # approve_schema: what the check couldn't read
+
+
+class Pause(BaseModel):
+    """Why a paused change waits and until when (UX-18): a spent subscription window (`quota`, its
+    reset from the provider) or a provider throttle (`throttle`, an estimate). `known` says which."""
+
+    kind: Literal["quota", "throttle"]
+    resume_at: datetime
+    known: bool  # True: the provider stated the time; False: the factory's estimate
+    throttles: int = 0  # throttle pauses in a row, for the backoff (reset when a station passes)
+    window: str | None = None  # quota: which window ("five-hour", "weekly")
 
 
 class SchemaApproval(BaseModel):

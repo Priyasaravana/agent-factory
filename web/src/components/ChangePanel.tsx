@@ -146,7 +146,19 @@ export default function ChangePanel({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
-            <CircleDollarSign className="size-3.5" />${r.cost_usd.toFixed(2)}
+            <span
+              className="inline-flex items-center gap-1"
+              title={
+                r.gateway_spend_usd
+                  ? "Model spend on two meters: the agent CLI's own price, and the model gateway's (its per-call cap counts on the gateway's)"
+                  : "Model spend, as the agent CLI prices it"
+              }
+            >
+              <CircleDollarSign className="size-3.5" />${r.cost_usd.toFixed(2)}
+              {r.gateway_spend_usd ? (
+                <span>· gateway ${r.gateway_spend_usd.toFixed(2)}</span>
+              ) : null}
+            </span>
             <RefreshCw className="ml-2 size-3.5" />
             {r.loops} {r.loops === 1 ? "loop" : "loops"}
           </span>

@@ -42,6 +42,12 @@ own work with evidence, which *is* autonomy working. It shows up as effort
 | Metric | Definition |
 |---|---|
 | **Cost per delivered change** | All model spend of iterations started in the window, **failed ones included**, divided by deliveries. Failed attempts are part of what a delivered change really costs. |
+
+Model spend is the agent CLI's own price of each call (`Change.cost_usd`, Anthropic list prices). With a
+model gateway (ADR-0036) the gateway prices the same calls too (`Change.gateway_spend_usd`); its per-call cap
+is enforced on that meter, and the change budget on the higher of the two. Outcomes use the CLI's meter;
+when the two disagree (2× and $0.25 apart) the agent call's event says so and keeps the tokens per model,
+so the gap can be traced (live-test finding L-5).
 | **Fix loops per delivery** | Average repair loops of delivered iterations. |
 | **Infra retries** (effort by station) | Infrastructure failures retried in place in the window, per station, with the seconds spent waiting before them (ADR-0043). Commands count as well as agent calls. Like fix loops, they're effort, never a person's touch: autonomy is unchanged. |
 

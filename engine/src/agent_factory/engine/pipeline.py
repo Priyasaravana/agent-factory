@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import failures, ledger, rollback, validation
+from agent_factory import failures, ledger, rollback, validation, waiting
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
@@ -39,6 +39,7 @@ from agent_factory.models import (
     CreateProductInput,
     EventKind,
     OnboardRepoInput,
+    Pause,
     Product,
     ProductTarget,
     RiskApproval,
@@ -906,7 +907,15 @@ class ChangeManager:
             if current and current.status == ChangeStatus.paused_limits:
                 current.status = ChangeStatus.queued
                 self.store.save_change(current)
-                self.store.add_event(change.id, EventKind.status, "usage window reset: resuming")
+                p = current.pause
+                why = (
+                    "retrying after the provider's rate limiting"
+                    if p and p.kind == "throttle"
+                    else "usage window reset"
+                    if p is None or p.known
+                    else "usage limit: retrying at the estimated time"
+                )
+                self.store.add_event(change.id, EventKind.status, f"{why}: resuming {current.current_station or ''}")
                 self._schedule(change.id)
 
         asyncio.create_task(wake())
@@ -930,8 +939,11 @@ class ChangeManager:
                     # however the change stopped, an engine error included, production must not be
                     # left on its unaccepted release (ADR-0046)
                     await self._settle_safely(change, product)
-                # and its temporary environment goes, whatever the outcome (ADR-0046 slice 2)
-                await self.remove_validation(change, product)
+                # and its temporary environment goes, whatever the outcome (ADR-0046 slice 2), except
+                # for a pause: the change resumes the paused station against it (UX-18). Production is
+                # settled above all the same; a restart's sweep still removes a paused one.
+                if change.status != ChangeStatus.paused_limits:
+                    await self.remove_validation(change, product)
             except asyncio.CancelledError:
                 cancelled = True  # cancel() already persisted the cancelled status
                 raise
@@ -1151,12 +1163,15 @@ class ChangeManager:
                 # its temporary environment was removed when the change stopped: never test production
                 # instead; deploy a fresh one first (ADR-0046 slice 2)
                 change.current_station = again
+                # deploy passed before; doing it again because the environment was removed when the
+                # change stopped (a pause, a hold, a restart) is not one of its attempts (UX-19)
+                change.attempts[again] = max(0, change.attempts.get(again, 0) - 1)
                 self.store.save_change(change)
                 self.store.add_event(
                     change.id,
                     EventKind.decision,
                     f"the temporary environment was removed when the change stopped: {again} deploys a new one "
-                    f"before {sid}",
+                    f"before {sid} (not counted as a {again} attempt)",
                     station=sid,
                 )
                 continue
@@ -1220,6 +1235,7 @@ class ChangeManager:
                     return self._hold(change, sid, unrecorded)
 
             if result.outcome == StationOutcome.passed:
+                change.pause = None  # the throttle backoff starts again from the first step
                 if sid in flow.repair_targets() or station.only_on_fail:
                     change.last_failure = None  # the station that consumed the evidence succeeded
                 if change.rework_requirements and station.resolved_handler() == "design":
@@ -1346,15 +1362,30 @@ class ChangeManager:
                 return None
 
             if result.outcome == StationOutcome.paused_limits:
-                change.attempts[sid] -= 1
-                change.status = ChangeStatus.paused_limits
-                change.resume_at = (
-                    datetime.fromtimestamp(result.resets_at, UTC)
-                    if result.resets_at
-                    else _now() + timedelta(minutes=30)
+                change.attempts[sid] -= 1  # a pause is not an attempt (UX-19)
+                limit = result.limit or waiting.Limit("quota")
+                before = change.pause.throttles if change.pause and change.pause.kind == "throttle" else 0
+                plan_ = waiting.plan_pause(limit, result.resets_at, _now(), before)
+                change.pause = Pause(
+                    kind=plan_.kind,
+                    resume_at=plan_.resume_at,
+                    known=plan_.known,
+                    throttles=plan_.throttles,
+                    window=plan_.window,
                 )
-                change.summary = f"paused for usage limits until {change.resume_at:%H:%M}"
-                self.store.add_event(change.id, EventKind.status, change.summary, station=sid)
+                if plan_.give_up:
+                    change.hold_class = "infra"
+                    return self._hold(change, sid, plan_.summary())
+                change.status = ChangeStatus.paused_limits
+                change.resume_at = plan_.resume_at
+                change.summary = plan_.summary()
+                self.store.add_event(
+                    change.id,
+                    EventKind.status,
+                    change.summary,
+                    station=sid,
+                    data={"pause": change.pause.model_dump(mode="json")},
+                )
                 self.store.save_change(change)
                 self._wake_later(change)
                 return None
