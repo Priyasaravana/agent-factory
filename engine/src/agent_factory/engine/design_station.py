@@ -368,11 +368,20 @@ async def _designer(ctx: StationContext) -> StationResult | None:
     return None
 
 
+async def _status(ctx: StationContext) -> list[str]:
+    """`git status --porcelain` of the worktree, every line of it (L-2: the guards below undo what the
+    agent may not change, so a listing they can't read whole stops the station rather than letting
+    the rest through)."""
+    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
+    if not res.ok:
+        raise RuntimeError(f"could not read the worktree's status: {res.output.strip()[-300:]}")
+    return res.whole().splitlines()
+
+
 async def _dirty(ctx: StationContext) -> dict[str, bytes | None]:
     """Every changed or new path in the worktree, with its content (None: deleted)."""
-    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
     out: dict[str, bytes | None] = {}
-    for line in res.output.splitlines() if res.ok else []:
+    for line in await _status(ctx):
         rel = line[3:].strip().strip('"')
         if " -> " in rel:
             rel = rel.split(" -> ", 1)[1]
@@ -453,9 +462,8 @@ def _design_doc(rel: str) -> bool:
 async def _keep_to_design_docs(ctx: StationContext) -> list[str]:
     """A discussion may change only the design documents: anything else the architect touched is put
     back as it was (tracked files restored, new files removed). Returns what was undone."""
-    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
     undone: list[str] = []
-    for line in res.output.splitlines() if res.ok else []:
+    for line in await _status(ctx):
         code, rel = line[:2], line[3:].strip().strip('"')
         if " -> " in rel:
             rel = rel.split(" -> ", 1)[1]

@@ -638,6 +638,11 @@ VALUES = {"high": "high", "medium": "medium", "low": "low"}
 MAX_SUGGESTIONS = 5
 
 
+# A suggestion past these sizes is sent back to its author, never cut: what a person ticks on the card
+# is what the agents get (UX-16)
+MAX_TITLE, MAX_DETAIL, MAX_REQUIREMENTS, MAX_REQUIREMENT = 120, 1000, 10, 300
+
+
 def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """Next-feature suggestions from the architect or the designer, checked: 1 to 5 entries, each with a
     title, what it does for the people using the product (`detail`), a `value` (high | medium | low), a
@@ -653,8 +658,8 @@ def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
         if not isinstance(s, dict):
             errors.append(f"suggestion {n}: not a mapping")
             continue
-        title = " ".join(str(s.get("title") or "").split())[:120]
-        detail = str(s.get("detail") or "").strip()[:1000]
+        title = " ".join(str(s.get("title") or "").split())
+        detail = str(s.get("detail") or "").strip()
         value = str(s.get("value") or "").strip().lower()
         size = str(s.get("size") or "").strip().upper()
         reqs = s.get("requirements") or []
@@ -662,10 +667,14 @@ def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
         where = f"suggestion {n} ({title or 'untitled'})"
         if len(title) < 3:
             errors.append(f"suggestion {n}: needs a title")
+        elif len(title) > MAX_TITLE:
+            errors.append(f"suggestion {n}: a title of at most {MAX_TITLE} characters")
         elif _norm(title) in titles:
             errors.append(f"{where}: suggested twice")
         if len(detail) < 10:
             errors.append(f"{where}: say what it does for the people using the product")
+        elif len(detail) > MAX_DETAIL:
+            errors.append(f"{where}: say what it does in at most {MAX_DETAIL} characters")
         if value not in VALUES:
             errors.append(f"{where}: value is one of high, medium, low")
         if size not in SIZES:
@@ -673,6 +682,11 @@ def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
         if not isinstance(reqs, list) or not all(isinstance(r, str) and r.strip() for r in reqs):
             errors.append(f"{where}: requirements is a list of the requirements it would add")
             reqs = []
+        reqs = [" ".join(r.split()) for r in reqs]
+        if len(reqs) > MAX_REQUIREMENTS:
+            errors.append(f"{where}: at most {MAX_REQUIREMENTS} requirements: split it into two suggestions")
+        if any(len(r) > MAX_REQUIREMENT for r in reqs):
+            errors.append(f"{where}: each requirement in at most {MAX_REQUIREMENT} characters")
         titles.add(_norm(title))
         out.append(
             {
@@ -680,7 +694,7 @@ def parse_suggestions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
                 "detail": detail,
                 "value": VALUES.get(value, "medium"),
                 "size": size if size in SIZES else "M",
-                "requirements": [" ".join(r.split())[:300] for r in reqs][:10],
+                "requirements": reqs,
                 "by": by[:40],
             }
         )
@@ -776,13 +790,15 @@ def pick_kind(items: list[WorkItem]) -> str:
 
 
 def request_text(text: str, items: list[WorkItem]) -> str:
-    """The change request with the items it addresses spelled out for the developer and the PR."""
+    """The change request with the items it addresses spelled out for the developer and the PR, each
+    whole (UX-16: a suggestion's requirements are in its detail, and a cut one reached intake as "with
+    dat"; the card shortens only what it displays)."""
     lines = [text.strip(), "", "Work items to address:"]
     for it in items:
-        where = f" ({', '.join(it.at[:5])})" if it.at else ""
+        where = f" ({', '.join(it.at)})" if it.at else ""
         lines.append(f"- [{it.id}] {it.severity} · {it.title}{where}")
-        if it.detail:
-            lines.append(f"  {it.detail[:400]}")
+        for line in it.detail.splitlines():
+            lines.append(f"  {line}")
     return "\n".join(lines)
 
 

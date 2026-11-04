@@ -17,18 +17,56 @@ from pathlib import Path
 from typing import Any, Protocol
 
 TAIL_CHARS = 6000
+# Output past this is not kept whole: code that decides on it refuses the result (OutputCutOff).
+WHOLE_CHARS = 32_000_000
+
+
+class OutputCutOff(RuntimeError):
+    """A decision needed a command's complete output and only its tail is known."""
+
+    def __init__(self, result: CommandResult) -> None:
+        super().__init__(f"the output of `{result.command[:120]}` was cut off; deciding on its tail would guess")
+        self.result = result
 
 
 @dataclass
 class CommandResult:
+    """`output` is the tail of stdout+stderr, for people and the event log: show it, never decide on it.
+    Code that decides on what a command printed (parses JSON, lists lines, looks for a label) calls
+    `whole()`, which is the complete output or raises `OutputCutOff`. `truncated` says the tail is
+    shorter than what was printed. `tests/test_output_cutoff.py` finds decision code reading `.output`."""
+
     command: str
     returncode: int
-    output: str  # combined stdout+stderr, tail-truncated
+    output: str  # combined stdout+stderr, its last TAIL_CHARS
     timed_out: bool = False
+    truncated: bool = False
+    # the complete output when `truncated` (None: past WHOLE_CHARS, or a source that kept only the tail)
+    complete: str | None = field(default=None, repr=False, compare=False)
 
     @property
     def ok(self) -> bool:
         return self.returncode == 0 and not self.timed_out
+
+    def whole(self) -> str:
+        """The complete output, for code that decides on it; raises OutputCutOff when only the tail is known."""
+        if not self.truncated:
+            return self.output
+        if self.complete is None:
+            raise OutputCutOff(self)
+        return self.complete
+
+    def lines(self) -> list[str]:
+        """The complete output's non-empty lines, stripped (a listing: `git diff --name-only`, …)."""
+        return [ln.strip() for ln in self.whole().splitlines() if ln.strip()]
+
+
+def finished(command: str, returncode: int, text: str, timed_out: bool = False) -> CommandResult:
+    """A result from a command's complete output: the tail for display, the whole kept for decisions."""
+    if len(text) <= TAIL_CHARS:
+        return CommandResult(command, returncode, text, timed_out)
+    whole = text if len(text) <= WHOLE_CHARS else None
+    return CommandResult(command, returncode, text[-TAIL_CHARS:], timed_out, truncated=True, complete=whole)
 
 
 class Executor(Protocol):
@@ -62,8 +100,7 @@ class LocalExecutor:
             proc.kill()
             await proc.wait()
             return CommandResult(command, -1, f"timed out after {timeout}s", timed_out=True)
-        text = out.decode(errors="replace")
-        return CommandResult(command, proc.returncode or 0, text[-TAIL_CHARS:])
+        return finished(command, proc.returncode or 0, out.decode(errors="replace"))
 
 
 # Reports of the built-in tool stations when they find nothing (tools.py, ADR-0034)

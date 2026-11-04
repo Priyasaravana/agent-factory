@@ -39,6 +39,7 @@ from agent_factory import (
     risk,
     rollback,
     rollup,
+    run_report,
     schema_compat,
     stack,
     tools,
@@ -49,7 +50,7 @@ from agent_factory import (
 from agent_factory.agents.runner import AgentRequest, AgentResult, AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine.workspace import Workspace
-from agent_factory.executor import CommandResult, Executor
+from agent_factory.executor import CommandResult, Executor, OutputCutOff
 from agent_factory.failures import (
     Failure,
     FailureClass,
@@ -79,7 +80,7 @@ from agent_factory.providers.base import ImageRef, StepResult
 from agent_factory.providers.local import failed_detail
 from agent_factory.readiness import score
 from agent_factory.review import REVIEW_SCHEMA, judge
-from agent_factory.secret_refs import SecretError, SecretResolver
+from agent_factory.secret_refs import REDACTOR, SecretError, SecretResolver
 from agent_factory.settings import Settings
 from agent_factory.state.base import StateStore
 from agent_factory.workflow import AgentSpec, WorkflowDoc, target_of, tools_within
@@ -1002,7 +1003,7 @@ async def run_tests(ctx: StationContext) -> StationResult:
         return StationResult(
             StationOutcome.failed,
             "verification failed",
-            f"`{res.command}` exited {res.returncode}:\n{res.output[-4000:]}",
+            _test_failure(ctx, res, "verify-output.log"),
         )
     return StationResult(StationOutcome.passed, "lint, tests, coverage and security checks passed")
 
@@ -1034,12 +1035,13 @@ async def preview_e2e(ctx: StationContext) -> StationResult:
     )
     if res.ok:
         return StationResult(StationOutcome.passed, f"end-to-end tests passed against the preview ({pack})")
-    if packs.PREVIEW_NOT_READY in res.output:
+    if packs.PREVIEW_NOT_READY in res.whole():
         summary = f"the preview did not start: `{preview.command}` never answered on {preview.url}"
     else:
         summary = "end-to-end tests failed against the preview"
     hint = f"Reproduce it in the sandbox: run `{preview.command}` in the background, then `{command}`."
-    return StationResult(StationOutcome.failed, summary, f"{hint}\n\n{res.output[-4000:]}")
+    detail = _test_failure(ctx, res, "preview-e2e-output.log")
+    return StationResult(StationOutcome.failed, summary, f"{hint}\n\n{detail}")
 
 
 # ------------------------------------------------------------ scan scope --
@@ -1290,7 +1292,7 @@ async def _runtime_check(ctx: StationContext, image: str) -> str:
         if not run.ok:
             return f"`docker run` exited {run.returncode}"
         mapped = await ctx.cmd(f"docker port {name} {port}", timeout=30)
-        host_port = base_images.published_port(mapped.output)
+        host_port = base_images.published_port(mapped.whole())
         if host_port is None:
             if getattr(ctx.settings, "factory_mode", "live") == "dry-run":
                 return ""
@@ -1538,7 +1540,7 @@ async def _sbom_and_provenance(ctx: StationContext, image: str, sha: str) -> Com
     sbom = out / "sbom.spdx.json"
     provenance = {
         "_type": "agent-factory/provenance/v1",
-        "subject": {"image": image, "image_id": digest.output.strip().splitlines()[-1] if digest.ok else None},
+        "subject": {"image": image, "image_id": next(reversed(digest.lines()), None) if digest.ok else None},
         "source": {"product": ctx.product.slug, "commit": sha, "branch": f"run/{ctx.change.id}"},
         "builder": {
             "id": "agent-factory",
@@ -2255,7 +2257,7 @@ async def _run_e2e(
         return StationResult(
             StationOutcome.failed,
             "end-to-end tests failed against the live app",
-            f"`{res.command}` exited {res.returncode}:\n{res.output[-4000:]}",
+            _test_failure(ctx, res, "e2e-output.log"),
         )
     await ctx.emit(EventKind.decision, "end-to-end tests passed against the live app", {"e2e": {"ok": True}})
     return None
@@ -2347,7 +2349,7 @@ async def handover(ctx: StationContext) -> StationResult:
         if not m.ok:
             m = await ws.git(f"merge --no-edit run/{ctx.change.id}", repo)
         if not m.ok:
-            return StationResult(StationOutcome.held, "merge into main failed", m.output)
+            return StationResult(StationOutcome.held, "merge into main failed", m.output[-4000:])
         await ws.git(f"tag -f v{ctx.change.iteration}", repo)
         notes.append("merged to main")
     else:
@@ -2566,6 +2568,22 @@ def _repo_json(ctx: StationContext, name: str) -> dict[str, Any]:
         return {}
 
 
+def _test_failure(ctx: StationContext, res: CommandResult, name: str) -> str:
+    """A failed test command's detail (UX-13): the failing tests picked from the complete output
+    first, then its tail, and the complete output kept (redacted) as `artifacts/<change>/<name>`."""
+    try:
+        whole = res.whole()
+    except OutputCutOff:
+        whole = res.output
+    saved = None
+    if res.truncated or run_report.decisive(whole):
+        out = artifacts_dir(ctx)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / name).write_text(REDACTOR.text(whole))
+        saved = f"artifacts/{ctx.change.id}/{name}"
+    return run_report.failure_detail(res.command, res.returncode, whole, res.output, saved)
+
+
 def _write_json(ctx: StationContext, name: str, data: dict[str, Any]) -> None:
     out = artifacts_dir(ctx)
     out.mkdir(parents=True, exist_ok=True)
@@ -2578,7 +2596,7 @@ async def onboard(ctx: StationContext) -> StationResult:
     if not paths:
         return StationResult(StationOutcome.held, "the repository has no files to assess")
     head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
-    commit = head.output.strip().splitlines()[-1] if head.ok and head.output.strip() else "unknown"
+    commit = (head.lines() or ["unknown"])[-1] if head.ok else "unknown"
     found = assess.detect_stack(ctx.worktree, paths)
     matches = packs.detect(list(ctx.cfg.stack_packs.values()), ctx.worktree)
     await _record_stack_matches(ctx, matches)
@@ -2805,8 +2823,13 @@ def base_ref(ctx: StationContext) -> str:
 
 
 async def _changed_files(ctx: StationContext) -> list[str]:
+    """Every file the change touched. It scopes the scans, the review and the pull request, so it is
+    read whole (L-1: a tail would leave the cut-off files unscanned) and a listing git can't give
+    stops the station: an empty list would read as "nothing changed" and let findings through."""
     res = await ctx.ws.git(f"diff --name-only {base_ref(ctx)}...HEAD", ctx.worktree)
-    return [ln.strip() for ln in res.output.splitlines() if ln.strip()] if res.ok else []
+    if not res.ok:
+        raise RuntimeError(f"could not list the files the change touched: {res.output.strip()[-300:]}")
+    return res.lines()
 
 
 def _latest_assessment(ctx: StationContext) -> str:
@@ -2900,9 +2923,7 @@ async def repo_test(ctx: StationContext) -> StationResult:
     res = await ctx.cmd(cmd, timeout=1200, untrusted=True)
     _write_json(ctx, "repo-test.json", {"command": cmd, "ok": res.ok, "output": res.output[-4000:]})
     if not res.ok:
-        return StationResult(
-            StationOutcome.failed, f"`{cmd}` failed", f"`{cmd}` exited {res.returncode}:\n{res.output[-4000:]}"
-        )
+        return StationResult(StationOutcome.failed, f"`{cmd}` failed", _test_failure(ctx, res, "repo-test-output.log"))
     return StationResult(StationOutcome.passed, f"`{cmd}` passed")
 
 
@@ -3006,9 +3027,9 @@ async def pull_request(ctx: StationContext) -> StationResult:
         return StationResult(
             StationOutcome.held, f"branch {branch} pushed, but the pull request failed", pr.output[-2000:]
         )
-    url = next((w for w in pr.output.split() if w.startswith(f"https://{ref.host}/") and "/pull/" in w), None)
+    url = next((w for w in pr.whole().split() if w.startswith(f"https://{ref.host}/") and "/pull/" in w), None)
     head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
-    sha = head.output.strip().splitlines()[-1] if head.ok and head.output.strip() else ""
+    sha = (head.lines() or [""])[-1] if head.ok else ""
     holds, approved = risk_data.get("holds", 0), risk_data.get("approved_by")
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
     if sha:
@@ -3138,7 +3159,7 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
             # secrets); an infra failure (a database download cut off) is still retried (ADR-0043)
             res = await ctx.cmd(f"{cmd} > {shlex.quote(str(report_file))}", timeout=900, env=env or None, record=False)
             stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
-    text = stdout if stdout.strip() else res.output  # a fake executor answers on its output
+    text = stdout if stdout.strip() else res.whole()  # a fake executor answers on its output
     await ctx.emit(
         EventKind.command,
         f"{tool.title}: exit {res.returncode}, {len(text)} bytes of report (raw output not kept)",
@@ -3147,7 +3168,7 @@ async def _scan_with_tool(ctx: StationContext, attempt: checks.Attempt, title: s
     if tool.strict_exit and not res.ok:
         return f"{tool.title} failed (exit {res.returncode}): check the token's access and that the feature is on"
     extra: dict[str, Any] = {"image": tool.image} if tool.image else {}
-    if not stdout.strip() and (why := tools.nothing_to_scan(tool, res.output)):
+    if not stdout.strip() and (why := tools.nothing_to_scan(tool, res.whole())):
         return [], tool, {**extra, "nothing_scanned": why}
     try:
         findings = tools.parse(tool, text)

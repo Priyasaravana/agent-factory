@@ -71,7 +71,7 @@ class OciRegistryProvider:
             return Readiness("ready", [f"pushes to {self.repository}"])
         scheme = "http" if self.insecure else "https"
         probe = await ctx.cmd(f"curl -s -o /dev/null -w '%{{http_code}}' {scheme}://{self.check_host}/v2/", timeout=15)
-        code = (probe.output.strip().splitlines() or [""])[-1]
+        code = (probe.lines() or [""])[-1]
         if code not in {"200", "401"}:
             return Readiness("failed", [f"registry {self.host} not reachable ({code or probe.output[-200:]})"])
         reasons = [f"registry {self.host} reachable", f"images go to {self.repository}/<app>"]
@@ -103,7 +103,7 @@ class OciRegistryProvider:
         res = await ctx.cmd(self._script(body, logged_in), timeout=1500, env=env)
         if not res.ok:
             return StepResult(
-                False, f"packaging failed at: push to {self.host}", failed(f"docker push {ref}", res.output)
+                False, f"packaging failed at: push to {self.host}", failed(f"docker push {ref}", res.output[-4000:])
             )
-        digest = next((ln.split("digest: ")[1].split()[0] for ln in res.output.splitlines() if "digest: " in ln), None)
+        digest = next((ln.split("digest: ")[1].split()[0] for ln in res.whole().splitlines() if "digest: " in ln), None)
         return StepResult(True, f"pushed to {self.host}", data={"image": str(ref), "digest": digest})

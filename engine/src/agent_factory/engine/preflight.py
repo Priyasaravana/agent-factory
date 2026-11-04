@@ -234,7 +234,7 @@ class Preflight:
             return _check("disk", title, "build", "ready", ["dry-run: no Docker disk in use"], blocks=[])
         node = f"{self.m.settings.cluster_name}-control-plane"
         res = await self.m.ex.run(f"docker exec {node} df -P /", timeout=15)
-        measured = parse_df(res.output) if res.ok else None
+        measured = parse_df(res.whole()) if res.ok else None
         if measured is None:
             return _check("disk", title, "build", "ready", ["not measured: the cluster node is not running"], blocks=[])
         used, free = measured
