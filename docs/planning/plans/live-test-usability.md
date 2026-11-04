@@ -104,7 +104,20 @@ Verification checks the requirements it was given; nothing checks it was given t
 - A supported fault-injection switch (deploy-time, not source) would make drills repeatable without editing
   products: backlog, since it's new surface during the freeze.
 
-## Proposed slices (for Saravana to order; revised 2026-11-04)
+## Decision (Saravana, 2026-11-04)
+**Fix correctness first, then carry on with the plan.** In order, as "Now" in the roadmap's "Next, in order":
+1. L-3 (blue/green fails closed).
+2. Truncation as a class: UX-13, UX-16, L-1, L-2, and #147/#148's call sites.
+3. Waiting and budgets, minimum: L-5 and UX-15 (meters first), UX-18, UX-19.
+4. UX-04, **now** rather than with J2's "Ready for": a sideways-scroll check at 390 px in the pack's e2e, and
+   serious UI-review defects shown in the delivery status and on the next iteration's card.
+5. UX-02 by hand: re-publish the default New product lane so it has Promote; then J1's fresh-product run.
+
+Then J1's fresh-product run and the rest of J2 (UX-22 goes with J2's "Ready for" statement). Everything else
+here stays in the backlog until J2 is done: UX-01, UX-03, UX-05 to UX-09, UX-10's eligible time, UX-12,
+UX-14, UX-21, L-4 (the full waiting-state model), and UX-11 to watch.
+
+## Proposed slices (revised 2026-11-04; superseded by the decision above)
 0. **Before any further blue/green live run:** L-3 (fail closed on two colours). Small and pure.
 1. **Truncation as a class:** executor full output plus `truncated`; parsers fail closed; covers UX-13, UX-16
    (its own fix, same test idea), L-1, L-2, and guards #147/#148's call sites.

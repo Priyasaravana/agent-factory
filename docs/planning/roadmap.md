@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-04 (live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-04 (correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -39,6 +39,35 @@ unproven** (design sheet, align with the architect, modules and sign-in, the cha
 look and feel in progress, and J2–J5 not started.
 
 ## ⏭ Next, in order
+**Now: correctness before more live runs (decided by Saravana 2026-11-04, ~4.5 days).** The 2026-11-03/04
+campaign showed the factory deciding on cut-off output, downgrading instead of stopping, and reporting more
+than it proved ([plans/live-test-usability.md](plans/live-test-usability.md), "Assessment"). Results built on
+that can't be trusted, so these come first, in this order; then J1's fresh-product run and the rest of J2.
+The remaining usability findings wait in the backlog until J2 is done.
+1. **Blue/green fails closed (L-3, ~½ day):** once production runs two colours, any reason to promote in place
+   holds with that reason instead; the kept colour (the rollback target) is never removed by a fallback. Before
+   any further blue/green run.
+2. **Cut-off output as a class (~1.5 days):** the executor keeps the full output in a file and marks a result
+   `truncated`; code that decides on output reads structured output or refuses a truncated result, and a test
+   finds decision code reading `.output`. Covers UX-13 (failing assertion kept apart from server logs), L-1
+   (team-repo scan scope, a security check failing open), L-2 (design-doc guard), the call sites #147/#148
+   fixed, and **UX-16** (the card's ticked item reaches intake whole, not `detail[:400]`; test: a suggestion with
+   10 requirements arrives whole).
+3. **Waiting and budgets, minimum (~1.5 days):** reconcile the two cost meters first (L-5, UX-15); tell a
+   provider rate limit from a spent quota and label a guessed reset as a guess (UX-18), resuming the station,
+   not the whole acceptance; a re-entry caused by a pause doesn't count against the station's attempts (UX-19);
+   a budget hold names the budget, its source, both meters and what to do (UX-15). The full waiting-state model
+   (UX-12, UX-14, L-4) follows in the backlog.
+4. **Phones checked, not estimated (UX-04, ~½ day; decided 2026-11-04: now, with this set):** the pack's e2e
+   fails a route that scrolls sideways at 390 px, beside the tap-target check (nextjs-web patch release); a
+   serious UI-review defect is shown in the delivery status and offered on the next iteration's card.
+5. **UX-02 by hand (no code):** re-publish the default New product lane from the current template (Back to
+   factory default) so it has Promote; if a fresh product then runs on it, J1's repeatability run needs no
+   new control (UX-01 stays in the backlog).
+- **Then:** J1's fresh-product run (also J2's first proof of recovery **after** a blue/green switch), J2's CVE
+  fix from the card, and J2's accepted/closed state and "Ready for" statement (UX-22, a change that moves the
+  product's address says so, goes with it).
+
 **J0. Finish the open thread** ✅ folded into the J1 live run (2026-10-22). The evaluation harness can't run
 pack cases yet (it always builds with the first blueprint), so the Next.js cases ran as ordinary products;
 per-pack evaluation is in the backlog.
@@ -407,7 +436,10 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
   **Updated 2026-11-04** after the campaign: 22 findings plus 5 latent ones from the code. The biggest class is
   decisions made on truncated command output (UX-17, UX-20 fixed in #147, #148; still live in the team-repo
   check scope and the design guard). Before another blue/green run: promote must fail closed when production
-  already runs two colours (L-3).
+  already runs two colours (L-3). **Decided 2026-11-04 (Saravana):** L-3, the truncation class (with UX-16),
+  the waiting/budget minimum (UX-15, UX-18, UX-19, L-5), UX-04 and UX-02 by hand moved to "Now" under
+  "Next, in order". Still here, after J2: UX-01, UX-03, UX-05 to UX-10's eligible time, UX-12, UX-14, UX-21,
+  L-4 (the full waiting-state model), and UX-11 to watch.
 - **Blue/green follow-ups** (added 2026-11-01, slice 4): a migration tool in the packs with expand/contract
   steps the schema guard understands (today it reads `create table` SQL and SQLAlchemy models); an upkeep change that brings an existing product's
   chart up to its pack's version (Kudos board and Book lending predate colours); a "switch back" button needs

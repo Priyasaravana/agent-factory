@@ -10,6 +10,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   J1's fresh-product first delivery (skipped, UX-01), recovery after the switch, a CVE fix from the card.
   Results and the assessment: [plans/live-test-usability.md](plans/live-test-usability.md). Left open: held trial
   `e56fb20c67ad`; Expense's drill fault cleaned locally (`4f31bed`), published at the next Deliver.
+- **Next (decided by Saravana 2026-11-04):** the correctness set under "Now" in the roadmap, in order: L-3,
+  cut-off output as a class (with UX-16), waiting and budgets minimum, UX-04's sideways-scroll check, UX-02 by
+  hand; then J1's fresh-product run and the rest of J2. One branch per item.
 - **2026-11-03, live-test blocker:** full Helm chart renders exceeded the executor's 6000-character tail,
   hiding colour labels and falsely selecting the in-place compatibility fallback. Compact colour evidence
   before executor truncation, preserving Helm failure and legacy-chart detection. The controlled drill
