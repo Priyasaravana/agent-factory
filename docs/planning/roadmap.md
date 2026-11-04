@@ -47,7 +47,7 @@ The remaining usability findings wait in the backlog until J2 is done.
 1. **Blue/green fails closed (L-3, ~½ day):** once production runs two colours, any reason to promote in place
    holds with that reason instead; the kept colour (the rollback target) is never removed by a fallback. Before
    any further blue/green run.
-   🔄 **In review, `fix/blue-green-fail-closed` (2026-11-04):** `blue_green.in_place_refused` (pure) and the
+   ✅ **Merged 2026-11-04 (#150, `35d7073`):** `blue_green.in_place_refused` (pure) and the
    stations' `_keep_colors`, checked at both places production is changed in place: `deploy` for a change
    validated in place, and `promote` before announcing a fallback. On a production running two colours (or green
    alone) a blue/green product holds as a person's decision (`RequiredAction` `colors_in_place`, "Release this
@@ -63,6 +63,18 @@ The remaining usability findings wait in the backlog until J2 is done.
    (team-repo scan scope, a security check failing open), L-2 (design-doc guard), the call sites #147/#148
    fixed, and **UX-16** (the card's ticked item reaches intake whole, not `detail[:400]`; test: a suggestion with
    10 requirements arrives whole).
+   🔄 **In review, `fix/truncated-output` (2026-11-04):** `CommandResult` keeps the tail in `output` (for
+   people and the event log) and the complete output behind `whole()` / `lines()`, with `truncated` set;
+   `whole()` raises `OutputCutOff` when only the tail is known (past 32 MB, or a source that kept only the
+   tail). Every decision on a command's output reads it whole: L-1 (`_changed_files`, which also stops
+   rather than scanning nothing when git can't list), L-2 (the design guards read `git status` whole and
+   stop when they can't), #147/#148's Helm reads, the Ingress check, secrets, digests, ports, the PR URL,
+   scanner reports, preflight. UX-13: a failed test command's hold leads with the failing tests picked
+   from the complete output (`run_report.py`, pure: Playwright blocks and counts, pytest `FAILED`/`E`
+   lines), then the tail, and keeps the complete output (redacted) in the change's evidence. UX-16:
+   `ledger.request_text` sends each item whole; a suggestion past the sizes the card carries is sent back
+   to its author, never cut (also stated in the suggestion schema). `tests/test_output_cutoff.py` fails on
+   any new `.output` read that isn't a displayed tail or a listed display-only use.
 3. **Waiting and budgets, minimum (~1.5 days):** reconcile the two cost meters first (L-5, UX-15); tell a
    provider rate limit from a spent quota and label a guessed reset as a guess (UX-18), resuming the station,
    not the whole acceptance; a re-entry caused by a pause doesn't count against the station's attempts (UX-19);

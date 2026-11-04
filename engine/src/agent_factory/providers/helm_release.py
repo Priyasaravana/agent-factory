@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from agent_factory import blue_green, rollback
-from agent_factory.executor import CommandResult
+from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import Release
 from agent_factory.providers.base import StepResult
 
@@ -24,6 +24,16 @@ Probe = Callable[[str], Awaitable[CommandResult]]  # (path) -> the app answered 
 # Helm's own answer when the release doesn't exist, and nothing else: a missing kube context, namespace
 # or chart also says "not found", and taking those for "nothing installed" would fail open (#150)
 _NO_RELEASE = re.compile(r"^Error: release: not found\s*$", re.MULTILINE)
+
+
+def _whole(res: CommandResult) -> str:
+    """The complete output, or "" when it was cut off: every parser it feeds reads "" as unknown
+    (no revision, no history, no image, no pods) and the caller fails closed on that."""
+    try:
+        return res.whole()
+    except OutputCutOff:
+        return ""
+
 
 # per pod: its deletion timestamp (empty unless terminating), then each container as image=imageID,
 # so the release's own containers can be told from sidecars (`rollback.app_digests`)
@@ -56,7 +66,10 @@ class HelmRelease:
         res = await self.run(self._pods(color), 60)
         if not res.ok:
             return None, f"could not read the running pods: {res.output.strip()[-300:]}"
-        return rollback.one_digest(res.output, image)
+        try:
+            return rollback.one_digest(res.whole(), image)
+        except OutputCutOff as cut:
+            return None, str(cut)
 
     async def installed(self, image: str, color: str | None = None) -> tuple[int | None, str | None, str]:
         """After `helm upgrade --wait`: (revision, digest, problem). Both are needed to record the
@@ -70,7 +83,7 @@ class HelmRelease:
         )
         command = f"{self.helm} status {shlex.quote(self.name)} {self._ns()} -o json"
         status = await self.run(f"python3 -c {shlex.quote(extract)} {command}", 60)
-        revision = rollback.helm_revision(status.output) if status.ok else None
+        revision = rollback.helm_revision(_whole(status)) if status.ok else None
         if revision is None:
             return None, None, "Helm reported no revision for the release"
         digest, why = await self.digest(image, color)
@@ -81,19 +94,22 @@ class HelmRelease:
         it has no such release (nothing is installed yet); any other failure is a problem."""
         res = await self.run(f"{self.helm} get values {shlex.quote(self.name)} {self._ns()} -o json", 60)
         if res.ok:
-            return res.output, ""
-        if _NO_RELEASE.search(res.output):
+            try:
+                return res.whole(), ""
+            except OutputCutOff as cut:
+                return None, str(cut)
+        if _NO_RELEASE.search(_whole(res)):
             return None, ""
         return None, f"could not read the release's values: {res.output.strip()[-300:]}"
 
     async def _history(self) -> list[dict[str, object]]:
         res = await self.run(f"{self.helm} history {shlex.quote(self.name)} {self._ns()} -o json", 60)
-        return rollback.history(res.output) if res.ok else []
+        return rollback.history(_whole(res)) if res.ok else []
 
     async def _image(self, revision: int | None = None) -> str | None:
         rev = f" --revision {revision}" if revision else ""
         res = await self.run(f"{self.helm} get values {shlex.quote(self.name)} {self._ns()}{rev} -o json", 60)
-        return rollback.values_image(res.output) if res.ok else None
+        return rollback.values_image(_whole(res)) if res.ok else None
 
     async def rollback(self, release: Release, now: dict[str, str], probe: Probe, paths: list[str]) -> StepResult:
         """Restore `release`, failing closed: refuse unless the record is complete, names this
@@ -117,7 +133,7 @@ class HelmRelease:
         rows = await self._history()
         latest = max(rows, key=lambda r: int(str(r["revision"]))) if rows else None
         pods = await self.run(self._pods(release.color), 60)  # blue/green: the colour restored to users
-        problems += rollback.restored_problems(release, latest, await self._image(), pods.output if pods.ok else "")
+        problems += rollback.restored_problems(release, latest, await self._image(), _whole(pods) if pods.ok else "")
         for path in paths:
             answered = await probe(path)
             if not answered.ok:

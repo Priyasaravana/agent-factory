@@ -110,7 +110,7 @@ class Workspace:
         if not (repo / ".git").exists():
             return True
         res = await self.git("rev-list --count main", repo)
-        return res.ok and res.output.strip().splitlines()[-1:] == ["1"]
+        return res.ok and res.lines()[-1:] == ["1"]
 
     async def discard_scaffold(self, slug: str, change_ids: list[str]) -> None:
         """Remove a product repo that is still only its template, with the changes' worktrees and
@@ -145,7 +145,7 @@ class Workspace:
             await self.git("remote set-url --push origin no-push://read-only", repo)
             if not branch:
                 head = await self.git("rev-parse --abbrev-ref HEAD", repo)
-                branch = head.output.strip().splitlines()[-1] if head.ok and head.output.strip() else "main"
+                branch = (head.lines() or ["main"])[-1] if head.ok else "main"
         else:
             branch = branch or "main"
             spec = shlex.quote(f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
@@ -166,7 +166,7 @@ class Workspace:
         wt.parent.mkdir(parents=True, exist_ok=True)
         res = await self.git(f"worktree add -q -b run/{change_id} {wt} {shlex.quote(base)}", self.product_dir(slug))
         if not res.ok:
-            raise RuntimeError(f"worktree creation failed: {res.output}")
+            raise RuntimeError(f"worktree creation failed: {res.output[-2000:]}")
         return wt
 
     async def commit_all(self, wt: Path, message: str) -> bool:
@@ -178,9 +178,9 @@ class Workspace:
         """The committed tree at HEAD: equal for two commits with the same files, so it tells
         whether a repair changed any code. Empty when git can't say."""
         res = await self.git("rev-parse HEAD^{tree}", wt)
-        out = res.output.strip().splitlines() if res.ok else []
+        out = res.lines() if res.ok else []
         return out[-1] if out and re.fullmatch(r"[0-9a-f]{40,64}", out[-1]) else ""
 
     async def head_sha(self, wt: Path) -> str:
         res = await self.git("rev-parse --short HEAD", wt)
-        return res.output.strip().splitlines()[-1] if res.ok and res.output.strip() else "dev"
+        return (res.lines() or ["dev"])[-1] if res.ok else "dev"

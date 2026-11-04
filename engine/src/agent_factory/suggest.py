@@ -39,11 +39,16 @@ SUGGEST_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "required": ["title", "detail", "value", "size", "requirements"],
                 "properties": {
-                    "title": {"type": "string"},
-                    "detail": {"type": "string"},
+                    # the sizes `ledger.parse_suggestions` accepts: a longer one is dropped, never cut (UX-16)
+                    "title": {"type": "string", "maxLength": ledger.MAX_TITLE},
+                    "detail": {"type": "string", "maxLength": ledger.MAX_DETAIL},
                     "value": {"type": "string", "enum": ["high", "medium", "low"]},
                     "size": {"type": "string", "enum": ["S", "M", "L"]},
-                    "requirements": {"type": "array", "items": {"type": "string"}},
+                    "requirements": {
+                        "type": "array",
+                        "maxItems": ledger.MAX_REQUIREMENTS,
+                        "items": {"type": "string", "maxLength": ledger.MAX_REQUIREMENT},
+                    },
                 },
             },
         }

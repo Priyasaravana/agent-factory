@@ -368,18 +368,58 @@ async def _designer(ctx: StationContext) -> StationResult | None:
     return None
 
 
+def porcelain_paths(raw: str) -> list[str]:
+    """Every path in `git status --porcelain -z` output, both sides of a rename or copy, exactly as
+    on disk. Pure. (The plain listing quotes and escapes names such as `café.py` or one with a tab,
+    so stripping quotes from it gives a spelling no file has.)"""
+    fields = raw.split("\0")
+    out: list[str] = []
+    i = 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        out.append(path)
+        if "R" in code or "C" in code:  # "XY new\0old\0": the source path follows
+            if i < len(fields) and fields[i]:
+                out.append(fields[i])
+            i += 1
+    return list(dict.fromkeys(out))
+
+
+async def _status(ctx: StationContext) -> list[str]:
+    """Every changed or new path in the worktree (L-2: the guards below undo what the agent may not
+    change, so a listing they can't read whole stops the station rather than letting the rest through)."""
+    res = await ctx.ws.git("status --porcelain -z --untracked-files=all", ctx.worktree)
+    if not res.ok:
+        raise RuntimeError(f"could not read the worktree's status: {res.output.strip()[-300:]}")
+    return porcelain_paths(res.whole())
+
+
 async def _dirty(ctx: StationContext) -> dict[str, bytes | None]:
     """Every changed or new path in the worktree, with its content (None: deleted)."""
-    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
     out: dict[str, bytes | None] = {}
-    for line in res.output.splitlines() if res.ok else []:
-        rel = line[3:].strip().strip('"')
-        if " -> " in rel:
-            rel = rel.split(" -> ", 1)[1]
-        if rel:
-            p = ctx.worktree / rel
-            out[rel] = p.read_bytes() if p.is_file() else None
+    for rel in await _status(ctx):
+        p = ctx.worktree / rel
+        out[rel] = p.read_bytes() if p.is_file() else None
     return out
+
+
+async def _restore(ctx: StationContext, rel: str) -> None:
+    """Put `rel` back as it is at HEAD: checked out if HEAD has it, else out of the index and off
+    disk. Raises when git refuses, so a guard never reports an undo that didn't happen."""
+    q = shlex.quote(rel)
+    if (await ctx.ws.git(f"cat-file -e {shlex.quote('HEAD:' + rel)}", ctx.worktree)).ok:
+        res = await ctx.ws.git(f"--literal-pathspecs checkout HEAD -- {q}", ctx.worktree)
+        if not res.ok:
+            raise RuntimeError(f"could not restore {rel!r}: {res.output.strip()[-300:]}")
+        return
+    res = await ctx.ws.git(f"--literal-pathspecs rm -q --cached --ignore-unmatch -- {q}", ctx.worktree)
+    if not res.ok:
+        raise RuntimeError(f"could not unstage {rel!r}: {res.output.strip()[-300:]}")
+    (ctx.worktree / rel).unlink(missing_ok=True)
 
 
 async def _keep_only(ctx: StationContext, allowed: str, before: dict[str, bytes | None]) -> list[str]:
@@ -398,12 +438,12 @@ async def _keep_only(ctx: StationContext, allowed: str, before: dict[str, bytes 
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(old)
         else:
-            tracked = await ctx.ws.git(f"ls-files --error-unmatch -- {shlex.quote(rel)}", ctx.worktree)
-            if tracked.ok:
-                await ctx.ws.git(f"checkout HEAD -- {shlex.quote(rel)}", ctx.worktree)
-            else:
-                p.unlink(missing_ok=True)
+            await _restore(ctx, rel)
         undone.append(rel)
+    after = await _dirty(ctx)
+    left = [r for r in undone if (after.get(r) != before[r] if r in before else r in after)]
+    if left:
+        raise RuntimeError(f"the designer's changes to {', '.join(sorted(left))} could not be undone")
     return sorted(undone)
 
 
@@ -453,19 +493,12 @@ def _design_doc(rel: str) -> bool:
 async def _keep_to_design_docs(ctx: StationContext) -> list[str]:
     """A discussion may change only the design documents: anything else the architect touched is put
     back as it was (tracked files restored, new files removed). Returns what was undone."""
-    res = await ctx.ws.git("status --porcelain --untracked-files=all", ctx.worktree)
-    undone: list[str] = []
-    for line in res.output.splitlines() if res.ok else []:
-        code, rel = line[:2], line[3:].strip().strip('"')
-        if " -> " in rel:
-            rel = rel.split(" -> ", 1)[1]
-        if not rel or _design_doc(rel):
-            continue
-        if code == "??":
-            (ctx.worktree / rel).unlink(missing_ok=True)
-        else:
-            await ctx.ws.git(f"checkout HEAD -- {shlex.quote(rel)}", ctx.worktree)
-        undone.append(rel)
+    undone = [rel for rel in await _status(ctx) if not _design_doc(rel)]
+    for rel in undone:
+        await _restore(ctx, rel)
+    left = [rel for rel in await _status(ctx) if not _design_doc(rel)]
+    if left:
+        raise RuntimeError(f"the architect's changes to {', '.join(sorted(left))} could not be undone")
     return sorted(undone)
 
 

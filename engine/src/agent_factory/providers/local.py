@@ -55,7 +55,7 @@ class LocalProvider:
         docker = await ctx.cmd("docker info --format '{{.ServerVersion}}'", timeout=15)
         if not docker.ok:
             return Readiness("failed", [f"Docker-in-Docker not reachable: {docker.output.strip()[-300:]}"])
-        version = (docker.output.strip().splitlines() or ["reachable"])[-1]
+        version = (docker.lines() or ["reachable"])[-1]
         reasons.append(f"Docker-in-Docker {version}")
         api = await ctx.cmd("kubectl get --raw=/readyz", timeout=15)
         if not api.ok:
@@ -64,7 +64,7 @@ class LocalProvider:
             )
         reasons.append("kind cluster API ready")
         ports = await ctx.cmd(f"docker port {ctx.settings.cluster_name}-control-plane", timeout=15)
-        mapped = sorted({int(m) for m in re.findall(r"^(\d+)/tcp", ports.output, re.M)} - {6443})
+        mapped = sorted({int(m) for m in re.findall(r"^(\d+)/tcp", ports.whole(), re.M)} - {6443})
         reasons.append(f"{len(mapped)} app ports mapped to the host")
         return Readiness("ready", reasons, data={"mapped_node_ports": mapped})
 
@@ -100,7 +100,7 @@ class LocalProvider:
             # file; this provider records its own summary below.
             res = await ctx.cmd(f"{cmd} > {shlex.quote(str(report_file))}", timeout=1500, record=False)
             stdout = report_file.read_text(errors="replace") if report_file.is_file() else ""
-        report = stdout if stdout.strip() else res.output  # a fake executor answers on its output
+        report = stdout if stdout.strip() else res.whole()  # a fake executor answers on its output
         await ctx.emit(
             EventKind.command,
             f"{'✓' if res.ok else '✗'} {cmd} (exit {res.returncode}, {len(report)} bytes of report)",
@@ -181,7 +181,7 @@ class LocalProvider:
         res = await ctx.cmd(
             f"kubectl -n {namespace(ctx.product)} get secret {shlex.quote(name)} -o json", timeout=60, record=False
         )
-        return secret_data(res.output) if res.ok else None
+        return secret_data(res.whole()) if res.ok else None
 
     async def diagnostics(self, ctx: StationContext) -> str:
         ns, slug = namespace(ctx.product), ctx.product.slug
@@ -227,7 +227,7 @@ class LocalProvider:
                 f"gh repo create {name} {vis} --source . --remote origin", env=env, cwd=repo, timeout=120, retry=False
             )
             if not c.ok:
-                return StepResult(False, "GitHub repo creation failed", c.output)
+                return StepResult(False, "GitHub repo creation failed", c.output[-2500:])
         p = await ctx.cmd(
             "gh auth setup-git && git push -u origin main --tags --force-with-lease",
             env={**env, **ws.git_env_for(repo)},
@@ -235,8 +235,8 @@ class LocalProvider:
             timeout=300,
         )
         if not p.ok:
-            return StepResult(False, "push to GitHub failed", p.output)
+            return StepResult(False, "push to GitHub failed", p.output[-2500:])
         url = await ctx.cmd("gh repo view --json url -q .url", env=env, cwd=repo, timeout=60)
-        lines = url.output.strip().splitlines() if url.ok else []
+        lines = url.lines() if url.ok else []
         repo_url = next((ln.strip() for ln in lines if ln.strip().startswith("https://")), None)
         return StepResult(True, f"pushed to {repo_url or name}", data={"repo_url": repo_url})
