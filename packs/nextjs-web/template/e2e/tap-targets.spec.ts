@@ -1,15 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { LOOKS } from "../src/app/look";
-import { authEnabled, signIn } from "./auth";
-import { ROUTES, SIGNED_IN_ROUTES } from "./routes";
+import { PHONE, openInLook } from "./phone";
+import { ROUTES } from "./routes";
 
 // Phone-ready controls: on a 390 px phone every control a person taps is at least 44 × 44 px
 // (WCAG 2.5.5, the pack's UI rubric), in every look. Compact looks shrink spacing and type, so a
 // control that is big enough in one look can be too small in another: this measures them all and
 // fails the build instead of leaving it to the UI review. Fix the control (the base components
-// carry `phone:min-h-[44px]`); never exempt one to pass.
-const PHONE = { width: 390, height: 844 };
+// carry `phone:min-h-[44px]`); never exempt one to pass. Signed-in routes are measured signed in.
 const MIN = 44;
 
 // Links inside running text are exempt (WCAG 2.5.5); so are controls hidden until focused (the
@@ -38,18 +37,6 @@ const MEASURE = `(min) => {
   return small;
 }`;
 
-async function open(page: Page, route: string, look: string): Promise<void> {
-  if (SIGNED_IN_ROUTES.includes(route) && (await authEnabled(page.request))) {
-    await signIn(page, route);
-  } else {
-    await page.goto(route);
-  }
-  await expect(page.locator("main")).toBeVisible();
-  await page.evaluate((l) => {
-    document.documentElement.dataset.look = l;
-  }, look);
-}
-
 // The configured `page` fixture with phone options, not a context made here: the config's `use`
 // (its `proxy` above all: the live app is reachable only through it) then always applies.
 test.use({ viewport: PHONE, hasTouch: true });
@@ -57,7 +44,7 @@ test.use({ viewport: PHONE, hasTouch: true });
 for (const look of LOOKS) {
   for (const route of ROUTES) {
     test(`${route} has phone-sized tap targets in the ${look} look`, async ({ page }) => {
-      await open(page, route, look);
+      await openInLook(page, route, look);
       const small = (await page.evaluate(`(${MEASURE})(${MIN})`)) as string[];
       expect(small, `controls under ${MIN} px on a ${PHONE.width} px phone`).toEqual([]);
     });
