@@ -236,8 +236,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now
-         * @description What a delivered product's next iteration can address: suggested features, deferred quality work and security fixes with a released fix (open work items, best first), and whether it can start now
+         * What a delivered product's next iteration can address: suggested features, deferred quality work, security fixes with a released fix and serious UI defects (open work items, best first), and whether it can start now
+         * @description What a delivered product's next iteration can address: suggested features, deferred quality work, security fixes with a released fix and serious UI defects (open work items, best first), and whether it can start now
          */
         get: operations["next_iteration"];
         put?: never;
@@ -3224,8 +3224,9 @@ export interface components {
         /**
          * NextIterationView
          * @description What a person can pick for a delivered product's next iteration (roadmap J2, the "Next iteration"
-         *     card): suggested features, deferred quality work and security fixes, open items only, best first
-         *     (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind: the engine picks it.
+         *     card): suggested features, deferred quality work, security fixes and serious UI defects (UX-04), open
+         *     items only, best first (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind:
+         *     the engine picks it.
          */
         NextIterationView: {
             /** Features */
@@ -3234,6 +3235,8 @@ export interface components {
             quality: components["schemas"]["WorkItem"][];
             /** Security */
             security: components["schemas"]["WorkItem"][];
+            /** Ui */
+            ui?: components["schemas"]["WorkItem"][];
             /** Can Start */
             can_start: boolean;
             /** Latest Change Id */
@@ -4581,6 +4584,11 @@ export interface components {
             findings?: {
                 [key: string]: string;
             }[];
+            /**
+             * Serious
+             * @default 0
+             */
+            serious: number;
             /**
              * Summary
              * @default

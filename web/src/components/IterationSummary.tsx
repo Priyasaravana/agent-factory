@@ -4,16 +4,19 @@ import {
   CircleDashed,
   CircleX,
   ListTodo,
+  MonitorSmartphone,
   PackageCheck,
 } from "lucide-react";
 import { api, unwrap } from "../api/client";
+import { screenName } from "../lib/screens";
 
 const SEV_ORDER = ["critical", "high", "medium", "low", "info"];
 
 /** After handover: what this iteration delivered (requirements, verified on the live app) and what
  * is left for the next one (anything not verified, the assumptions intake made, the reviewer's
- * notes and the open items on the product's work ledger). Read-only: it gathers what the spec,
- * the review and the ledger already hold. */
+ * notes and the open items on the product's work ledger). Serious defects the UI review saw (UX-04:
+ * a page wider than a phone, controls off-screen) are said beside "verified": requirements can pass
+ * on a screen people can't use. Read-only: it gathers what the spec, the reviews and the ledger hold. */
 import { Panel } from "./ui/panel";
 
 export default function IterationSummary({
@@ -45,6 +48,15 @@ export default function IterationSummary({
         }),
       ),
   });
+  const shots = useQuery({
+    queryKey: ["screenshots", changeId, runStatus],
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/changes/{change_id}/screenshots", {
+          params: { path: { change_id: changeId } },
+        }),
+      ),
+  });
   const s = spec.data;
   if (!s) return null;
   const trace = s.traceability ?? [];
@@ -70,14 +82,21 @@ export default function IterationSummary({
   const accepted = (ledger.data ?? []).filter(
     (i) => i.status === "accepted_risk",
   );
+  const serious = (shots.data?.review?.findings ?? []).filter(
+    (f) => f.severity === "serious",
+  );
   const nextCount =
-    notDone.length + assumptions.length + notes.length + (open.length ? 1 : 0);
+    notDone.length +
+    assumptions.length +
+    notes.length +
+    serious.length +
+    (open.length ? 1 : 0);
 
   return (
     <Panel
       id="summary"
       defaultOpen
-      tone="ok"
+      tone={serious.length ? "attention" : "ok"}
       data-testid="iteration-summary"
       aria-label="Iteration summary"
       icon={<PackageCheck className="text-ok" />}
@@ -87,7 +106,15 @@ export default function IterationSummary({
           <span className="pill ok">
             {verified}/{trace.length} verified live
           </span>
-          {nextCount > 0 && <span className="pill muted">{nextCount} to consider next</span>}
+          {serious.length > 0 && (
+            <span className="pill bad" data-testid="summary-ui-serious">
+              {serious.length} serious screen defect
+              {serious.length === 1 ? "" : "s"}
+            </span>
+          )}
+          {nextCount > 0 && (
+            <span className="pill muted">{nextCount} to consider next</span>
+          )}
         </>
       }
     >
@@ -142,6 +169,39 @@ export default function IterationSummary({
               {nextCount ? `${nextCount} to look at` : "nothing open"}
             </span>
           </h3>
+          {serious.length > 0 && (
+            <Group
+              title="Serious screen defects"
+              hint="The UI review saw these in the delivered screens. They are offered under Screen fixes in the Next iteration."
+            >
+              {serious.map((f, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2"
+                  data-testid="summary-ui-defect"
+                >
+                  <MonitorSmartphone
+                    className="mt-0.5 size-4 shrink-0 text-bad"
+                    aria-hidden
+                  />
+                  <span className="min-w-0 break-words">
+                    {f.issue}
+                    {f.screenshot && (
+                      <span className="text-xs text-muted-foreground">
+                        {" "}
+                        · {screenName(f.screenshot)}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+              <li>
+                <a href="#next-iteration">Pick them for the next iteration →</a>
+                {" · "}
+                <a href="#screenshots">See the screenshots</a>
+              </li>
+            </Group>
+          )}
           {notDone.length > 0 && (
             <Group title="Not verified">
               {notDone.map((r) => (

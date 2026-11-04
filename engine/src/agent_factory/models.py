@@ -1229,7 +1229,8 @@ class UiReviewView(BaseModel):
     scores: dict[str, int] = Field(default_factory=dict)
     why: dict[str, str] = Field(default_factory=dict)
     mean: float | None = None
-    findings: list[dict[str, str]] = Field(default_factory=list)
+    findings: list[dict[str, str]] = Field(default_factory=list)  # screenshot, issue, severity
+    serious: int = 0  # findings that stop a person using the product on that screen (UX-04)
     summary: str = ""
     complete: bool = True
     problems: list[str] = Field(default_factory=list)
@@ -1447,12 +1448,14 @@ class ProvidedArtifactInfo(BaseModel):
 
 class NextIterationView(BaseModel):
     """What a person can pick for a delivered product's next iteration (roadmap J2, the "Next iteration"
-    card): suggested features, deferred quality work and security fixes, open items only, best first
-    (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind: the engine picks it."""
+    card): suggested features, deferred quality work, security fixes and serious UI defects (UX-04), open
+    items only, best first (`ledger.next_iteration`). Ticked items go to `POST /feedback` without a kind:
+    the engine picks it."""
 
     features: list[WorkItem]
     quality: list[WorkItem]
     security: list[WorkItem]
+    ui: list[WorkItem] = Field(default_factory=list)  # serious defects the UI review found
     can_start: bool  # the latest change is delivered or stopped: the next iteration can start now
     latest_change_id: str | None = None
     latest_status: ChangeStatus | None = None

@@ -253,7 +253,9 @@ class FakeAgentRunner:
             return {
                 "summary": "[dry-run] consistent and readable",
                 "scores": [{"criterion": c, "score": 4, "why": "dry-run"} for c in ids],
-                "findings": [{"screenshot": "home-phone-dark.png", "issue": "[dry-run] tighten the header"}],
+                "findings": [
+                    {"screenshot": "home-phone-dark.png", "issue": "[dry-run] tighten the header", "severity": "minor"}
+                ],
             }
         if req.role == "checker":  # a scan station's agent provider or fallback (ADR-0035)
             return {"summary": "[dry-run] checked", "findings": list(self.scan_findings)}

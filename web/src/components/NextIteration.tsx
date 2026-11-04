@@ -1,9 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ClipboardList, Lightbulb, Loader2, Rocket, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import {
+  ArrowRight,
+  ClipboardList,
+  Lightbulb,
+  Loader2,
+  MonitorSmartphone,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { KIND_LABEL, api, unwrap, type ChangeKind } from "../api/client";
 import type { components } from "../api/schema";
+import { screenName } from "../lib/screens";
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import ProvidedArtifacts from "./ProvidedArtifacts";
@@ -11,7 +22,7 @@ import { Button } from "./ui/button";
 import { Panel } from "./ui/panel";
 
 type Item = components["schemas"]["WorkItem"];
-type Group = "features" | "quality" | "security" | "other";
+type Group = "features" | "ui" | "quality" | "security" | "other";
 
 const GROUPS: { key: Group; title: string; icon: ReactNode; hint: string; empty: string }[] = [
   {
@@ -20,6 +31,13 @@ const GROUPS: { key: Group; title: string; icon: ReactNode; hint: string; empty:
     icon: <Lightbulb className="size-4 text-primary" aria-hidden />,
     hint: "suggested by the architect and the designer",
     empty: "None yet. The architect and the designer suggest features each time an iteration is delivered.",
+  },
+  {
+    key: "ui",
+    title: "Screen fixes",
+    icon: <MonitorSmartphone className="size-4 text-bad" aria-hidden />,
+    hint: "serious defects the UI review saw in the delivered screens",
+    empty: "No serious defects: the latest UI review found nothing that stops people using a screen.",
   },
   {
     key: "quality",
@@ -123,11 +141,12 @@ export default function NextIteration({
   const [provided, setProvided] = useState<Record<string, Record<string, unknown>> | null>({});
 
   const view = q.data;
-  const grouped: Item[] = view ? [...view.features, ...view.quality, ...view.security] : [];
+  const grouped: Item[] = view ? [...view.features, ...(view.ui ?? []), ...view.quality, ...view.security] : [];
   const inGroups = new Set(grouped.map((i) => i.id));
   const other = (ledger.data ?? []).filter((i) => picked.has(i.id) && !inGroups.has(i.id) && i.status === "open");
   const lists: Record<Group, Item[]> = {
     features: view?.features ?? [],
+    ui: view?.ui ?? [],
     quality: view?.quality ?? [],
     security: view?.security ?? [],
     other,
@@ -215,6 +234,7 @@ export default function NextIteration({
   const counts = (g: Group) => lists[g].filter((i) => picked.has(i.id)).length;
   const parts = [
     counts("features") && plural(counts("features"), "feature"),
+    counts("ui") && plural(counts("ui"), "screen fix", "screen fixes"),
     counts("quality") && plural(counts("quality"), "quality item"),
     counts("security") && plural(counts("security"), "security fix", "security fixes"),
     counts("other") && plural(counts("other"), "work item"),
@@ -232,6 +252,11 @@ export default function NextIteration({
       summary={
         <>
           <span className="pill muted">{plural(lists.features.length, "feature")}</span>
+          {lists.ui.length > 0 && (
+            <span className="pill bad" data-testid="next-ui-count">
+              {plural(lists.ui.length, "screen fix", "screen fixes")}
+            </span>
+          )}
           <span className="pill muted">{plural(lists.quality.length, "quality item")}</span>
           <span className="pill muted">{plural(lists.security.length, "security fix", "security fixes")}</span>
           <span>tick what to do next, or describe a change</span>
@@ -309,8 +334,9 @@ export default function NextIteration({
                             {g.key === "features" && i.effort && (
                               <span className="pill muted">{SIZE[i.effort] ?? i.effort}</span>
                             )}
+                            {g.key === "ui" && i.at?.[0] && <span className="pill muted">{screenName(i.at[0])}</span>}
                           </span>
-                          {i.detail && (
+                          {i.detail && i.detail.replace(/\.$/, "") !== i.title && (
                             <span className="line-clamp-3 whitespace-pre-line break-words text-xs text-muted-foreground">
                               {i.detail}
                             </span>

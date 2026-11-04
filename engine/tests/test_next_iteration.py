@@ -186,3 +186,82 @@ def test_a_suggestion_too_long_to_carry_goes_back_rather_than_being_cut():
     assert errors == ["suggestion 1 (CSV export): say what it does in at most 1000 characters"]
     _, errors = ledger.parse_suggestions([_suggestion("CSV export", requirements=["R1: " + "x" * 300])])
     assert errors == ["suggestion 1 (CSV export): each requirement in at most 300 characters"]
+
+
+# ------------------------------------------------- serious UI defects (UX-04) --
+PHONE = "manage-phone-light.png"
+WIDE = "The Manage page is 576 px wide at 390 px; the Approve and Reject buttons are off-screen."
+
+
+def _review(*findings: tuple[str, str, str], shots: tuple[str, ...] = (PHONE, "home-phone-dark.png"), complete=True):
+    return {
+        "complete": complete,
+        "screenshots": list(shots),
+        "findings": [{"screenshot": s, "issue": i, "severity": sev} for s, i, sev in findings],
+    }
+
+
+def _fold_ui(items: list[WorkItem], review: dict, iteration: int = 1, change: str = "c1") -> dict[str, int]:
+    return ledger.fold_ui_review(P, items, review, change_id=change, iteration=iteration, now=T0)[1]
+
+
+def test_serious_ui_defects_become_open_items_and_minor_ones_stay_in_the_review():
+    items: list[WorkItem] = []
+    stats = _fold_ui(items, _review((PHONE, WIDE, "serious"), ("home-phone-dark.png", "gaps uneven", "minor")))
+    assert stats == {"new": 1, "seen": 0, "fixed": 0, "reopened": 0}
+    [it] = items
+    assert (it.title, it.detail, it.at) == ("The Manage page is 576 px wide at 390 px", WIDE, [PHONE])
+    assert (it.kind, it.category, it.severity, it.change_kind, it.status) == ("issue", "ui", "high", "bug", "open")
+    assert it.history[-1].note == f"serious in the UI review ({PHONE})"
+    assert ledger.next_iteration(items)["ui"] == [it]
+    assert ledger.pick_kind([it]) == "bug"
+    # what the developer gets for it names the screen and the whole defect (UX-16)
+    assert f"[{it.id}] high · {it.title} ({PHONE})" in ledger.request_text("fix", [it])
+    assert WIDE in ledger.request_text("fix", [it])
+
+
+def test_a_reworded_defect_on_the_same_screen_is_the_same_item_and_an_incomplete_review_changes_nothing():
+    items: list[WorkItem] = []
+    _fold_ui(items, _review((PHONE, WIDE, "serious")))
+    reworded = "At 390 px the Manage page is 576 px wide, so the Approve and Reject buttons are off-screen."
+    assert _fold_ui(items, _review((PHONE, reworded, "serious")), iteration=2, change="c2")["seen"] == 1
+    assert len(items) == 1 and items[0].detail == reworded and items[0].seen_in == [1, 2]
+    # a different screen is a different defect, even worded alike
+    _fold_ui(
+        items,
+        _review(("home-phone-dark.png", WIDE, "serious"), shots=("home-phone-dark.png",)),
+        iteration=3,
+        change="c3",
+    )
+    assert len(items) == 2
+    assert _fold_ui(items, _review(complete=False), iteration=4, change="c4") == {
+        "new": 0,
+        "seen": 0,
+        "fixed": 0,
+        "reopened": 0,
+    }
+    assert all(it.status == "open" for it in items), "an incomplete review fixes nothing"
+
+
+def test_a_ui_defect_is_fixed_only_when_a_later_review_looked_at_its_screen():
+    items: list[WorkItem] = []
+    _fold_ui(items, _review((PHONE, WIDE, "serious")))
+    # the next review didn't look at the Manage page (a route removed from the run, a capped set): open
+    assert _fold_ui(items, _review(shots=("home-phone-dark.png",)), iteration=2, change="c2")["fixed"] == 0
+    assert items[0].status == "open"
+    assert _fold_ui(items, _review(), iteration=3, change="c3")["fixed"] == 1
+    assert (items[0].status, items[0].resolved_by) == ("fixed", "c3")
+    assert ledger.next_iteration(items)["ui"] == []
+    # back again later: open again, with its history
+    assert _fold_ui(items, _review((PHONE, WIDE, "serious")), iteration=4, change="c4")["reopened"] == 1
+    assert items[0].status == "open" and [h.event for h in items[0].history][-2:] == ["fixed", "reappeared"]
+
+
+def test_a_person_s_decision_on_a_ui_defect_stands():
+    items: list[WorkItem] = []
+    _fold_ui(items, _review((PHONE, WIDE, "serious")))
+    ledger.decide(items, [items[0].id], "wont_do", reason="admin page, desktop only", now=T0, by="admin")
+    _fold_ui(items, _review((PHONE, "Manage page wider than the phone.", "serious")), iteration=2, change="c2")
+    _fold_ui(items, _review(), iteration=3, change="c3")
+    assert [it.status for it in items if it.at == [PHONE]][0] == "wont_do"
+    assert ledger.next_iteration(items)["ui"] == [it for it in items if it.status == "open"]

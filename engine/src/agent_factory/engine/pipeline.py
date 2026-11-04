@@ -1018,11 +1018,42 @@ class ChangeManager:
                 f"{sum(1 for i in items if i.status in ('open', 'in_progress'))} open in all",
                 data={"work_ledger": {"new": new, "fixed": fixed, "reopened": back, **ledger.counts(items)}},
             )
-        elif change.work_items:
-            changed = ledger.release(
-                items, change_id=change.id, status=str(change.status), now=now, pr_url=change.pr_url
-            )
-            self.store.save_work_items(changed)
+        else:
+            if change.work_items:
+                changed = ledger.release(
+                    items, change_id=change.id, status=str(change.status), now=now, pr_url=change.pr_url
+                )
+                self.store.save_work_items(changed)
+            if change.status == ChangeStatus.awaiting_feedback:
+                self._fold_ui_review(change, product, self.store.list_work_items(product.id), now)
+
+    def _fold_ui_review(self, change: Change, product: Product, items: list[WorkItem], now: datetime) -> None:
+        """A delivered change's serious UI-review defects become open work items, offered on the next
+        iteration's card; a later review that looked at the same screen and no longer reports one fixes
+        it (UX-04). Only at delivery: a change that never shipped says nothing about what people use."""
+        import json
+
+        file = self.ws.data_dir / "artifacts" / change.id / "ui-review.json"
+        try:
+            review = json.loads(file.read_text())
+        except (OSError, ValueError):
+            return
+        if not isinstance(review, dict):
+            return
+        changed, stats = ledger.fold_ui_review(
+            product.id, items, review, change_id=change.id, iteration=change.iteration, now=now
+        )
+        if not changed:
+            return
+        self.store.save_work_items(changed)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"UI review: {stats['new']} serious defect(s) new on the work ledger, {stats['seen']} seen again, "
+            f"{stats['fixed']} fixed, {stats['reopened']} back",
+            station="handover",
+            data={"work_ledger": {"ui": stats, "items": [i.id for i in changed]}},
+        )
 
     async def _seal(self, change: Change, product: Product) -> None:
         """Seal the change's evidence at every stop (ADR-0023); never fails the change."""
