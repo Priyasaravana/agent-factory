@@ -263,6 +263,17 @@ class Change(BaseModel):
             data = {**data, "kind": ChangeKind.new if data["iteration"] == 1 else ChangeKind.feature}
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def _budget_of_older_changes(cls, data: Any) -> Any:
+        """Changes stored before `budget_spend_usd` start from the spend they did record (the higher
+        meter), never from zero: a restart must not reopen a change budget already spent (review of #153).
+        Per call the budget sum is at least either meter's total, so this never undercounts what it knew."""
+        if isinstance(data, dict) and "budget_spend_usd" not in data:
+            spent = [v for v in (data.get("cost_usd"), data.get("gateway_spend_usd")) if isinstance(v, int | float)]
+            data = {**data, "budget_spend_usd": max(spent, default=0.0)}
+        return data
+
 
 class DiscussTurn(BaseModel):
     """One message in the discussion with the architect on the review page (ADR-0044 §1). A

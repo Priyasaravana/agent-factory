@@ -100,7 +100,8 @@ The remaining usability findings wait in the backlog until J2 is done.
    `test_validation_env`. **Review fixes (2026-11-04):** the change budget is one sum on both paths (per call the
    higher meter, `Change.budget_spend_usd`, through `waiting.charge` for station, retro and suggestion calls),
    saved at each call's completion, so a restart neither reopens a spent budget nor loses a paid call; a throttle
-   streak ends only when the paused station passes, not a redeploy on the way back.
+   streak ends only when the paused station passes, not a redeploy on the way back. A change saved before
+   the field starts its budget from the spend it recorded (the higher meter), never from zero.
 4. **Phones checked, not estimated (UX-04, ~½ day; decided 2026-11-04: now, with this set):** the pack's e2e
    fails a route that scrolls sideways at 390 px, beside the tap-target check (nextjs-web patch release); a
    serious UI-review defect is shown in the delivery status and offered on the next iteration's card.
