@@ -154,15 +154,10 @@ class AgentCall:
             f"${summary['cost_usd']:.2f}, {summary['tool_calls']} tool calls"
             + (f", {len(self.denied)} denied" if self.denied else "")
             + (f"; host asleep {_dur(summary['suspended_s'])} during it" if summary["suspended_s"] >= 30 else "")
-            + (f"; {note}" if (note := waiting.disagree(res.cost_usd, _gateway_spend(res))) else ""),
+            + (f"; {note}" if (note := waiting.disagree(res.cost_usd, waiting.call_gateway_usd(res.gateway))) else ""),
             {"agent_call": summary},
         )
         return summary
-
-
-def _gateway_spend(res: AgentResult) -> float | None:
-    v = (res.gateway or {}).get("spend_usd")
-    return float(v) if isinstance(v, int | float) else None
 
 
 def read_transcript(artifacts: Path, name: str, limit: int = 5000) -> list[dict[str, Any]]:

@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 
 LimitKind = Literal["quota", "throttle"]
 
@@ -143,6 +143,27 @@ def usage_summary(model_usage: dict[str, dict[str, object]] | None) -> dict[str,
     return out
 
 
+def call_gateway_usd(gateway: dict[str, object] | None) -> float | None:
+    """The gateway's price of one call (its meter), or None when the call went direct."""
+    v = (gateway or {}).get("spend_usd")
+    return float(v) if isinstance(v, int | float) else None
+
+
+class Metered(Protocol):
+    cost_usd: float
+    gateway_spend_usd: float
+    budget_spend_usd: float
+
+
+def charge(change: Metered, cli_usd: float, gateway_usd: float | None) -> None:
+    """Add one finished agent call to a change's spend: both meters, and the change budget's sum (per
+    call the higher of the two, the same sum the gateway keeps in memory). Every agent call a change
+    pays for goes through here, so a restarted engine's budget and a running one's agree."""
+    change.cost_usd += cli_usd
+    change.gateway_spend_usd += gateway_usd or 0.0
+    change.budget_spend_usd += max(cli_usd, gateway_usd or 0.0)
+
+
 # ----------------------------------------------------------------- budgets --
 GATEWAY_BUDGET_TEXT = re.compile(r"budget has been exceeded|budget_exceeded|exceededbudget", re.IGNORECASE)
 
@@ -179,7 +200,7 @@ def budget_hold(u: BudgetUse) -> str:
     else:
         head = (
             f"model budget for this change reached: ${u.cap_usd:.2f} (model_gateway.change_budget_usd, "
-            "counted on the higher of the two meters)"
+            "counted per call on the higher of the two meters)"
         )
         todo = (
             "Resume stops here again until the cap allows another call: an admin can raise "

@@ -5518,6 +5518,11 @@
             "title": "Gateway Spend Usd",
             "default": 0.0
           },
+          "budget_spend_usd": {
+            "type": "number",
+            "title": "Budget Spend Usd",
+            "default": 0.0
+          },
           "spec_approved_by": {
             "anyOf": [
               {
@@ -8552,6 +8557,17 @@
               }
             ],
             "title": "Window"
+          },
+          "station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station"
           }
         },
         "type": "object",

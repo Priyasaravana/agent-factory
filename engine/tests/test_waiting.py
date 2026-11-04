@@ -146,3 +146,37 @@ async def test_a_call_over_its_budget_holds_naming_the_budget_and_both_meters(ma
     assert started.count("design") == 1, "never retried"
     calls = [e for e in f.store.list_events(change.id) if "agent_call" in e.data]
     assert any("the two cost meters disagree" in e.message for e in calls)
+
+
+class OverloadedOnce(FakeAgentRunner):
+    """The architect's first call is paid for, then fails as infra; its retry looks at what was saved."""
+
+    seen_saved: float | None = None
+    store = None
+
+    async def run(self, req: AgentRequest, sink):  # noqa: ANN001, ANN201
+        if req.role == "architect" and self.seen_saved is None:
+            self.seen_saved = -1.0
+            self.calls.append(req)
+            return AgentResult(
+                ok=False,
+                cost_usd=0.5,
+                error="success: ",
+                text="API Error: 529 overloaded_error",
+                gateway={"provider": "litellm", "key_alias": "k", "spend_usd": 0.7, "revoked": True},
+            )
+        if req.role == "architect" and self.seen_saved == -1.0:
+            self.seen_saved = self.store.get_change(req.change_id).budget_spend_usd
+            assert req.spent_usd == self.seen_saved
+        return await super().run(req, sink)
+
+
+async def test_a_paid_call_is_saved_before_the_station_goes_on(make_factory, cfg):
+    # review of #153: an engine stopping during the retry's backoff must not lose the first call's spend
+    cfg.budgets.infra_backoff_seconds = [0.0]
+    agents = OverloadedOnce()
+    f = make_factory(agents=agents)
+    agents.store = f.store
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    await wait_run(f, change.id)
+    assert agents.seen_saved == 0.7, "saved at call completion, the higher meter of that call"

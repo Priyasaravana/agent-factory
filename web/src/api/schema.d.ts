@@ -2171,6 +2171,11 @@ export interface components {
              * @default 0
              */
             gateway_spend_usd: number;
+            /**
+             * Budget Spend Usd
+             * @default 0
+             */
+            budget_spend_usd: number;
             /** Spec Approved By */
             spec_approved_by?: string | null;
             risk_hold?: components["schemas"]["RiskHold"] | null;
@@ -3460,6 +3465,8 @@ export interface components {
             throttles: number;
             /** Window */
             window?: string | null;
+            /** Station */
+            station?: string | null;
         };
         /**
          * PendingAction

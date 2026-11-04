@@ -268,6 +268,37 @@ async def test_an_environment_removed_while_paused_is_deployed_again_without_spe
     assert all(PROD not in c for c in e2e[:-1]), "acceptance never ran against production"
 
 
+@dataclass
+class VerifierThrottledTwice(FakeAgentRunner):
+    """The verifier is throttled on its first two calls."""
+
+    left: int = 2
+
+    async def run(self, req: AgentRequest, sink):  # noqa: ANN001, ANN201
+        if req.role == "verifier" and self.left:
+            self.left -= 1
+            self.calls.append(req)
+            return AgentResult(ok=False, rate_limited=True, error="temporarily limiting requests")
+        return await super().run(req, sink)
+
+
+async def test_a_redeploy_on_the_way_back_keeps_the_throttle_streak(make_factory, cfg):
+    # review of #153: deploy passing before the paused verifier runs again doesn't restart the backoff
+    _helm_target(cfg)
+    f = make_factory(FakeExecutor(), VerifierThrottledTwice())
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    assert f.store.get_change(change.id).pause.throttles == 1
+    assert await f.manager.sweep_validation() == [change.id]
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    again = f.store.get_change(change.id)
+    assert again.pause.throttles == 2 and again.pause.station == "acceptance", "the streak went on"
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_change(change.id).pause is None, "the paused step got through: streak over"
+
+
 async def test_a_cancelled_change_removes_its_environment(make_factory, cfg):
     _helm_target(cfg)
     ex, agents = FakeExecutor(), FakeAgentRunner(hang={"verifier": 30})

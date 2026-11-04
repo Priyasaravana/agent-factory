@@ -175,6 +175,37 @@ async def test_the_change_budget_counts_what_the_change_recorded_before_a_restar
     assert (await gw.open(CallScope("c-1", "implement", "developer", "sonnet", spent_usd=0.5))).key
 
 
+async def test_a_restart_counts_the_change_budget_the_same_way(monkeypatch):
+    # review of #153: calls priced $4/$1 and $1/$4 (CLI/gateway) are $8 to the running engine; the
+    # change's own record must say $8 too, or a restart reopens a $7 budget
+    from agent_factory import waiting
+    from agent_factory.models import Change
+
+    change = Change.model_validate(
+        {
+            "id": "c-1",
+            "product_id": "p",
+            "iteration": 1,
+            "status": "running",
+            "created_at": "2026-11-04T17:00:00Z",
+            "updated_at": "2026-11-04T17:00:00Z",
+        }
+    )
+    http = FakeLiteLLM()
+    gw = gateway(monkeypatch, http, change_budget_usd=7.0)
+    for cli, spend in ((4.0, 1.0), (1.0, 4.0)):
+        http.spend = spend
+        await gw.close(await gw.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd)), cost_usd=cli)
+        waiting.charge(change, cli, spend)
+    assert change.budget_spend_usd == gw.change_spend["c-1"] == pytest.approx(8.0)
+    assert (change.cost_usd, change.gateway_spend_usd) == (5.0, 5.0), "each meter is still its own"
+    with pytest.raises(GatewayRefused, match="budget"):
+        await gw.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd))
+    restarted = gateway(monkeypatch, FakeLiteLLM(), change_budget_usd=7.0)
+    with pytest.raises(GatewayRefused, match=r"\$8\.00 of \$7\.00"):
+        await restarted.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd))
+
+
 async def test_no_key_means_the_call_is_refused_not_run_direct(monkeypatch):
     with pytest.raises(GatewayRefused):
         await gateway(monkeypatch, FakeLiteLLM(generate_status=500)).open(SCOPE)

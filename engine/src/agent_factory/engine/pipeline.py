@@ -1235,7 +1235,10 @@ class ChangeManager:
                     return self._hold(change, sid, unrecorded)
 
             if result.outcome == StationOutcome.passed:
-                change.pause = None  # the throttle backoff starts again from the first step
+                if change.pause and change.pause.station in (None, sid):
+                    # the paused step got through: the throttle backoff starts again from the first step.
+                    # A prerequisite on the way back (a redeploy) doesn't end the streak
+                    change.pause = None
                 if sid in flow.repair_targets() or station.only_on_fail:
                     change.last_failure = None  # the station that consumed the evidence succeeded
                 if change.rework_requirements and station.resolved_handler() == "design":
@@ -1372,6 +1375,7 @@ class ChangeManager:
                     known=plan_.known,
                     throttles=plan_.throttles,
                     window=plan_.window,
+                    station=sid,
                 )
                 if plan_.give_up:
                     change.hold_class = "infra"

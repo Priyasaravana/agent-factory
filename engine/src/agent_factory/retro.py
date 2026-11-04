@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from agent_factory import waiting
 from agent_factory.agents.runner import AgentRequest
 from agent_factory.models import Change, Event, EventKind, LearningProposal, Product
 from agent_factory.observe import AgentCall
@@ -254,6 +255,7 @@ async def run_retro(mgr: ChangeManager, change: Change, product: Product) -> lis
         output_schema=RETRO_SCHEMA,
         protected_paths=[str(mgr.ws.data_dir / "holdout")],
         subagent_model=mgr.cfg.models.fast,
+        spent_usd=change.budget_spend_usd,
     )
 
     async def quiet(kind: str, data: dict[str, Any]) -> None:  # the retro's chatter is not run evidence
@@ -264,7 +266,7 @@ async def run_retro(mgr: ChangeManager, change: Change, product: Product) -> lis
 
     call = AgentCall(mgr.ws.data_dir / "artifacts" / change.id, "retro", "retro", req.model, emit)
     res = await mgr.agents.run(req, call.wrap(quiet))
-    change.cost_usd += res.cost_usd
+    waiting.charge(change, res.cost_usd, waiting.call_gateway_usd(res.gateway))
     await call.finish(res)
     if not res.ok or not isinstance(res.structured, dict):
         mgr.store.add_event(change.id, EventKind.log, "retro: no suggestions (the retro agent gave no answer)")

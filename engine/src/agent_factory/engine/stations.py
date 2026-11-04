@@ -378,6 +378,13 @@ class StationContext:
         then = "resume to try again" if f.retryable else "fix the factory's setup, then resume"
         self.stop = Stop(f.cls, f"infrastructure: {f.cause}{tried}; {then}", evidence, f.rule)
 
+    def _charge(self, res: AgentResult) -> None:
+        """Add one finished call to the change's spend and save it at once, so a restart in the middle
+        of a station (a retry's backoff, a second call) still counts it. The change budget adds the
+        higher of the two meters per call, the same sum the gateway keeps (L-5)."""
+        waiting.charge(self.change, res.cost_usd, _gateway_usd(res))
+        self.store.save_change(self.change)
+
     def _stop_budget(self, f: Failure, res: AgentResult, role: str) -> None:
         """A model budget stopped the call: hold, budget first (UX-15). Never raised or retried."""
         g = self.cfg.model_gateway
@@ -479,7 +486,7 @@ class StationContext:
             subagent_model=self.cfg.models.fast,
             egress=list(self.pack_egress),
             secret_env=dict(secret_env or {}),
-            spent_usd=max(self.change.cost_usd, self.change.gateway_spend_usd),
+            spent_usd=self.change.budget_spend_usd,
         )
         attempt = 0
         while True:
@@ -493,8 +500,7 @@ class StationContext:
                 preloaded=preload,
             )
             res = await self._watched(req, call.wrap(sink))
-            self.change.cost_usd += res.cost_usd
-            self.change.gateway_spend_usd += _gateway_usd(res) or 0.0
+            self._charge(res)
             await call.finish(res)
             if res.ok or res.rate_limited or self.stop is not None:
                 return res
@@ -664,8 +670,7 @@ def _limit_result(res: AgentResult) -> StationResult | None:
 
 def _gateway_usd(res: AgentResult) -> float | None:
     """The gateway's price of the call (its meter), or None when the call went direct."""
-    v = (res.gateway or {}).get("spend_usd")
-    return float(v) if isinstance(v, int | float) else None
+    return waiting.call_gateway_usd(res.gateway)
 
 
 def _read(p: Path) -> str:

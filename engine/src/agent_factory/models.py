@@ -236,6 +236,9 @@ class Change(BaseModel):
     # and, with a model gateway (ADR-0036), the gateway's, which its per-call cap is enforced on
     cost_usd: float = 0.0
     gateway_spend_usd: float = 0.0
+    # what the change budget (model_gateway.change_budget_usd) counts: per call, the higher of the two
+    # meters, summed. The gateway keeps the same sum in memory; this copy survives a restart.
+    budget_spend_usd: float = 0.0
     spec_approved_by: str | None = None  # spec review gate
     # change risk (ADR-0027): the findings now waiting, and every approval given
     risk_hold: RiskHold | None = None
@@ -376,6 +379,7 @@ class Pause(BaseModel):
     known: bool  # True: the provider stated the time; False: the factory's estimate
     throttles: int = 0  # throttle pauses in a row, for the backoff (reset when a station passes)
     window: str | None = None  # quota: which window ("five-hour", "weekly")
+    station: str | None = None  # the paused station: only its pass ends a throttle streak
 
 
 class SchemaApproval(BaseModel):
