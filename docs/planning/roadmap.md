@@ -47,6 +47,13 @@ The remaining usability findings wait in the backlog until J2 is done.
 1. **Blue/green fails closed (L-3, ~½ day):** once production runs two colours, any reason to promote in place
    holds with that reason instead; the kept colour (the rollback target) is never removed by a fallback. Before
    any further blue/green run.
+   🔄 **In review, `fix/blue-green-fail-closed` (2026-11-04):** `blue_green.in_place_refused` (pure) and the
+   stations' `_keep_colors`, checked at both places production is changed in place: `deploy` for a change
+   validated in place, and `promote` before announcing a fallback. On a production running two colours (or green
+   alone) a blue/green product holds as a person's decision (`RequiredAction` `colors_in_place`, "Release this
+   change in place" under "Needs you"), production untouched; resume only once the product is set to In place
+   under Releases. A layout that can't be read holds as `infra`. Tests in `tests/test_blue_green.py`, including
+   UX-20's case (the render check missing the colours).
 2. **Cut-off output as a class (~1.5 days):** the executor keeps the full output in a file and marks a result
    `truncated`; code that decides on output reads structured output or refuses a truncated result, and a test
    finds decision code reading `.output`. Covers UX-13 (failing assertion kept apart from server logs), L-1

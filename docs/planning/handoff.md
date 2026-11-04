@@ -4,6 +4,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-04)
+- **In review, `fix/blue-green-fail-closed` (2026-11-04):** item 1 of "Now" (L-3). A blue/green product never
+  goes out in place over a production running two colours: `deploy` (validated in place) and `promote` (a
+  fallback such as UX-20's missed colours) hold with `colors_in_place` instead, production untouched; resuming
+  needs the product set to In place under Releases. Open for Saravana: whether a hold whose cause a person fixes
+  elsewhere (e.g. the idle colour's address taken by another product) should resume without In place; today it
+  needs In place or a cancel. **Next:** item 2, cut-off output as a class.
 - **Live campaign closed 2026-11-04 01:42** ($21.05 of $25; main `cd20e55`). Proved: in-place → blue/green migration
   (Expense iteration 2), one product blue/green and one in place (Kudos iteration 4), temporary validation and
   promotion of the tested image, rollback of an idle-colour failure before the switch (`e56fb20c67ad`). Not proved:

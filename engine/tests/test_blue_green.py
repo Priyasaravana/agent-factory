@@ -88,6 +88,21 @@ def test_why_a_blue_green_product_is_promoted_in_place():
     assert "Bookmarks next" in (blue_green.in_place_reason(helm, True, True, "Bookmarks next") or "")
 
 
+def test_in_place_is_refused_once_production_keeps_a_second_colour():
+    """L-3 (2026-11-04): a fallback reason never removes a colour production keeps."""
+    why = "the product's chart predates blue/green: it renders no colours"
+    assert blue_green.in_place_refused(None, why) is None, "nothing installed"
+    assert blue_green.in_place_refused(blue_green.Layout("in-place", "blue", {"blue": "a:1"}), why) is None
+    assert blue_green.in_place_refused(blue_green.Layout("blue-green", "blue", {"blue": "a:1"}), why) is None
+    kept = blue_green.in_place_refused(blue_green.Layout("blue-green", "green", {"blue": "a:1", "green": "a:2"}), why)
+    assert kept and "users on green, blue kept for the switch back" in kept and "the colour users are on" in kept
+    assert why in kept and "In place under Releases" in kept and "Nothing was changed" in kept
+    back = blue_green.in_place_refused(blue_green.Layout("blue-green", "blue", {"blue": "a:3", "green": "a:2"}), why)
+    assert back and "green, the rollback target" in back
+    alone = blue_green.in_place_refused(blue_green.Layout("blue-green", "green", {"green": "a:2"}), why)
+    assert alone and "users on green)" in alone, "green alone serving is removed by in place too"
+
+
 def test_a_chart_renders_colours_only_when_it_knows_them():
     assert blue_green.renders_colors("app.kubernetes.io/color: blue\n...\napp.kubernetes.io/color: green")
     assert not blue_green.renders_colors("kind: Deployment\napp.kubernetes.io/component: api")
@@ -226,6 +241,100 @@ async def test_a_chart_without_colours_is_promoted_in_place_and_says_why(make_fa
     assert product.release is not None and product.release.color is None
     why = next(m for m in _messages(f, first) if m.startswith("blue/green (product's choice) not possible"))
     assert "predates blue/green" in why
+
+
+async def _two_colours(f, ex: FakeExecutor) -> tuple[Product, Release]:
+    """A blue/green product whose second iteration switched users to green, blue kept."""
+    product, _ = await _blue_green_product(f)
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback, _messages(f, second.id)[-5:]
+    product = f.store.get_product(product.id)
+    values = ex.helm.releases["bookmarks-service"][-1]["values"]
+    assert product.release.color == "green" and set(FakeHelm.images(values)) == {"blue", "green"}
+    return product, product.release
+
+
+def _assert_kept(f, ex: FakeExecutor, change_id: str, healthy: Release, upgrades: int, why: str) -> None:
+    held = f.store.get_change(change_id)
+    assert held.status == ChangeStatus.held and held.hold_class == "decision", _messages(f, change_id)[-5:]
+    assert held.required_action is not None and held.required_action.kind == "colors_in_place"
+    assert "users on green, blue kept for the switch back" in held.summary and why in held.summary
+    assert len(_prod_upgrades(ex)) == upgrades, "production untouched"
+    values = ex.helm.releases["bookmarks-service"][-1]["values"]
+    assert FakeHelm.images(values) == {"blue": FakeHelm.images(values)["blue"], "green": healthy.image}
+    assert f.store.get_product(held.product_id).release == healthy
+    assert not [c for c in ex.calls if " rollback " in c], "nothing to roll back: nothing was touched"
+    assert not any(", promoting in place: " in m for m in _messages(f, change_id)), "never says it did"
+    [action] = pending_actions(f.store.get_product(held.product_id), held, NOW)
+    assert action.kind == "approve_schema" and action.title == "Release this change in place"
+
+
+async def test_a_fallback_never_removes_the_kept_colour(make_factory, cfg):
+    """L-3 / UX-20 (2026-11-03): the chart seemed to render no colours, and promote fell back to in
+    place over production's two colours, removing the rollback target. Now it holds instead."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, healthy = await _two_colours(f, ex)
+    upgrades = len(_prod_upgrades(ex))
+    ex.fail_on.append("blueGreen.blue.repository=probe/app")  # the render check misses the colours
+    third = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, third.id) == ChangeStatus.held
+    _assert_kept(f, ex, third.id, healthy, upgrades, "predates blue/green")
+    with pytest.raises(Exception, match="not yet"):
+        f.manager.resume(third.id)  # still blue/green: resuming would only hold again
+
+    product = f.store.get_product(product.id)
+    product.deploy_strategy = "in-place"  # a person releases it in place, knowing blue goes
+    f.store.save_product(product)
+    f.manager.resume(third.id)
+    assert await wait_run(f, third.id) == ChangeStatus.awaiting_feedback, _messages(f, third.id)[-5:]
+    assert "strategy=blue-green" not in _prod_upgrades(ex)[-1]
+    assert f.store.get_product(product.id).release.change_id == third.id
+
+
+async def test_a_change_validated_in_place_never_removes_the_kept_colour(make_factory, cfg, monkeypatch):
+    """L-3: a lane or target without a temporary environment deploys over production at `deploy`;
+    on two colours that holds before production is touched."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, healthy = await _two_colours(f, ex)
+    upgrades = len(_prod_upgrades(ex))
+    monkeypatch.setattr(HelmProvider, "validates_separately", False)
+    third = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, third.id) == ChangeStatus.held
+    assert f.store.get_change(third.id).current_station == "deploy"
+    _assert_kept(f, ex, third.id, healthy, upgrades, "validated in place")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        'Error: Kubernetes cluster unreachable: context "kind-ingress" not found',  # review of #150
+        'Error: namespaces "app-bookmarks-service" not found',
+        "Error: UPGRADE FAILED: chart not found",
+        "Error: could not reach the API server",
+    ],
+)
+async def test_production_that_cant_be_read_is_never_released_in_place(make_factory, cfg, monkeypatch, error: str):
+    """Only Helm's own "release: not found" means nothing is installed; any other failure, even one
+    that says "not found", holds without touching production."""
+    _helm_target(cfg)
+    needle = "get values bookmarks-service"
+    ex = FakeExecutor(fail_with={needle: error})
+    f = make_factory(ex)
+    product, _ = await _two_colours(f, ex)
+    upgrades = len(_prod_upgrades(ex))
+    monkeypatch.setattr(HelmProvider, "validates_separately", False)
+    ex.fail_on.extend([needle] * 10)
+    f.manager.cfg.budgets.infra_backoff_seconds = [0.0]
+    third = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, third.id) == ChangeStatus.held
+    held = f.store.get_change(third.id)
+    assert held.hold_class == "infra" and "can't tell whether production runs two colours" in held.summary
+    assert error in held.summary, "the hold names what Helm said"
+    assert len(_prod_upgrades(ex)) == upgrades, "no production upgrade"
 
 
 async def test_one_product_runs_blue_green_while_another_stays_in_place(make_factory, cfg):

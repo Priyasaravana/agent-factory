@@ -9260,7 +9260,8 @@
             "enum": [
               "accept_risk",
               "approve_schema",
-              "schema_in_place"
+              "schema_in_place",
+              "colors_in_place"
             ],
             "title": "Kind"
           },

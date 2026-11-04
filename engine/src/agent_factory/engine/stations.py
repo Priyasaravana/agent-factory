@@ -1570,12 +1570,54 @@ def internal_url(ctx: StationContext) -> str:
 
 async def deploy(ctx: StationContext) -> StationResult:
     """Deploy the change's image: to its temporary validation environment when it has one
-    (`ctx.slot`, ADR-0046 slice 2), production untouched; else in place, over production."""
+    (`ctx.slot`, ADR-0046 slice 2), production untouched; else in place, over production, unless
+    that would remove a colour production keeps (L-3)."""
     ref = ctx.providers.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
     if ctx.slot:
         return await _deploy_for_validation(ctx, ref)
+    if refused := await _keep_colors(ctx, VALIDATED_IN_PLACE):
+        return refused
     result, _ = await _deploy_production(ctx, ref)
     return result
+
+
+VALIDATED_IN_PLACE = "the change was validated in place, so there is no tested image to stage beside production"
+
+
+async def _keep_colors(ctx: StationContext, why: str) -> StationResult | None:
+    """Fail closed (L-3, decided 2026-11-04): before anything goes over production in place, a product
+    that promotes blue/green (by its own or its pack's choice) must not run two colours there; an
+    in-place release would remove the kept one, the rollback target. Holds for a person instead, with
+    `why` the change would have gone in place; only setting the product to In place under Releases
+    releases it in place. Production is never touched here. None: nothing to keep."""
+    pack = ctx.blueprint.pack_binding
+    strategy, by = blue_green.chosen(ctx.product.deploy_strategy, pack.deploy_strategy if pack else None)
+    read = getattr(ctx.providers.deploy, "layout", None)
+    if strategy != blue_green.BLUE_GREEN or not callable(read):
+        return None  # chosen in place, or a target that never runs colours
+    current, problem = await read(ctx)
+    if problem:
+        cause = f"can't tell whether production runs two colours, so nothing goes out in place ({why}): {problem}"
+        ctx.stop = Stop(FailureClass.infra, cause, rule="blue_green_unknown")
+        return StationResult(StationOutcome.failed, cause)
+    refused = blue_green.in_place_refused(current, why)
+    if refused is None:
+        return None
+    assert current is not None  # noqa: S101 - in_place_refused only refuses a layout
+    await ctx.emit(
+        EventKind.decision,
+        refused,
+        {"strategy": {"chosen": strategy, "by": by, "used": None, "why": why, "live": current.live,
+                      "colors": sorted(current.images)}, "rule": "in_place_refused"},
+    )  # fmt: skip
+    # a person's decision, with the action named (ADR-0043 §4); production was never touched
+    return StationResult(
+        StationOutcome.held,
+        refused,
+        required=RequiredAction(
+            kind="colors_in_place", text="Set this product to In place under Releases, then resume."
+        ),
+    )
 
 
 async def _deploy_for_validation(ctx: StationContext, ref: ImageRef) -> StationResult:
@@ -1702,8 +1744,18 @@ async def promote(ctx: StationContext) -> StationResult:
         ctx.stop = Stop(FailureClass.infra, why, rule="promote_unidentified")
         return StationResult(StationOutcome.failed, why)
     assert v.image is not None  # noqa: S101 - promote_problems checked it
-    if await _blue_green(ctx):
+    fallback = await _blue_green_fallback(ctx)
+    if fallback is None:
         return await _promote_blue_green(ctx, v)
+    if fallback:  # blue/green chosen but not possible: never at the cost of a kept colour (L-3)
+        if refused := await _keep_colors(ctx, fallback["why"]):
+            return refused
+        await ctx.emit(
+            EventKind.decision,
+            f"blue/green ({fallback['by']}'s choice) not possible for this change, promoting in place: "
+            f"{fallback['why']}",
+            {"strategy": fallback},
+        )
     repository, tag = v.image.rsplit(":", 1)
     await ctx.emit(
         EventKind.decision,
@@ -1725,13 +1777,15 @@ async def promote(ctx: StationContext) -> StationResult:
     )
 
 
-async def _blue_green(ctx: StationContext) -> bool:
-    """This product promotes blue/green (ADR-0046 slice 4): chosen by the product or its pack, and
-    possible now. When it isn't, the change is promoted in place and the event log says why."""
+async def _blue_green_fallback(ctx: StationContext) -> dict[str, str] | None:
+    """Whether this change is promoted blue/green (ADR-0046 slice 4): None, yes (chosen by the product
+    or its pack, and possible now); {} no, in place was chosen; else in place although blue/green was
+    chosen, and why (the event's data). The caller checks a fallback against the colours production
+    keeps (L-3) before announcing it."""
     pack = ctx.blueprint.pack_binding
     strategy, by = blue_green.chosen(ctx.product.deploy_strategy, pack.deploy_strategy if pack else None)
     if strategy != blue_green.BLUE_GREEN:
-        return False
+        return {}
     deploy_p = ctx.providers.deploy
     renders = getattr(deploy_p, "renders_colors", None)
     preview = blue_green.preview_release(ctx.product.slug)
@@ -1743,13 +1797,8 @@ async def _blue_green(ctx: StationContext) -> bool:
         preview_taken_by=taken,
     )
     if why:
-        await ctx.emit(
-            EventKind.decision,
-            f"blue/green ({by}'s choice) not possible for this change, promoting in place: {why}",
-            {"strategy": {"chosen": strategy, "by": by, "used": blue_green.IN_PLACE, "why": why}},
-        )
-        return False
-    return True
+        return {"chosen": strategy, "by": by, "used": blue_green.IN_PLACE, "why": why}
+    return None
 
 
 async def _promote_blue_green(ctx: StationContext, v: Validation) -> StationResult:

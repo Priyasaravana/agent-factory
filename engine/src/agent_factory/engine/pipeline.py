@@ -1401,7 +1401,7 @@ class ChangeManager:
                 and (it.accepted_until is None or it.accepted_until > now)
                 for i in need.items
             )
-        if need.kind in ("approve_schema", "schema_in_place"):  # ADR-0046 slice 4
+        if need.kind in ("approve_schema", "schema_in_place", "colors_in_place"):  # ADR-0046 slice 4, L-3
             if not self._blue_green(change):
                 return True  # set to in place: promotion no longer keeps the old version running
             ok = change.schema_approval

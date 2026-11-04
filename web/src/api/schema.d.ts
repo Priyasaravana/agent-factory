@@ -3751,7 +3751,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "accept_risk" | "approve_schema" | "schema_in_place";
+            kind: "accept_risk" | "approve_schema" | "schema_in_place" | "colors_in_place";
             /** Text */
             text: string;
             /** Items */
