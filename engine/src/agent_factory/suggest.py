@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import ledger
+from agent_factory import ledger, waiting
 from agent_factory.agents.runner import AgentRequest
 from agent_factory.models import Change, ChangeKind, ChangeStatus, EventKind, Product, ProductTarget, WorkItem
 from agent_factory.observe import AgentCall
@@ -202,10 +202,11 @@ async def run_suggestions(mgr: ChangeManager, change: Change, product: Product) 
             output_schema=SUGGEST_SCHEMA,
             protected_paths=[str(mgr.ws.data_dir / "holdout")],
             subagent_model=mgr.cfg.models.fast,
+            spent_usd=change.budget_spend_usd,
         )
         call = AgentCall(artifacts, "suggest", role, req.model, emit)
         res = await mgr.agents.run(req, call.wrap(quiet))
-        change.cost_usd += res.cost_usd
+        waiting.charge(change, res.cost_usd, waiting.call_gateway_usd(res.gateway))
         await call.finish(res)
         if res.ok and isinstance(res.structured, dict):
             raw[role] = list(res.structured.get("suggestions") or [])

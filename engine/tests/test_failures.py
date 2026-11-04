@@ -23,6 +23,7 @@ WORK_AGENT = [
     ("error_max_turns: ", "I ran out of turns while fixing the rate limiter (429 Too Many Requests)."),
     (None, "curl: (7) Failed to connect: connection refused — the app isn't listening on 8081"),
     ("success: ", "The overloaded endpoint now returns 503 Service Unavailable as the spec asks."),
+    ("success: ", "Expenses over the monthly budget are now flagged red, as R4 asks."),
 ]
 
 
@@ -33,6 +34,14 @@ WORK_AGENT = [
         (None, "Failed to authenticate. API Error: 401 invalid x-api-key", "auth_failed", FailureClass.infra, True),
         ("model gateway: model gateway unreachable: URLError: refused", "", "gateway_down", FailureClass.infra, True),
         ("model gateway: model gateway refused a key (503)", "", "gateway_down", FailureClass.infra, True),
+        (
+            "success: ",
+            'API Error: 400 {"error":{"message":"Budget has been exceeded! Current cost: 5.01, Max budget: 5.0",'
+            '"type":"budget_exceeded"}}',
+            "call_budget",
+            FailureClass.decision,
+            False,
+        ),
         (
             "model gateway: model budget for this change reached ($20.10 of $20.00)",
             "",

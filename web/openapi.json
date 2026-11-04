@@ -5487,6 +5487,16 @@
             ],
             "title": "Resume At"
           },
+          "pause": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Pause"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "summary": {
             "anyOf": [
               {
@@ -5501,6 +5511,16 @@
           "cost_usd": {
             "type": "number",
             "title": "Cost Usd",
+            "default": 0.0
+          },
+          "gateway_spend_usd": {
+            "type": "number",
+            "title": "Gateway Spend Usd",
+            "default": 0.0
+          },
+          "budget_spend_usd": {
+            "type": "number",
+            "title": "Budget Spend Usd",
             "default": 0.0
           },
           "spec_approved_by": {
@@ -8502,6 +8522,62 @@
           "ok"
         ],
         "title": "PackAdvisorySignal"
+      },
+      "Pause": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "quota",
+              "throttle"
+            ],
+            "title": "Kind"
+          },
+          "resume_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resume At"
+          },
+          "known": {
+            "type": "boolean",
+            "title": "Known"
+          },
+          "throttles": {
+            "type": "integer",
+            "title": "Throttles",
+            "default": 0
+          },
+          "window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window"
+          },
+          "station": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Station"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "resume_at",
+          "known"
+        ],
+        "title": "Pause",
+        "description": "Why a paused change waits and until when (UX-18): a spent subscription window (`quota`, its\nreset from the provider) or a provider throttle (`throttle`, an estimate). `known` says which."
       },
       "PendingAction": {
         "properties": {

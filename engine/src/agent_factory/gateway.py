@@ -59,6 +59,7 @@ class CallScope:
     station: str
     role: str
     model: str
+    spent_usd: float = 0.0  # the change's recorded spend before this call (higher meter)
 
 
 @dataclass
@@ -236,7 +237,8 @@ class LiteLLMGateway:
         return self.state
 
     async def open(self, scope: CallScope) -> GatewaySession:
-        spent = self.change_spend.get(scope.change_id, 0.0)
+        # what this engine counted, or what the change recorded (it survives a restart; this map doesn't)
+        spent = max(self.change_spend.get(scope.change_id, 0.0), scope.spent_usd)
         if not change_budget_left(spent, self.cfg.change_budget_usd):
             raise GatewayRefused(
                 f"model budget for this change reached (${spent:.2f} of ${self.cfg.change_budget_usd:.2f})"

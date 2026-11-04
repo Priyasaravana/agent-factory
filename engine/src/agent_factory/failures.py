@@ -162,6 +162,15 @@ AGENT_RULES: tuple[Rule, ...] = (
         retryable=False,
     ),
     Rule(
+        # the gateway's per-call cap (LiteLLM: "Budget has been exceeded", type budget_exceeded): a
+        # person's call (UX-15), never a work failure routed to repair, never retried
+        "call_budget",
+        r"budget has been exceeded|budget_exceeded|exceededbudget",
+        FailureClass.decision,
+        "the model budget for one agent call is used up",
+        retryable=False,
+    ),
+    Rule(
         "gateway_setup",
         r"model gateway admin key not set",
         FailureClass.infra,

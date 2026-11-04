@@ -224,7 +224,9 @@ class VerifierLimited(FakeAgentRunner):
         return await super().run(req, sink)
 
 
-async def test_a_stopped_change_removes_its_environment_and_deploys_a_new_one_on_resume(make_factory, cfg):
+async def test_a_paused_change_keeps_its_environment_and_resumes_the_paused_step(make_factory, cfg):
+    # UX-18: a pause is not a stop. The temporary environment stays, and the change resumes the verifier
+    # against it instead of deploying and running e2e again on every wake
     _helm_target(cfg)
     ex = FakeExecutor()
     f = make_factory(ex, VerifierLimited())
@@ -233,17 +235,68 @@ async def test_a_stopped_change_removes_its_environment_and_deploys_a_new_one_on
     assert await wait_run(f, change.id) == ChangeStatus.paused_limits
     temp = f"bookmarks-service-c{change.id}"
     paused = f.store.get_change(change.id)
-    assert paused.current_station == "acceptance" and paused.validation.removed_at is not None
-    assert any(f"helm uninstall {temp} " in c for c in ex.calls), "removed while the change waits"
+    assert paused.current_station == "acceptance" and paused.validation.removed_at is None
+    assert not any(f"helm uninstall {temp} " in c for c in ex.calls), "kept while the change waits"
 
     f.manager.resume(change.id)
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert len(_upgrades(ex, temp)) == 1, "no second temporary environment"
+    assert any(f"helm uninstall {temp} " in c for c in ex.calls), "removed once the change stopped"
+
+
+async def test_an_environment_removed_while_paused_is_deployed_again_without_spending_an_attempt(make_factory, cfg):
+    # a restart's sweep removes a paused change's environment: acceptance never tests production instead,
+    # and the redeploy is not one of deploy's attempts (UX-19)
+    _helm_target(cfg)
+    cfg.budgets.max_attempts_per_station = 1
+    ex = FakeExecutor()
+    f = make_factory(ex, VerifierLimited())
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    temp = f"bookmarks-service-c{change.id}"
+    assert await f.manager.sweep_validation() == [change.id]
+
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback, "deploy's one attempt was not used up"
     assert len(_upgrades(ex, temp)) == 2, "a new temporary environment before acceptance"
     assert any(
-        m.startswith("the temporary environment was removed when the change stopped") for m in _messages(f, change.id)
+        m.startswith("the temporary environment was removed when the change stopped") and "not counted" in m
+        for m in _messages(f, change.id)
     )
     e2e = [c for c in ex.calls if "E2E_BASE_URL=" in c]
     assert all(PROD not in c for c in e2e[:-1]), "acceptance never ran against production"
+
+
+@dataclass
+class VerifierThrottledTwice(FakeAgentRunner):
+    """The verifier is throttled on its first two calls."""
+
+    left: int = 2
+
+    async def run(self, req: AgentRequest, sink):  # noqa: ANN001, ANN201
+        if req.role == "verifier" and self.left:
+            self.left -= 1
+            self.calls.append(req)
+            return AgentResult(ok=False, rate_limited=True, error="temporarily limiting requests")
+        return await super().run(req, sink)
+
+
+async def test_a_redeploy_on_the_way_back_keeps_the_throttle_streak(make_factory, cfg):
+    # review of #153: deploy passing before the paused verifier runs again doesn't restart the backoff
+    _helm_target(cfg)
+    f = make_factory(FakeExecutor(), VerifierThrottledTwice())
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    assert f.store.get_change(change.id).pause.throttles == 1
+    assert await f.manager.sweep_validation() == [change.id]
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.paused_limits
+    again = f.store.get_change(change.id)
+    assert again.pause.throttles == 2 and again.pause.station == "acceptance", "the streak went on"
+    f.manager.resume(change.id)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_change(change.id).pause is None, "the paused step got through: streak over"
 
 
 async def test_a_cancelled_change_removes_its_environment(make_factory, cfg):

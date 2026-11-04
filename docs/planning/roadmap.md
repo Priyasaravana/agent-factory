@@ -54,7 +54,7 @@ The remaining usability findings wait in the backlog until J2 is done.
    change in place" under "Needs you"), production untouched; resume only once the product is set to In place
    under Releases. A layout that can't be read holds as `infra`. Tests in `tests/test_blue_green.py`, including
    UX-20's case (the render check missing the colours).
-   🔄 **Follow-up in review, `fix/blue-green-resume` (decided by Saravana 2026-11-04, review of #151):** a
+   ✅ **Follow-up merged 2026-11-04 (#152, `5e7af04`), was `fix/blue-green-resume` (decided by Saravana 2026-11-04, review of #151):** a
    Resume without In place runs the blue/green checks again, so a cause a person fixed elsewhere carries
    on blue/green; if they still fail it holds again, production untouched. In place stays a separate choice.
 2. **Cut-off output as a class (~1.5 days):** the executor keeps the full output in a file and marks a result
@@ -63,7 +63,7 @@ The remaining usability findings wait in the backlog until J2 is done.
    (team-repo scan scope, a security check failing open), L-2 (design-doc guard), the call sites #147/#148
    fixed, and **UX-16** (the card's ticked item reaches intake whole, not `detail[:400]`; test: a suggestion with
    10 requirements arrives whole).
-   🔄 **In review, `fix/truncated-output` (2026-11-04):** `CommandResult` keeps the tail in `output` (for
+   ✅ **Merged 2026-11-04 (#151, `caef083`), was `fix/truncated-output`:** `CommandResult` keeps the tail in `output` (for
    people and the event log) and the complete output behind `whole()` / `lines()`, with `truncated` set;
    `whole()` raises `OutputCutOff` when only the tail is known (past 32 MB, or a source that kept only the
    tail). Every decision on a command's output reads it whole: L-1 (`_changed_files`, which also stops
@@ -80,6 +80,28 @@ The remaining usability findings wait in the backlog until J2 is done.
    not the whole acceptance; a re-entry caused by a pause doesn't count against the station's attempts (UX-19);
    a budget hold names the budget, its source, both meters and what to do (UX-15). The full waiting-state model
    (UX-12, UX-14, L-4) follows in the backlog.
+   🔄 **In review, `fix/waiting-budgets` (2026-11-04):** `waiting.py` (pure). **L-5 confirmed from the code:**
+   a change's spend (`cost_usd`, so the campaign's $21.05) is the agent CLI's meter only; `max(CLI, gateway)`
+   fed just the gateway's in-memory change budget, which a restart reset to nothing. Now the change records
+   both meters (`gateway_spend_usd` beside `cost_usd`, both on the change card), the change budget counts
+   from the change's recorded spend (`CallScope.spent_usd`), and each agent call keeps its tokens per model
+   (input, output, cache read/write, the CLI's price) and says when the meters disagree. **The cause of the
+   ~6× gap is not proved yet** (likely the gateway pricing cache reads differently): the next live run's
+   agent-call events carry what's needed. UX-15: the gateway's per-call cap (`budget_exceeded`) is a new
+   failure rule, `decision`, never routed to repair or retried; the hold leads with the budget (which cap,
+   where it's set, both meters for the call and the change, what to do) and the factory never raises a cap.
+   UX-18: a refusal is a **quota** (a named window, reset from the provider, or an estimate labelled so) or a
+   **throttle** (the CLI's "not your usage limit", or no window: backoff 2→4→8→16→30 minutes, always labelled
+   an estimate, never the quota's reset; after 8 in a row it holds for a person). `Change.pause` says which;
+   "Needs you" and the summary say it. A paused change **keeps its temporary environment** and resumes the
+   paused station (production is still settled; a restart's sweep removes it). UX-19: a pause never counts as
+   an attempt, and redeploying an environment removed by a stop isn't one of deploy's. Tests in
+   `tests/test_waiting.py`, plus cases in `test_failures`, `test_gateway`, `test_attention`, `test_pipeline`,
+   `test_validation_env`. **Review fixes (2026-11-04):** the change budget is one sum on both paths (per call the
+   higher meter, `Change.budget_spend_usd`, through `waiting.charge` for station, retro and suggestion calls),
+   saved at each call's completion, so a restart neither reopens a spent budget nor loses a paid call; a throttle
+   streak ends only when the paused station passes, not a redeploy on the way back. A change saved before
+   the field starts its budget from the spend it recorded (the higher meter), never from zero.
 4. **Phones checked, not estimated (UX-04, ~½ day; decided 2026-11-04: now, with this set):** the pack's e2e
    fails a route that scrolls sideways at 390 px, beside the tap-target check (nextjs-web patch release); a
    serious UI-review defect is shown in the delivery status and offered on the next iteration's card.

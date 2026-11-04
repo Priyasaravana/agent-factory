@@ -22,6 +22,9 @@ class FakeAgentRunner:
     # questions intake asks on its first call (simulates needs_input)
     intake_questions: list[str] = field(default_factory=list)
     rate_limit_once: bool = False
+    # the window the simulated refusal names (`five_hour`: a spent quota); None: a provider throttle
+    rate_limit_type: str | None = None
+    rate_limit_resets_at: int | None = None
     # roles whose first call tries something a guardrail refuses (simulates a denial)
     deny_once: list[str] = field(default_factory=list)
     # open questions intake records for the architect (ADR-0044 §1)
@@ -78,7 +81,8 @@ class FakeAgentRunner:
                 ok=False,
                 rate_limited=True,
                 limit_utilization=1.0,
-                limit_resets_at=None,
+                limit_resets_at=self.rate_limit_resets_at,
+                limit_type=self.rate_limit_type,
                 error="rate limited (simulated)",
             )
 

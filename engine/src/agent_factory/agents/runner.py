@@ -15,10 +15,11 @@ import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from agent_factory.agents.hooks import build_hooks
 from agent_factory.gateway import CallScope, DirectGateway, GatewayRefused, GatewaySession, ModelGateway
+from agent_factory.waiting import usage_summary
 
 if TYPE_CHECKING:
     from agent_factory.sandbox import SandboxManager
@@ -57,6 +58,9 @@ class AgentRequest:
     # credentials this session needs on purpose, passed through the environment by name (ADR-0044 §3:
     # the deployed app's admin, for the verifier). Values are redacted; never put them in the prompt.
     secret_env: dict[str, str] = field(default_factory=dict)
+    # the change's model spend so far, the higher of its two meters (L-5): the change budget counts
+    # from it, so a restart of the engine doesn't start the budget again from nothing
+    spent_usd: float = 0.0
 
 
 @dataclass
@@ -70,6 +74,8 @@ class AgentResult:
     rate_limited: bool = False
     limit_utilization: float | None = None
     limit_resets_at: int | None = None
+    limit_type: str | None = None  # the window a refusal applies to (`five_hour`, ...); None = not stated
+    usage: dict[str, dict[str, float]] = field(default_factory=dict)  # per model: tokens and the CLI's price
     gateway: dict[str, Any] | None = None  # model gateway info for this call (ADR-0036); None = direct
 
 
@@ -142,7 +148,7 @@ class ClaudeAgentRunner:
     async def run(self, req: AgentRequest, sink: EventSink) -> AgentResult:
         """One agent call: a gateway session (virtual key) around one sandboxed CLI session."""
         try:
-            session = await self.gateway.open(CallScope(req.change_id, req.station, req.role, req.model))
+            session = await self.gateway.open(CallScope(req.change_id, req.station, req.role, req.model, req.spent_usd))
         except GatewayRefused as exc:
             return AgentResult(ok=False, error=f"model gateway: {exc}")
         if session.provider != "direct":
@@ -286,14 +292,21 @@ class ClaudeAgentRunner:
                     result.limit_resets_at = info.resets_at
                     if info.status == "rejected":
                         result.rate_limited = True
+                        result.limit_type = info.rate_limit_type
                     await sink(
                         "rate_limit",
-                        {"status": info.status, "utilization": info.utilization, "resets_at": info.resets_at},
+                        {
+                            "status": info.status,
+                            "utilization": info.utilization,
+                            "resets_at": info.resets_at,
+                            "type": info.rate_limit_type,
+                        },
                     )
                 elif isinstance(msg, SystemMessage) and msg.subtype == "init":
                     await sink("agent_init", init_summary(msg.data, req))
                 elif isinstance(msg, ResultMessage):
                     result.cost_usd = msg.total_cost_usd or 0.0
+                    result.usage = usage_summary(cast("dict[str, dict[str, object]] | None", msg.model_usage))
                     result.turns = msg.num_turns
                     await sink(
                         "transcript",

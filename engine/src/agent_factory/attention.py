@@ -135,11 +135,24 @@ def pending_actions(product: Product | None, change: Change, since: datetime) ->
         return [act("resume", "Resume the change", "The factory restarted while it was running.", "hold")]
 
     if st == ChangeStatus.paused_limits:
+        p = change.pause
+        if p is not None and p.kind == "throttle":
+            title = "Nothing to do: the model provider is rate limiting"
+            when = f"about {p.resume_at:%H:%M} (estimate)"
+        else:
+            title = "Nothing to do: waiting for the model usage window"
+            when = (
+                "when the window resets"
+                if p is None
+                else f"at {p.resume_at:%H:%M} (from the provider)"
+                if p.known
+                else f"at about {p.resume_at:%H:%M} (estimate: the provider gave no time)"
+            )
         return [
             act(
                 "wait",
-                "Nothing to do: waiting for the model usage window",
-                "The change resumes by itself when the window resets.",
+                title,
+                f"The change resumes the paused step by itself {when}.",
                 "hold",
                 who=SYSTEM,
                 blocking=False,

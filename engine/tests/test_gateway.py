@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from conftest import PRODUCT, wait_run
 from pydantic import ValidationError
 
 from agent_factory.agents.hooks import evaluate
@@ -165,6 +166,67 @@ async def test_the_change_budget_stops_new_calls(monkeypatch):
         await gw.open(SCOPE)
     other = CallScope("c-2", "implement", "developer", "sonnet")
     assert (await gw.open(other)).key  # another change is unaffected
+
+
+async def test_the_change_budget_counts_what_the_change_recorded_before_a_restart(monkeypatch):
+    # L-5: the gateway's own tally is in memory; a new engine starts it at nothing, the change doesn't
+    gw = gateway(monkeypatch, FakeLiteLLM(spend=0.0), change_budget_usd=1.0)
+    with pytest.raises(GatewayRefused, match=r"\$1\.20 of \$1\.00"):
+        await gw.open(CallScope("c-1", "implement", "developer", "sonnet", spent_usd=1.2))
+    assert (await gw.open(CallScope("c-1", "implement", "developer", "sonnet", spent_usd=0.5))).key
+
+
+async def test_a_restart_counts_the_change_budget_the_same_way(monkeypatch):
+    # review of #153: calls priced $4/$1 and $1/$4 (CLI/gateway) are $8 to the running engine; the
+    # change's own record must say $8 too, or a restart reopens a $7 budget
+    from agent_factory import waiting
+    from agent_factory.models import Change
+
+    change = Change.model_validate(
+        {
+            "id": "c-1",
+            "product_id": "p",
+            "iteration": 1,
+            "status": "running",
+            "created_at": "2026-11-04T17:00:00Z",
+            "updated_at": "2026-11-04T17:00:00Z",
+        }
+    )
+    http = FakeLiteLLM()
+    gw = gateway(monkeypatch, http, change_budget_usd=7.0)
+    for cli, spend in ((4.0, 1.0), (1.0, 4.0)):
+        http.spend = spend
+        await gw.close(await gw.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd)), cost_usd=cli)
+        waiting.charge(change, cli, spend)
+    assert change.budget_spend_usd == gw.change_spend["c-1"] == pytest.approx(8.0)
+    assert (change.cost_usd, change.gateway_spend_usd) == (5.0, 5.0), "each meter is still its own"
+    with pytest.raises(GatewayRefused, match="budget"):
+        await gw.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd))
+    restarted = gateway(monkeypatch, FakeLiteLLM(), change_budget_usd=7.0)
+    with pytest.raises(GatewayRefused, match=r"\$8\.00 of \$7\.00"):
+        await restarted.open(CallScope("c-1", "s", "r", "m", change.budget_spend_usd))
+
+
+async def test_a_change_saved_before_the_budget_field_keeps_its_spend(monkeypatch, make_factory):
+    # review of #153: a change saved by main has cost_usd but no budget_spend_usd; after the upgrade and
+    # a restart (empty gateway tally) its next call must still be refused against a $7 cap
+    from agent_factory.models import Change
+
+    f = make_factory()
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    await wait_run(f, change.id)
+    old = f.store.get_change(change.id).model_dump(mode="json")
+    del old["budget_spend_usd"]
+    old["cost_usd"], old["gateway_spend_usd"] = 8.0, 0.0
+    f.store.save_change(Change.model_validate(old))  # what main wrote, read by the new code
+    loaded = f.store.get_change(change.id)
+    assert loaded.budget_spend_usd == 8.0
+
+    restarted = gateway(monkeypatch, FakeLiteLLM(), change_budget_usd=7.0)
+    with pytest.raises(GatewayRefused, match=r"\$8\.00 of \$7\.00"):
+        await restarted.open(CallScope(change.id, "implement", "developer", "sonnet", loaded.budget_spend_usd))
+    assert Change.model_validate({**old, "gateway_spend_usd": 9.5}).budget_spend_usd == 9.5, "the higher meter"
+    assert Change.model_validate({**old, "budget_spend_usd": 3.0}).budget_spend_usd == 3.0, "a saved value wins"
 
 
 async def test_no_key_means_the_call_is_refused_not_run_direct(monkeypatch):

@@ -92,7 +92,9 @@ Verification checks the requirements it was given; nothing checks it was given t
 - **L-4 (hypothesis).** The 19:53 reset that hadn't fired at 19:59: `_wake_later` waits with `asyncio.sleep`
   (monotonic clock), which may not advance while the host or its VM sleeps. Unverified; and a paused change offers
   no Resume, so the person can only wait.
-- **L-5 (to confirm).** A change's spend adds `max(CLI cost, gateway spend)` per call (`gateway.py`). With UX-15's
+- **L-5 (confirmed 2026-11-04, `fix/waiting-budgets`):** the change's spend is the CLI's meter only; `max()` fed
+  only the gateway's in-memory change budget. Both meters are now recorded; the gap's cause is still to prove.
+  Original note: a change's spend adds `max(CLI cost, gateway spend)` per call (`gateway.py`). With UX-15's
   meters ~6× apart, the campaign's $21.05 may be on either meter. Confirm which before using it for forecasts.
   UX-15's own likely cause: the gateway prices tokens (e.g. cache reads) differently from the CLI, and on a
   subscription its dollars are notional; not proved.

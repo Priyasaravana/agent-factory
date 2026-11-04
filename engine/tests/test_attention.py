@@ -8,7 +8,7 @@ from conftest import PRODUCT, wait_run
 from test_api import _client
 
 from agent_factory.attention import pending_actions
-from agent_factory.models import Change, ChangeStatus, Product, ProductTarget, RequiredAction, RiskHold
+from agent_factory.models import Change, ChangeStatus, Pause, Product, ProductTarget, RequiredAction, RiskHold
 
 NOW = datetime(2026, 10, 26, 10, 0, tzinfo=UTC)
 S = ChangeStatus
@@ -80,6 +80,17 @@ def test_holds_name_what_unblocks_them() -> None:
 
     work = _one(S.held, hold_class="work", summary="held at build: attempt budget used")
     assert (work.kind, work.owner, work.detail) == ("resume", "saravana", "held at build: attempt budget used")
+
+
+def test_a_pause_says_what_it_waits_on_and_whether_its_time_is_known() -> None:
+    at = datetime(2026, 11, 4, 20, 53, tzinfo=UTC)
+    throttle = _one(ChangeStatus.paused_limits, pause=Pause(kind="throttle", resume_at=at, known=False, throttles=1))
+    assert "rate limiting" in throttle.title and "about 20:53 (estimate)" in throttle.detail
+    assert not throttle.blocking
+    quota = _one(ChangeStatus.paused_limits, pause=Pause(kind="quota", resume_at=at, known=True, window="five-hour"))
+    assert "usage window" in quota.title and "at 20:53 (from the provider)" in quota.detail
+    guess = _one(ChangeStatus.paused_limits, pause=Pause(kind="quota", resume_at=at, known=False))
+    assert "estimate: the provider gave no time" in guess.detail
 
 
 def test_delivered_is_optional_and_running_needs_nothing() -> None:

@@ -4,6 +4,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-04)
+- **In review, `fix/waiting-budgets` (2026-11-04):** item 3 of "Now", waiting and budgets minimum (L-5, UX-15,
+  UX-18, UX-19); detail in the roadmap. Behaviour changes to look at in review: a paused change keeps its
+  temporary environment until it wakes (UX-18), and a throttle without a known time backs off from 2 minutes,
+  so a throttled run may wake several times (bounded: a hold after 8 in a row). Not proved in the cloud: the
+  cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters) are the
+  evidence to read first. #151 and #152 are merged. **Next:** item 4, UX-04's sideways-scroll check.
 - **Merged 2026-11-04 (#150):** L-3, blue/green fails closed. **Decided by Saravana 2026-11-04 (review of
   #151):** an explicit Resume reruns the blue/green checks after a person fixes the cause elsewhere: pass,
   carry on in blue/green; fail, keep the hold. Switching to In place stays a separate release decision.

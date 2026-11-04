@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from agent_factory import waiting
 from agent_factory.agents.runner import AgentResult, EventSink
 from agent_factory.models import EventKind
 from agent_factory.secret_refs import REDACTOR
@@ -123,7 +124,7 @@ class AgentCall:
             self.invoked.append(name)
 
     async def finish(self, res: AgentResult) -> dict[str, Any]:
-        summary = {
+        summary: dict[str, Any] = {
             "station": self.station,
             "role": self.role,
             "model": self.model,
@@ -143,6 +144,7 @@ class AgentCall:
             },
             "denied": len(self.denied),
             "gateway": res.gateway,  # provider, key alias, spend, revoked (ADR-0036); None = direct
+            "usage": res.usage,  # per model: tokens and the CLI's own price, to reconcile the meters (L-5)
             "transcript": self.name if self.path.exists() else None,
             "transcript_truncated": self.truncated,
         }
@@ -151,7 +153,8 @@ class AgentCall:
             f"agent call: {self.role} ({self.model}) {res.turns} turns, {_dur(summary['duration_s'])}, "
             f"${summary['cost_usd']:.2f}, {summary['tool_calls']} tool calls"
             + (f", {len(self.denied)} denied" if self.denied else "")
-            + (f"; host asleep {_dur(summary['suspended_s'])} during it" if summary["suspended_s"] >= 30 else ""),
+            + (f"; host asleep {_dur(summary['suspended_s'])} during it" if summary["suspended_s"] >= 30 else "")
+            + (f"; {note}" if (note := waiting.disagree(res.cost_usd, waiting.call_gateway_usd(res.gateway))) else ""),
             {"agent_call": summary},
         )
         return summary

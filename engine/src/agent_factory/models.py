@@ -230,8 +230,15 @@ class Change(BaseModel):
     # the product may switch to one instead of answering (ADR-0041 §2)
     switch_to: list[str] = Field(default_factory=list)
     resume_at: datetime | None = None
+    pause: Pause | None = None  # paused_limits: what it waits on and whether the time is known (UX-18)
     summary: str | None = None
+    # model spend on two meters (L-5): the agent CLI's own price of each call (Anthropic list prices),
+    # and, with a model gateway (ADR-0036), the gateway's, which its per-call cap is enforced on
     cost_usd: float = 0.0
+    gateway_spend_usd: float = 0.0
+    # what the change budget (model_gateway.change_budget_usd) counts: per call, the higher of the two
+    # meters, summed. The gateway keeps the same sum in memory; this copy survives a restart.
+    budget_spend_usd: float = 0.0
     spec_approved_by: str | None = None  # spec review gate
     # change risk (ADR-0027): the findings now waiting, and every approval given
     risk_hold: RiskHold | None = None
@@ -254,6 +261,17 @@ class Change(BaseModel):
         product, later ones came from feedback."""
         if isinstance(data, dict) and "kind" not in data and "iteration" in data:
             data = {**data, "kind": ChangeKind.new if data["iteration"] == 1 else ChangeKind.feature}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _budget_of_older_changes(cls, data: Any) -> Any:
+        """Changes stored before `budget_spend_usd` start from the spend they did record (the higher
+        meter), never from zero: a restart must not reopen a change budget already spent (review of #153).
+        Per call the budget sum is at least either meter's total, so this never undercounts what it knew."""
+        if isinstance(data, dict) and "budget_spend_usd" not in data:
+            spent = [v for v in (data.get("cost_usd"), data.get("gateway_spend_usd")) if isinstance(v, int | float)]
+            data = {**data, "budget_spend_usd": max(spent, default=0.0)}
         return data
 
 
@@ -361,6 +379,18 @@ class RequiredAction(BaseModel):
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
     commits: list[str] = Field(default_factory=list)  # approve_schema: [users' commit, tested commit]
     unsure: list[str] = Field(default_factory=list)  # approve_schema: what the check couldn't read
+
+
+class Pause(BaseModel):
+    """Why a paused change waits and until when (UX-18): a spent subscription window (`quota`, its
+    reset from the provider) or a provider throttle (`throttle`, an estimate). `known` says which."""
+
+    kind: Literal["quota", "throttle"]
+    resume_at: datetime
+    known: bool  # True: the provider stated the time; False: the factory's estimate
+    throttles: int = 0  # throttle pauses in a row, for the backoff (reset when a station passes)
+    window: str | None = None  # quota: which window ("five-hour", "weekly")
+    station: str | None = None  # the paused station: only its pass ends a throttle streak
 
 
 class SchemaApproval(BaseModel):
