@@ -294,7 +294,9 @@ export default function ChangePanel({
               </p>
             )}
             {r.status === "held" &&
-              (r.required_action?.kind === "approve_schema" || r.required_action?.kind === "schema_in_place") && (
+              (r.required_action?.kind === "approve_schema" ||
+                r.required_action?.kind === "schema_in_place" ||
+                r.required_action?.kind === "colors_in_place") && (
                 <SchemaHold change={r} productId={productId} onDone={refresh} />
               )}
             {r.status === "held" && r.required_action && r.required_action.kind === "accept_risk" && (

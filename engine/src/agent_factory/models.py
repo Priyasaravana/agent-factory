@@ -354,8 +354,9 @@ class RequiredAction(BaseModel):
 
     # accept_risk: on the work ledger; approve_schema: the schema check couldn't read the change, a
     # person approves compatibility (or releases in place); schema_in_place: the schema change isn't
-    # additive, so it goes out in place (ADR-0046 slice 4)
-    kind: Literal["accept_risk", "approve_schema", "schema_in_place"]
+    # additive, so it goes out in place (ADR-0046 slice 4); colors_in_place: a blue/green product's change
+    # could only go out in place, which would remove a colour production keeps (L-3)
+    kind: Literal["accept_risk", "approve_schema", "schema_in_place", "colors_in_place"]
     text: str  # the instruction, shown on the change page and when a resume is refused
     items: list[str] = Field(default_factory=list)  # work ledger items (accept_risk)
     commits: list[str] = Field(default_factory=list)  # approve_schema: [users' commit, tested commit]

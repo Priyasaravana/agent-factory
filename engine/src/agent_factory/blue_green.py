@@ -163,6 +163,27 @@ def sets(live: str, images: dict[str, str], preview_host: str) -> list[str]:
     return out
 
 
+def in_place_refused(current: Layout | None, why: str) -> str | None:
+    """Fail closed (L-3, 2026-11-04): why a blue/green product's change must hold rather than go out
+    in place, or None. An in-place deploy renders only blue's Deployment and points users at it, so
+    over a production running blue/green it would remove green, which is either the colour users are
+    on or the one kept for the switch back (the rollback target). A fallback reason (`why`: the change
+    was validated in place, the chart seems to render no colours, …) is never enough to do that;
+    only a person setting the product to In place under Releases is. Pure."""
+    if current is None or current.strategy != BLUE_GREEN:
+        return None
+    if current.live == BLUE and set(current.images) <= {BLUE}:
+        return None  # one colour, blue, serving: in place replaces it like any in-place release
+    kept = other(current.live)
+    running = f"users on {current.live}" + (f", {kept} kept for the switch back" if kept in current.images else "")
+    removed = "the colour users are on" if current.live != BLUE else f"{kept}, the rollback target"
+    return (
+        f"production runs blue/green ({running}), and promoting in place would remove {removed}: {why}. "
+        "Nothing was changed in production. Set this product to In place under Releases to release in place "
+        "anyway (the kept colour is removed), then resume; or cancel."
+    )
+
+
 def renders_colors(rendered: str) -> bool:
     """A `helm template` of the chart with blue/green values renders both colours. Pure."""
     return f"{COLOR_LABEL}: {GREEN}" in rendered and f"{COLOR_LABEL}: {BLUE}" in rendered

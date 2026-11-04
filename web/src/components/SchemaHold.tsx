@@ -7,8 +7,8 @@ import { Button } from "./ui/button";
 
 type Change = components["schemas"]["Change"];
 
-/** A blue/green change held on its schema (ADR-0046 slice 4). Not additive: it can only go out in
- * place. Unread: a person approves compatibility for these exact commits, saying why, or releases in
+/** A blue/green change held on its schema (ADR-0046 slice 4), or because it could only go out in place
+ * over a production running two colours (L-3). Not additive: it can only go out in place. Unread: a person approves compatibility for these exact commits, saying why, or releases in
  * place. Either way the person then resumes. */
 export default function SchemaHold({
   change,
@@ -31,14 +31,21 @@ export default function SchemaHold({
       ),
     onSuccess: onDone,
   });
-  if (!need || (need.kind !== "approve_schema" && need.kind !== "schema_in_place")) return null;
+  if (!need || (need.kind !== "approve_schema" && need.kind !== "schema_in_place" && need.kind !== "colors_in_place"))
+    return null;
   const approval = change.schema_approval;
   const approved =
     approval && need.commits && approval.from_commit === need.commits[0] && approval.to_commit === need.commits[1];
   const releases = `/products/${productId}#releases`;
   return (
     <div className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="schema-hold">
-      {need.kind === "schema_in_place" ? (
+      {need.kind === "colors_in_place" ? (
+        <p className="m-0" data-testid="colors-in-place">
+          Production runs two colours, and this change could only go out in place, which would remove the colour kept
+          for an instant switch back. Nothing was changed in production. To release it in place anyway, set the product
+          to <a href={releases}>In place under Releases</a>, then resume; or cancel.
+        </p>
+      ) : need.kind === "schema_in_place" ? (
         <p className="m-0">
           This change alters the schema the running version uses, so the two can't share the database. Set the product
           to <a href={releases}>In place under Releases</a>, then resume; or cancel and ask for an additive change.
