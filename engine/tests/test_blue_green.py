@@ -308,20 +308,33 @@ async def test_a_change_validated_in_place_never_removes_the_kept_colour(make_fa
     _assert_kept(f, ex, third.id, healthy, upgrades, "validated in place")
 
 
-async def test_production_that_cant_be_read_is_never_released_in_place(make_factory, cfg, monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [
+        'Error: Kubernetes cluster unreachable: context "kind-ingress" not found',  # review of #150
+        'Error: namespaces "app-bookmarks-service" not found',
+        "Error: UPGRADE FAILED: chart not found",
+        "Error: could not reach the API server",
+    ],
+)
+async def test_production_that_cant_be_read_is_never_released_in_place(make_factory, cfg, monkeypatch, error: str):
+    """Only Helm's own "release: not found" means nothing is installed; any other failure, even one
+    that says "not found", holds without touching production."""
     _helm_target(cfg)
-    ex = FakeExecutor()
+    needle = "get values bookmarks-service"
+    ex = FakeExecutor(fail_with={needle: error})
     f = make_factory(ex)
     product, _ = await _two_colours(f, ex)
     upgrades = len(_prod_upgrades(ex))
     monkeypatch.setattr(HelmProvider, "validates_separately", False)
-    ex.fail_on.extend(["get values bookmarks-service"] * 10)
+    ex.fail_on.extend([needle] * 10)
     f.manager.cfg.budgets.infra_backoff_seconds = [0.0]
     third = f.manager.feedback(product.id, "Export notes as CSV.")
     assert await wait_run(f, third.id) == ChangeStatus.held
     held = f.store.get_change(third.id)
     assert held.hold_class == "infra" and "can't tell whether production runs two colours" in held.summary
-    assert len(_prod_upgrades(ex)) == upgrades
+    assert error in held.summary, "the hold names what Helm said"
+    assert len(_prod_upgrades(ex)) == upgrades, "no production upgrade"
 
 
 async def test_one_product_runs_blue_green_while_another_stays_in_place(make_factory, cfg):

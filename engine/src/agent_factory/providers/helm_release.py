@@ -8,6 +8,7 @@ functions in `agent_factory.rollback`.
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -19,6 +20,10 @@ from agent_factory.providers.base import StepResult
 
 Run = Callable[[str, float], Awaitable[CommandResult]]  # (command, timeout) -> result, on the release's cluster
 Probe = Callable[[str], Awaitable[CommandResult]]  # (path) -> the app answered it, retried for a while
+
+# Helm's own answer when the release doesn't exist, and nothing else: a missing kube context, namespace
+# or chart also says "not found", and taking those for "nothing installed" would fail open (#150)
+_NO_RELEASE = re.compile(r"^Error: release: not found\s*$", re.MULTILINE)
 
 # per pod: its deletion timestamp (empty unless terminating), then each container as image=imageID,
 # so the release's own containers can be told from sidecars (`rollback.app_digests`)
@@ -72,12 +77,12 @@ class HelmRelease:
         return revision, digest, why
 
     async def values(self) -> tuple[str | None, str]:
-        """`helm get values -o json` of the release: (output, problem). (None, "") when Helm has no
-        such release: nothing is installed yet."""
+        """`helm get values -o json` of the release: (output, problem). (None, "") only when Helm says
+        it has no such release (nothing is installed yet); any other failure is a problem."""
         res = await self.run(f"{self.helm} get values {shlex.quote(self.name)} {self._ns()} -o json", 60)
         if res.ok:
             return res.output, ""
-        if "not found" in res.output.lower():
+        if _NO_RELEASE.search(res.output):
             return None, ""
         return None, f"could not read the release's values: {res.output.strip()[-300:]}"
 

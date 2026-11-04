@@ -40,11 +40,13 @@ export default function SchemaHold({
   return (
     <div className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="schema-hold">
       {need.kind === "colors_in_place" ? (
-        <p className="m-0" data-testid="colors-in-place">
-          Production runs two colours, and this change could only go out in place, which would remove the colour kept
-          for an instant switch back. Nothing was changed in production. To release it in place anyway, set the product
-          to <a href={releases}>In place under Releases</a>, then resume; or cancel.
-        </p>
+        <div className="grid gap-1" data-testid="colors-in-place">
+          {/* the engine's explanation names this layout: which colour serves, which is kept, what in place removes */}
+          <p className="m-0">{change.summary || need.text}</p>
+          <p className="m-0">
+            <a href={releases}>Open Releases</a>
+          </p>
+        </div>
       ) : need.kind === "schema_in_place" ? (
         <p className="m-0">
           This change alters the schema the running version uses, so the two can't share the database. Set the product
