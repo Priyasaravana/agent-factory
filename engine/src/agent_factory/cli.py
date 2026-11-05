@@ -77,6 +77,10 @@ def main() -> None:
         "reset", help="fresh start (ADR-0037): drop products, changes and workflows; keep members, skills, config"
     )
     rs.add_argument("--confirm", action="store_true", help="really delete (without it: show what would go)")
+    ap = sub.add_parser("apps", help="the products, where each lives, and its first admin's sign-in")
+    ap.add_argument("slug", nargs="?", help="one app (as `apps` lists it): its address and admin")
+    ap.add_argument("--password", action="store_true", help="also show the admin's password")
+    ap.add_argument("--password-only", action="store_true", help="print only the password (for a clipboard)")
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
@@ -102,12 +106,42 @@ def main() -> None:
         _workflow(args)
     elif args.cmd == "reset":
         _reset(args.confirm)
+    elif args.cmd == "apps":
+        _apps(args.slug, args.password, args.password_only)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
         _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
         _sandbox_check()
+
+
+def _apps(slug: str | None, password: bool, password_only: bool) -> None:
+    import sys
+
+    from agent_factory import apps
+    from agent_factory.config import load_config
+    from agent_factory.settings import Settings
+    from agent_factory.state import SqliteStateStore
+
+    s = Settings()
+    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    products = [p for p in SqliteStateStore(data_dir / "factory.db").list_products() if not p.eval_run_id]
+    if not slug:
+        live = [p for p in products if not p.archived_at]
+        found = {p.id: apps.admin_from_secret(apps.kubectl_secret(p) or "") for p in live}
+        print(apps.table([apps.row(p, found.get(p.id)) for p in sorted(products, key=lambda p: p.slug)]))
+        return
+    product = next((p for p in products if p.slug == slug), None)
+    if product is None:
+        sys.exit(f"no app '{slug}': `agent-factory apps` lists them")
+    admin = None if product.archived_at else apps.admin_from_secret(apps.kubectl_secret(product) or "")
+    if password_only:
+        if admin is None:
+            sys.exit(f"no admin account for '{slug}' in the cluster")
+        print(admin.password)
+        return
+    print(apps.detail(product, admin, show_password=password))
 
 
 def _reset(confirm: bool) -> None:
