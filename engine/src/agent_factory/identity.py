@@ -34,13 +34,15 @@ def current_identity() -> Identity:
 
 
 def requires_admin(method: str, path: str) -> bool:
-    """Changing workflows or the skills library, and approving a risky change
-    (ADR-0027), is admin work; everyone signed in can order, give feedback,
+    """Changing workflows or the skills library, approving a risky change (ADR-0027) and naming a
+    product's owner (principle 7) is admin work; everyone signed in can order, give feedback,
     operate runs and read everything."""
     if method in {"GET", "HEAD", "OPTIONS"}:
         return False
-    return path.startswith(("/api/workflows", "/api/skills")) or (
-        path.startswith("/api/changes/") and path.endswith("/risk/approve")
+    return (
+        path.startswith(("/api/workflows", "/api/skills"))
+        or (path.startswith("/api/changes/") and path.endswith("/risk/approve"))
+        or (path.startswith("/api/products/") and path.endswith("/owner"))
     )
 
 

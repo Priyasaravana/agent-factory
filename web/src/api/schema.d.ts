@@ -272,6 +272,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/ready-for": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a product is ready for (demo, pilot or production), worked out from its latest delivery's evidence, and what the next tier still needs
+         * @description What a product is ready for (demo, pilot or production), worked out from its latest delivery's evidence, and what the next tier still needs
+         */
+        get: operations["get_ready_for"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Name a product's owner (admin): the person accountable for its incidents, upkeep and retirement; a pilot needs one
+         * @description Name a product's owner (admin): the person accountable for its incidents, upkeep and retirement; a pilot needs one
+         */
+        post: operations["set_product_owner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/work-items/decide": {
         parameters: {
             query?: never;
@@ -3641,6 +3681,8 @@ export interface components {
             repo_ref?: string | null;
             /** Created By */
             created_by?: string | null;
+            /** Owner */
+            owner?: string | null;
             /** Archived At */
             archived_at?: string | null;
             /** Archived By */
@@ -3667,6 +3709,14 @@ export interface components {
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
             spend?: components["schemas"]["ProductSpend"];
+        };
+        /**
+         * ProductOwnerInput
+         * @description Name the product's owner (an admin): who is accountable for it after delivery.
+         */
+        ProductOwnerInput: {
+            /** Owner */
+            owner: string;
         };
         /**
          * ProductSpend
@@ -3720,6 +3770,41 @@ export interface components {
             state: string;
             /** Reasons */
             reasons?: string[];
+        };
+        /**
+         * ReadyForView
+         * @description What a delivered product is ready for (principle 7, J2): its tier, demo, pilot or production,
+         *     worked out by the engine from the evidence (`ready_for.assess`), and what the next tier needs.
+         */
+        ReadyForView: {
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "none" | "demo" | "pilot" | "production";
+            /** Proven */
+            proven?: string[];
+            /** Next Tier */
+            next_tier?: string | null;
+            /** Needs */
+            needs?: string[];
+            /** Unchecked Live */
+            unchecked_live?: string[];
+            /** Owner */
+            owner?: string | null;
+            /**
+             * Owner Set
+             * @default false
+             */
+            owner_set: boolean;
+            /** Change Id */
+            change_id?: string | null;
+            /** Iteration */
+            iteration?: number | null;
+            /** Moved */
+            moved?: {
+                [key: string]: string;
+            } | null;
         };
         /**
          * RefDoc
@@ -5486,6 +5571,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeployStrategyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ready_for: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyForView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_product_owner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductOwnerInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyForView"];
                 };
             };
             /** @description Validation Error */

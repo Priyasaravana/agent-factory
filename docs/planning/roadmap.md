@@ -361,6 +361,15 @@ per-pack evaluation is in the backlog.
   still needs. First cut: demo = Level 3 and requirements verified live; pilot adds a named owner and a proven
   rollback; production adds J4's availability target, alert and tested restore. Shown on the product page and
   in the evidence; a product with no owner can't be above demo.
+  🔄 **In review, `feat/ready-for` (2026-11-05, order decided by Saravana: build this and the accepted/closed
+  state before J2's live runs):** `ready_for.py` (pure): demo = delivered + Level 3 + every requirement verified
+  live (one with a stated no-live reason counts only with tests, and is named); pilot adds a named owner and a
+  rollback proven on this product (a verified `rollback.ok` in any of its changes); production lists J4's three
+  needs until J4 exists, so nothing is above pilot yet. Handover writes `ready-for.json` (sealed) and a
+  decision event; `GET /api/products/{id}/ready-for` works it out again (the owner can change).
+  **Owner** (`Product.owner`): the creator by default, an admin names another (`POST …/owner`, admin-only).
+  **UX-22:** a delivery that changes the product's address says so at handover (event, `ready-for.json`,
+  the panel), old and new. A "Ready for" panel on the product page (tiers, proven, next tier's needs, owner).
 - **Done when:** iteration 2 is started from the "Next iteration" card with a suggested feature and a CVE fix,
   and a deliberately broken iteration rolls back while the previous version keeps serving. **And** every
   delivered change states what it's ready for and what the next tier needs (decided 2026-10-31). **And**
