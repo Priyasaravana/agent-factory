@@ -115,7 +115,8 @@ The remaining usability findings wait in the backlog until J2 is done.
    off, off-screen, wider than the phone, unreadable, broken) or `minor`; still never blocks. At delivery
    (`pipeline._fold_ui_review`, `ledger.fold_ui_review`) a serious finding becomes an open `ui` work item on its
    screenshot (a `bug`, high), recognised again by screen and wording, fixed when a later complete review
-   looked at that screen and no longer reports it, reopened if it comes back; a person's decision stands.
+   looked at that screen and no longer reports it, reopened if it comes back, and back on the card when the
+   change that addressed it is delivered still serious (review of #154); a person's decision stands.
    Shown in "Iteration N delivered" (a "serious screen defect" pill beside "verified live" and the list under
    "For the next iteration"), on the Look and feel panel, and as **Screen fixes** on the Next iteration card.
    Tests: `test_nextjs_pack`, `test_ui_review`, `test_next_iteration`.

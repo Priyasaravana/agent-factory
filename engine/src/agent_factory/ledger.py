@@ -784,7 +784,8 @@ def fold_ui_review(
     finding is an open item on the screenshot it names, offered on the next iteration's card; minor
     ones stay in the review. A defect is recognised again by its screenshot and wording (the reviewer
     rewords between runs). An open UI item is fixed when a later complete review looked at its
-    screenshot and no longer reports it serious; one reported again after it was fixed is open again.
+    screenshot and no longer reports it serious; one reported again after it was fixed, or still
+    reported after the change that addressed it was delivered, is open again (back on the card).
     An incomplete review changes nothing. Returns the items that changed and what happened."""
     changed: dict[str, WorkItem] = {}
     stats = {"new": 0, "seen": 0, "fixed": 0, "reopened": 0}
@@ -831,6 +832,18 @@ def fold_ui_review(
                 now,
                 "reappeared",
                 f"serious again in the UI review ({shot})",
+                iteration=iteration,
+                change_id=change_id,
+            )
+        elif it.status == "in_progress" and change_id in it.claimed_by:
+            # the change that addressed it was delivered with the defect still there: back on the card
+            it.status = "open"
+            stats["reopened"] += 1
+            _log(
+                it,
+                now,
+                "still-present",
+                f"still serious in the UI review of change {change_id} ({shot})",
                 iteration=iteration,
                 change_id=change_id,
             )

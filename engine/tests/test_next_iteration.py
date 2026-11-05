@@ -265,3 +265,22 @@ def test_a_person_s_decision_on_a_ui_defect_stands():
     _fold_ui(items, _review(), iteration=3, change="c3")
     assert [it.status for it in items if it.at == [PHONE]][0] == "wont_do"
     assert ledger.next_iteration(items)["ui"] == [it for it in items if it.status == "open"]
+
+
+def test_a_screen_fix_delivered_with_the_defect_still_there_is_back_on_the_card():
+    """PR #154 review: a ticked screen fix is in progress; delivered with the defect still serious, it is
+    open again (offered under Screen fixes), not left in progress off the card."""
+    items: list[WorkItem] = []
+    _fold_ui(items, _review((PHONE, WIDE, "serious")))
+    [it] = items
+    ledger.claim(items, [it.id], change_id="c2", iteration=2, now=T0, by="admin")
+    assert ledger.next_iteration(items)["ui"] == []
+    ledger.release(items, change_id="c2", status="awaiting_feedback", now=T0, pr_url=None)
+    assert it.status == "in_progress", "delivery alone doesn't say whether the screen is fixed"
+    assert _fold_ui(items, _review((PHONE, WIDE, "serious")), iteration=2, change="c2")["reopened"] == 1
+    assert it.status == "open" and ledger.next_iteration(items)["ui"] == [it]
+    assert (it.history[-1].event, it.history[-1].change_id) == ("still-present", "c2")
+    # another change's review doesn't reopen an item a change is still working on
+    ledger.claim(items, [it.id], change_id="c3", iteration=3, now=T0, by="admin")
+    assert _fold_ui(items, _review((PHONE, WIDE, "serious")), iteration=3, change="c9")["seen"] == 1
+    assert it.status == "in_progress"

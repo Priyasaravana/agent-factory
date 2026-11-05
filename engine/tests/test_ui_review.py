@@ -296,6 +296,30 @@ async def test_a_serious_ui_defect_shows_at_delivery_and_is_offered_for_the_next
     assert "looked at home-phone-dark.png and no longer reports it" in it.history[-1].note
 
 
+async def test_a_ticked_screen_fix_still_broken_after_delivery_is_offered_again(make_factory):
+    """PR #154 review: tick the screen fix on the card, deliver with the defect still serious: it is back
+    under Screen fixes, not stuck in progress where the card can't offer it."""
+    f = make_factory(ShootingExecutor(), PhoneBreakingReviewer())
+    product = f.manager.create_product(WEB)
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id, 60) == ChangeStatus.awaiting_feedback
+
+    app, ctx, c = await _client(f)
+    async with c:
+        [item] = (await c.get(f"/api/products/{product.id}/next-iteration")).json()["ui"]
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": item["title"], "items": [item["id"]]})
+        assert r.status_code in (200, 201), r.text
+        fix = r.json()
+        assert fix["kind"] == "bug"
+        assert await wait_run(f, fix["id"], 60) == ChangeStatus.awaiting_feedback
+        card = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        assert [i["id"] for i in card["ui"]] == [item["id"]]
+    await ctx.__aexit__(None, None, None)
+    [it] = [i for i in f.store.list_work_items(product.id) if i.category == "ui"]
+    assert it.status == "open" and fix["id"] in it.claimed_by
+    assert it.history[-1].event == "still-present"
+
+
 async def test_a_fastapi_product_has_no_designer_and_no_ui_review(make_factory):
     agents = FakeAgentRunner()
     f = make_factory(ShootingExecutor(), agents)
