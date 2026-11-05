@@ -216,6 +216,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   then `uvicorn.run(create_app(f), port=8000)`. `web/e2e/builder.py` drives the builder.
 
 ### Lessons
+- **A browser crash is not the app's bug.** Chromium "Target crashed" in e2e (Docker's 64 MB `/dev/shm`) went to
+  the developer as a code failure until implement's attempts ran out (Plant watering, 2026-11-05). The sandbox
+  now has `--shm-size`, and an e2e run whose only failures are crashes runs once more; agent-written commands
+  still never steer the route.
 - **Editing a pack's template:** `scripts/check all` doesn't run the template's own checks; CI does. Run
   `make verify` in a copy of `packs/<id>/template` (its Prettier, eslint, tests, audit and build) before pushing.
 - **Mac git:** delete permission resets with each new linked session: request it before the first git write.

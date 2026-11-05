@@ -58,6 +58,33 @@ def decisive(text: str, limit: int = 3000) -> str:
     return "\n".join(picked).strip("\n")
 
 
+# the browser itself died under the test, whatever page it was on: Chromium's renderer or the
+# whole browser crashed, not an assertion the app failed
+_CRASH = re.compile(r"Target crashed|Page crashed|Browser has been closed|browser has disconnected", re.IGNORECASE)
+
+
+def browser_crashes(text: str) -> list[str]:
+    """The failing Playwright tests, when every one of them failed because the browser crashed
+    (Plant watering, 2026-11-05: 58/59 passed, the 59th "Target crashed", a different page each
+    run); [] when there is no failure block or any of them failed for another reason. Pure. A rerun
+    on this is the station's only use of it: it never changes the route a failure takes."""
+    lines = _ANSI.sub("", text).splitlines()
+    crashed: list[str] = []
+    i = 0
+    while i < len(lines):
+        if not _PW_FAILURE.match(lines[i]):
+            i += 1
+            continue
+        end = i + 1
+        while end < len(lines) and end - i <= BLOCK_LINES and _in_block(lines[end]):
+            end += 1
+        if not any(_CRASH.search(line) for line in lines[i:end]):
+            return []
+        crashed.append(lines[i].strip().rstrip("─ ").strip())
+        i = end
+    return crashed
+
+
 def failure_detail(command: str, returncode: int, whole: str, tail: str, saved: str | None) -> str:
     """A failed test command for a hold or a repair: the failing tests first, then the output's
     tail, then where the complete output is kept."""

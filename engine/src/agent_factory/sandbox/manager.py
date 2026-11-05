@@ -284,6 +284,7 @@ class SandboxManager:
             memory=self.cfg.memory,
             cpus=self.cfg.cpus,
             pids=self.cfg.pids,
+            shm_size=self.cfg.shm_size,
         )
 
     def agent_spec(self, req: AgentRequest) -> SandboxSpec:

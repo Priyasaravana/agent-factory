@@ -252,6 +252,14 @@ per-pack evaluation is in the backlog.
   `test_every_control_is_phone_sized_in_every_look_and_e2e_measures_it`.
   **Order (decided by Saravana 2026-11-02):** 1.5.1 first; then the blue/green live run (J2) is a **new product of a
   different shape** from Kudos board, built from scratch on 1.5.1, so the same run is J1's repeatability proof.
+  🔄 **J1 run, Plant watering (2026-11-05, `9e7e05c0c395`, nextjs-web 1.5.2, v14 lane):** first pass built,
+  scanned, deployed to its temporary environment, 8/10 requirements verified live; hidden scenario H5 failed
+  (duplicate email / short password on `POST /api/users` returned 500, UX-11, the template's admin route).
+  The fix then **held at implement**: preview e2e passed 58/59 twice, the 59th Chromium "Target crashed"
+  (a different page each run), each sent to the developer as a code bug. Meters agreed ($4.03 CLI, $4.25
+  gateway). Fix in review, `fix/browser-crash`: `--shm-size` for the sandbox (`sandbox.shm_size`, 1g) and one
+  rerun of an e2e suite whose only failures are browser crashes. Then Resume this change. UX-11 is now seen on
+  two products: fix it in the template (backlog → next template release).
 
 **J2. Iterate safely (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01)**
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
