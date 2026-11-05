@@ -20,6 +20,7 @@ import NextIteration from "../components/NextIteration";
 import { Panel } from "../components/ui/panel";
 import SpendCard from "../components/SpendCard";
 import { useAuth } from "../auth";
+import ReadyFor from "../components/ReadyFor";
 import ReleaseStrategy from "../components/ReleaseStrategy";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
@@ -277,6 +278,10 @@ export default function ProductPage() {
       </Panel>
 
       {product.target !== "repo" && (
+        <ReadyFor productId={product.id} latestStatus={product.latest_status} />
+      )}
+
+      {product.target !== "repo" && (
         <ReleaseStrategy
           productId={product.id}
           canChange={!product.archived_at && canSteer}
@@ -329,6 +334,7 @@ export default function ProductPage() {
       {changeId && (
         <div id="change" className="grid min-w-0 scroll-mt-4">
           <ChangePanel
+            canSteer={canSteer}
             key={changeId}
             changeId={changeId}
             productId={product.id}

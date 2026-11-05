@@ -170,6 +170,9 @@ class Product(BaseModel):
     repo_url: str | None = None  # published repo; for an existing repo (target repo), its web URL
     repo_ref: str | None = None  # an existing repo's branch (ADR-0031)
     created_by: str | None = None
+    # the named owner, accountable for incidents, upkeep and retirement (master plan principle 7, §3J);
+    # None: its creator. An admin can reassign it.
+    owner: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
     eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from products and Outcomes
@@ -186,6 +189,18 @@ class Product(BaseModel):
     release: Release | None = None
     # how a new version reaches users (ADR-0046 slice 4); None: the stack pack's default
     deploy_strategy: DeployStrategy | None = None
+
+
+class Outcome(BaseModel):
+    """A person's word on a change (J2, UX-14): **accepted** (a delivered iteration is what was wanted),
+    or **closed** with a reason (held, or delivered but not accepted). Recorded, sealed with the change's
+    evidence and never changed afterwards. Deployed is not accepted: only this says so."""
+
+    state: Literal["accepted", "closed"]
+    by: str
+    at: datetime
+    note: str = ""  # accepted: optional note; closed: the reason (required)
+    status_before: str | None = None  # what the change was when it was closed
 
 
 class Change(BaseModel):
@@ -232,6 +247,7 @@ class Change(BaseModel):
     resume_at: datetime | None = None
     pause: Pause | None = None  # paused_limits: what it waits on and whether the time is known (UX-18)
     summary: str | None = None
+    outcome: Outcome | None = None  # accepted or closed by a person (J2); None: neither yet
     # model spend on two meters (L-5): the agent CLI's own price of each call (Anthropic list prices),
     # and, with a model gateway (ADR-0036), the gateway's, which its per-call cap is enforced on
     cost_usd: float = 0.0
@@ -1463,6 +1479,41 @@ class NextIterationView(BaseModel):
     latest_iteration: int | None = None
     latest_kind: ChangeKind | None = None
     latest_request: str | None = None  # the first line of what was asked for it
+    latest_outcome: Outcome | None = None  # accepted or closed by a person (J2); None: neither yet
+
+
+class AcceptInput(BaseModel):
+    """Accept a delivered iteration: it is what was asked for."""
+
+    note: str = Field(default="", max_length=1000)
+
+
+class CloseInput(BaseModel):
+    """Close a change with the reason it ends here (a drill finished, no longer wanted, not accepted)."""
+
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class ReadyForView(BaseModel):
+    """What a delivered product is ready for (principle 7, J2): its tier, demo, pilot or production,
+    worked out by the engine from the evidence (`ready_for.assess`), and what the next tier needs."""
+
+    tier: Literal["none", "demo", "pilot", "production"]
+    proven: list[str] = Field(default_factory=list)
+    next_tier: str | None = None
+    needs: list[str] = Field(default_factory=list)
+    unchecked_live: list[str] = Field(default_factory=list)
+    owner: str | None = None  # the named owner: set by an admin, else the product's creator
+    owner_set: bool = False  # an admin named the owner (False: the creator by default)
+    change_id: str | None = None  # the delivered change it is worked out from; None: nothing delivered
+    iteration: int | None = None
+    moved: dict[str, str] | None = None  # UX-22: that delivery changed the product's address (from, to)
+
+
+class ProductOwnerInput(BaseModel):
+    """Name the product's owner (an admin): who is accountable for it after delivery."""
+
+    owner: str = Field(min_length=1, max_length=120)
 
 
 class DeployStrategyView(BaseModel):
