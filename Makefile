@@ -45,8 +45,10 @@ app-login: ## sign-in for one app: make app-login APP=<slug>; copies the admin p
 	@test -n "$(APP)" || { echo "usage: make app-login APP=<slug>   ('make apps' lists them)"; exit 2; }
 	@docker compose exec -T -u factory factory agent-factory apps "$(APP)"
 	@if command -v pbcopy >/dev/null 2>&1; then \
-		docker compose exec -T -u factory factory agent-factory apps "$(APP)" --password-only | tr -d '\n' | pbcopy \
-		&& echo "  password copied to the clipboard (never printed)"; \
+		pw=$$(docker compose exec -T -u factory factory agent-factory apps "$(APP)" --password-only) \
+			|| { echo "  no password copied: the lookup failed (clipboard untouched)"; exit 1; }; \
+		[ -n "$$pw" ] || { echo "  no password copied: the lookup returned nothing (clipboard untouched)"; exit 1; }; \
+		printf '%s' "$$pw" | pbcopy && echo "  password copied to the clipboard (never printed)"; \
 	else \
 		echo "  no clipboard here: run 'make app-password APP=$(APP)' to print it"; \
 	fi

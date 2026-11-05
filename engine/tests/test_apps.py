@@ -94,3 +94,63 @@ def test_the_command_lists_apps_and_copies_out_one_password(tmp_path, monkeypatc
     assert run("plant-watering", "--password-only") == "s3cret\n"
     with pytest.raises(SystemExit, match="no app 'nope'"):
         run("nope")
+
+
+# ----------------------------------------- make app-login, run for real with stand-ins (PR #159 review) --
+def _make_app_login(tmp_path, *, lookup_ok: bool, password: str = "s3cret"):
+    """Run `make app-login` from the repo with `docker` and `pbcopy` replaced on PATH: docker answers
+    the detail line, and the password lookup either prints the password or fails as a missing Secret
+    does; pbcopy records what it was given."""
+    import os
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if shutil.which("make") is None:
+        pytest.skip("make not installed")
+    repo = Path(__file__).resolve().parents[2]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    clip = tmp_path / "clipboard"
+    lookup = f'printf "%s\\n" "{password}"' if lookup_ok else 'echo "no admin account for x in the cluster" >&2; exit 1'
+    (bin_dir / "docker").write_text(
+        "#!/bin/sh\n"
+        'case "$*" in *--password-only*) ' + lookup + " ;;\n"
+        '  *) echo "x (x)"; echo "  address: http://x" ;; esac\n'
+    )
+    (bin_dir / "pbcopy").write_text(f"#!/bin/sh\ncat > {clip}\n")
+    for f in bin_dir.iterdir():
+        f.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    res = subprocess.run(  # noqa: S603
+        ["make", "--no-print-directory", "-C", str(repo), "app-login", "APP=x"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        check=False,
+    )
+    return res, (clip.read_text() if clip.exists() else None)
+
+
+def test_a_failed_password_lookup_never_touches_the_clipboard_and_fails(tmp_path):
+    res, clip = _make_app_login(tmp_path, lookup_ok=False)
+    out = res.stdout + res.stderr
+    assert res.returncode != 0, "the recipe fails"
+    assert clip is None, "pbcopy is never run: the clipboard keeps what it had"
+    assert "copied to the clipboard" not in out
+    assert "no password copied: the lookup failed (clipboard untouched)" in out
+
+
+def test_an_empty_password_is_not_copied_either(tmp_path):
+    res, clip = _make_app_login(tmp_path, lookup_ok=True, password="")
+    assert res.returncode != 0 and clip is None
+    assert "the lookup returned nothing" in res.stdout
+
+
+def test_a_found_password_goes_to_the_clipboard_and_never_to_the_screen(tmp_path):
+    res, clip = _make_app_login(tmp_path, lookup_ok=True)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert clip == "s3cret", "exactly the password, no trailing newline"
+    assert "password copied to the clipboard (never printed)" in res.stdout
+    assert "s3cret" not in res.stdout + res.stderr
