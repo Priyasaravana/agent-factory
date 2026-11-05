@@ -219,6 +219,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   script calling `build_factory(settings, cfg, SqliteStateStore(":memory:"), None, FakeAgentRunner(...))`,
   then `uvicorn.run(create_app(f), port=8000)`. `web/e2e/builder.py` drives the builder.
 
+### Signing in to an app the factory built
+- `make apps` lists every product: address, status and its first admin's email (never a password).
+- `make app-login APP=<slug>` shows one app's address and admin email and copies the admin password to the
+  Mac's clipboard without printing it; `make app-password APP=<slug>` prints it. Both read the chart's Secret
+  `<slug>-admin` in namespace `app-<slug>` (production's release), through `agent-factory apps`.
+
 ### Lessons
 - **A browser crash is not the app's bug.** Chromium "Target crashed" in e2e (Docker's 64 MB `/dev/shm`) went to
   the developer as a code failure until implement's attempts ran out (Plant watering, 2026-11-05). The sandbox

@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -37,6 +37,23 @@ upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.
 
 reset-admin: ## break-glass: print a one-time password for the admin user
 	docker compose exec auth factory-auth reset-password $${FACTORY_ADMIN_USER:-admin}
+
+apps: ## list the products: where each lives and its admin's email
+	@docker compose exec -T -u factory factory agent-factory apps
+
+app-login: ## sign-in for one app: make app-login APP=<slug>; copies the admin password to the clipboard (macOS)
+	@test -n "$(APP)" || { echo "usage: make app-login APP=<slug>   ('make apps' lists them)"; exit 2; }
+	@docker compose exec -T -u factory factory agent-factory apps "$(APP)"
+	@if command -v pbcopy >/dev/null 2>&1; then \
+		docker compose exec -T -u factory factory agent-factory apps "$(APP)" --password-only | tr -d '\n' | pbcopy \
+		&& echo "  password copied to the clipboard (never printed)"; \
+	else \
+		echo "  no clipboard here: run 'make app-password APP=$(APP)' to print it"; \
+	fi
+
+app-password: ## print one app's admin password: make app-password APP=<slug> (it shows on screen)
+	@test -n "$(APP)" || { echo "usage: make app-password APP=<slug>"; exit 2; }
+	@docker compose exec -T -u factory factory agent-factory apps "$(APP)" --password-only
 
 logs: ## follow factory logs
 	docker compose logs -f factory
