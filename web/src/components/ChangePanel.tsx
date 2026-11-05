@@ -35,6 +35,7 @@ import ProvidedArtifacts from "./ProvidedArtifacts";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
+import ChangeVerdict from "./ChangeVerdict";
 import ToolsPanel from "./ToolsPanel";
 import ScreenshotsPanel from "./ScreenshotsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
@@ -59,11 +60,14 @@ export default function ChangePanel({
   productId,
   archived = false,
   target = "new",
+  canSteer = true,
 }: {
   changeId: string;
   productId: string;
   archived?: boolean;
   target?: string;
+  /** the product's creator or an admin: may accept or close it (the engine checks it too) */
+  canSteer?: boolean;
 }) {
   const qc = useQueryClient();
   const change = useQuery({
@@ -117,6 +121,11 @@ export default function ChangePanel({
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle>Iteration {r.iteration}</CardTitle>
           <StatusPill status={r.status} />
+          {r.outcome && (
+            <span className={cn("pill", r.outcome.state === "accepted" ? "ok" : "muted")}>
+              {r.outcome.state}
+            </span>
+          )}
           <span
             className={cn("pill", r.kind === "bug" ? "warn" : "info")}
             title={
@@ -224,6 +233,7 @@ export default function ChangePanel({
           </details>
         )}
         <ChangeOutcome changeId={changeId} runStatus={r.status} />
+        <ChangeVerdict change={r} productId={productId} canChange={canSteer && !archived} />
         {r.kind !== "assess" && r.status === "awaiting_feedback" && (
           <IterationSummary
             changeId={changeId}

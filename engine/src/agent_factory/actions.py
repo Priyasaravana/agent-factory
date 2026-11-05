@@ -35,6 +35,7 @@ from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
 from agent_factory.identity import current_identity
 from agent_factory.models import (
+    AcceptInput,
     ActivateInput,
     AddFromTemplateInput,
     AddStationInput,
@@ -53,6 +54,7 @@ from agent_factory.models import (
     ChangeOutcome,
     ChangeRiskView,
     ChangeStatus,
+    CloseInput,
     ConfigView,
     CopyWorkflowInput,
     CreateProductInput,
@@ -520,6 +522,7 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
         latest_iteration=latest.iteration,
         latest_kind=latest.kind,
         latest_request=asked or None,
+        latest_outcome=latest.outcome,
     )
 
 
@@ -1318,6 +1321,29 @@ async def get_preflight(f: Factory) -> list[PreflightView]:
 @action("run_preflight", "Run every readiness check now", "POST", "/api/preflight")
 async def run_preflight(f: Factory) -> list[PreflightView]:
     return await f.manager.preflight.all(max_age=0)
+
+
+@action(
+    "accept_change",
+    "Accept a delivered iteration: it is what was asked for (J2). Deployed is not accepted until someone says so",
+    "POST",
+    "/api/changes/{change_id}/accept",
+)
+async def accept_change(f: Factory, change_id: str, body: AcceptInput) -> Change:
+    _may_steer_change(f, change_id)
+    return await f.manager.accept(change_id, body.note, current_identity().user or "anonymous")
+
+
+@action(
+    "close_change",
+    "Close a change with the reason it ends here: a held one stops as Cancel does; a delivered one stays live, "
+    "recorded as not accepted (J2)",
+    "POST",
+    "/api/changes/{change_id}/close",
+)
+async def close_change(f: Factory, change_id: str, body: CloseInput) -> Change:
+    _may_steer_change(f, change_id)
+    return await f.manager.close(change_id, body.reason, current_identity().user or "anonymous")
 
 
 @action("cancel_change", "Cancel a change", "POST", "/api/changes/{change_id}/cancel")

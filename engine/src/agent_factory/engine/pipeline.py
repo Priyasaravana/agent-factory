@@ -39,6 +39,7 @@ from agent_factory.models import (
     CreateProductInput,
     EventKind,
     OnboardRepoInput,
+    Outcome,
     Pause,
     Product,
     ProductTarget,
@@ -777,6 +778,59 @@ class ChangeManager:
             self._seal_after_cancel(change_id, task), name=f"seal-{change_id}"
         )
         return change
+
+    async def accept(self, change_id: str, note: str, by: str) -> Change:
+        """A person accepts a delivered iteration (J2, UX-14): it is what was asked for. Deployed is not
+        accepted until someone says so. Recorded once, in the event log and the re-sealed evidence."""
+        change = self._get(change_id)
+        if change.outcome is not None:
+            raise InvalidRequestError(f"already {change.outcome.state} by {change.outcome.by}")
+        if change.status != ChangeStatus.awaiting_feedback or change.kind == ChangeKind.assess:
+            raise InvalidRequestError("only a delivered iteration can be accepted")
+        note = " ".join(note.split())
+        change.outcome = Outcome(state="accepted", by=by, at=datetime.now(UTC), note=note)
+        self.store.save_change(change)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"iteration {change.iteration} accepted by {by}" + (f": {note}" if note else ""),
+            data={"outcome": change.outcome.model_dump(mode="json")},
+        )
+        await self._reseal(change)
+        return change
+
+    async def close(self, change_id: str, reason: str, by: str) -> Change:
+        """A person closes a change with the reason it ends here (J2): a held one stops the way Cancel
+        does (production settles to its last healthy release if it was left serving this change's);
+        a delivered one stays live and is recorded as not accepted. A running change is cancelled
+        first, never closed under its own feet."""
+        change = self._get(change_id)
+        if change.outcome is not None:
+            raise InvalidRequestError(f"already {change.outcome.state} by {change.outcome.by}")
+        if change.status in (ChangeStatus.queued, ChangeStatus.running):
+            raise InvalidRequestError("it is still running: cancel it first, then close it with the reason")
+        reason = " ".join(reason.split())
+        if len(reason) < 3:
+            raise InvalidRequestError("say why it ends here")
+        before = str(change.status)
+        change.outcome = Outcome(state="closed", by=by, at=datetime.now(UTC), note=reason, status_before=before)
+        self.store.save_change(change)
+        live = change.status == ChangeStatus.awaiting_feedback
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"closed by {by} ({before}): {reason}" + (" · delivered, not accepted; it stays live" if live else ""),
+            data={"outcome": change.outcome.model_dump(mode="json")},
+        )
+        if change.status in TERMINAL:
+            await self._reseal(change)
+            return change
+        return self.cancel(change.id)  # stops it, settles production, seals with the reason in
+
+    async def _reseal(self, change: Change) -> None:
+        product = self.store.get_product(change.product_id)
+        if product is not None:
+            await self._seal(change, product)
 
     def feedback(
         self,

@@ -361,6 +361,16 @@ per-pack evaluation is in the backlog.
   still needs. First cut: demo = Level 3 and requirements verified live; pilot adds a named owner and a proven
   rollback; production adds J4's availability target, alert and tested restore. Shown on the product page and
   in the evidence; a product with no owner can't be above demo.
+- **Accepted or closed** (decided by Saravana 2026-11-05: accept, and close with a reason; UX-14, and the
+  blue/green drill's held trial `e56fb20c67ad` that nothing could close). 🔄 **In review, `feat/accept-close`:**
+  `Change.outcome` (accepted | closed, who, when, note), recorded once, never changed, and the evidence
+  re-sealed with it. **Accept** (`POST /api/changes/{id}/accept`): a delivered iteration only; deployed is not
+  accepted until someone says so. **Close** (`POST …/close`, a reason required): a held or waiting change stops
+  as Cancel does (production settles to its last healthy release if it was left serving this change's); a
+  delivered one stays live, recorded as not accepted; a running change is cancelled first, never closed under
+  its own feet. Both steer the product (its creator or an admin). Shown in the change panel (prompt, then the
+  outcome; an "accepted" or "closed" pill beside the status) and on the Next iteration card ("Iteration N
+  accepted by …" or "delivered, not accepted yet").
 - **Done when:** iteration 2 is started from the "Next iteration" card with a suggested feature and a CVE fix,
   and a deliberately broken iteration rolls back while the previous version keeps serving. **And** every
   delivered change states what it's ready for and what the next tier needs (decided 2026-10-31). **And**

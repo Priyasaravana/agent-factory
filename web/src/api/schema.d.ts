@@ -884,6 +884,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a delivered iteration: it is what was asked for (J2). Deployed is not accepted until someone says so
+         * @description Accept a delivered iteration: it is what was asked for (J2). Deployed is not accepted until someone says so
+         */
+        post: operations["accept_change"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a change with the reason it ends here: a held one stops as Cancel does; a delivered one stays live, recorded as not accepted (J2)
+         * @description Close a change with the reason it ends here: a held one stops as Cancel does; a delivered one stays live, recorded as not accepted (J2)
+         */
+        post: operations["close_change"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/cancel": {
         parameters: {
             query?: never;
@@ -1625,6 +1665,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AcceptInput
+         * @description Accept a delivered iteration: it is what was asked for.
+         */
+        AcceptInput: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
         /** ActivateInput */
         ActivateInput: {
             /** Override Reason */
@@ -2161,6 +2212,7 @@ export interface components {
             pause?: components["schemas"]["Pause"] | null;
             /** Summary */
             summary?: string | null;
+            outcome?: components["schemas"]["Outcome"] | null;
             /**
              * Cost Usd
              * @default 0
@@ -2347,6 +2399,14 @@ export interface components {
             integration?: string | null;
             /** Blocks */
             blocks?: string[];
+        };
+        /**
+         * CloseInput
+         * @description Close a change with the reason it ends here (a drill finished, no longer wanted, not accepted).
+         */
+        CloseInput: {
+            /** Reason */
+            reason: string;
         };
         /** ConfigView */
         ConfigView: {
@@ -3247,6 +3307,7 @@ export interface components {
             latest_kind?: components["schemas"]["ChangeKind"] | null;
             /** Latest Request */
             latest_request?: string | null;
+            latest_outcome?: components["schemas"]["Outcome"] | null;
         };
         /**
          * OnboardRepoInput
@@ -3302,6 +3363,33 @@ export interface components {
              * @default architect
              */
             decided_by: string;
+        };
+        /**
+         * Outcome
+         * @description A person's word on a change (J2, UX-14): **accepted** (a delivered iteration is what was wanted),
+         *     or **closed** with a reason (held, or delivered but not accepted). Recorded, sealed with the change's
+         *     evidence and never changed afterwards. Deployed is not accepted: only this says so.
+         */
+        Outcome: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "accepted" | "closed";
+            /** By */
+            by: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Status Before */
+            status_before?: string | null;
         };
         /** OutcomesView */
         OutcomesView: {
@@ -6554,6 +6642,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreflightView"][];
+                };
+            };
+        };
+    };
+    accept_change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
