@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-04 (correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-04 (Now items 1–3 merged, item 4 phones checked in review; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -80,7 +80,7 @@ The remaining usability findings wait in the backlog until J2 is done.
    not the whole acceptance; a re-entry caused by a pause doesn't count against the station's attempts (UX-19);
    a budget hold names the budget, its source, both meters and what to do (UX-15). The full waiting-state model
    (UX-12, UX-14, L-4) follows in the backlog.
-   🔄 **In review, `fix/waiting-budgets` (2026-11-04):** `waiting.py` (pure). **L-5 confirmed from the code:**
+   ✅ **Merged 2026-11-04 (`e0aad44`), was `fix/waiting-budgets`:** `waiting.py` (pure). **L-5 confirmed from the code:**
    a change's spend (`cost_usd`, so the campaign's $21.05) is the agent CLI's meter only; `max(CLI, gateway)`
    fed just the gateway's in-memory change budget, which a restart reset to nothing. Now the change records
    both meters (`gateway_spend_usd` beside `cost_usd`, both on the change card), the change budget counts
@@ -105,6 +105,21 @@ The remaining usability findings wait in the backlog until J2 is done.
 4. **Phones checked, not estimated (UX-04, ~½ day; decided 2026-11-04: now, with this set):** the pack's e2e
    fails a route that scrolls sideways at 390 px, beside the tap-target check (nextjs-web patch release); a
    serious UI-review defect is shown in the delivery status and offered on the next iteration's card.
+   🔄 **In review, `fix/phones-checked` (2026-11-04), nextjs-web 1.5.2:** `e2e/sideways-scroll.spec.ts` beside
+   the tap-target check (both on `e2e/phone.ts`): every route at 390 px in every look, signed in where needed,
+   fails when the page is wider than the screen or `<html>`/`<body>` hides sideways overflow, and names what
+   sticks out. Run in a real browser against the template's preview: a 576 px row fails, hidden overflow fails,
+   a 12-column `Table` passes, whole suite passes. **Found on the template itself:** `<Page>`'s grid column
+   grew to its widest child, so a wide table widened the whole page (likely Expense claims' Manage page); the
+   column is now `minmax(0,1fr)`. UI review: each finding is `serious` (stops a person using that screen: cut
+   off, off-screen, wider than the phone, unreadable, broken) or `minor`; still never blocks. At delivery
+   (`pipeline._fold_ui_review`, `ledger.fold_ui_review`) a serious finding becomes an open `ui` work item on its
+   screenshot (a `bug`, high), recognised again by screen and wording, fixed when a later complete review
+   looked at that screen and no longer reports it, reopened if it comes back, and back on the card when the
+   change that addressed it is delivered still serious (review of #154); a person's decision stands.
+   Shown in "Iteration N delivered" (a "serious screen defect" pill beside "verified live" and the list under
+   "For the next iteration"), on the Look and feel panel, and as **Screen fixes** on the Next iteration card.
+   Tests: `test_nextjs_pack`, `test_ui_review`, `test_next_iteration`.
 5. **UX-02 by hand (no code):** re-publish the default New product lane from the current template (Back to
    factory default) so it has Promote; if a fresh product then runs on it, J1's repeatability run needs no
    new control (UX-01 stays in the backlog).
@@ -495,7 +510,8 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
     cases with hidden scenarios and visual checks; repeated runs per case. Feeds J1's second product and phase I.
   - **Visual standards enforced, not reported:** UI review blocking once calibrated against the product set
     (the rubric already scores; today it only reports); tap targets and sideways scroll at 390 px measured in
-    the pack's e2e (template 1.4.1, shipped as 1.5.1: tap targets done; sideways scroll still open).
+    the pack's e2e (tap targets in 1.5.1; sideways scroll in 1.5.2, Now item 4, in review). Still open: the
+    UI review blocking, and cut-off content inside a box that hides its overflow (left to the UI review).
   - **Database migrations as a signal:** a schema change ships a forward migration, tested against the last
     release's data, and a rollback path; a release with an unmigrated schema change fails Level 3.
   - **Performance budget:** the pack declares a latency target for key routes; a short load smoke test in

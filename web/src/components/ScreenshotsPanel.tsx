@@ -42,6 +42,7 @@ export default function ScreenshotsPanel({ changeId, runStatus }: { changeId: st
     routes.set(r, [...(routes.get(r) ?? []), f]);
   }
   const total = runs.reduce((n, r) => n + r.files.length, 0);
+  const serious = review?.findings.filter((f) => f.severity === "serious").length ?? 0;
   return (
     <Panel
       id="screenshots"
@@ -54,6 +55,11 @@ export default function ScreenshotsPanel({ changeId, runStatus }: { changeId: st
           {review && review.mean != null && (
             <span className={cn("pill", review.mean >= 4 ? "ok" : review.mean >= 3 ? "info" : "warn")}>
               UI {review.mean}/5 · reported only
+            </span>
+          )}
+          {serious > 0 && (
+            <span className="pill bad" data-testid="ui-serious-count">
+              {serious} serious
             </span>
           )}
         </>
@@ -86,12 +92,15 @@ export default function ScreenshotsPanel({ changeId, runStatus }: { changeId: st
           </ul>
           {review.findings.length > 0 && (
             <ul className="m-0 grid gap-1 pl-5 text-sm">
-              {review.findings.map((f, i) => (
-                <li key={i}>
-                  {f.screenshot && <code className="mr-1 text-xs text-muted-foreground">{f.screenshot}</code>}
-                  {f.issue}
-                </li>
-              ))}
+              {[...review.findings]
+                .sort((a, b) => Number(b.severity === "serious") - Number(a.severity === "serious"))
+                .map((f, i) => (
+                  <li key={i}>
+                    {f.severity === "serious" && <span className="pill bad mr-1">serious</span>}
+                    {f.screenshot && <code className="mr-1 text-xs text-muted-foreground">{f.screenshot}</code>}
+                    {f.issue}
+                  </li>
+                ))}
             </ul>
           )}
           {!review.complete && (

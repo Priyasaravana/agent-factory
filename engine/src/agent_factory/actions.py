@@ -486,8 +486,9 @@ def list_work_items(f: Factory, product_id: str) -> list[WorkItem]:
 
 @action(
     "next_iteration",
-    "What a delivered product's next iteration can address: suggested features, deferred quality work and "
-    "security fixes with a released fix (open work items, best first), and whether it can start now",
+    "What a delivered product's next iteration can address: suggested features, deferred quality work, "
+    "security fixes with a released fix and serious UI defects (open work items, best first), and whether "
+    "it can start now",
     "GET",
     "/api/products/{product_id}/next-iteration",
 )
@@ -501,13 +502,18 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
     groups = ledger.next_iteration(f.store.list_work_items(product_id))
     if latest is None:
         return NextIterationView(
-            features=groups["features"], quality=groups["quality"], security=groups["security"], can_start=True
+            features=groups["features"],
+            quality=groups["quality"],
+            security=groups["security"],
+            ui=groups["ui"],
+            can_start=True,
         )
     asked = (latest.change_request or "").strip().split("\n", 1)[0][:300]
     return NextIterationView(
         features=groups["features"],
         quality=groups["quality"],
         security=groups["security"],
+        ui=groups["ui"],
         can_start=latest.status in FEEDBACK_OPEN,
         latest_change_id=latest.id,
         latest_status=latest.status,

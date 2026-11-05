@@ -761,6 +761,122 @@ def fold_features(
     return sorted(changed.values(), key=sort_key), stats
 
 
+UI = "ui"  # serious defects the UI review found in a delivered change's screenshots (UX-04)
+MAX_UI_TITLE = 100
+
+
+def _ui_title(issue: str) -> str:
+    text = " ".join(issue.split())
+    first = re.split(r"(?<=[.;])\s", text, maxsplit=1)[0].rstrip(".;")
+    return first if len(first) <= MAX_UI_TITLE else first[: MAX_UI_TITLE - 1].rstrip() + "…"
+
+
+def fold_ui_review(
+    product_id: str,
+    items: list[WorkItem],
+    review: dict[str, Any],
+    *,
+    change_id: str,
+    iteration: int,
+    now: datetime,
+) -> tuple[list[WorkItem], dict[str, int]]:
+    """Fold a delivered change's UI review (`ui-review.json`) into the ledger (UX-04): each serious
+    finding is an open item on the screenshot it names, offered on the next iteration's card; minor
+    ones stay in the review. A defect is recognised again by its screenshot and wording (the reviewer
+    rewords between runs). An open UI item is fixed when a later complete review looked at its
+    screenshot and no longer reports it serious; one reported again after it was fixed, or still
+    reported after the change that addressed it was delivered, is open again (back on the card).
+    An incomplete review changes nothing. Returns the items that changed and what happened."""
+    changed: dict[str, WorkItem] = {}
+    stats = {"new": 0, "seen": 0, "fixed": 0, "reopened": 0}
+    if not review.get("complete", False):
+        return [], stats
+    shots = {str(s) for s in review.get("screenshots") or []}
+    ui_items = [it for it in items if it.category == UI]
+    ids = {it.id for it in items}
+    taken: set[str] = set()
+    for f in review.get("findings") or []:
+        shot, issue = str(f.get("screenshot") or ""), " ".join(str(f.get("issue") or "").split())
+        if f.get("severity") != "serious" or not shot or not issue:
+            continue
+        fp = fingerprint("issue", "", f"ui:{shot}:{issue}")
+        it = next((i for i in ui_items if i.id not in taken and i.fingerprint == fp), None) or next(
+            (i for i in ui_items if i.id not in taken and i.at[:1] == [shot] and _similar(i.detail, issue)), None
+        )
+        if it is None:
+            it = WorkItem(
+                id=item_id(product_id, fp),
+                product_id=product_id,
+                kind="issue",
+                fingerprint=fp,
+                title=_ui_title(issue),
+                severity="high",
+                category=UI,
+                change_kind="bug",
+                first_iteration=iteration,
+                created_at=now,
+                updated_at=now,
+            )
+            while it.id in ids:
+                it.id = it.id + "x"
+            ids.add(it.id)
+            ui_items.append(it)
+            items.append(it)
+            stats["new"] += 1
+            _log(it, now, "found", f"serious in the UI review ({shot})", iteration=iteration, change_id=change_id)
+        elif it.status == "fixed":
+            it.status, it.resolved_by = "open", None
+            stats["reopened"] += 1
+            _log(
+                it,
+                now,
+                "reappeared",
+                f"serious again in the UI review ({shot})",
+                iteration=iteration,
+                change_id=change_id,
+            )
+        elif it.status == "in_progress" and change_id in it.claimed_by:
+            # the change that addressed it was delivered with the defect still there: back on the card
+            it.status = "open"
+            stats["reopened"] += 1
+            _log(
+                it,
+                now,
+                "still-present",
+                f"still serious in the UI review of change {change_id} ({shot})",
+                iteration=iteration,
+                change_id=change_id,
+            )
+        else:
+            stats["seen"] += 1
+            _log(it, now, "seen", iteration=iteration, change_id=change_id)
+        taken.add(it.id)
+        if it.status in OPEN:  # a decided item keeps what the person saw when they decided
+            it.title, it.detail = _ui_title(issue), issue
+        it.at = [shot]
+        it.sources = [{"station": "code-review", "via": "UI review of the route screenshots", "rule": shot}]
+        it.last_iteration = iteration
+        if iteration not in it.seen_in:
+            it.seen_in.append(iteration)
+        it.updated_at = now
+        changed[it.id] = it
+    for it in ui_items:
+        if it.id in taken or it.status not in OPEN or not it.at or it.at[0] not in shots:
+            continue
+        it.status, it.resolved_by = "fixed", change_id
+        stats["fixed"] += 1
+        _log(
+            it,
+            now,
+            "fixed",
+            f"the UI review of iteration {iteration} looked at {it.at[0]} and no longer reports it",
+            iteration=iteration,
+            change_id=change_id,
+        )
+        changed[it.id] = it
+    return sorted(changed.values(), key=sort_key), stats
+
+
 def has_fix(it: WorkItem) -> bool:
     """An image finding with a released fix (its detail starts "fixed in", `image_scan.ledger_detail`)."""
     return it.category == IMAGE and it.detail.startswith("fixed in")
@@ -768,14 +884,15 @@ def has_fix(it: WorkItem) -> bool:
 
 def next_iteration(items: list[WorkItem]) -> dict[str, list[WorkItem]]:
     """What a person can pick for a delivered product's next iteration (roadmap J2, the "Next
-    iteration" card): suggested **features**, deferred **quality** work from the pillar roadmap, and
-    **security** fixes (image vulnerabilities with a released fix). Open items only, best first;
-    everything else stays on the work ledger."""
+    iteration" card): suggested **features**, deferred **quality** work from the pillar roadmap,
+    **security** fixes (image vulnerabilities with a released fix) and serious **ui** defects the UI
+    review found (UX-04). Open items only, best first; everything else stays on the work ledger."""
     open_ = sorted((it for it in items if it.status == "open"), key=sort_key)
     return {
         "features": [it for it in open_ if it.category == FEATURE],
         "quality": [it for it in open_ if it.category == ROADMAP],
         "security": [it for it in open_ if has_fix(it)],
+        "ui": [it for it in open_ if it.category == UI],
     }
 
 

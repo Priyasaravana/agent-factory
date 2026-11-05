@@ -33,6 +33,12 @@ the developer can build it without guessing and the reviewer can check it agains
   card, an icon button, a checkbox's label) the same `phone:min-h-[44px] phone:min-w-[44px]`.
   `e2e/tap-targets.spec.ts` measures every route at 390 px in every look and fails the build on a
   smaller one. Fix the control; never exempt it.
+- **Nothing scrolls sideways on a phone**: at 390 px every page fits the screen's width, in every
+  look. Stack columns, let text wrap (`min-w-0`, `break-words` for long values), put the actions
+  under the title, and put any table in `Table` (it scrolls inside its own box; `<Page>`'s column
+  is `minmax(0,1fr)` so it can't widen the page). Never hide the overflow on `<html>` or `<body>`:
+  that cuts content off. `e2e/sideways-scroll.spec.ts` fails the build on a page wider than the
+  screen and names what sticks out.
 
 ## Write docs/ui.md
 

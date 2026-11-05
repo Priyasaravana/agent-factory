@@ -4,12 +4,20 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-04)
-- **In review, `fix/waiting-budgets` (2026-11-04):** item 3 of "Now", waiting and budgets minimum (L-5, UX-15,
-  UX-18, UX-19); detail in the roadmap. Behaviour changes to look at in review: a paused change keeps its
-  temporary environment until it wakes (UX-18), and a throttle without a known time backs off from 2 minutes,
-  so a throttled run may wake several times (bounded: a hold after 8 in a row). Not proved in the cloud: the
-  cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters) are the
-  evidence to read first. #151 and #152 are merged. **Next:** item 4, UX-04's sideways-scroll check.
+- **In review, `fix/phones-checked` (2026-11-04):** item 4 of "Now", UX-04 (nextjs-web 1.5.2); detail in the
+  roadmap. Behaviour changes to look at in review: a product whose page scrolls sideways at 390 px now fails
+  its preview e2e and goes back to build (as a small tap target does); `<Page>`'s column is `minmax(0,1fr)`.
+  Both reach **new** products only: an existing product keeps its copy of the template (Expense claims' Manage
+  page included), so for it the UI review's serious defect on the card is the route to a fix; serious
+  UI-review defects become open `ui` work items at delivery and show as **Screen fixes** on the Next iteration
+  card. Proved in the cloud: the spec in a real browser against the template's preview (fails 576 px and
+  hidden overflow, passes a wide `Table`, whole suite 29 passed); the summary and the card checked at 1280 and
+  390 px in dry-run. Not proved: the reviewer's sense of "serious" on real screenshots (the next live run).
+  **Next:** item 5, UX-02 by hand (Saravana), then J1's fresh-product run.
+- **Merged 2026-11-04 (`e0aad44`):** item 3, waiting and budgets minimum (L-5, UX-15, UX-18, UX-19). Not proved
+  yet: the cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters)
+  are the evidence to read first. A paused change keeps its temporary environment until it wakes; a throttle
+  without a known time backs off from 2 minutes (a hold after 8 in a row). #151 and #152 are merged.
 - **Merged 2026-11-04 (#150):** L-3, blue/green fails closed. **Decided by Saravana 2026-11-04 (review of
   #151):** an explicit Resume reruns the blue/green checks after a person fixes the cause elsewhere: pass,
   carry on in blue/green; fail, keep the hold. Switching to In place stays a separate release decision.
@@ -212,6 +220,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   then `uvicorn.run(create_app(f), port=8000)`. `web/e2e/builder.py` drives the builder.
 
 ### Lessons
+- **Editing a pack's template:** `scripts/check all` doesn't run the template's own checks; CI does. Run
+  `make verify` in a copy of `packs/<id>/template` (its Prettier, eslint, tests, audit and build) before pushing.
 - **Mac git:** delete permission resets with each new linked session: request it before the first git write.
   Otherwise `git am` leaves `.lock` files and `.git/rebase-apply`, and the branch switch stops halfway. To
   recover: remove only the locks with your command's timestamp, `git reset -q` (index only), check

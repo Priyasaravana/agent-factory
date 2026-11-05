@@ -5,6 +5,11 @@ Pure helpers:
 - `collect`: copy the e2e suite's screenshots into the change's evidence, capped and named safely;
 - `judge`: check the reviewer's scores against the rubric and summarise them.
 
+A finding is `serious` when it stops a person using the product on that screen (UX-04: a page wider
+than a phone, controls off-screen, unreadable or invisible text, a page that looks broken), `minor`
+otherwise. Serious findings still never fail the change: the delivery status shows them and the work
+ledger offers them on the next iteration's card (`ledger.fold_ui_review`).
+
 The UI review never fails a change: blocking waits until the rubric is calibrated on known-good and
 known-bad screenshots (ADR-0044, deferred). The engine still judges completeness, as every judging
 station does (ADR-0020): the reviewer's report is evidence, not a verdict.
@@ -22,6 +27,13 @@ MAX_SHOTS = 48  # per run: routes × 2 sizes × 2 schemes; more is a sign of a r
 MAX_SHOT_BYTES = 4 * 1024 * 1024
 SCORE_MIN, SCORE_MAX = 1, 5
 _NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,120}\.png$")
+SEVERITIES = ("serious", "minor")
+SERIOUS = (
+    "`serious` only when it stops a person using the product on that screen: content or controls cut "
+    "off or off-screen, a page wider than the phone (it scrolls sideways), text that can't be read or "
+    "turns invisible (contrast, dark mode), overlapping or broken layout, a page that looks broken; "
+    "everything else (spacing, polish, consistency) is `minor`"
+)
 
 
 class RubricError(ValueError):
@@ -109,8 +121,12 @@ def schema(rubric: Rubric) -> dict[str, Any]:
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["screenshot", "issue"],
-                    "properties": {"screenshot": {"type": "string"}, "issue": {"type": "string"}},
+                    "required": ["screenshot", "issue", "severity"],
+                    "properties": {
+                        "screenshot": {"type": "string"},
+                        "issue": {"type": "string"},
+                        "severity": {"type": "string", "enum": list(SEVERITIES)},
+                    },
                 },
             },
         },
@@ -130,6 +146,10 @@ class UiReview:
         return not self.problems
 
     @property
+    def serious(self) -> list[dict[str, str]]:
+        return [f for f in self.findings if f.get("severity") == "serious"]
+
+    @property
     def mean(self) -> float | None:
         return round(sum(self.scores.values()) / len(self.scores), 2) if self.scores else None
 
@@ -137,7 +157,12 @@ class UiReview:
         if not self.complete:
             return "UI review incomplete (reported only): " + "; ".join(self.problems[:3])
         low = sorted(k for k, v in self.scores.items() if v <= 2)
-        return f"UI review {self.mean}/5 (reported only)" + (f"; weak: {', '.join(low)}" if low else "")
+        serious = len(self.serious)
+        return (
+            f"UI review {self.mean}/5 (reported only)"
+            + (f"; {serious} serious defect{'' if serious == 1 else 's'}" if serious else "")
+            + (f"; weak: {', '.join(low)}" if low else "")
+        )
 
     def as_data(self) -> dict[str, Any]:
         return {
@@ -145,6 +170,7 @@ class UiReview:
             "why": self.why,
             "mean": self.mean,
             "findings": self.findings,
+            "serious": len(self.serious),
             "summary": self.summary,
             "complete": self.complete,
             "problems": self.problems,
@@ -153,7 +179,10 @@ class UiReview:
 
 
 def judge(rubric: Rubric, report: Any, shots: list[str]) -> UiReview:
-    """Every criterion scored once within 1–5; findings name a screenshot that exists."""
+    """Every criterion scored once within 1–5; findings name a screenshot that exists. A finding's
+    severity is `serious` or `minor`; anything else (or none, from an older report) is `minor`, and a
+    serious finding must name a screenshot that exists, or it is kept as minor: a defect nobody can
+    see can't be shown or checked again."""
     out = UiReview()
     if not isinstance(report, dict):
         out.problems.append("no report")
@@ -178,5 +207,7 @@ def judge(rubric: Rubric, report: Any, shots: list[str]) -> UiReview:
     for f in report.get("findings") or []:
         if isinstance(f, dict) and f.get("issue"):
             shot = str(f.get("screenshot", "")).strip().split("/")[-1].lower()
-            out.findings.append({"screenshot": shot if shot in known else "", "issue": str(f["issue"]).strip()[:500]})
+            shot = shot if shot in known else ""
+            severity = "serious" if f.get("severity") == "serious" and shot else "minor"
+            out.findings.append({"screenshot": shot, "issue": str(f["issue"]).strip()[:500], "severity": severity})
     return out

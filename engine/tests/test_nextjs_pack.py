@@ -54,7 +54,7 @@ def _agent_written(root: Path, test_title: str = "adds a book @R1") -> Path:
 # ------------------------------------------------------------------ the pack --
 def test_the_pack_loads_with_its_stack_and_its_own_signals():
     pack = load_pack(PACK)
-    assert pack.source == "nextjs-web@1.5.1" and pack.stack is not None
+    assert pack.source == "nextjs-web@1.5.2" and pack.stack is not None
     stack = pack.stack
     assert (stack.builds, stack.port, stack.health.live, stack.health.ready) == (
         "web-app",
@@ -222,11 +222,37 @@ def test_every_control_is_phone_sized_in_every_look_and_e2e_measures_it():
 
     spec = (TEMPLATE / "e2e" / "tap-targets.spec.ts").read_text()
     assert "for (const look of LOOKS)" in spec and "for (const route of ROUTES)" in spec
-    assert re.search(r"const MIN = 44;", spec) and re.search(r"width: 390\b", spec)
-    assert "SIGNED_IN_ROUTES" in spec, "signed-in pages are measured signed in"
+    assert re.search(r"const MIN = 44;", spec) and "viewport: PHONE" in spec
+    _phone_helper_measures_signed_in_at_390(spec)
     pack = yaml.safe_load((PACK / "pack.yaml").read_text())
     assert pack["stack"]["e2e"].startswith("make e2e"), "the spec runs wherever e2e runs"
     assert "npx playwright test" in (TEMPLATE / "Makefile").read_text(), "the whole suite, not a subset"
+
+
+def _phone_helper_measures_signed_in_at_390(spec: str) -> None:
+    assert 'from "./phone"' in spec and "openInLook(page, route, look)" in spec
+    helper = (TEMPLATE / "e2e" / "phone.ts").read_text()
+    assert re.search(r"width: 390\b", helper), "the screenshot run's phone width"
+    assert "SIGNED_IN_ROUTES" in helper, "signed-in pages are measured signed in"
+
+
+def test_no_route_scrolls_sideways_on_a_phone_in_any_look():
+    """UX-04 (Expense claims, 2026-11-03): delivered 15/15 while its Manage page was 576 px wide at
+    390 px, controls off-screen, reported only by the UI review. Template 1.5.2 fails the build on it:
+    every route at 390 px in every look, the page no wider than the screen and never hidden with
+    overflow-x on <html>/<body>. A table scrolls inside its own box: the page's grid column is
+    `minmax(0,1fr)`, so a wide table can't widen the page (found by this check on the template)."""
+    spec = (TEMPLATE / "e2e" / "sideways-scroll.spec.ts").read_text()
+    assert "for (const look of LOOKS)" in spec and "for (const route of ROUTES)" in spec
+    assert "viewport: PHONE" in spec and "scrollWidth" in spec
+    assert '"hidden"' in spec and '"clip"' in spec, "hiding the overflow is not a fix"
+    assert "never exempt" in spec
+    _phone_helper_measures_signed_in_at_390(spec)
+    page = (TEMPLATE / "src" / "components" / "page.tsx").read_text()
+    assert "grid-cols-[minmax(0,1fr)]" in page
+    assert "overflow-x-auto" in (TEMPLATE / "src" / "components" / "ui" / "table.tsx").read_text()
+    skill = (PACK / "skills" / "nextjs-ui-design" / "SKILL.md").read_text()
+    assert "sideways-scroll.spec.ts" in skill
 
 
 def test_the_template_needs_no_web_fonts_or_remote_assets():
@@ -376,7 +402,7 @@ async def test_a_next_js_product_is_deployed_checked_and_e2e_tested_by_its_pack(
     product = f.manager.create_product(WEB)
     change = f.manager.start_change(product)
     assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
-    assert f.store.get_product(product.id).pack == "nextjs-web@1.5.1"
+    assert f.store.get_product(product.id).pack == "nextjs-web@1.5.2"
     smoke = [c for c in ex.calls if "curl -fsS" in c]
     assert smoke and all("/api/healthz" in c for c in smoke), "the pack's liveness path"
     assert any(c.startswith("make e2e BASE_URL=http://") for c in ex.calls)

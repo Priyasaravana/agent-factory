@@ -2348,7 +2348,9 @@ async def _ui_review(ctx: StationContext) -> None:
     prompt = f"""Score the look and feel of this product from its screenshots. You are observe-only.
 Open each screenshot with the Read tool (it shows images), and read {ui_doc} (the designer's intent).
 Score each criterion from 1 (poor) to 5 (polished), with one line why, and list concrete findings,
-each naming the screenshot file it is about and what to change.
+each naming the screenshot file it is about and what to change, with a `severity`: {ui_review.SERIOUS}.
+A serious finding is shown in the delivery status and offered for the next iteration, so name one
+per defect (one screenshot each) and never call polish serious.
 
 ## Screenshots (route-size-scheme.png; desktop 1280 px and phone 390 px, light and dark)
 {listing}
@@ -2360,7 +2362,8 @@ each naming the screenshot file it is about and what to change.
         await ctx.emit(EventKind.log, "UI review: the reviewer returned no scores (reported only, nothing blocked)")
         return
     review = ui_review.judge(rubric, res.structured, [n.lower() for n in names])
-    _write_json(ctx, "ui-review.json", {"iteration": ctx.change.iteration, **review.as_data()})
+    reviewed = [n.lower() for n in names[: ui_review.MAX_SHOTS]]
+    _write_json(ctx, "ui-review.json", {"iteration": ctx.change.iteration, "screenshots": reviewed, **review.as_data()})
     await ctx.emit(EventKind.decision, review.headline(), {"ui_review": review.as_data()})
 
 

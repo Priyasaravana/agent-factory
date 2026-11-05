@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -112,7 +113,34 @@ def test_a_complete_report_is_summarised_and_never_blocks():
     assert r.complete and r.mean == 3.67
     assert r.headline() == "UI review 3.67/5 (reported only); weak: spacing"
     assert [f["screenshot"] for f in r.findings] == ["home-phone-dark.png", ""]
-    assert r.as_data()["blocking"] is False
+    assert [f["severity"] for f in r.findings] == ["minor", "minor"], "an older report without severities"
+    assert r.as_data()["blocking"] is False and r.as_data()["serious"] == 0
+
+
+def test_serious_defects_are_named_on_a_screenshot_and_still_never_block():
+    """UX-04: a page 576 px wide at 390 px is serious; it is counted and headlined, never a failure.
+    A serious finding on no real screenshot can't be shown or checked again: it is kept as minor."""
+    report = {
+        "summary": "the phone layout breaks",
+        "scores": [{"criterion": c, "score": 3, "why": ""} for c in ("hierarchy", "spacing", "states")],
+        "findings": [
+            {
+                "screenshot": "home-phone-dark.png",
+                "issue": "Page is 576 px wide; Approve is off-screen.",
+                "severity": "serious",
+            },
+            {"screenshot": "imagined.png", "issue": "broken", "severity": "serious"},
+            {"screenshot": "home-desktop-light.png", "issue": "gaps uneven", "severity": "cosmetic"},
+        ],
+    }
+    r = ui_review.judge(RUBRIC, report, SHOTS)
+    assert [f["severity"] for f in r.findings] == ["serious", "minor", "minor"]
+    assert r.headline() == "UI review 3.0/5 (reported only); 1 serious defect"
+    assert r.as_data()["serious"] == 1 and r.as_data()["blocking"] is False
+    assert ui_review.schema(RUBRIC)["properties"]["findings"]["items"]["properties"]["severity"]["enum"] == [
+        "serious",
+        "minor",
+    ]
 
 
 def test_an_incomplete_report_says_what_is_missing():
@@ -210,6 +238,86 @@ async def test_a_web_product_gets_a_designer_screenshots_and_a_ui_review(make_fa
         for bad in ("live/..%2Fui-review.json", "nope/home.png", "live/missing.png"):
             assert (await c.get(f"/api/changes/{change.id}/screenshots/{bad}")).status_code in (400, 404)
     await ctx.__aexit__(None, None, None)
+
+
+class PhoneBreakingReviewer(FakeAgentRunner):
+    """A UI reviewer that finds the phone layout broken (UX-04, Expense claims' Manage page)."""
+
+    serious = True
+
+    def _structured(self, req: AgentRequest) -> Any:
+        out = super()._structured(req)
+        if req.role == "ui-reviewer" or "scores" in (req.output_schema or {}).get("properties", {}):
+            out = {**out, "findings": list(out["findings"])}
+            if self.serious:
+                out["findings"].append(
+                    {
+                        "screenshot": "home-phone-dark.png",
+                        "issue": "The page is 576 px wide on a phone: Approve and Reject are off-screen.",
+                        "severity": "serious",
+                    }
+                )
+        return out
+
+
+async def test_a_serious_ui_defect_shows_at_delivery_and_is_offered_for_the_next_iteration(make_factory):
+    """UX-04: delivered with a serious defect, the change is still delivered (the review never blocks),
+    the defect is an open item on the next iteration's card, and a later delivery whose review looked at
+    the same screen and no longer reports it fixes the item."""
+    agents = PhoneBreakingReviewer()
+    f = make_factory(ShootingExecutor(), agents)
+    product = f.manager.create_product(WEB)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+    events = f.store.list_events(change.id)
+    assert (
+        next(e for e in events if "ui_review" in e.data).message == "UI review 4.0/5 (reported only); 1 serious defect"
+    )
+    folded = next(e for e in events if "work_ledger" in e.data and "ui" in e.data["work_ledger"])
+    assert folded.data["work_ledger"]["ui"] == {"new": 1, "seen": 0, "fixed": 0, "reopened": 0}
+
+    app, ctx, c = await _client(f)
+    async with c:
+        view = (await c.get(f"/api/changes/{change.id}/screenshots")).json()
+        assert view["review"]["serious"] == 1
+        assert [x["severity"] for x in view["review"]["findings"]] == ["minor", "serious"]
+        card = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        [item] = card["ui"]
+        assert item["title"] == "The page is 576 px wide on a phone: Approve and Reject are off-screen"
+        assert item["at"] == ["home-phone-dark.png"] and item["change_kind"] == "bug"
+        assert item["severity"] == "high" and item["category"] == "ui"
+    await ctx.__aexit__(None, None, None)
+
+    agents.serious = False
+    nxt = f.manager.start_change(f.store.get_product(product.id), "fix the phone layout")
+    assert await wait_run(f, nxt.id, 60) == ChangeStatus.awaiting_feedback
+    [it] = [i for i in f.store.list_work_items(product.id) if i.category == "ui"]
+    assert it.status == "fixed" and it.resolved_by == nxt.id
+    assert "looked at home-phone-dark.png and no longer reports it" in it.history[-1].note
+
+
+async def test_a_ticked_screen_fix_still_broken_after_delivery_is_offered_again(make_factory):
+    """PR #154 review: tick the screen fix on the card, deliver with the defect still serious: it is back
+    under Screen fixes, not stuck in progress where the card can't offer it."""
+    f = make_factory(ShootingExecutor(), PhoneBreakingReviewer())
+    product = f.manager.create_product(WEB)
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id, 60) == ChangeStatus.awaiting_feedback
+
+    app, ctx, c = await _client(f)
+    async with c:
+        [item] = (await c.get(f"/api/products/{product.id}/next-iteration")).json()["ui"]
+        r = await c.post(f"/api/products/{product.id}/feedback", json={"text": item["title"], "items": [item["id"]]})
+        assert r.status_code in (200, 201), r.text
+        fix = r.json()
+        assert fix["kind"] == "bug"
+        assert await wait_run(f, fix["id"], 60) == ChangeStatus.awaiting_feedback
+        card = (await c.get(f"/api/products/{product.id}/next-iteration")).json()
+        assert [i["id"] for i in card["ui"]] == [item["id"]]
+    await ctx.__aexit__(None, None, None)
+    [it] = [i for i in f.store.list_work_items(product.id) if i.category == "ui"]
+    assert it.status == "open" and fix["id"] in it.claimed_by
+    assert it.history[-1].event == "still-present"
 
 
 async def test_a_fastapi_product_has_no_designer_and_no_ui_review(make_factory):
