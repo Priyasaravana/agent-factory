@@ -183,3 +183,69 @@ async def test_a_pack_without_a_preview_passes_and_says_why(make_factory):
     assert not any("setsid" in c for c in ex.calls)
     messages = [e.message for e in f.store.list_events(change.id)]
     assert any(m.startswith("end-to-end before deploy not run: fastapi-service@") for m in messages)
+
+
+# ------------------------------------------- a browser crash (2026-11-05) ---
+CRASH = """Running 59 tests using 4 workers
+  1) [chromium] › e2e/a11y.spec.ts:9:7 › /admin/users has no serious accessibility violations ──────
+
+    Error: browserContext.newPage: Target crashed
+     Please check out https://github.com/dequelabs/axe-core-npm/blob/develop/packages/playwright/error-handling.md
+
+       9 |   test(`${route} has no serious accessibility violations`, async ({ page }) => {
+    > 11 |     const results = await new AxeBuilder({ page })
+
+  1 failed
+  58 passed (59.5s)
+{"level":30,"route":"/api/auth/sign-in","msg":"signed in"}
+"""
+ASSERTION = """  2) [chromium] › e2e/smoke.spec.ts:4:5 › / shows the plants ──────
+
+    Error: expect(locator).toBeVisible() failed
+"""
+E2E = "make e2e BASE_URL=http://127.0.0.1:3000"
+
+
+def test_a_run_whose_only_failures_are_browser_crashes_is_recognised():
+    from agent_factory import run_report
+
+    assert run_report.browser_crashes(CRASH) == [
+        "1) [chromium] › e2e/a11y.spec.ts:9:7 › /admin/users has no serious accessibility violations"
+    ]
+    two = CRASH.replace("  1 failed", ASSERTION + "\n  2 failed")
+    assert run_report.browser_crashes(two) == [], "a real failure beside a crash is the app's to fix"
+    assert run_report.browser_crashes("make: *** [e2e] Error 1\nTarget crashed") == [], "no test failed"
+    assert run_report.browser_crashes("") == []
+
+
+async def test_a_browser_crash_runs_the_preview_suite_once_more_instead_of_going_to_implement(make_factory):
+    ex = FakeExecutor(fail_on=[E2E], fail_with={E2E: CRASH})
+    f = make_factory(ex)
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+    assert sum(E2E in c for c in ex.calls) == 2
+    events = f.store.list_events(change.id)
+    rerun = next(e for e in events if "browser_crash" in e.data)
+    assert rerun.message.startswith("the browser crashed under 1 test(s) against the preview app")
+    assert rerun.data["browser_crash"]["tests"][0].endswith("/admin/users has no serious accessibility violations")
+    assert f.store.get_change(change.id).attempts["implement"] == 1, "the developer was never sent to fix it"
+    assert not any(e.message.startswith("preview-e2e: failed") for e in events)
+
+
+async def test_a_second_crash_or_a_real_failure_takes_the_usual_route(make_factory):
+    ex = FakeExecutor(fail_on=[E2E, E2E], fail_with={E2E: CRASH})
+    f = make_factory(ex)
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback  # fixed on the next pass
+    events = f.store.list_events(change.id)
+    assert sum("browser_crash" in e.data for e in events) == 1, "once, never a loop"
+    assert any(e.message.startswith("preview-e2e: failed") for e in events)
+    assert f.store.get_change(change.id).attempts["implement"] == 2
+
+    ex = FakeExecutor(fail_on=[E2E], fail_with={E2E: CRASH.replace("  1 failed", ASSERTION + "\n  2 failed")})
+    f = make_factory(ex)
+    change = f.manager.start_change(f.manager.create_product(WEB))
+    assert await wait_run(f, change.id, 60) == ChangeStatus.awaiting_feedback
+    events = f.store.list_events(change.id)
+    assert not any("browser_crash" in e.data for e in events)
+    assert f.store.get_change(change.id).attempts["implement"] == 2

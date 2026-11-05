@@ -90,6 +90,7 @@ class SandboxSpec:
     memory: str = "4g"
     cpus: str = "2"
     pids: int = 512
+    shm_size: str = "1g"  # /dev/shm for Chromium; Docker's 64 MB default crashes it ("Target crashed")
     tmp_size: str = "1g"
     cache_volume: str | None = CACHE_VOLUME
     # engine variables this session must not inherit, e.g. the model credential behind a gateway
@@ -109,6 +110,7 @@ class SandboxSpec:
             "--security-opt", "no-new-privileges",
             "--pids-limit", str(self.pids),
             "--memory", self.memory,
+            "--shm-size", self.shm_size,
             "--cpus", self.cpus,
             "--network", self.network,
             "--tmpfs", f"/tmp:rw,exec,mode=1777,size={self.tmp_size}",  # noqa: S108 - private to this container
