@@ -220,6 +220,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   then `uvicorn.run(create_app(f), port=8000)`. `web/e2e/builder.py` drives the builder.
 
 ### Lessons
+- **Editing a pack's template:** `scripts/check all` doesn't run the template's own checks; CI does. Run
+  `make verify` in a copy of `packs/<id>/template` (its Prettier, eslint, tests, audit and build) before pushing.
 - **Mac git:** delete permission resets with each new linked session: request it before the first git write.
   Otherwise `git am` leaves `.lock` files and `.git/rebase-apply`, and the branch switch stops halfway. To
   recover: remove only the locks with your command's timestamp, `git reset -q` (index only), check
