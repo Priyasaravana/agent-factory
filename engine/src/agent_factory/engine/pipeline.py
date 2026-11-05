@@ -1130,6 +1130,17 @@ class ChangeManager:
             await self._seal(change, product)
             self._after_stop(change, product)
 
+    def _save_after_delivery(self, change: Change) -> None:
+        """Save work that runs after the change is delivered (the retro's and the suggestions' model
+        spend) on top of what a person recorded meanwhile: `change` was loaded before delivery, and a
+        person may have accepted or closed it since (PR #158 review). Their outcome is kept, never
+        overwritten with the stale None. No await between the read and the write, so nothing else on
+        the engine's loop can save in between."""
+        stored = self.store.get_change(change.id)
+        if stored is not None and stored.outcome is not None:
+            change.outcome = stored.outcome
+        self.store.save_change(change)
+
     async def _retro(self, change: Change, product: Product) -> None:
         from agent_factory.retro import run_retro
 
@@ -1139,7 +1150,7 @@ class ChangeManager:
         except Exception as exc:  # noqa: BLE001 - a failed retro is logged, never raised into the change
             self.store.add_event(change.id, EventKind.log, f"retro failed: {type(exc).__name__}: {exc}")
         if change.cost_usd != cost:
-            self.store.save_change(change)  # the retro's model spend belongs to this change
+            self._save_after_delivery(change)  # the retro's model spend belongs to this change
 
     async def _suggest(self, change: Change, product: Product) -> None:
         """The next features of a delivered product (roadmap J2), on its work ledger. Like the retro,
@@ -1152,7 +1163,7 @@ class ChangeManager:
         except Exception as exc:  # noqa: BLE001 - a failed suggestion is logged, never raised into the change
             self.store.add_event(change.id, EventKind.log, f"next features failed: {type(exc).__name__}: {exc}")
         if change.cost_usd != cost:
-            self.store.save_change(change)  # the agents' model spend belongs to this change
+            self._save_after_delivery(change)  # the agents' model spend belongs to this change
 
     def _record_pack(self, change: Change, blueprint: Blueprint) -> None:
         """Which stack pack this change builds with, once per change (ADR-0041 §7)."""

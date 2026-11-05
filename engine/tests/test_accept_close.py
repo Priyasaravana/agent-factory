@@ -3,12 +3,15 @@ ends short of acceptance is closed with the reason; both recorded once and seale
 
 from __future__ import annotations
 
+import asyncio
 import json
 
+import pytest
 from conftest import PRODUCT, wait_run
 from test_access import MEMBER
 from test_api import _client
 
+from agent_factory.agents import FakeAgentRunner
 from agent_factory.executor import FakeExecutor
 from agent_factory.models import ChangeStatus
 
@@ -95,3 +98,48 @@ async def test_a_running_change_is_never_closed_under_its_own_feet(make_factory)
         await f.manager.close(change.id, "stop it", "priya")
     assert f.store.get_change(change.id).outcome is None
     await wait_run(f, change.id, 60)
+
+
+# -------------------------------------- a decision made while post-delivery work runs (PR #158 review) --
+class SlowSuggestions(FakeAgentRunner):
+    """The architect's next-feature call after delivery waits until released, then reports spend: the
+    window in which a person can accept or close while the engine still holds the pre-delivery Change."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def run(self, req, sink):
+        res = await super().run(req, sink)
+        if req.station == "suggest" and req.role == "architect":
+            self.entered.set()
+            await self.release.wait()
+            res.cost_usd = 0.42  # changed spend: the engine saves the change again
+        return res
+
+
+@pytest.mark.parametrize(
+    ("verb", "body", "state"),
+    [("accept", {"note": "fine"}, "accepted"), ("close", {"reason": "not what we need"}, "closed")],
+)
+async def test_a_decision_made_while_post_delivery_work_runs_is_kept(make_factory, verb, body, state):
+    agents = SlowSuggestions()
+    f = make_factory(FakeExecutor(), agents)
+    change = f.manager.start_change(f.manager.create_product(PRODUCT))
+    await asyncio.wait_for(agents.entered.wait(), 60)
+    assert f.store.get_change(change.id).status == ChangeStatus.awaiting_feedback, "delivered and visible"
+    before = f.store.get_change(change.id).cost_usd
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.post(f"/api/changes/{change.id}/{verb}", json=body)
+        assert r.status_code == 200 and r.json()["outcome"]["state"] == state
+        agents.release.set()  # the suggestion finishes and saves its spend
+        await wait_run(f, change.id, 60)
+        stored = f.store.get_change(change.id)
+        assert stored.outcome is not None and stored.outcome.state == state, "the person's decision is kept"
+        assert stored.cost_usd > before, "and the suggestion's spend is saved too"
+        for again, payload in (("accept", {}), ("close", {"reason": "second thoughts"})):
+            second = await c.post(f"/api/changes/{change.id}/{again}", json=payload)
+            assert second.status_code == 422 and f"already {state}" in second.json()["detail"]
+    await ctx.__aexit__(None, None, None)
