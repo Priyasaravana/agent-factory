@@ -22,7 +22,10 @@ export function Page({
   return (
     <main
       id="main"
-      className={cn("mx-auto grid w-full max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 py-8 sm:px-6", className)}
+      className={cn(
+        "mx-auto grid w-full max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 py-8 sm:px-6",
+        className,
+      )}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid min-w-0 gap-1">
