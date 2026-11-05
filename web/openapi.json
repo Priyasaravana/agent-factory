@@ -655,6 +655,102 @@
         }
       }
     },
+    "/api/products/{product_id}/ready-for": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "What a product is ready for (demo, pilot or production), worked out from its latest delivery's evidence, and what the next tier still needs",
+        "description": "What a product is ready for (demo, pilot or production), worked out from its latest delivery's evidence, and what the next tier still needs",
+        "operationId": "get_ready_for",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyForView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/owner": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Name a product's owner (admin): the person accountable for its incidents, upkeep and retirement; a pilot needs one",
+        "description": "Name a product's owner (admin): the person accountable for its incidents, upkeep and retirement; a pilot needs one",
+        "operationId": "set_product_owner",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductOwnerInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyForView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/work-items/decide": {
       "post": {
         "tags": [
@@ -9181,6 +9277,17 @@
             ],
             "title": "Created By"
           },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
           "archived_at": {
             "anyOf": [
               {
@@ -9308,6 +9415,22 @@
         ],
         "title": "ProductDetail"
       },
+      "ProductOwnerInput": {
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Owner"
+          }
+        },
+        "type": "object",
+        "required": [
+          "owner"
+        ],
+        "title": "ProductOwnerInput",
+        "description": "Name the product's owner (an admin): who is accountable for it after delivery."
+      },
       "ProductSpend": {
         "properties": {
           "total_usd": {
@@ -9406,6 +9529,110 @@
           "state"
         ],
         "title": "ReadinessView"
+      },
+      "ReadyForView": {
+        "properties": {
+          "tier": {
+            "type": "string",
+            "enum": [
+              "none",
+              "demo",
+              "pilot",
+              "production"
+            ],
+            "title": "Tier"
+          },
+          "proven": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Proven"
+          },
+          "next_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Tier"
+          },
+          "needs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Needs"
+          },
+          "unchecked_live": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unchecked Live"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "owner_set": {
+            "type": "boolean",
+            "title": "Owner Set",
+            "default": false
+          },
+          "change_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Id"
+          },
+          "iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iteration"
+          },
+          "moved": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tier"
+        ],
+        "title": "ReadyForView",
+        "description": "What a delivered product is ready for (principle 7, J2): its tier, demo, pilot or production,\nworked out by the engine from the evidence (`ready_for.assess`), and what the next tier needs."
       },
       "RefDoc": {
         "properties": {

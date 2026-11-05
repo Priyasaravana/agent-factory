@@ -170,6 +170,9 @@ class Product(BaseModel):
     repo_url: str | None = None  # published repo; for an existing repo (target repo), its web URL
     repo_ref: str | None = None  # an existing repo's branch (ADR-0031)
     created_by: str | None = None
+    # the named owner, accountable for incidents, upkeep and retirement (master plan principle 7, §3J);
+    # None: its creator. An admin can reassign it.
+    owner: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
     eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from products and Outcomes
@@ -1489,6 +1492,28 @@ class CloseInput(BaseModel):
     """Close a change with the reason it ends here (a drill finished, no longer wanted, not accepted)."""
 
     reason: str = Field(min_length=3, max_length=1000)
+
+
+class ReadyForView(BaseModel):
+    """What a delivered product is ready for (principle 7, J2): its tier, demo, pilot or production,
+    worked out by the engine from the evidence (`ready_for.assess`), and what the next tier needs."""
+
+    tier: Literal["none", "demo", "pilot", "production"]
+    proven: list[str] = Field(default_factory=list)
+    next_tier: str | None = None
+    needs: list[str] = Field(default_factory=list)
+    unchecked_live: list[str] = Field(default_factory=list)
+    owner: str | None = None  # the named owner: set by an admin, else the product's creator
+    owner_set: bool = False  # an admin named the owner (False: the creator by default)
+    change_id: str | None = None  # the delivered change it is worked out from; None: nothing delivered
+    iteration: int | None = None
+    moved: dict[str, str] | None = None  # UX-22: that delivery changed the product's address (from, to)
+
+
+class ProductOwnerInput(BaseModel):
+    """Name the product's owner (an admin): who is accountable for it after delivery."""
+
+    owner: str = Field(min_length=1, max_length=120)
 
 
 class DeployStrategyView(BaseModel):
