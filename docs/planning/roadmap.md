@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-04 (Now items 1–3 merged, item 4 phones checked in review; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-05 ("Now" done: items 1–4 merged, item 5 done by hand; J1's fresh-product run next, first delivery in place, decided by Saravana 2026-11-05; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -105,7 +105,7 @@ The remaining usability findings wait in the backlog until J2 is done.
 4. **Phones checked, not estimated (UX-04, ~½ day; decided 2026-11-04: now, with this set):** the pack's e2e
    fails a route that scrolls sideways at 390 px, beside the tap-target check (nextjs-web patch release); a
    serious UI-review defect is shown in the delivery status and offered on the next iteration's card.
-   🔄 **In review, `fix/phones-checked` (2026-11-04), nextjs-web 1.5.2:** `e2e/sideways-scroll.spec.ts` beside
+   ✅ **Merged 2026-11-05 (#154, `325c3ef`), was `fix/phones-checked`, nextjs-web 1.5.2:** `e2e/sideways-scroll.spec.ts` beside
    the tap-target check (both on `e2e/phone.ts`): every route at 390 px in every look, signed in where needed,
    fails when the page is wider than the screen or `<html>`/`<body>` hides sideways overflow, and names what
    sticks out. Run in a real browser against the template's preview: a 576 px row fails, hidden overflow fails,
@@ -123,9 +123,17 @@ The remaining usability findings wait in the backlog until J2 is done.
 5. **UX-02 by hand (no code):** re-publish the default New product lane from the current template (Back to
    factory default) so it has Promote; if a fresh product then runs on it, J1's repeatability run needs no
    new control (UX-01 stays in the backlog).
+   ✅ **Done 2026-11-05 by Saravana:** on main `325c3ef` (nextjs-web 1.5.2 loaded), Back to factory default made
+   New product **v14** active (from v13): acceptance → promote → handover, no update pending, draft discarded,
+   design decisions autonomous, evaluation gate block (not triggered by a restore).
 - **Then:** J1's fresh-product run (also J2's first proof of recovery **after** a blue/green switch), J2's CVE
   fix from the card, and J2's accepted/closed state and "Ready for" statement (UX-22, a change that moves the
   product's address says so, goes with it).
+  **Decided by Saravana 2026-11-05: run J1 now, no create-time strategy.** A product's first change starts
+  when it is created and a run reads the release strategy once, at its start, so the first delivery goes out
+  in place; set Blue/green under Releases after it, and iteration 2 migrates (as Expense claims did). One
+  fresh product does both: J1 on its first delivery, then J2 (switch, recovery after it). Choosing strategy
+  and lane at creation stays UX-01, in the backlog; a running change never picks up a strategy changed mid-run.
 
 **J0. Finish the open thread** ✅ folded into the J1 live run (2026-10-22). The evaluation harness can't run
 pack cases yet (it always builds with the first blueprint), so the Next.js cases ran as ordinary products;

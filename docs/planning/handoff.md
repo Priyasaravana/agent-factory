@@ -1,19 +1,15 @@
-# Agent Factory: handoff (updated 2026-11-04)
+# Agent Factory: handoff (updated 2026-11-05)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-04)
-- **In review, `fix/phones-checked` (2026-11-04):** item 4 of "Now", UX-04 (nextjs-web 1.5.2); detail in the
-  roadmap. Behaviour changes to look at in review: a product whose page scrolls sideways at 390 px now fails
-  its preview e2e and goes back to build (as a small tap target does); `<Page>`'s column is `minmax(0,1fr)`.
-  Both reach **new** products only: an existing product keeps its copy of the template (Expense claims' Manage
-  page included), so for it the UI review's serious defect on the card is the route to a fix; serious
-  UI-review defects become open `ui` work items at delivery and show as **Screen fixes** on the Next iteration
-  card. Proved in the cloud: the spec in a real browser against the template's preview (fails 576 px and
-  hidden overflow, passes a wide `Table`, whole suite 29 passed); the summary and the card checked at 1280 and
-  390 px in dry-run. Not proved: the reviewer's sense of "serious" on real screenshots (the next live run).
-  **Next:** item 5, UX-02 by hand (Saravana), then J1's fresh-product run.
+## Current state (2026-11-05)
+- **"Now" done (2026-11-05).** #154 merged (`325c3ef`, UX-04, nextjs-web 1.5.2, with the review fix: a screen
+  fix delivered still serious is back on the card). Item 5 done by Saravana: New product lane **v14** active,
+  with Promote. Checked on his Mac: main `325c3ef`, the running factory loads nextjs-web 1.5.2, live mode,
+  sandbox ready. **Next: J1's fresh-product run** (decided 2026-11-05: now, first delivery in place, then
+  Blue/green under Releases and J2 on the same product). Read first in its evidence: both cost meters per
+  agent call (the ~6× gap), the UI review's serious findings, and the phone checks in preview-e2e.
 - **Merged 2026-11-04 (`e0aad44`):** item 3, waiting and budgets minimum (L-5, UX-15, UX-18, UX-19). Not proved
   yet: the cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters)
   are the evidence to read first. A paused change keeps its temporary environment until it wakes; a throttle
