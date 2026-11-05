@@ -26,6 +26,8 @@ VALIDATE_HANDLERS = frozenset({"deploy", "deploy-repair", "acceptance"})
 # the station that takes the tested image to production
 PROMOTE = "promote"
 HELM_RELEASE_MAX = 53  # Helm's limit on a release name (it becomes a label value and a DNS name)
+# why a change validates in place when its lane predates promote (a blue/green product holds on it)
+NO_PROMOTE = "the lane has no promote station (an older lane version): production would never be updated"
 
 
 def release_name(slug: str, change_id: str) -> str:
@@ -46,7 +48,7 @@ def in_place_reason(provider: object, stations: Iterable[str]) -> str | None:
         name, kind = getattr(provider, "name", "?"), getattr(provider, "kind", "?")
         return f"deploy target {name} ({kind}) can't give a change a second address"
     if PROMOTE not in handlers:
-        return "the lane has no promote station (an older lane version): production would never be updated"
+        return NO_PROMOTE
     return None
 
 

@@ -321,6 +321,17 @@ export default function ChangePanel({
                 r.required_action?.kind === "colors_in_place") && (
                 <SchemaHold change={r} productId={productId} onDone={refresh} />
               )}
+            {r.status === "held" && r.required_action?.kind === "lane_without_promote" && (
+              <div className="note m-0 grid gap-1" data-testid="lane-without-promote">
+                <p className="m-0">
+                  <span className="font-medium">Production was not touched.</span> {r.required_action.text}
+                </p>
+                <p className="m-0 flex flex-wrap gap-x-4">
+                  <a href={`/workflows/${r.workflow_id ?? ""}`}>Open the lane</a>
+                  <a href={`/products/${productId}#releases`}>Open Releases</a>
+                </p>
+              </div>
+            )}
             {r.status === "held" && r.required_action && r.required_action.kind === "accept_risk" && (
               <p className="note m-0" data-testid="required-action">
                 <span className="font-medium">Before you resume:</span>{" "}
