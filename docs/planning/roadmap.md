@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-05 ("Now" done: items 1–4 merged, item 5 done by hand; J1's fresh-product run next, first delivery in place, decided by Saravana 2026-11-05; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-05 (**J1 closed** by Saravana on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -139,7 +139,7 @@ The remaining usability findings wait in the backlog until J2 is done.
 pack cases yet (it always builds with the first blueprint), so the Next.js cases ran as ordinary products;
 per-pack evaluation is in the backlog.
 
-**J1. Launch, done well** (started 2026-10-21; about 3 days left: three small PRs, then the acceptance run)
+**J1. Launch, done well** ✅ closed 2026-11-05 (started 2026-10-21; see "Done when" below)
 1. ✅ **ADR-0043 PR 2, e2e before deploy** (`936bfca`, nextjs-web 1.1.0; loopback fix `d161b28`, 1.1.1).
 2. **ADR-0044, trimmed to J1 and agreed 2026-10-23** ([docs/adr/0044-design-decisions-modules.md](../adr/0044-design-decisions-modules.md)); four PRs:
    - ✅ **PR 1, decision sheet** (patch 0049, `ce49828`): the pack's catalogue, options, recommendation,
@@ -252,14 +252,19 @@ per-pack evaluation is in the backlog.
   `test_every_control_is_phone_sized_in_every_look_and_e2e_measures_it`.
   **Order (decided by Saravana 2026-11-02):** 1.5.1 first; then the blue/green live run (J2) is a **new product of a
   different shape** from Kudos board, built from scratch on 1.5.1, so the same run is J1's repeatability proof.
-  🔄 **J1 run, Plant watering (2026-11-05, `9e7e05c0c395`, nextjs-web 1.5.2, v14 lane):** first pass built,
-  scanned, deployed to its temporary environment, 8/10 requirements verified live; hidden scenario H5 failed
-  (duplicate email / short password on `POST /api/users` returned 500, UX-11, the template's admin route).
-  The fix then **held at implement**: preview e2e passed 58/59 twice, the 59th Chromium "Target crashed"
-  (a different page each run), each sent to the developer as a code bug. Meters agreed ($4.03 CLI, $4.25
-  gateway). Fix in review, `fix/browser-crash`: `--shm-size` for the sandbox (`sandbox.shm_size`, 1g) and one
-  rerun of an e2e suite whose only failures are browser crashes. Then Resume this change. UX-11 is now seen on
-  two products: fix it in the template (backlog → next template release).
+  ✅ **J1 closed 2026-11-05 (decided by Saravana): met on first delivery; one Resume after a factory fault.**
+  Plant watering (`9e7e05c0c395`, nextjs-web 1.5.2, New product lane v14), iteration 1, no second iteration:
+  decision sheet of 5 answers (autonomous, recorded in the repo); R7 "Writes need sign-in" and R8 admin-managed
+  accounts verified live; **10/10 requirements verified live**, six hidden scenarios pass; preview e2e passed
+  with the phone checks (tap targets, sideways scroll at 390 px, every look); UI review 3.6/5, **0 serious**;
+  repo `software-factory-apps/plant-watering` published; validated in a temporary environment, then Promote
+  put the tested image (`sha256:88d6…`) into production, read-only checks passed; **Level 3, 71/71**. Cost
+  $5.78 CLI / $5.61 gateway: the meters agree (the campaign's ~6× gap did not appear). The qualification: the
+  first pass's fix (H5, UX-11's 500 on a duplicate email) held at implement on Chromium "Target crashed" in
+  the sandbox, a factory fault fixed in #156 (`--shm-size`, one rerun on a pure browser crash); after one
+  Resume, preview e2e passed first time. Left for iteration 2: 9 minor UI findings, mostly drift from the
+  designer's `docs/ui.md`, and the phone table's Status column starting off-screen with no scroll hint.
+  UX-11 seen on two products: fix it in the template (backlog, next template release).
 
 **J2. Iterate safely (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01)**
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
