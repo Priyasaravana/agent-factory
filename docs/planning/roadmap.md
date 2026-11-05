@@ -374,7 +374,7 @@ per-pack evaluation is in the backlog.
   still needs. First cut: demo = Level 3 and requirements verified live; pilot adds a named owner and a proven
   rollback; production adds J4's availability target, alert and tested restore. Shown on the product page and
   in the evidence; a product with no owner can't be above demo.
-  🔄 **In review, `feat/ready-for` (2026-11-05, order decided by Saravana: build this and the accepted/closed
+  ✅ **Merged 2026-11-05 (#157, `66a2b62`), was `feat/ready-for` (order decided by Saravana: build this and the accepted/closed
   state before J2's live runs):** `ready_for.py` (pure): demo = delivered + Level 3 + every requirement verified
   live (one with a stated no-live reason counts only with tests, and is named); pilot adds a named owner and a
   rollback proven on this product (a verified `rollback.ok` in any of its changes); production lists J4's three

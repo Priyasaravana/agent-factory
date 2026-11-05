@@ -6,9 +6,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 ## Current state (2026-11-05)
 - **J1 closed 2026-11-05 (Saravana)** on Plant watering's first delivery (`9e7e05c0c395`), with one Resume
   after a factory fault (Chromium crash in the sandbox, fixed in #156); detail in the roadmap's J1 "Done when".
-  "Now" done: #154, #156 merged; New product lane v14 active with Promote. **Next: J2** on Plant watering
-  (iteration 2 from the card with Blue/green set first, then a broken iteration after the switch), and the two
-  J2 items not built yet: the "Ready for" statement (with UX-22) and the accepted/closed state.
+  "Now" done: #154, #156 merged; New product lane v14 active with Promote.
+  **Merged 2026-11-05: #157 (`66a2b62`), "Ready for" statement, named owner and UX-22 address-change notice.**
+  **Next:** the accepted/closed state before J2's live runs (order decided by Saravana 2026-11-05), then J2
+  on Plant watering (iteration 2 from the card with Blue/green set first, then a broken iteration after the switch).
 - **Merged 2026-11-04 (`e0aad44`):** item 3, waiting and budgets minimum (L-5, UX-15, UX-18, UX-19). Not proved
   yet: the cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters)
   are the evidence to read first. A paused change keeps its temporary environment until it wakes; a throttle
