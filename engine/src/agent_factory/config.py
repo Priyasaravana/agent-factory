@@ -260,6 +260,9 @@ class SandboxConfig(BaseModel):
     memory: str = "4g"
     cpus: str = "2"
     pids: int = 512
+    # /dev/shm: Docker's default is 64 MB, and Chromium (the e2e suites' browser) crashes ("Target
+    # crashed") when several pages share it. It counts against `memory` only as it is used.
+    shm_size: str = "1g"
     egress: list[str] = Field(default_factory=lambda: list(DEFAULT_EGRESS))
     # send an allowed destination elsewhere, keeping its host name (sandbox/egress.py)
     routes: list[str] = Field(default_factory=list)

@@ -1060,11 +1060,17 @@ async def preview_e2e(ctx: StationContext) -> StationResult:
         await ctx.emit(EventKind.decision, f"end-to-end before deploy {note}", {"preview_e2e": {"ran": False}})
         return StationResult(StationOutcome.passed, note)
     script = packs.preview_e2e_script(preview, e2e, bp.health_path)
-    _clear_screenshots(ctx)
-    res = await ctx.cmd(script, timeout=preview.ready_seconds + 900, untrusted=True)
+
+    async def run() -> CommandResult:
+        _clear_screenshots(ctx)
+        return await ctx.cmd(script, timeout=preview.ready_seconds + 900, untrusted=True)
+
+    res, reran = await _rerun_on_browser_crash(ctx, await run(), run, "preview")
     await _keep_screenshots(ctx, "preview")
     command = e2e.replace("{url}", preview.url)
     record = {"ok": res.ok, "ran": True, "command": command, "url": preview.url, "preview": preview.command}
+    if reran:
+        record["reran_after_browser_crash"] = reran
     _write_json(ctx, "preview-e2e.json", record)
     await ctx.emit(
         EventKind.decision,
@@ -2290,9 +2296,13 @@ async def _run_e2e(
     command = ctx.blueprint.e2e_command
     if not command:
         return None
-    _clear_screenshots(ctx)
     target = url or internal_url(ctx)  # `url`: a blue/green preview (ADR-0046 slice 4)
-    res = await ctx.cmd(command.replace("{url}", target), timeout=900, untrusted=True, env=admin or None)
+
+    async def run() -> CommandResult:
+        _clear_screenshots(ctx)
+        return await ctx.cmd(command.replace("{url}", target), timeout=900, untrusted=True, env=admin or None)
+
+    res, _ = await _rerun_on_browser_crash(ctx, await run(), run, "live")
     await _keep_screenshots(ctx, "live")
     if not res.ok:
         await ctx.emit(EventKind.decision, "end-to-end tests failed against the live app", {"e2e": {"ok": False}})
@@ -2303,6 +2313,33 @@ async def _run_e2e(
         )
     await ctx.emit(EventKind.decision, "end-to-end tests passed against the live app", {"e2e": {"ok": True}})
     return None
+
+
+async def _rerun_on_browser_crash(
+    ctx: StationContext, res: CommandResult, again: Callable[[], Awaitable[CommandResult]], where: str
+) -> tuple[CommandResult, list[str]]:
+    """An e2e run whose only failures are the browser crashing under the tests (Chromium "Target
+    crashed": Plant watering, 2026-11-05, 58/59 passed and a different page crashed each run) runs once
+    more before it counts, instead of sending the developer to fix an app that isn't broken. Once:
+    a second failure, crash or not, takes the usual route. The output is the suite's own text, so
+    this only ever repeats the same untrusted command; it never changes where a failure goes
+    (failures.py: agent-written commands are always `work`). Returns the result that counts and the
+    crashed tests that caused a rerun ([] when none)."""
+    if res.ok:
+        return res, []
+    try:
+        crashed = run_report.browser_crashes(res.whole())
+    except OutputCutOff:
+        return res, []
+    if not crashed:
+        return res, []
+    await ctx.emit(
+        EventKind.decision,
+        f"the browser crashed under {len(crashed)} test(s) against the {where} app and nothing else failed: "
+        "running the suite once more before it counts",
+        {"browser_crash": {"where": where, "tests": crashed[:10]}},
+    )
+    return await again(), crashed
 
 
 def _screenshot_dir(ctx: StationContext) -> Path | None:

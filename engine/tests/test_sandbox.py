@@ -59,6 +59,7 @@ def test_container_is_hardened_and_secrets_never_appear_in_argv():
         "no-new-privileges",
         "--user 10001:10001",
         "--network factory-sandbox",
+        "--shm-size 1g",  # Chromium crashed in Docker's 64 MB /dev/shm (Plant watering, 2026-11-05)
     ):
         assert flag in joined
     assert "-i" in argv and argv[-3:] == ["agent-factory-sandbox:abc", "claude", "--print"]
