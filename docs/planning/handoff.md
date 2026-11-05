@@ -1,19 +1,15 @@
-# Agent Factory: handoff (updated 2026-11-04)
+# Agent Factory: handoff (updated 2026-11-05)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-04)
-- **In review, `fix/phones-checked` (2026-11-04):** item 4 of "Now", UX-04 (nextjs-web 1.5.2); detail in the
-  roadmap. Behaviour changes to look at in review: a product whose page scrolls sideways at 390 px now fails
-  its preview e2e and goes back to build (as a small tap target does); `<Page>`'s column is `minmax(0,1fr)`.
-  Both reach **new** products only: an existing product keeps its copy of the template (Expense claims' Manage
-  page included), so for it the UI review's serious defect on the card is the route to a fix; serious
-  UI-review defects become open `ui` work items at delivery and show as **Screen fixes** on the Next iteration
-  card. Proved in the cloud: the spec in a real browser against the template's preview (fails 576 px and
-  hidden overflow, passes a wide `Table`, whole suite 29 passed); the summary and the card checked at 1280 and
-  390 px in dry-run. Not proved: the reviewer's sense of "serious" on real screenshots (the next live run).
-  **Next:** item 5, UX-02 by hand (Saravana), then J1's fresh-product run.
+## Current state (2026-11-05)
+- **J1 closed 2026-11-05 (Saravana)** on Plant watering's first delivery (`9e7e05c0c395`), with one Resume
+  after a factory fault (Chromium crash in the sandbox, fixed in #156); detail in the roadmap's J1 "Done when".
+  "Now" done: #154, #156 merged; New product lane v14 active with Promote.
+  **Merged 2026-11-05: #157 (`66a2b62`), "Ready for" statement, named owner and UX-22 address-change notice.**
+  **Next:** the accepted/closed state before J2's live runs (order decided by Saravana 2026-11-05), then J2
+  on Plant watering (iteration 2 from the card with Blue/green set first, then a broken iteration after the switch).
 - **Merged 2026-11-04 (`e0aad44`):** item 3, waiting and budgets minimum (L-5, UX-15, UX-18, UX-19). Not proved
   yet: the cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters)
   are the evidence to read first. A paused change keeps its temporary environment until it wakes; a throttle
