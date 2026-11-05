@@ -50,6 +50,7 @@ from agent_factory.models import (
     ChangeCallsView,
     ChangeDetail,
     ChangeEntryView,
+    ChangeKind,
     ChangeOutcome,
     ChangeRiskView,
     ChangeStatus,
@@ -89,10 +90,13 @@ from agent_factory.models import (
     PresetInput,
     Product,
     ProductDetail,
+    ProductOwnerInput,
     ProductSpend,
+    ProductTarget,
     ProvidedArtifactInfo,
     PublishInput,
     ReadinessView,
+    ReadyForView,
     ReorderStationsInput,
     RequirementView,
     ReviewFinding,
@@ -577,6 +581,81 @@ def set_deploy_strategy(f: Factory, product_id: str, body: DeployStrategyInput) 
     product.deploy_strategy = body.strategy
     f.store.save_product(product)
     return _strategy_view(f, product)
+
+
+def _ready_for_view(f: Factory, product: Product) -> ReadyForView:
+    import json
+
+    from agent_factory import ready_for
+
+    owner = ready_for.owner_of(product)
+    delivered = sorted(
+        (
+            c
+            for c in f.store.list_changes(product.id)
+            if c.status == ChangeStatus.awaiting_feedback and c.kind != ChangeKind.assess
+        ),
+        key=lambda c: c.created_at,
+    )
+    if product.target == ProductTarget.repo or product.eval_run_id:
+        return ReadyForView(tier="none", owner=owner, owner_set=bool(product.owner))
+    if not delivered:
+        r = ready_for.assess(ready_for.Inputs(delivered=False, level=None, trace=None, owner=owner, rollback=None))
+        return ReadyForView(**r.as_data(), owner=owner, owner_set=bool(product.owner))
+    last = delivered[-1]
+    r = ready_for.assess(ready_for.gather(f.store, f.manager.ws.data_dir, product, last, delivered=True))
+    try:
+        moved = json.loads((f.manager.ws.data_dir / "artifacts" / last.id / "ready-for.json").read_text()).get("moved")
+    except (OSError, ValueError, AttributeError):
+        moved = None
+    return ReadyForView(
+        **r.as_data(),
+        owner=owner,
+        owner_set=bool(product.owner),
+        change_id=last.id,
+        iteration=last.iteration,
+        moved=moved if isinstance(moved, dict) else None,
+    )
+
+
+@action(
+    "get_ready_for",
+    "What a product is ready for (demo, pilot or production), worked out from its latest delivery's evidence, "
+    "and what the next tier still needs",
+    "GET",
+    "/api/products/{product_id}/ready-for",
+)
+def get_ready_for(f: Factory, product_id: str) -> ReadyForView:
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    return _ready_for_view(f, product)
+
+
+@action(
+    "set_product_owner",
+    "Name a product's owner (admin): the person accountable for its incidents, upkeep and retirement; "
+    "a pilot needs one",
+    "POST",
+    "/api/products/{product_id}/owner",
+)
+def set_product_owner(f: Factory, product_id: str, body: ProductOwnerInput) -> ReadyForView:
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    name = " ".join(body.owner.split())
+    if not name:
+        raise InvalidRequestError("name the owner")
+    product.owner = name
+    f.store.save_product(product)
+    if product.latest_change_id:
+        f.store.add_event(
+            product.latest_change_id,
+            EventKind.decision,
+            f"owner named: {name} (by {current_identity().user})",
+            data={"owner": {"name": name, "by": current_identity().user}},
+        )
+    return _ready_for_view(f, product)
 
 
 @action(
