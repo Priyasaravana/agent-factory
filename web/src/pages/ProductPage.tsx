@@ -20,6 +20,7 @@ import NextIteration from "../components/NextIteration";
 import { Panel } from "../components/ui/panel";
 import SpendCard from "../components/SpendCard";
 import { useAuth } from "../auth";
+import ReadyFor from "../components/ReadyFor";
 import ReleaseStrategy from "../components/ReleaseStrategy";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
@@ -275,6 +276,10 @@ export default function ProductPage() {
           </div>
         )}
       </Panel>
+
+      {product.target !== "repo" && (
+        <ReadyFor productId={product.id} latestStatus={product.latest_status} />
+      )}
 
       {product.target !== "repo" && (
         <ReleaseStrategy

@@ -35,6 +35,7 @@ from agent_factory import (
     image_scan,
     ledger,
     packs,
+    ready_for,
     repo_change,
     risk,
     rollback,
@@ -2448,8 +2449,28 @@ async def handover(ctx: StationContext) -> StationResult:
             ctx.product.repo_url = res.data["repo_url"]
         notes.append(res.summary)
 
+    before = ctx.product.app_url
     ctx.product.app_url = ctx.providers.deploy.public_url(ctx)
+    if move := ready_for.moved(before, ctx.product.app_url):
+        notes.append(f"its address moved from {move['from']} to {move['to']}")
+        await ctx.emit(
+            EventKind.decision,
+            f"the product's address moved: {move['from']} → {move['to']} (bookmarks and links to the old one break)",
+            {"address_moved": move},
+        )
+    await _state_ready_for(ctx, move)
     return StationResult(StationOutcome.passed, "; ".join(notes) + f"; live at {ctx.product.app_url}")
+
+
+async def _state_ready_for(ctx: StationContext, move: dict[str, str] | None) -> None:
+    """What this delivery is ready for (principle 7, J2), from its own evidence, into the sealed
+    evidence (`ready-for.json`) and the event log. The product page works it out again, since an
+    admin can name the owner later. Factory products only: a team repo's readiness is its team's."""
+    if ctx.product.target == ProductTarget.repo or ctx.product.eval_run_id:
+        return
+    r = ready_for.assess(ready_for.gather(ctx.store, ctx.ws.data_dir, ctx.product, ctx.change, delivered=True))
+    _write_json(ctx, "ready-for.json", {"iteration": ctx.change.iteration, **r.as_data(), "moved": move})
+    await ctx.emit(EventKind.decision, r.headline(), {"ready_for": r.as_data()})
 
 
 # ------------------------------------------------------------- code review --
