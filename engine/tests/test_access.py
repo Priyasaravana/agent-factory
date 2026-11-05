@@ -23,6 +23,8 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 # mutating actions any signed-in member may call; those that steer an existing
 # order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
+    "accept_change",
+    "close_change",
     "create_product",
     "onboard_repo",
     "submit_feedback",
@@ -43,6 +45,8 @@ MEMBER_ACTIONS = {
     "log_decision",
 }
 STEERING = {
+    "accept_change",
+    "close_change",
     "submit_feedback",
     "answer_questions",
     "switch_stack",
@@ -126,6 +130,8 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
             ("POST", f"/api/changes/{change_id}/align", {"message": "why Postgres?"}),
             ("POST", f"/api/products/{oid}/deploy-strategy", {"strategy": "blue-green"}),
             ("POST", f"/api/changes/{change_id}/schema-approval", {"note": "only adds a nullable column"}),
+            ("POST", f"/api/changes/{change_id}/accept", {"note": "looks right"}),
+            ("POST", f"/api/changes/{change_id}/close", {"reason": "not wanted"}),
         ]
         for method, url, body in attempts:
             r = await c.request(method, url, json=body, headers=OTHER)

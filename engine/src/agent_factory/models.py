@@ -191,6 +191,18 @@ class Product(BaseModel):
     deploy_strategy: DeployStrategy | None = None
 
 
+class Outcome(BaseModel):
+    """A person's word on a change (J2, UX-14): **accepted** (a delivered iteration is what was wanted),
+    or **closed** with a reason (held, or delivered but not accepted). Recorded, sealed with the change's
+    evidence and never changed afterwards. Deployed is not accepted: only this says so."""
+
+    state: Literal["accepted", "closed"]
+    by: str
+    at: datetime
+    note: str = ""  # accepted: optional note; closed: the reason (required)
+    status_before: str | None = None  # what the change was when it was closed
+
+
 class Change(BaseModel):
     id: str
     product_id: str = Field(validation_alias=AliasChoices("product_id", "order_id"))
@@ -235,6 +247,7 @@ class Change(BaseModel):
     resume_at: datetime | None = None
     pause: Pause | None = None  # paused_limits: what it waits on and whether the time is known (UX-18)
     summary: str | None = None
+    outcome: Outcome | None = None  # accepted or closed by a person (J2); None: neither yet
     # model spend on two meters (L-5): the agent CLI's own price of each call (Anthropic list prices),
     # and, with a model gateway (ADR-0036), the gateway's, which its per-call cap is enforced on
     cost_usd: float = 0.0
@@ -1466,6 +1479,19 @@ class NextIterationView(BaseModel):
     latest_iteration: int | None = None
     latest_kind: ChangeKind | None = None
     latest_request: str | None = None  # the first line of what was asked for it
+    latest_outcome: Outcome | None = None  # accepted or closed by a person (J2); None: neither yet
+
+
+class AcceptInput(BaseModel):
+    """Accept a delivered iteration: it is what was asked for."""
+
+    note: str = Field(default="", max_length=1000)
+
+
+class CloseInput(BaseModel):
+    """Close a change with the reason it ends here (a drill finished, no longer wanted, not accepted)."""
+
+    reason: str = Field(min_length=3, max_length=1000)
 
 
 class ReadyForView(BaseModel):

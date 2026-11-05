@@ -2368,6 +2368,112 @@
         }
       }
     },
+    "/api/changes/{change_id}/accept": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Accept a delivered iteration: it is what was asked for (J2). Deployed is not accepted until someone says so",
+        "description": "Accept a delivered iteration: it is what was asked for (J2). Deployed is not accepted until someone says so",
+        "operationId": "accept_change",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/close": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Close a change with the reason it ends here: a held one stops as Cancel does; a delivered one stays live, recorded as not accepted (J2)",
+        "description": "Close a change with the reason it ends here: a held one stops as Cancel does; a delivered one stays live, recorded as not accepted (J2)",
+        "operationId": "close_change",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/cancel": {
       "post": {
         "tags": [
@@ -4310,6 +4416,19 @@
   },
   "components": {
     "schemas": {
+      "AcceptInput": {
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AcceptInput",
+        "description": "Accept a delivered iteration: it is what was asked for."
+      },
       "ActivateInput": {
         "properties": {
           "override_reason": {
@@ -5604,6 +5723,16 @@
             ],
             "title": "Summary"
           },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Outcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cost_usd": {
             "type": "number",
             "title": "Cost Usd",
@@ -6052,6 +6181,22 @@
         ],
         "title": "CheckView",
         "description": "One readiness check. `failed` blocks what it guards (new products and/or new\niterations); `degraded` is shown but never blocks."
+      },
+      "CloseInput": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "CloseInput",
+        "description": "Close a change with the reason it ends here (a drill finished, no longer wanted, not accepted)."
       },
       "ConfigView": {
         "properties": {
@@ -8219,6 +8364,16 @@
               }
             ],
             "title": "Latest Request"
+          },
+          "latest_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Outcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -8343,6 +8498,51 @@
           "question"
         ],
         "title": "OpenQuestionView"
+      },
+      "Outcome": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "closed"
+            ],
+            "title": "State"
+          },
+          "by": {
+            "type": "string",
+            "title": "By"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "status_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Before"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "by",
+          "at"
+        ],
+        "title": "Outcome",
+        "description": "A person's word on a change (J2, UX-14): **accepted** (a delivered iteration is what was wanted),\nor **closed** with a reason (held, or delivered but not accepted). Recorded, sealed with the change's\nevidence and never changed afterwards. Deployed is not accepted: only this says so."
       },
       "OutcomesView": {
         "properties": {

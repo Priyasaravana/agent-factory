@@ -251,6 +251,18 @@ export default function NextIteration({
       title={`Next iteration (${nextNumber}): pick what it does`}
       summary={
         <>
+          {view.latest_iteration && view.latest_status === "awaiting_feedback" && (
+            <span
+              className={cn("pill", view.latest_outcome?.state === "accepted" ? "ok" : "muted")}
+              data-testid="next-latest-outcome"
+              title={view.latest_outcome?.note || undefined}
+            >
+              Iteration {view.latest_iteration}{" "}
+              {view.latest_outcome
+                ? `${view.latest_outcome.state} by ${view.latest_outcome.by}`
+                : "delivered, not accepted yet"}
+            </span>
+          )}
           <span className="pill muted">{plural(lists.features.length, "feature")}</span>
           {lists.ui.length > 0 && (
             <span className="pill bad" data-testid="next-ui-count">

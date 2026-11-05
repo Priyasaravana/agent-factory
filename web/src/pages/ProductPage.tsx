@@ -334,6 +334,7 @@ export default function ProductPage() {
       {changeId && (
         <div id="change" className="grid min-w-0 scroll-mt-4">
           <ChangePanel
+            canSteer={canSteer}
             key={changeId}
             changeId={changeId}
             productId={product.id}
