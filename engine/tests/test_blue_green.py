@@ -905,3 +905,32 @@ async def test_a_run_started_without_a_person_waits_for_a_switch_back(make_facto
     del f.manager._product_ops[product.id]
     done.set()
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+
+
+async def test_a_switch_back_checks_production_from_a_sandbox_like_a_station(make_factory, cfg):
+    """Plant watering, 2026-11-06: the switch back's read-only checks ran in the engine's own container,
+    where the app's host is loopback, and failed in 10 ms. They run in a sandbox through the egress
+    proxy, as promote's do, and the sandbox is removed afterwards."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _, second, _ = await _released_twice(f)
+    sandboxed = FakeExecutor()
+    removed: list[str] = []
+
+    class Sandbox:
+        def executor(self, change_id: str, station: str, egress):  # noqa: ANN001, ANN202
+            assert (change_id, station) == (second, "switch-back")
+            return sandboxed
+
+        async def remove_change(self, change_id: str) -> None:
+            removed.append(change_id)
+
+    f.manager.sandbox = Sandbox()  # type: ignore[assignment]
+    before = len(ex.calls)
+    await f.manager.switch_back(product.id, "priya", "phones broken")
+    probe = f'${{HTTP_PROXY:+--proxy "$HTTP_PROXY"}} {PROD}/'
+    assert [c for c in sandboxed.calls if probe in c], "production checked from the sandbox"
+    assert not [c for c in ex.calls[before:] if probe in c], "never from the engine's own container"
+    assert any("upgrade --install bookmarks-service" in c for c in ex.calls[before:]), "helm stays the engine's"
+    assert removed == [second]

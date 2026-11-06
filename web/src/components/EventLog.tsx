@@ -235,7 +235,7 @@ export default function EventLog({ events, live }: { events: FactoryEvent[]; liv
                   >
                     <ChevronRight className={cn("ev-chev", open && "rotate-90")} aria-hidden />
                     <Icon className={cn("lv-icon", LEVEL[l].tone)} aria-label={LEVEL[l].label} />
-                    <span className={cn(!open && "truncate")}>{head}</span>
+                    <span className="min-w-0 truncate">{head}</span>
                   </button>
                 ) : (
                   <span className="msg pl-[18px]">
