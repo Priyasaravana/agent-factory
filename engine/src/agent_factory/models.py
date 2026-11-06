@@ -1480,6 +1480,7 @@ class NextIterationView(BaseModel):
     latest_kind: ChangeKind | None = None
     latest_request: str | None = None  # the first line of what was asked for it
     latest_outcome: Outcome | None = None  # accepted or closed by a person (J2); None: neither yet
+    runs_on: LaneView | None = None  # UX-24: the lane and version the next iteration will run on
 
 
 class AcceptInput(BaseModel):
@@ -1527,7 +1528,28 @@ class DeployStrategyView(BaseModel):
     options: list[DeployStrategy]  # what the product's stack pack supports
     live_color: str | None = None  # blue/green: the colour users reach, from the last healthy release
     kept_color: str | None = None  # blue/green: the colour that served before it, still running
+    live_url: str | None = None  # where users reach the live colour (the product's address)
+    kept_url: str | None = None  # blue/green: where the kept colour answers (the preview address)
+    live_iteration: int | None = None
+    kept_iteration: int | None = None  # the iteration the kept colour runs, when the factory knows it
+    can_switch_back: bool = False  # a kept colour runs and no change to the product is in progress
     note: str = ""  # what changes, in plain words
+
+
+class SwitchBackInput(BaseModel):
+    """Switch users back to the kept colour, saying why."""
+
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class LaneView(BaseModel):
+    """The lane (workflow) a product's next change will run on, and its active version (UX-24)."""
+
+    workflow_id: str
+    name: str
+    version: int
+    factory_default: bool
+    kind: str  # the kind of change it was worked out for
 
 
 class DeployStrategyInput(BaseModel):

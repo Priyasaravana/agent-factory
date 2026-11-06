@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import failures, ledger, rollback, validation, waiting
+from agent_factory import blue_green, failures, ledger, rollback, validation, waiting
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
@@ -120,6 +120,9 @@ class ChangeManager:
 
         self.preflight = Preflight(self)  # readiness checks + order gate (ADR-0015)
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # a person's production operation on a product (switch back): nothing else starts on that
+        # product until it ends (review of #164). product id -> what is happening, for the refusal
+        self._product_ops: dict[str, tuple[str, asyncio.Event]] = {}
         from agent_factory.hostclock import SuspendWatcher
 
         self.host_watcher = SuspendWatcher(self.host_suspended)
@@ -281,6 +284,167 @@ class ChangeManager:
         mapped = self.preflight.mapped_node_ports
         return [p for p in self.free_node_ports(blueprint) if mapped is None or p in mapped]
 
+    async def switch_back(self, product_id: str, by: str, reason: str) -> Product:
+        """A person switches users back to the kept colour (asked by Saravana 2026-11-06): the colour
+        that served before the last blue/green release is still running, so this is the instant way
+        back. Same path as promote: the release with both colours, users sent to the kept one, then
+        the read-only checks on production; if they fail, users go straight back to the colour they
+        were on and nothing is recorded as healthy. Done, the kept colour's change is the product's
+        healthy release and the switch is a verified rollback (Ready for counts it). Never while a
+        change to the product runs."""
+        product = self.store.get_product(product_id)
+        if product is None:
+            raise FactoryError("product not found")
+        if product.archived_at:
+            raise InvalidRequestError("the product is archived: nothing runs")
+        self._refuse_while_busy(product.id)
+        changes = self.store.list_changes(product.id)
+        if any(self.is_active(c.id) and c.status not in FEEDBACK_OPEN for c in changes):
+            raise InvalidRequestError("a change to this product is in progress: wait for it, or cancel it, first")
+        # held from here until the release is saved, with no await before it: another switch back, a new
+        # iteration, an archive or a resume can't start in between (review of #164)
+        done = asyncio.Event()
+        self._product_ops[product.id] = ("users are being switched back", done)
+        try:
+            return await self._switch_back(product, changes, by, reason)
+        finally:
+            self._product_ops.pop(product.id, None)
+            done.set()
+
+    async def _switch_back(self, product: Product, changes: list[Change], by: str, reason: str) -> Product:
+        if product.release is None:
+            raise InvalidRequestError("nothing has been released yet")
+        reason = " ".join(reason.split())
+        live_change = self.store.get_change(product.release.change_id) or (changes[0] if changes else None)
+        if live_change is None:
+            raise InvalidRequestError("nothing has been released yet")
+        providers = self.providers.for_blueprint(product.blueprint)
+        deploy_p = providers.deploy
+        if not callable(getattr(deploy_p, "layout", None)) or not callable(getattr(deploy_p, "deploy_colors", None)):
+            raise InvalidRequestError("this product's deploy target doesn't run two colours")
+        flow = self.workflows[live_change.workflow_id or ""].get(live_change.workflow_version)
+        ctx = StationContext(
+            self.cfg, self.settings, self.store, self.ws, self.ex, self.agents, product, live_change,
+            self.ws.change_dir(live_change.id), "switch-back", flow,
+        )  # fmt: skip
+        ctx.providers = providers
+        ctx.secrets = self.secrets
+        if self.sandbox is not None:
+            # the read-only checks run where a station's do: in a sandbox, through the egress proxy (the
+            # way users' traffic arrives); without it they ran in the engine's container, where the app's
+            # host is its own loopback (Plant watering, 2026-11-06: "couldn't connect" in 10 ms)
+            ctx.untrusted_ex = self.sandbox.executor(live_change.id, "switch-back", ctx.pack_egress)
+        try:
+            return await self._switch_colours(ctx, product, changes, live_change, deploy_p, by, reason)
+        finally:
+            if self.sandbox is not None:
+                await self.sandbox.remove_change(live_change.id)  # the delivered change's sandbox is gone again
+
+    async def _switch_colours(  # noqa: PLR0913 - the switch back's working set
+        self,
+        ctx: StationContext,
+        product: Product,
+        changes: list[Change],
+        live_change: Change,
+        deploy_p: Any,
+        by: str,
+        reason: str,
+    ) -> Product:
+        current, problem = await deploy_p.layout(ctx)  # type: ignore[attr-defined]
+        if problem or current is None:
+            raise InvalidRequestError(
+                f"can't tell what production runs, so nothing is switched: {problem or 'nothing'}"
+            )
+        if current.strategy != blue_green.BLUE_GREEN:
+            raise InvalidRequestError("production runs in place: there is no kept colour to switch back to")
+        kept = blue_green.other(current.live)
+        image = current.images.get(kept)
+        if not image:
+            raise InvalidRequestError(f"no {kept} release is kept: the first blue/green release has nothing behind it")
+        kept_change = next(
+            (
+                c
+                for c in sorted(changes, key=lambda c: c.iteration, reverse=True)
+                if c.id != live_change.id and c.deployed is not None and c.deployed.image == image
+            ),
+            None,
+        )
+        who = f"iteration {kept_change.iteration}" if kept_change else image
+        self.store.add_event(
+            live_change.id,
+            EventKind.decision,
+            f"switching users back from {current.live} to {kept} ({who}), asked by {by}"
+            + (f": {reason}" if reason else ""),
+            station="switch-back",
+            data={"switch_back": {"from": current.live, "to": kept, "image": image, "by": by, "reason": reason}},
+        )
+        switched = await deploy_p.deploy_colors(ctx, kept, current.images, check=kept)  # type: ignore[attr-defined]
+        if not switched.ok:
+            # the release may have moved users before its check failed: put them back where they were,
+            # as the failed-check path below does (review of #164)
+            undo = await deploy_p.deploy_colors(ctx, current.live, current.images, check=current.live)  # type: ignore[attr-defined]
+            back = (
+                f"users are on {current.live} again"
+                if undo.ok
+                else f"putting users back on {current.live} ALSO failed: check production now"
+            )
+            self.store.add_event(
+                live_change.id,
+                EventKind.decision,
+                f"switch back to {kept} failed ({switched.summary}): {back}",
+                station="switch-back",
+                data={
+                    "rollback": {"ok": False, "manual": True, "detail": switched.detail[-1500:]},
+                    "switch": {"to": current.live, "ok": undo.ok},
+                },
+            )
+            raise FactoryError(f"switch back to {kept} failed ({switched.summary}): {back}")
+        from agent_factory.engine.stations import _read_only_checks
+
+        if failed := await _read_only_checks(ctx, f"production after switching back to {kept}"):
+            undo = await deploy_p.deploy_colors(ctx, current.live, current.images, check=current.live)  # type: ignore[attr-defined]
+            back = (
+                f"users are on {current.live} again"
+                if undo.ok
+                else f"switching users back to {current.live} ALSO failed"
+            )
+            self.store.add_event(
+                live_change.id,
+                EventKind.decision,
+                f"{kept} failed its checks after the switch back ({failed.summary}): {back}",
+                station="switch-back",
+                data={"rollback": {"ok": False, "manual": True}, "switch": {"to": current.live, "ok": undo.ok}},
+            )
+            raise FactoryError(f"{kept} failed its checks after the switch back: {back}")
+        revision, digest = switched.data.get("revision"), switched.data.get("digest")
+        before = product.release
+        if before is None:  # checked before the switch; the type checker can't see across the call
+            raise InvalidRequestError("nothing has been released yet")
+        product.release = before.model_copy(
+            update={
+                "change_id": kept_change.id if kept_change else before.change_id,
+                "iteration": kept_change.iteration if kept_change else before.iteration,
+                "image": image,
+                "revision": revision if isinstance(revision, int) else None,
+                "digest": digest if isinstance(digest, str) else None,
+                "color": kept,
+                "at": _now(),
+            }
+        )
+        self.store.save_product(product)
+        done = {
+            "ok": True, "manual": True, "by": by, "reason": reason, "from": current.live, "to": kept,
+            "image": image, "revision": product.release.revision, "digest": product.release.digest,
+        }  # fmt: skip
+        for c in {live_change.id, *([kept_change.id] if kept_change else [])}:
+            self.store.add_event(
+                c, EventKind.decision,
+                f"users switched back from {current.live} to {kept} ({who}) by {by}; production checks passed. "
+                f"{current.live} keeps running until the next release",
+                station="switch-back", data={"rollback": done},
+            )  # fmt: skip
+        return product
+
     async def archive(self, product_id: str, by: str) -> Product:
         """Remove the product's app from its deploy target and free its port. The
         product repo, runs, events and feedback are kept; no new iterations."""
@@ -289,6 +453,7 @@ class ChangeManager:
             raise FactoryError("product not found")
         if product.archived_at:
             return product
+        self._refuse_while_busy(product.id)
         changes = self.store.list_changes(product.id)
         # a stopped run may still be finishing post-run work (retro, evidence seal);
         # that never blocks the next iteration
@@ -369,6 +534,7 @@ class ChangeManager:
 
         if product.archived_at:
             raise FactoryError("this product is archived: create a new product instead")
+        self._refuse_while_busy(product.id)
         changes = self.store.list_changes(product.id)
         # a stopped run may still be finishing post-run work (retro, evidence seal);
         # that never blocks the next iteration
@@ -440,6 +606,7 @@ class ChangeManager:
 
     # ----------------------------------------------------- human actions ---
     def answer(self, change_id: str, answers: list[str], by: str = "human") -> Change:
+        self._refuse_while_busy(self._get(change_id).product_id)
         change = self._get(change_id)
         if change.status != ChangeStatus.needs_input:
             raise FactoryError("change is not waiting for answers")
@@ -519,6 +686,7 @@ class ChangeManager:
 
     def resume(self, change_id: str) -> Change:
         change = self._get(change_id)
+        self._refuse_while_busy(change.product_id)
         if change.status not in RESUMABLE or self.is_active(change_id):
             raise FactoryError(f"change in status '{change.status}' cannot be resumed")
         if change.required_action is not None:
@@ -974,8 +1142,21 @@ class ChangeManager:
 
         asyncio.create_task(wake())
 
+    def _refuse_while_busy(self, product_id: str) -> None:
+        """A person starting or resuming work while users are being switched is told so; nothing is
+        created. Runs started any other way (a wake after a pause) wait instead (`_execute`)."""
+        if op := self._product_ops.get(product_id):
+            raise InvalidRequestError(f"{op[0]} on this product right now: try again when it finishes")
+
+    def busy(self, product_id: str) -> bool:
+        """A person's production operation (switch back) holds the product."""
+        return product_id in self._product_ops
+
     async def _execute(self, change_id: str) -> None:
         cancelled = False
+        product_id = self._get(change_id).product_id
+        while op := self._product_ops.get(product_id):  # a switch back in progress finishes first
+            await op[1].wait()
         async with self._sem:
             change = self._get(change_id)
             product = self.store.get_product(change.product_id)

@@ -655,6 +655,59 @@
         }
       }
     },
+    "/api/products/{product_id}/switch-back": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Switch users back to the kept colour of a blue/green product (the version that served before the last release), checked read-only on production; a failed check switches them back again",
+        "description": "Switch users back to the kept colour of a blue/green product (the version that served before the last release), checked read-only on production; a failed check switches them back again",
+        "operationId": "switch_back",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBackInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployStrategyView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/ready-for": {
       "get": {
         "tags": [
@@ -6771,6 +6824,55 @@
             ],
             "title": "Kept Color"
           },
+          "live_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Url"
+          },
+          "kept_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept Url"
+          },
+          "live_iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Iteration"
+          },
+          "kept_iteration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept Iteration"
+          },
+          "can_switch_back": {
+            "type": "boolean",
+            "title": "Can Switch Back",
+            "default": false
+          },
           "note": {
             "type": "string",
             "title": "Note",
@@ -8185,6 +8287,40 @@
         ],
         "title": "IntegrationView"
       },
+      "LaneView": {
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "factory_default": {
+            "type": "boolean",
+            "title": "Factory Default"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workflow_id",
+          "name",
+          "version",
+          "factory_default",
+          "kind"
+        ],
+        "title": "LaneView",
+        "description": "The lane (workflow) a product's next change will run on, and its active version (UX-24)."
+      },
       "LearningProposal": {
         "properties": {
           "id": {
@@ -8369,6 +8505,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/Outcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runs_on": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LaneView"
               },
               {
                 "type": "null"
@@ -11223,6 +11369,22 @@
           "attempts"
         ],
         "title": "StationView"
+      },
+      "SwitchBackInput": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "SwitchBackInput",
+        "description": "Switch users back to the kept colour, saying why."
       },
       "SwitchStackInput": {
         "properties": {

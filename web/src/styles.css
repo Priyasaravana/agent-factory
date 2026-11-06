@@ -204,6 +204,15 @@
   .ev.lv-warn { @apply border-warn bg-warn/6; }
   .ev.lv-warn .msg { @apply text-foreground; }
   .ev.lv-debug .msg { @apply text-muted-foreground; }
+  /* one line per event, unfolded on a click (2026-11-06) */
+  /* the global button centres and never wraps: an open line spilled left over the time and station */
+  button.ev-line { @apply m-0 flex h-auto w-full min-w-0 cursor-pointer appearance-none items-start justify-start gap-0 overflow-hidden whitespace-normal rounded-none border-0 bg-transparent p-0 text-left font-[inherit] text-[length:inherit] leading-[inherit] text-inherit shadow-none hover:bg-transparent; }
+  button.ev-line:focus-visible { @apply rounded outline-2 outline-ring; }
+  .ev-chev { @apply mr-1 mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform; }
+  .ev-more { @apply col-span-full mt-1 grid gap-1.5 border-l-2 border-border pl-3 text-[13px] sm:col-start-3; }
+  .ev.open { @apply bg-muted/40; }
+  button.chip { @apply inline-flex h-auto items-center gap-1 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-normal text-foreground shadow-none hover:bg-muted; }
+  button.chip.active { @apply border-primary/70 bg-primary/15 font-medium text-foreground; }
 
   /* agents + editors */
   .agent { @apply grid gap-1.5 rounded-lg border bg-card p-4; }

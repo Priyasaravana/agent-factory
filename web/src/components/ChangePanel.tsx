@@ -1,14 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
-  AlertTriangle,
   Ban,
   ChevronsDownUp,
   ChevronsUpDown,
-  CircleAlert,
   CircleDollarSign,
   HelpCircle,
-  Info,
   Layers3,
   MessageSquareText,
   Play,
@@ -16,10 +12,9 @@ import {
   Send,
   Shuffle,
   Sparkles,
-  Bug,
   OctagonAlert,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ACTIVE,
@@ -36,6 +31,7 @@ import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
 import ChangeVerdict from "./ChangeVerdict";
+import EventLog from "./EventLog";
 import ToolsPanel from "./ToolsPanel";
 import ScreenshotsPanel from "./ScreenshotsPanel";
 import ChangeRiskPanel from "./ChangeRiskPanel";
@@ -61,6 +57,7 @@ export default function ChangePanel({
   archived = false,
   target = "new",
   canSteer = true,
+  simple = false,
 }: {
   changeId: string;
   productId: string;
@@ -68,6 +65,8 @@ export default function ChangePanel({
   target?: string;
   /** the product's creator or an admin: may accept or close it (the engine checks it too) */
   canSteer?: boolean;
+  /** the product page's overview: what a person acts on; the details live in the advanced view */
+  simple?: boolean;
 }) {
   const qc = useQueryClient();
   const change = useQuery({
@@ -146,12 +145,14 @@ export default function ChangePanel({
               pull request ↗
             </a>
           )}
-          <span
-            className="pill muted"
-            title="Workflow version this change is pinned to"
+          <a
+            className="pill muted no-underline"
+            href={`/workflows/${r.workflow_id ?? ""}`}
+            title="The lane this change runs on, and the version it is pinned to (a later restore or publish doesn't change it)"
+            data-testid="change-lane"
           >
-            {r.workflow_id ?? "workflow"} v{r.workflow_version}
-          </span>
+            Lane: {r.workflow_id ?? "workflow"} v{r.workflow_version}
+          </a>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
@@ -252,8 +253,8 @@ export default function ChangePanel({
           />
         ) : (
           <>
-            <DecisionsPanel changeId={changeId} runStatus={r.status} />
-            <SpecPanel changeId={changeId} runStatus={r.status} />
+            {!simple && <DecisionsPanel changeId={changeId} runStatus={r.status} />}
+            {!simple && <SpecPanel changeId={changeId} runStatus={r.status} />}
           </>
         )}
         {risk && (
@@ -386,11 +387,20 @@ export default function ChangePanel({
         {r.status === "awaiting_feedback" && !archived && target === "repo" && (
           <AssessAgain productId={productId} onDone={refresh} />
         )}
-        <RunPillars events={events} />
-        <ScreenshotsPanel changeId={changeId} runStatus={r.status} />
-        <ToolsPanel changeId={changeId} runStatus={r.status} />
-        <AgentCallsPanel changeId={changeId} runStatus={r.status} />
-        <EvidencePanel changeId={changeId} runStatus={r.status} />
+        {simple ? (
+          <p className="m-0 text-sm text-muted-foreground" data-testid="more-in-advanced">
+            Decisions, the spec, quality pillars, screenshots, tools, agent calls and evidence are in the{" "}
+            <a href="?view=advanced#change">Advanced</a> view.
+          </p>
+        ) : (
+          <>
+            <RunPillars events={events} />
+            <ScreenshotsPanel changeId={changeId} runStatus={r.status} />
+            <ToolsPanel changeId={changeId} runStatus={r.status} />
+            <AgentCallsPanel changeId={changeId} runStatus={r.status} />
+            <EvidencePanel changeId={changeId} runStatus={r.status} />
+          </>
+        )}
         <EventLog events={events} live={ACTIVE.has(r.status)} />
       </CardContent>
     </Card>
@@ -447,169 +457,6 @@ function useRunEvents(changeId: string): FactoryEvent[] {
     };
   }, [changeId]);
   return events;
-}
-
-type Level = "error" | "warn" | "info" | "debug";
-
-/** How each level reads: a colour and an icon, so colour is never the only signal. */
-const LEVEL: Record<Level, { label: string; plural: string; icon: typeof Info; tone: string }> = {
-  error: { label: "error", plural: "errors", icon: CircleAlert, tone: "text-bad" },
-  warn: { label: "warning", plural: "warnings", icon: AlertTriangle, tone: "text-warn" },
-  info: { label: "info", plural: "info", icon: Info, tone: "text-info" },
-  debug: { label: "detail", plural: "detail", icon: Bug, tone: "text-muted-foreground" },
-};
-const LEVELS: Level[] = ["error", "warn", "info", "debug"];
-const levelOf = (e: FactoryEvent): Level => (e.level as Level | undefined) ?? "info";
-
-function EventLog({ events, live }: { events: FactoryEvent[]; live: boolean }) {
-  // which levels are shown: detail (agent text, tool calls) is hidden until asked for
-  const [shownLevels, setShownLevels] = useState<Set<Level>>(() => new Set(["error", "warn", "info"]));
-  const [kind, setKind] = useState<"all" | "decisions" | "stations">("all");
-  const [newestFirst, setNewestFirst] = useState(true);
-  const [query, setQuery] = useState("");
-  const box = useRef<HTMLDivElement>(null);
-  // Follow new events at the end the user reads from (newest at the top by default).
-  // Block body on purpose: a returned value would become the effect's cleanup.
-  useEffect(() => {
-    const el = box.current;
-    if (el) el.scrollTop = newestFirst ? 0 : el.scrollHeight;
-  }, [events.length, newestFirst]);
-  const counts = Object.fromEntries(LEVELS.map((l) => [l, events.filter((e) => levelOf(e) === l).length])) as Record<
-    Level,
-    number
-  >;
-  const q = query.trim().toLowerCase();
-  const matching = events.filter(
-    (e) =>
-      shownLevels.has(levelOf(e)) &&
-      (kind === "all" || (kind === "decisions" ? e.kind === "decision" : e.kind.startsWith("station"))) &&
-      (!q || `${e.message} ${e.station ?? ""} ${e.kind}`.toLowerCase().includes(q)),
-  );
-  const shown = newestFirst ? [...matching].reverse() : matching;
-  const toggle = (l: Level) => {
-    const next = new Set(shownLevels);
-    if (next.has(l)) next.delete(l);
-    else next.add(l);
-    setShownLevels(next);
-  };
-  const only = (l: Level) => setShownLevels(new Set([l]));
-  return (
-    <Panel
-      id="activity"
-      data-testid="activity"
-      icon={<Activity className="text-primary" />}
-      title={
-        <>
-          Activity
-          {live && (
-            <span className="relative flex size-2" title="Live">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-ok" />
-            </span>
-          )}
-        </>
-      }
-      summary={
-        <>
-          <span data-testid="activity-total">{events.length} events</span>
-          {(["error", "warn"] as Level[]).map((l) => {
-            const Icon = LEVEL[l].icon;
-            return counts[l] > 0 ? (
-              <span key={l} className={cn("pill", l === "error" ? "bad" : "warn")} data-testid={`activity-${l}-count`}>
-                <Icon /> {counts[l]} {counts[l] === 1 ? LEVEL[l].label : LEVEL[l].plural}
-              </span>
-            ) : null;
-          })}
-        </>
-      }
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label="Levels shown">
-          {LEVELS.map((l) => {
-            const Icon = LEVEL[l].icon;
-            return (
-              <button
-                key={l}
-                type="button"
-                aria-pressed={shownLevels.has(l)}
-                className={cn("tab inline-flex items-center gap-1", shownLevels.has(l) && "active")}
-                onClick={() => toggle(l)}
-                onDoubleClick={() => only(l)}
-                title={`Show or hide ${LEVEL[l].plural} (double-click: only ${LEVEL[l].plural})`}
-                data-testid={`level-${l}`}
-              >
-                <Icon className={cn("size-3.5", LEVEL[l].tone)} aria-hidden />
-                {LEVEL[l].plural} <span className="tabular-nums text-muted-foreground">{counts[l]}</span>
-              </button>
-            );
-          })}
-        </div>
-        <select
-          aria-label="Kind of event"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as typeof kind)}
-          className="w-auto py-1 text-sm"
-        >
-          <option value="all">all events</option>
-          <option value="decisions">decisions</option>
-          <option value="stations">stations</option>
-        </select>
-        <span className="text-xs text-muted-foreground" data-testid="activity-count">
-          {matching.length === events.length
-            ? `${events.length} events`
-            : `${matching.length} of ${events.length} events`}
-        </span>
-        <input
-          type="search"
-          aria-label="Search activity"
-          placeholder="Search activity…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="h-8 w-full text-sm sm:ml-auto sm:w-56"
-        />
-        <button
-          className="tab"
-          onClick={() => setNewestFirst(!newestFirst)}
-          title="Change the order"
-          aria-label={newestFirst ? "Newest first" : "Oldest first"}
-        >
-          {newestFirst ? "newest first ↓" : "oldest first ↓"}
-        </button>
-      </div>
-      <div className="log" ref={box} data-testid="activity-log">
-        {shown.map((e) => {
-          const l = levelOf(e);
-          const Icon = LEVEL[l].icon;
-          const output = typeof e.data?.output === "string" ? (e.data.output as string) : "";
-          const evidence = typeof e.data?.evidence === "string" ? (e.data.evidence as string) : "";
-          const tail = output || evidence;
-          return (
-            <div key={e.id} className={`ev ev-${e.kind} lv-${l}`} data-level={l}>
-              <span className="ts" title={new Date(e.ts).toLocaleString()}>
-                {new Date(e.ts).toLocaleTimeString()}
-              </span>
-              <span className="st">{e.station ?? ""}</span>
-              <span className="msg">
-                <Icon className={cn("lv-icon", LEVEL[l].tone)} aria-label={LEVEL[l].label} />
-                {e.message}
-              </span>
-              {tail && (
-                <details open={l === "error"}>
-                  <summary>{output ? "output" : "evidence"}</summary>
-                  <pre className="pre">{tail}</pre>
-                </details>
-              )}
-            </div>
-          );
-        })}
-        {shown.length === 0 && (
-          <p className="m-0 p-3 text-muted-foreground">
-            {q ? `Nothing matches “${query.trim()}”.` : events.length ? "Nothing at the levels shown." : "Nothing yet."}
-          </p>
-        )}
-      </div>
-    </Panel>
-  );
 }
 
 function Questions({
