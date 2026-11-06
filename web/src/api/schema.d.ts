@@ -272,6 +272,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/switch-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch users back to the kept colour of a blue/green product (the version that served before the last release), checked read-only on production; a failed check switches them back again
+         * @description Switch users back to the kept colour of a blue/green product (the version that served before the last release), checked read-only on production; a failed check switches them back again
+         */
+        post: operations["switch_back"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/ready-for": {
         parameters: {
             query?: never;
@@ -2687,6 +2707,19 @@ export interface components {
             live_color?: string | null;
             /** Kept Color */
             kept_color?: string | null;
+            /** Live Url */
+            live_url?: string | null;
+            /** Kept Url */
+            kept_url?: string | null;
+            /** Live Iteration */
+            live_iteration?: number | null;
+            /** Kept Iteration */
+            kept_iteration?: number | null;
+            /**
+             * Can Switch Back
+             * @default false
+             */
+            can_switch_back: boolean;
             /**
              * Note
              * @default
@@ -3282,6 +3315,22 @@ export interface components {
             used_by?: string[];
         };
         /**
+         * LaneView
+         * @description The lane (workflow) a product's next change will run on, and its active version (UX-24).
+         */
+        LaneView: {
+            /** Workflow Id */
+            workflow_id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: number;
+            /** Factory Default */
+            factory_default: boolean;
+            /** Kind */
+            kind: string;
+        };
+        /**
          * LearningProposal
          * @description A lesson the retro suggests for one agent after a change that needed help (ADR-0021).
          *     Nothing changes until an admin accepts it into the workflow draft and publishes.
@@ -3348,6 +3397,7 @@ export interface components {
             /** Latest Request */
             latest_request?: string | null;
             latest_outcome?: components["schemas"]["Outcome"] | null;
+            runs_on?: components["schemas"]["LaneView"] | null;
         };
         /**
          * OnboardRepoInput
@@ -4565,6 +4615,14 @@ export interface components {
             /** Gives */
             gives?: string[];
         };
+        /**
+         * SwitchBackInput
+         * @description Switch users back to the kept colour, saying why.
+         */
+        SwitchBackInput: {
+            /** Reason */
+            reason: string;
+        };
         /** SwitchStackInput */
         SwitchStackInput: {
             /** Blueprint */
@@ -5649,6 +5707,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DeployStrategyInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeployStrategyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_back: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchBackInput"];
             };
         };
         responses: {
