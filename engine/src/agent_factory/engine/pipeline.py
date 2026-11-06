@@ -120,6 +120,9 @@ class ChangeManager:
 
         self.preflight = Preflight(self)  # readiness checks + order gate (ADR-0015)
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # a person's production operation on a product (switch back): nothing else starts on that
+        # product until it ends (review of #164). product id -> what is happening, for the refusal
+        self._product_ops: dict[str, tuple[str, asyncio.Event]] = {}
         from agent_factory.hostclock import SuspendWatcher
 
         self.host_watcher = SuspendWatcher(self.host_suspended)
@@ -294,9 +297,21 @@ class ChangeManager:
             raise FactoryError("product not found")
         if product.archived_at:
             raise InvalidRequestError("the product is archived: nothing runs")
+        self._refuse_while_busy(product.id)
         changes = self.store.list_changes(product.id)
         if any(self.is_active(c.id) and c.status not in FEEDBACK_OPEN for c in changes):
             raise InvalidRequestError("a change to this product is in progress: wait for it, or cancel it, first")
+        # held from here until the release is saved, with no await before it: another switch back, a new
+        # iteration, an archive or a resume can't start in between (review of #164)
+        done = asyncio.Event()
+        self._product_ops[product.id] = ("users are being switched back", done)
+        try:
+            return await self._switch_back(product, changes, by, reason)
+        finally:
+            self._product_ops.pop(product.id, None)
+            done.set()
+
+    async def _switch_back(self, product: Product, changes: list[Change], by: str, reason: str) -> Product:
         if product.release is None:
             raise InvalidRequestError("nothing has been released yet")
         reason = " ".join(reason.split())
@@ -344,14 +359,25 @@ class ChangeManager:
         )
         switched = await deploy_p.deploy_colors(ctx, kept, current.images, check=kept)  # type: ignore[attr-defined]
         if not switched.ok:
+            # the release may have moved users before its check failed: put them back where they were,
+            # as the failed-check path below does (review of #164)
+            undo = await deploy_p.deploy_colors(ctx, current.live, current.images, check=current.live)  # type: ignore[attr-defined]
+            back = (
+                f"users are on {current.live} again"
+                if undo.ok
+                else f"putting users back on {current.live} ALSO failed: check production now"
+            )
             self.store.add_event(
                 live_change.id,
                 EventKind.decision,
-                f"switch back to {kept} failed: {switched.summary}",
+                f"switch back to {kept} failed ({switched.summary}): {back}",
                 station="switch-back",
-                data={"rollback": {"ok": False, "manual": True, "detail": switched.detail[-1500:]}},
+                data={
+                    "rollback": {"ok": False, "manual": True, "detail": switched.detail[-1500:]},
+                    "switch": {"to": current.live, "ok": undo.ok},
+                },
             )
-            raise FactoryError(f"switch back to {kept} failed: {switched.summary}")
+            raise FactoryError(f"switch back to {kept} failed ({switched.summary}): {back}")
         from agent_factory.engine.stations import _read_only_checks
 
         if failed := await _read_only_checks(ctx, f"production after switching back to {kept}"):
@@ -404,6 +430,7 @@ class ChangeManager:
             raise FactoryError("product not found")
         if product.archived_at:
             return product
+        self._refuse_while_busy(product.id)
         changes = self.store.list_changes(product.id)
         # a stopped run may still be finishing post-run work (retro, evidence seal);
         # that never blocks the next iteration
@@ -484,6 +511,7 @@ class ChangeManager:
 
         if product.archived_at:
             raise FactoryError("this product is archived: create a new product instead")
+        self._refuse_while_busy(product.id)
         changes = self.store.list_changes(product.id)
         # a stopped run may still be finishing post-run work (retro, evidence seal);
         # that never blocks the next iteration
@@ -555,6 +583,7 @@ class ChangeManager:
 
     # ----------------------------------------------------- human actions ---
     def answer(self, change_id: str, answers: list[str], by: str = "human") -> Change:
+        self._refuse_while_busy(self._get(change_id).product_id)
         change = self._get(change_id)
         if change.status != ChangeStatus.needs_input:
             raise FactoryError("change is not waiting for answers")
@@ -634,6 +663,7 @@ class ChangeManager:
 
     def resume(self, change_id: str) -> Change:
         change = self._get(change_id)
+        self._refuse_while_busy(change.product_id)
         if change.status not in RESUMABLE or self.is_active(change_id):
             raise FactoryError(f"change in status '{change.status}' cannot be resumed")
         if change.required_action is not None:
@@ -1089,8 +1119,21 @@ class ChangeManager:
 
         asyncio.create_task(wake())
 
+    def _refuse_while_busy(self, product_id: str) -> None:
+        """A person starting or resuming work while users are being switched is told so; nothing is
+        created. Runs started any other way (a wake after a pause) wait instead (`_execute`)."""
+        if op := self._product_ops.get(product_id):
+            raise InvalidRequestError(f"{op[0]} on this product right now: try again when it finishes")
+
+    def busy(self, product_id: str) -> bool:
+        """A person's production operation (switch back) holds the product."""
+        return product_id in self._product_ops
+
     async def _execute(self, change_id: str) -> None:
         cancelled = False
+        product_id = self._get(change_id).product_id
+        while op := self._product_ops.get(product_id):  # a switch back in progress finishes first
+            await op[1].wait()
         async with self._sem:
             change = self._get(change_id)
             product = self.store.get_product(change.product_id)

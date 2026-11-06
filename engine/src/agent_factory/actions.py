@@ -583,7 +583,9 @@ def _strategy_view(f: Factory, product: Product) -> DeployStrategyView:
             kept_url = deploy_p._origin(f"{blue_green.preview_release(product.slug)}.{deploy_p.domain}")  # type: ignore[attr-defined]
         except AttributeError:
             kept_url = None
-    busy = any(f.manager.is_active(c.id) and c.status not in FEEDBACK_OPEN for c in f.store.list_changes(product.id))
+    busy = f.manager.busy(product.id) or any(
+        f.manager.is_active(c.id) and c.status not in FEEDBACK_OPEN for c in f.store.list_changes(product.id)
+    )
     note = (
         "Each new version is tested on the colour users don't reach, then users are switched to it; the other "
         "colour keeps running until the next version, so switching back is instant. Both colours share the "

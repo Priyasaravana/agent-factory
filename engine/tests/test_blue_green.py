@@ -8,6 +8,7 @@ the pipeline on the `helm` target (FakeHelm keeps each revision's values and eac
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -833,3 +834,74 @@ async def test_a_switch_back_needs_a_kept_colour_and_no_change_running(make_fact
     async with c:
         assert (await c.post(f"/api/products/{product.id}/switch-back", json={"reason": "x"})).status_code == 422
     await ctx.__aexit__(None, None, None)
+
+
+async def test_a_switch_back_whose_release_fails_puts_users_back(make_factory, cfg):
+    """Review of #164 (P1): the release can move users before its check fails; they go back to the
+    colour they were on, and nothing is recorded as healthy."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _, second, _ = await _released_twice(f)
+    green = f.store.get_product(product.id).release
+    ex.fail_on.append("blueGreen.live=blue")  # the switch-back release fails once
+    with pytest.raises(FactoryError, match=r"switch back to blue failed .*: users are on green again"):
+        await f.manager.switch_back(product.id, "priya", "try it")
+    *_, undo = _prod_upgrades(ex)
+    assert "blueGreen.live=green" in undo, "users put back on green"
+    assert f.store.get_product(product.id).release == green
+    failed = next(e for e in f.store.list_events(second) if e.station == "switch-back" and "switch" in e.data)
+    assert failed.data["switch"]["ok"] is True and failed.data["rollback"]["ok"] is False
+
+
+async def test_nothing_else_starts_on_a_product_while_users_are_switched_back(make_factory, cfg, monkeypatch):
+    """Review of #164 (P1): one production operation per product at a time. While a switch back runs,
+    a second one, a new iteration, a resume and an archive are refused; a run started any other way
+    (a wake after a pause) waits for it."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, *_ = await _released_twice(f)
+    entered, release = asyncio.Event(), asyncio.Event()
+    real = HelmProvider.deploy_colors
+
+    async def slow(self, ctx, live, images, check):  # noqa: ANN001, ANN202
+        entered.set()
+        await release.wait()
+        return await real(self, ctx, live, images, check)
+
+    monkeypatch.setattr(HelmProvider, "deploy_colors", slow)
+    switching = asyncio.create_task(f.manager.switch_back(product.id, "priya", "phones broken"))
+    await asyncio.wait_for(entered.wait(), 10)
+    busy = "users are being switched back on this product right now"
+    with pytest.raises(InvalidRequestError, match=busy):  # refused at once, never queued behind the first
+        await asyncio.wait_for(f.manager.switch_back(product.id, "admin", "me too"), 2)
+    with pytest.raises(InvalidRequestError, match=busy):
+        f.manager.feedback(product.id, "Add tags.")
+    with pytest.raises(InvalidRequestError, match=busy):
+        await f.manager.archive(product.id, "admin")
+    app, ctx, c = await _client(f)
+    async with c:
+        view = (await c.get(f"/api/products/{product.id}/deploy-strategy")).json()
+        assert view["can_switch_back"] is False, "the button is off while it runs"
+    await ctx.__aexit__(None, None, None)
+    release.set()
+    await switching
+    assert f.store.get_product(product.id).release.color == "blue"
+    nxt = f.manager.feedback(product.id, "Add tags.")  # free again
+    assert await wait_run(f, nxt.id) == ChangeStatus.awaiting_feedback
+
+
+async def test_a_run_started_without_a_person_waits_for_a_switch_back(make_factory, cfg):
+    _helm_target(cfg)
+    f = make_factory(FakeExecutor())
+    product, *_ = await _released_twice(f)
+    change = f.manager.feedback(product.id, "Add tags.")
+    done = asyncio.Event()
+    f.manager._product_ops[product.id] = ("users are being switched back", done)  # before the run's first step
+    await asyncio.sleep(0.5)
+    assert f.store.get_change(change.id).status == ChangeStatus.queued, "waiting, nothing ran"
+    assert not [e for e in f.store.list_events(change.id) if e.kind == "station_started"]
+    del f.manager._product_ops[product.id]
+    done.set()
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
