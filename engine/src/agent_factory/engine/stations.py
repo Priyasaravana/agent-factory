@@ -1622,6 +1622,8 @@ async def deploy(ctx: StationContext) -> StationResult:
     ref = ctx.providers.registry.image_ref(ctx, await ctx.ws.head_sha(ctx.worktree))
     if ctx.slot:
         return await _deploy_for_validation(ctx, ref)
+    if held := await _blue_green_lane_without_promote(ctx):
+        return held
     if refused := await _keep_colors(ctx, VALIDATED_IN_PLACE):
         return refused
     result, _ = await _deploy_production(ctx, ref)
@@ -1629,6 +1631,44 @@ async def deploy(ctx: StationContext) -> StationResult:
 
 
 VALIDATED_IN_PLACE = "the change was validated in place, so there is no tested image to stage beside production"
+
+
+async def _blue_green_lane_without_promote(ctx: StationContext) -> StationResult | None:
+    """Fail closed (Plant watering iteration 2, 2026-11-05; decided by Saravana): a product that releases
+    blue/green (by its own or its pack's choice) never goes straight over production because its lane
+    predates promote. Iteration 2 ran on Product change v2 (no promote), deployed in place, failed its
+    live test and was rolled back, with users briefly on an untested version, after a one-line note.
+    Holds before deploy instead, production untouched, naming both ways on. None: not this case."""
+    recorded = ctx.store.events_with_key([ctx.change.id], "validated_in_place")
+    if not recorded or recorded[-1][2] != validation.NO_PROMOTE:
+        return None
+    pack = ctx.blueprint.pack_binding
+    strategy, by = blue_green.chosen(ctx.product.deploy_strategy, pack.deploy_strategy if pack else None)
+    if strategy != blue_green.BLUE_GREEN:
+        return None
+    lane = f"{ctx.change.workflow_id or 'its lane'}" + (
+        f" v{ctx.change.workflow_version}" if ctx.change.workflow_version else ""
+    )
+    why = (
+        f"this product releases blue/green ({by}'s choice), but its lane ({lane}) has no promote station, so this "
+        "change would go straight over production in place, untested there. Nothing was changed in production."
+    )
+    await ctx.emit(
+        EventKind.decision,
+        why,
+        {"strategy": {"chosen": strategy, "by": by, "used": None, "why": validation.NO_PROMOTE},
+         "rule": "blue_green_lane_without_promote"},
+    )  # fmt: skip
+    return StationResult(
+        StationOutcome.held,
+        why,
+        required=RequiredAction(
+            kind="lane_without_promote",
+            text=f"A change keeps the lane version it started on, so resuming holds again. Either close this change, "
+            f"restore the {lane.split(' v')[0]} lane to its factory default under Workflows (it has promote) and ask "
+            "again from the Next iteration card; or set this product to In place under Releases, then resume.",
+        ),
+    )
 
 
 async def _keep_colors(ctx: StationContext, why: str) -> StationResult | None:

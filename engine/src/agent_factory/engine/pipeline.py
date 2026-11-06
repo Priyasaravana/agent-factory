@@ -1537,6 +1537,10 @@ class ChangeManager:
             # colour's address, the chart); Resume runs the blue/green checks again: they pass, it carries on
             # blue/green; they fail, it holds again, production untouched. In place stays a separate choice.
             return True
+        if need.kind == "lane_without_promote":
+            # the change keeps its lane version, so only releasing it in place gets past this; a person who
+            # restored the lane closes this change and asks again (decided by Saravana 2026-11-05)
+            return not self._blue_green(change)
         if need.kind in ("approve_schema", "schema_in_place"):  # ADR-0046 slice 4
             if not self._blue_green(change):
                 return True  # set to in place: promotion no longer keeps the old version running
