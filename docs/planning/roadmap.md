@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-05 (**J1 closed** by Saravana on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-06 (**J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -266,7 +266,7 @@ per-pack evaluation is in the backlog.
   designer's `docs/ui.md`, and the phone table's Status column starting off-screen with no scroll hint.
   UX-11 seen on two products: fix it in the template (backlog, next template release).
 
-**J2. Iterate safely (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01)**
+**J2. Iterate safely** ✅ closed 2026-11-06 (~4.5 days; ~10 with validate, promote and roll back, decided 2026-11-01; see "Done when" below)
 - **First, plan the next iteration (~1.5 days; agreed 2026-10-26).** Today a delivered product continues
   through the feedback box or by ticking items in the Work items panel (pillar roadmap deferrals as
   "recommendation" items, image CVEs), but nothing suggests the product's **next features**, and the panel
@@ -399,7 +399,7 @@ per-pack evaluation is in the backlog.
   (decided 2026-11-01) a change is validated in a temporary environment that is gone when it stops,
   production changes only by promoting the tested image, and one product runs blue/green while another
   stays in place.
-- 🔄 **J2 status (2026-11-05, Plant watering):** iteration 2 (`cce943a96980`) was started from the card ("Edit
+- **J2 status (2026-11-05, Plant watering):** iteration 2 (`cce943a96980`) was started from the card ("Edit
   and remove plants, undo a watering"; no security fix was open, so the feature alone counts, as decided
   2026-11-02): 14/14 requirements verified live, Level 3, iteration 1 **accepted** (first live use of Accept).
   But it ran on the **Product change lane v2 (no promote)**: item 5 had only restored New product. So it went
@@ -414,6 +414,18 @@ per-pack evaluation is in the backlog.
   restore had gone to New product twice (UX-23). Product change restored to **v3** (with promote) on
   2026-11-06. Left for J2: **iteration 4**, the first blue/green release. Lane findings: UX-23 to UX-25 in
   `plans/live-test-usability.md`.
+- ✅ **J2 closed 2026-11-06 (decided by Saravana)** on Plant watering's iteration 4 (`c4888c5614a1`, Product change
+  v3), "Filter plants by location", a suggestion started from the card (no security fix open: the feature alone
+  counts, as decided 2026-11-02). Validated in a temporary environment (`plant-watering-cc4888c5614a1`),
+  production untouched: its **first attempt failed its live test there and never reached users**, was fixed
+  and redeployed to the same environment, then all six hidden scenarios passed. Promote put exactly that
+  image (`sha256:0ebdf34…`) into production **blue/green**: staged on green while blue served, green checked
+  read-only, users switched to green; blue (iteration 3) kept for an instant switch back. The first blue/green
+  release, so Plant watering migrated from in place. The temporary environment and its namespace were removed
+  at delivery. Ready for: **pilot** (production waits for J4). Rollback proof: iteration 2's verified in-place
+  rollback (decided 2026-11-05). In place: the campaign's products. Cost $5.32 CLI / $4.50 gateway. Not
+  proved, and not asked of J2: a rollback to the kept colour after a bad switch (J4's restore drill can
+  add it).
 
 **J3. Team repo (~3 days)**
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
