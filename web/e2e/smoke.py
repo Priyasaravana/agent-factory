@@ -71,13 +71,19 @@ def main() -> int:
             expect(page.get_by_test_id("activity-log")).to_contain_text(re.compile(r"agent readiness: Level 3"))
             page.screenshot(path=f"{SHOTS}/delivered.png", full_page=True)
 
-            step("evidence: sealed, intact, downloadable")
+            step("evidence: sealed, intact, downloadable (in the Advanced view)")
+            # the overview keeps what a person acts on and points to Advanced for the detail (UX-26)
+            expect(page.get_by_test_id("more-in-advanced")).to_contain_text("evidence")
+            page.get_by_test_id("view-advanced").click()
+            expect(page).to_have_url(re.compile(r"view=advanced"))
             ev = page.get_by_test_id("evidence")
             expect(ev).to_contain_text("intact", timeout=30_000)
             ev.locator("[data-panel-toggle]").click()
             with page.expect_download() as dl:
                 ev.get_by_role("button", name=re.compile("Download bundle")).click()
             assert dl.value.suggested_filename.startswith("evidence-"), dl.value.suggested_filename
+            page.get_by_test_id("view-overview").click()
+            expect(page.get_by_test_id("evidence")).to_have_count(0)
 
             step("next iteration card (free text, the engine picks the kind) → iteration 2")
             card = page.get_by_test_id("next-iteration")
