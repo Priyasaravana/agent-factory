@@ -329,6 +329,27 @@ class ChangeManager:
         )  # fmt: skip
         ctx.providers = providers
         ctx.secrets = self.secrets
+        if self.sandbox is not None:
+            # the read-only checks run where a station's do: in a sandbox, through the egress proxy (the
+            # way users' traffic arrives); without it they ran in the engine's container, where the app's
+            # host is its own loopback (Plant watering, 2026-11-06: "couldn't connect" in 10 ms)
+            ctx.untrusted_ex = self.sandbox.executor(live_change.id, "switch-back", ctx.pack_egress)
+        try:
+            return await self._switch_colours(ctx, product, changes, live_change, deploy_p, by, reason)
+        finally:
+            if self.sandbox is not None:
+                await self.sandbox.remove_change(live_change.id)  # the delivered change's sandbox is gone again
+
+    async def _switch_colours(  # noqa: PLR0913 - the switch back's working set
+        self,
+        ctx: StationContext,
+        product: Product,
+        changes: list[Change],
+        live_change: Change,
+        deploy_p: Any,
+        by: str,
+        reason: str,
+    ) -> Product:
         current, problem = await deploy_p.layout(ctx)  # type: ignore[attr-defined]
         if problem or current is None:
             raise InvalidRequestError(
@@ -397,6 +418,8 @@ class ChangeManager:
             raise FactoryError(f"{kept} failed its checks after the switch back: {back}")
         revision, digest = switched.data.get("revision"), switched.data.get("digest")
         before = product.release
+        if before is None:  # checked before the switch; the type checker can't see across the call
+            raise InvalidRequestError("nothing has been released yet")
         product.release = before.model_copy(
             update={
                 "change_id": kept_change.id if kept_change else before.change_id,
