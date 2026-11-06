@@ -399,6 +399,16 @@ per-pack evaluation is in the backlog.
   (decided 2026-11-01) a change is validated in a temporary environment that is gone when it stops,
   production changes only by promoting the tested image, and one product runs blue/green while another
   stays in place.
+- 🔄 **J2 status (2026-11-05, Plant watering):** iteration 2 (`cce943a96980`) was started from the card ("Edit
+  and remove plants, undo a watering"; no security fix was open, so the feature alone counts, as decided
+  2026-11-02): 14/14 requirements verified live, Level 3, iteration 1 **accepted** (first live use of Accept).
+  But it ran on the **Product change lane v2 (no promote)**: item 5 had only restored New product. So it went
+  straight over production in place, though blue/green was chosen; its first live test failed and production
+  was **rolled back to iteration 1** (`helm rollback`, health and readiness checks passed). **Decided by
+  Saravana 2026-11-05:** that rollback counts as J2's rollback proof (Ready for: pilot), and a blue/green
+  product on a lane without promote now **holds before deploy**, production untouched (in review,
+  `fix/blue-green-lane`). Left for J2: restore the Product change lane, then **iteration 3**, a normal small
+  change that does the first blue/green release (migration, temporary environment, promote).
 
 - **J2, after iteration 3 (2026-11-06):** iterations 2 and 3 ran on Product change v2 (no promote): the
   restore had gone to New product twice (UX-23). Product change restored to **v3** (with promote) on

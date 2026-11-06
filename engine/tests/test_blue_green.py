@@ -16,8 +16,9 @@ import pytest
 from conftest import PRODUCT, wait_run
 from test_api import _client
 
-from agent_factory import blue_green, rollback
+from agent_factory import blue_green, rollback, validation
 from agent_factory.attention import pending_actions
+from agent_factory.engine.pipeline import FactoryError
 from agent_factory.executor import FakeExecutor, FakeHelm
 from agent_factory.models import ChangeStatus, EventKind, Product, Release, SchemaApproval
 from agent_factory.providers import HelmProvider, LocalProvider
@@ -715,3 +716,50 @@ async def test_a_cause_fixed_elsewhere_resumes_blue_green(make_factory, cfg):
     assert product.release.change_id == third.id and product.release.color == "blue"
     values = ex.helm.releases["bookmarks-service"][-1]["values"]
     assert FakeHelm.images(values)["green"] == healthy.image, "the colour users left is kept"
+
+
+async def test_a_blue_green_product_on_a_lane_without_promote_holds_before_production(make_factory, cfg, monkeypatch):
+    """Plant watering iteration 2 (2026-11-05): blue/green chosen, but the change ran on Product change
+    v2 (no promote), went straight over production in place, failed its live test and was rolled back.
+    Decided by Saravana: hold before deploy instead, production untouched. In place, by a person's
+    choice, still releases in place; a product that chose in place is unaffected."""
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _ = await _blue_green_product(f, strategy="in-place")  # iteration 1, in place
+    upgrades = len(_prod_upgrades(ex))
+    product.deploy_strategy = "blue-green"  # then the person chose blue/green
+    f.store.save_product(product)
+    monkeypatch.setattr(validation, "in_place_reason", lambda *_: validation.NO_PROMOTE)  # an old lane
+    second = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, second.id) == ChangeStatus.held, _messages(f, second.id)[-6:]
+    held = f.store.get_change(second.id)
+    assert held.current_station == "deploy", "\n".join(
+        m[:160] for m in _messages(f, second.id) if "deploy" in m or "blue" in m or "in place" in m or "held" in m
+    )
+    assert held.current_station == "deploy" and len(_prod_upgrades(ex)) == upgrades, "production untouched"
+    stop = next(e for e in f.store.list_events(second.id) if e.data.get("rule") == "blue_green_lane_without_promote")
+    assert "releases blue/green (product's choice), but its lane (" in stop.message
+    assert "Nothing was changed in production" in stop.message
+    assert held.required_action is not None and held.required_action.kind == "lane_without_promote"
+    assert "close this change, restore the" in held.required_action.text, "a resume keeps the old lane version"
+    with pytest.raises(FactoryError, match="not yet"):
+        f.manager.resume(second.id)  # still blue/green: it would only hold again
+
+    product = f.store.get_product(product.id)
+    product.deploy_strategy = "in-place"  # a person's choice: release this one in place
+    f.store.save_product(product)
+    f.manager.resume(second.id)
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback, _messages(f, second.id)[-5:]
+    assert len(_prod_upgrades(ex)) == upgrades + 1
+
+
+async def test_an_in_place_product_on_a_lane_without_promote_still_goes_in_place(make_factory, cfg, monkeypatch):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _ = await _blue_green_product(f, strategy="in-place")
+    monkeypatch.setattr(validation, "in_place_reason", lambda *_: validation.NO_PROMOTE)
+    second = f.manager.feedback(product.id, "Export notes as CSV.")
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
+    assert not any(e.data.get("rule") == "blue_green_lane_without_promote" for e in f.store.list_events(second.id))
