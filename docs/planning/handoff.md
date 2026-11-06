@@ -1,15 +1,16 @@
-# Agent Factory: handoff (updated 2026-11-05)
+# Agent Factory: handoff (updated 2026-11-06)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-05)
+## Current state (2026-11-06)
+- **J2 closed 2026-11-06 (Saravana)** on Plant watering's iteration 4 (`c4888c5614a1`): validated in a temporary
+  environment (its first, broken attempt never reached users), the tested image promoted blue/green (live
+  green, blue kept), the environment removed, Ready for: pilot. Detail in the roadmap's J2. Both factory lanes
+  are on their shipped versions: New product v15, Product change v3. **Next: J3 (team repo).** Lane UX
+  findings UX-23 to UX-25 are open (UX-24, which lane an iteration runs on, is the cheapest, ~½ day).
 - **J1 closed 2026-11-05 (Saravana)** on Plant watering's first delivery (`9e7e05c0c395`), with one Resume
-  after a factory fault (Chromium crash in the sandbox, fixed in #156); detail in the roadmap's J1 "Done when".
-  "Now" done: #154, #156 merged; New product lane v14 active with Promote.
-  **Merged 2026-11-05: #157 (`66a2b62`), "Ready for" statement, named owner and UX-22 address-change notice.**
-  **Next:** the accepted/closed state before J2's live runs (order decided by Saravana 2026-11-05), then J2
-  on Plant watering (iteration 2 from the card with Blue/green set first, then a broken iteration after the switch).
+  after a factory fault (Chromium crash in the sandbox, fixed in #156).
 - **Merged 2026-11-04 (`e0aad44`):** item 3, waiting and budgets minimum (L-5, UX-15, UX-18, UX-19). Not proved
   yet: the cause of the ~6× meter gap; the next live run's agent-call events (tokens per model, both meters)
   are the evidence to read first. A paused change keeps its temporary environment until it wakes; a throttle
