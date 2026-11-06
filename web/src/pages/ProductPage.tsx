@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ACTIVE, KIND_LABEL, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
 import ChangePanel from "../components/ChangePanel";
@@ -30,6 +30,28 @@ import { cn } from "../lib/utils";
 
 export default function ProductPage() {
   const { productId = "" } = useParams();
+  // Overview or Advanced (2026-11-06, Saravana): the overview keeps what a person acts on; the
+  // advanced view adds every detail. In the URL (shareable) and remembered per browser.
+  const [params, setParams] = useSearchParams();
+  const remembered = (() => {
+    try {
+      return localStorage.getItem("product-view");
+    } catch {
+      return null;
+    }
+  })();
+  const advanced = (params.get("view") ?? remembered) === "advanced";
+  const setView = (view: "overview" | "advanced") => {
+    try {
+      localStorage.setItem("product-view", view);
+    } catch {
+      /* a private window: the URL still carries it */
+    }
+    const next = new URLSearchParams(params);
+    if (view === "advanced") next.set("view", "advanced");
+    else next.delete("view");
+    setParams(next, { replace: true });
+  };
   const detail = useQuery({
     queryKey: ["product", productId],
     queryFn: () =>
@@ -120,6 +142,20 @@ export default function ProductPage() {
           )}
         </div>
       </div>
+      <div className="flex w-fit gap-1 rounded-lg border bg-card p-1" role="tablist" aria-label="How much to show">
+        {(["overview", "advanced"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={advanced === (v === "advanced")}
+            className={cn("tab", advanced === (v === "advanced") && "active")}
+            onClick={() => setView(v)}
+            data-testid={`view-${v}`}
+          >
+            {v === "overview" ? "Overview" : "Advanced"}
+          </button>
+        ))}
+      </div>
       {!product.archived_at && (
         <NeedsYou
           productId={product.id}
@@ -168,8 +204,8 @@ export default function ProductPage() {
         <Problems error={archive.error} />
       </ConfirmDialog>
 
-      <div className="grid grid-cols-2 items-start gap-3 lg:grid-cols-4">
-        <Fact icon={<Layers />} label="Blueprint">
+      <div className={cn("grid grid-cols-2 items-start gap-3", advanced && "lg:grid-cols-4")}>
+        {advanced && <Fact icon={<Layers />} label="Blueprint">
           {product.blueprint}
           {product.pack && (
             <span className="block text-xs font-normal text-muted-foreground">
@@ -193,7 +229,7 @@ export default function ProductPage() {
                   ))}
             </span>
           )}
-        </Fact>
+        </Fact>}
         {product.target === "repo" ? (
           <Fact icon={<GitBranch />} label="Branch">
             {product.repo_ref ?? (
@@ -237,10 +273,10 @@ export default function ProductPage() {
             <span className="text-muted-foreground">local only</span>
           )}
         </Fact>
-        <SpendCard spend={spend} />
+        {advanced && <SpendCard spend={spend} />}
       </div>
 
-      <Panel
+      {advanced && <Panel
         id="requirements"
         icon={<FileText className="text-primary" />}
         title={
@@ -275,7 +311,7 @@ export default function ProductPage() {
             </ol>
           </div>
         )}
-      </Panel>
+      </Panel>}
 
       {product.target !== "repo" && (
         <ReadyFor productId={product.id} latestStatus={product.latest_status} />
@@ -288,7 +324,7 @@ export default function ProductPage() {
         />
       )}
 
-      <WorkLedger
+      {advanced && <WorkLedger
         productId={product.id}
         canChange={
           !product.archived_at &&
@@ -307,7 +343,7 @@ export default function ProductPage() {
                 setNextPicks(new Set([...nextPicks, ...ids])),
             }
           : {})}
-      />
+      />}
 
       {changes.length > 1 && (
         <div
@@ -335,6 +371,7 @@ export default function ProductPage() {
         <div id="change" className="grid min-w-0 scroll-mt-4">
           <ChangePanel
             canSteer={canSteer}
+            simple={!advanced}
             key={changeId}
             changeId={changeId}
             productId={product.id}

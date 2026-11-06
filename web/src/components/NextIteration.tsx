@@ -408,6 +408,15 @@ export default function NextIteration({
               <span className="text-muted-foreground">Tick something above or describe a change.</span>
             )}
           </p>
+          {view.runs_on && (
+            <p className="m-0 text-sm text-muted-foreground" data-testid="next-runs-on">
+              Runs on the{" "}
+              <a href={`/workflows/${view.runs_on.workflow_id}`} className="font-medium text-foreground">
+                {view.runs_on.name}
+              </a>{" "}
+              lane, v{view.runs_on.version} ({view.runs_on.factory_default ? "factory default" : "your organisation's"}).
+            </p>
+          )}
           <Button className="w-fit" disabled={!ready || start.isPending || provided === null} data-testid="start-next-iteration">
             <Rocket /> Start iteration {nextNumber}
           </Button>

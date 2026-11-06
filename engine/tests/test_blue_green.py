@@ -18,7 +18,7 @@ from test_api import _client
 
 from agent_factory import blue_green, rollback, validation
 from agent_factory.attention import pending_actions
-from agent_factory.engine.pipeline import FactoryError
+from agent_factory.engine.pipeline import FactoryError, InvalidRequestError
 from agent_factory.executor import FakeExecutor, FakeHelm
 from agent_factory.models import ChangeStatus, EventKind, Product, Release, SchemaApproval
 from agent_factory.providers import HelmProvider, LocalProvider
@@ -763,3 +763,73 @@ async def test_an_in_place_product_on_a_lane_without_promote_still_goes_in_place
     second = f.manager.feedback(product.id, "Export notes as CSV.")
     assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback
     assert not any(e.data.get("rule") == "blue_green_lane_without_promote" for e in f.store.list_events(second.id))
+
+
+# ------------------------------------------------- a person switches back (asked 2026-11-06) --
+async def _released_twice(f):  # noqa: ANN001, ANN202
+    product, first = await _blue_green_product(f)
+    healthy = product.release
+    second = f.manager.feedback(product.id, "Add full-text search over notes.")
+    assert await wait_run(f, second.id) == ChangeStatus.awaiting_feedback, _messages(f, second.id)[-5:]
+    return f.store.get_product(product.id), first, second.id, healthy
+
+
+async def test_a_person_switches_users_back_to_the_kept_colour(make_factory, cfg):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, first, second, blue = await _released_twice(f)
+    app, ctx, c = await _client(f)
+    async with c:
+        view = (await c.get(f"/api/products/{product.id}/deploy-strategy")).json()
+        assert (view["live_color"], view["kept_color"]) == ("green", "blue")
+        assert (view["live_iteration"], view["kept_iteration"], view["can_switch_back"]) == (2, 1, True)
+        assert view["kept_url"] == PREVIEW and view["live_url"] == product.app_url
+        before = len(_prod_upgrades(ex))
+        r = await c.post(f"/api/products/{product.id}/switch-back", json={"reason": "search is slow on phones"})
+        assert r.status_code == 200, r.text
+        assert (r.json()["live_color"], r.json()["kept_color"]) == ("blue", "green")
+    await ctx.__aexit__(None, None, None)
+
+    [switched] = _prod_upgrades(ex)[before:]
+    assert "blueGreen.live=blue" in switched and f"blueGreen.blue.tag={blue.image.rsplit(':', 1)[1]}" in switched
+    assert not [c for c in ex.calls if " rollback " in c], "a switch, not a restart: green keeps running"
+    assert ex.helm.latest_image("bookmarks-service") == blue.image
+    rel = f.store.get_product(product.id).release
+    assert (rel.change_id, rel.iteration, rel.color, rel.image) == (first, 1, "blue", blue.image)
+    done = next(e for e in f.store.list_events(second) if (e.data.get("rollback") or {}).get("ok"))
+    assert done.data["rollback"]["manual"] is True and done.data["rollback"]["reason"] == "search is slow on phones"
+    assert "users switched back from green to blue (iteration 1)" in done.message
+    assert any((e.data.get("rollback") or {}).get("ok") for e in f.store.list_events(first)), "told on both"
+
+
+async def test_a_switch_back_that_fails_its_checks_puts_users_back(make_factory, cfg):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _, second, _ = await _released_twice(f)
+    green = f.store.get_product(product.id).release
+    ex.fail_on.extend([f'-o /dev/null ${{HTTP_PROXY:+--proxy "$HTTP_PROXY"}} {PROD}/readyz'] * 3)
+    with pytest.raises(FactoryError, match="failed its checks after the switch back: users are on green again"):
+        await f.manager.switch_back(product.id, "priya", "try it")
+    *_, back, again = _prod_upgrades(ex)
+    assert "blueGreen.live=blue" in back and "blueGreen.live=green" in again
+    assert f.store.get_product(product.id).release == green, "nothing recorded as healthy"
+    assert any((e.data.get("rollback") or {}).get("ok") is False for e in f.store.list_events(second))
+
+
+async def test_a_switch_back_needs_a_kept_colour_and_no_change_running(make_factory, cfg):
+    _helm_target(cfg)
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    product, _ = await _blue_green_product(f)  # one colour only
+    with pytest.raises(InvalidRequestError, match="no green release is kept"):
+        await f.manager.switch_back(product.id, "priya", "x")
+    running = f.manager.feedback(product.id, "Add tags.")
+    with pytest.raises(InvalidRequestError, match="in progress"):
+        await f.manager.switch_back(product.id, "priya", "x")
+    await wait_run(f, running.id)
+    app, ctx, c = await _client(f)
+    async with c:
+        assert (await c.post(f"/api/products/{product.id}/switch-back", json={"reason": "x"})).status_code == 422
+    await ctx.__aexit__(None, None, None)

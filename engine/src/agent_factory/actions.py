@@ -82,6 +82,7 @@ from agent_factory.models import (
     HealthView,
     InstallSkillInput,
     IntegrationView,
+    LaneView,
     LearningProposal,
     NextIterationView,
     OnboardRepoInput,
@@ -123,6 +124,7 @@ from agent_factory.models import (
     StationAgentInput,
     StationTemplateView,
     StationView,
+    SwitchBackInput,
     SwitchStackInput,
     TemplateInfo,
     ToolReportView,
@@ -527,6 +529,25 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
         latest_kind=latest.kind,
         latest_request=asked or None,
         latest_outcome=latest.outcome,
+        runs_on=_runs_on(f, product),
+    )
+
+
+def _runs_on(f: Factory, product: Product, kind: str = "feature") -> LaneView | None:
+    """UX-24: the lane a feature change to this product runs on now, and its active version. The card
+    says it before Start, so a person sees an out-of-date or unexpected lane before it runs."""
+    try:
+        lane = f.manager.lane_for(product, kind)
+        svc = f.workflows[lane]
+        doc = svc.get()
+    except (FactoryError, KeyError, ValueError, LookupError):
+        return None
+    return LaneView(
+        workflow_id=lane,
+        name=doc.name,
+        version=svc.active_version(),
+        factory_default=f.workflows.is_factory(lane),
+        kind=kind,
     )
 
 
@@ -539,7 +560,30 @@ def _strategy_view(f: Factory, product: Product) -> DeployStrategyView:
     strategy, by = blue_green.chosen(product.deploy_strategy, default)
     rel = product.release
     live = rel.color if rel else None
-    kept = blue_green.other(live) if live and strategy == blue_green.BLUE_GREEN and rel and rel.iteration > 1 else None
+    # the kept colour: blue/green, and another release of this product is behind the live one (the
+    # release before a promote, or the one switched away from); the first release has none
+    others = (
+        [
+            c
+            for c in sorted(f.store.list_changes(product.id), key=lambda c: c.iteration, reverse=True)
+            if c.id != rel.change_id and c.deployed is not None
+        ]
+        if rel and live and strategy == blue_green.BLUE_GREEN
+        else []
+    )
+    kept = blue_green.other(live) if live and others else None
+    hit = next((c for c in others if c.deployed and c.deployed.color == kept), None) or (
+        next((c for c in others if rel and c.iteration < rel.iteration), None)
+    )
+    kept_iteration = hit.iteration if kept and hit else None
+    kept_url = None
+    if kept:
+        deploy_p = f.manager.providers.for_blueprint(product.blueprint).deploy
+        try:
+            kept_url = deploy_p._origin(f"{blue_green.preview_release(product.slug)}.{deploy_p.domain}")  # type: ignore[attr-defined]
+        except AttributeError:
+            kept_url = None
+    busy = any(f.manager.is_active(c.id) and c.status not in FEEDBACK_OPEN for c in f.store.list_changes(product.id))
     note = (
         "Each new version is tested on the colour users don't reach, then users are switched to it; the other "
         "colour keeps running until the next version, so switching back is instant. Both colours share the "
@@ -549,7 +593,10 @@ def _strategy_view(f: Factory, product: Product) -> DeployStrategyView:
     )
     return DeployStrategyView.model_validate(
         {"strategy": strategy, "chosen_by": by, "pack_default": default, "options": options,
-         "live_color": live, "kept_color": kept, "note": note}
+         "live_color": live, "kept_color": kept, "note": note,
+         "live_url": product.app_url, "kept_url": kept_url,
+         "live_iteration": rel.iteration if rel else None, "kept_iteration": kept_iteration,
+         "can_switch_back": bool(kept) and not busy and not product.archived_at}
     )  # fmt: skip
 
 
@@ -564,6 +611,19 @@ def get_deploy_strategy(f: Factory, product_id: str) -> DeployStrategyView:
     product = f.store.get_product(product_id)
     if not product:
         raise FactoryError("product not found")
+    return _strategy_view(f, product)
+
+
+@action(
+    "switch_back",
+    "Switch users back to the kept colour of a blue/green product (the version that served before the last "
+    "release), checked read-only on production; a failed check switches them back again",
+    "POST",
+    "/api/products/{product_id}/switch-back",
+)
+async def switch_back(f: Factory, product_id: str, body: SwitchBackInput) -> DeployStrategyView:
+    _may_steer(f, product_id)
+    product = await f.manager.switch_back(product_id, current_identity().user or "anonymous", body.reason)
     return _strategy_view(f, product)
 
 

@@ -284,3 +284,24 @@ def test_a_screen_fix_delivered_with_the_defect_still_there_is_back_on_the_card(
     ledger.claim(items, [it.id], change_id="c3", iteration=3, now=T0, by="admin")
     assert _fold_ui(items, _review((PHONE, WIDE, "serious")), iteration=3, change="c9")["seen"] == 1
     assert it.status == "in_progress"
+
+
+async def test_the_card_says_which_lane_the_next_iteration_runs_on(make_factory):
+    """UX-24 (2026-11-06): iterations 2 and 3 of Plant watering ran on an out-of-date Product change lane;
+    the card names the lane and its active version before Start."""
+    from conftest import PRODUCT, wait_run
+    from test_api import _client
+
+    from agent_factory.models import ChangeStatus
+
+    f = make_factory()
+    product = f.manager.create_product(PRODUCT)
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id, 60) == ChangeStatus.awaiting_feedback
+    app, ctx, c = await _client(f)
+    async with c:
+        runs_on = (await c.get(f"/api/products/{product.id}/next-iteration")).json()["runs_on"]
+    await ctx.__aexit__(None, None, None)
+    assert runs_on["workflow_id"] == "product-change" and runs_on["name"] == "Product change"
+    assert runs_on["factory_default"] is True and runs_on["kind"] == "feature"
+    assert runs_on["version"] == f.workflows["product-change"].active_version()

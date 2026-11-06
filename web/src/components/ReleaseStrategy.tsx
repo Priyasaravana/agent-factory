@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Rocket } from "lucide-react";
+import { ArrowUpRight, Rocket, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, unwrap } from "../api/client";
@@ -36,6 +36,20 @@ export default function ReleaseStrategy({ productId, canChange }: { productId: s
       toast.success(`New versions will be released ${v.strategy === "blue-green" ? "blue/green" : "in place"}`);
     },
   });
+  const [reason, setReason] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const back = useMutation({
+    mutationFn: () =>
+      unwrap(api.POST("/api/products/{product_id}/switch-back", { ...path, body: { reason: reason.trim() } })),
+    onSuccess: (nv) => {
+      qc.setQueryData(["deploy-strategy", productId], nv);
+      for (const key of [["product", productId], ["ready-for"], ["next-iteration", productId]])
+        qc.invalidateQueries({ queryKey: key });
+      setConfirming(false);
+      setReason("");
+      toast.success(`Users are on ${nv.live_color} again`);
+    },
+  });
   const v = view.data;
   if (!v) return null;
   const current = v.strategy as Strategy;
@@ -59,6 +73,83 @@ export default function ReleaseStrategy({ productId, canChange }: { productId: s
         </>
       }
     >
+      {current === "blue-green" && v.live_color && (
+        <div className="grid gap-2 sm:grid-cols-2" data-testid="colours">
+          <Colour
+            role="Live"
+            colour={v.live_color}
+            iteration={v.live_iteration}
+            url={v.live_url}
+            note="what users reach"
+          />
+          {v.kept_color ? (
+            <Colour
+              role="Kept"
+              colour={v.kept_color}
+              iteration={v.kept_iteration}
+              url={v.kept_url}
+              note="still running, for an instant switch back"
+            />
+          ) : (
+            <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+              Nothing kept yet: the first blue/green release has no earlier version behind it.
+            </div>
+          )}
+        </div>
+      )}
+      {canChange && v.kept_color && (
+        <div className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="switch-back">
+          {!confirming ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 flex-1 text-muted-foreground">
+                Something wrong with the live version? Users can go back to {v.kept_color}
+                {v.kept_iteration ? ` (iteration ${v.kept_iteration})` : ""} straight away; it is still running.
+              </span>
+              <Button
+                variant="outline"
+                disabled={!v.can_switch_back}
+                title={v.can_switch_back ? undefined : "Wait for the change in progress to finish"}
+                onClick={() => setConfirming(true)}
+              >
+                <Undo2 /> Switch users back to {v.kept_color}
+              </Button>
+            </div>
+          ) : (
+            <form
+              className="grid gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (reason.trim().length >= 3) back.mutate();
+              }}
+            >
+              <label className="grid gap-1">
+                <span className="font-medium">Why switch back?</span>
+                <span className="text-xs text-muted-foreground">
+                  Users go to {v.kept_color} at once, then production is checked read-only. If a check fails they go
+                  straight back to {v.live_color}. {v.live_color} keeps running until the next release.
+                </span>
+                <textarea
+                  rows={2}
+                  maxLength={1000}
+                  autoFocus
+                  value={reason}
+                  placeholder="e.g. the location filter returns nothing on phones"
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </label>
+              <span className="flex flex-wrap gap-2">
+                <Button disabled={back.isPending || reason.trim().length < 3} data-testid="switch-back-confirm">
+                  <Undo2 /> {back.isPending ? "Switching…" : `Switch users to ${v.kept_color}`}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+              </span>
+              <Problems error={back.error} />
+            </form>
+          )}
+        </div>
+      )}
       <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How new versions reach users">
         {(v.options as Strategy[]).map((s) => (
           <label
@@ -101,5 +192,38 @@ export default function ReleaseStrategy({ productId, canChange }: { productId: s
       )}
       <Problems error={save.error} />
     </Panel>
+  );
+}
+
+/** One colour of a blue/green product: which iteration it runs and where it answers. */
+function Colour({
+  role,
+  colour,
+  iteration,
+  url,
+  note,
+}: {
+  role: string;
+  colour: string;
+  iteration?: number | null;
+  url?: string | null;
+  note: string;
+}) {
+  return (
+    <div className="grid gap-1 rounded-lg border p-3 text-sm">
+      <span className="flex flex-wrap items-center gap-2">
+        <span className={cn("size-2.5 rounded-full", colour === "blue" ? "bg-info" : "bg-ok")} aria-hidden />
+        <strong>
+          {role}: {colour}
+        </strong>
+        {iteration ? <span className="pill muted">iteration {iteration}</span> : null}
+      </span>
+      <span className="text-xs text-muted-foreground">{note}</span>
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 break-all">
+          {url.replace(/^https?:\/\//, "")} <ArrowUpRight className="size-3 shrink-0" />
+        </a>
+      )}
+    </div>
   );
 }
