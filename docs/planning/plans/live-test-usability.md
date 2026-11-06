@@ -37,6 +37,20 @@ screens or output didn't tell the person the truth, or told it too late.
 | UX-21 | Med | *Added in the assessment.* Kudos board's saved strategy read blue-green and no workflow was assigned, though in place was intended; found only by inspecting the DB before iteration 4. | Same family as UX-05: what is saved isn't what the person believes. | Show saved strategy and assigned lane on the product page and on the card before **Start the next iteration**. |
 | UX-22 | Med | *Added in the assessment.* Kudos iteration 4 moved the live URL from `localhost:8083` to `kudos.localtest.me:8180` (the install's ingress setting), as part of a feature change. | An existing product's address changed without the change saying so; bookmarks and anyone using it break. | A change that moves a product's address says so before approval and in delivery, with the old and new address. |
 
+## Findings from the J1 and J2 runs (Plant watering, 2026-11-05 to 06)
+
+| # | Severity | What happened | Why it matters | Fix |
+|---|---|---|---|---|
+| UX-23 | High | Lanes share display names: three are called "New product" and two "Product change"; only the small id under each differs (`new-product`, `live-test-new-product`, `new-product-copy`). Asked to restore Product change, Saravana restored **New product** again (v14 → v15); Product change stayed v2. | A person acts on the wrong lane and believes the right one is fixed. Here it cost two iterations that went over production in place. | Unique display names: the factory defaults' names are reserved, and a copy must be renamed before it can be published or assigned. Show "Factory default" or "Org" as a badge beside the name, not only as a section heading. |
+| UX-24 | High | Which lane runs an iteration isn't visible. New product serves only the first build (`kind: new`); every later iteration runs on **Product change**. Saravana believed New product was "the product's" lane, so restoring it should have covered iteration 2. | The person can't predict, or check before starting, which lane and version will run. | Before **Start iteration N** on the card, say "runs on Product change v3 (factory default)", or the assigned org lane. Show lane and version on every change page. Pairs with UX-21 (saved strategy and lane on the product page). |
+| UX-25 | High | A factory lane behind its shipped version shows this only on its own page (`template_update_available`). After New product was restored, Product change stayed on v2 (no promote) through iterations 2 and 3. Both went straight over production in place, failed their first live test and were rolled back, though the product was blue/green. | A stale lane silently weakens every change on it, here skipping validation and promote. | A banner on Workflows listing every factory lane with a newer shipped version, and **Restore all factory defaults** naming what each restore changes. The fail-closed hold for blue/green (#161) stops the worst case meanwhile. |
+
+Also from these runs, recorded where they belong:
+- **Fixed:** Chromium crashing in the sandbox's 64 MB `/dev/shm` was sent to the developer as a code bug (#156).
+- **Fixed:** a blue/green product on a lane without promote now holds before production (#161).
+- **Seen twice now:** UX-11 (the template's admin users route returns 500 on a duplicate email), on Kudos and Plant watering; fix it in the next template release.
+- **Worked live for the first time:** Accept (iteration 1), the "Ready for" statement (pilot after a verified rollback), and the two cost meters agreeing (about 5% apart; the campaign's ~6× gap didn't recur).
+
 ## Campaign results (closed 2026-11-04 01:42; total $21.05 of $25)
 Against J1's and J2's "Done when". Engine versions changed mid-campaign (`3ccefb6` → `1a366dd` → `cd20e55`), so
 each result holds for the version it ran on.
