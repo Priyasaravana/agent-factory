@@ -400,6 +400,11 @@ per-pack evaluation is in the backlog.
   production changes only by promoting the tested image, and one product runs blue/green while another
   stays in place.
 
+- **J2, after iteration 3 (2026-11-06):** iterations 2 and 3 ran on Product change v2 (no promote): the
+  restore had gone to New product twice (UX-23). Product change restored to **v3** (with promote) on
+  2026-11-06. Left for J2: **iteration 4**, the first blue/green release. Lane findings: UX-23 to UX-25 in
+  `plans/live-test-usability.md`.
+
 **J3. Team repo (~3 days)**
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
   repos with a small CI workflow; `existing_repos.write_token_ref` = a fine-grained token (Contents + Pull
