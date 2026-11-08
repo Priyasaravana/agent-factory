@@ -23,6 +23,7 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 # mutating actions any signed-in member may call; those that steer an existing
 # order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
+    "refresh_pull_request",
     "switch_back",
     "accept_change",
     "close_change",

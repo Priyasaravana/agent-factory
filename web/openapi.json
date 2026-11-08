@@ -2527,6 +2527,49 @@
         }
       }
     },
+    "/api/changes/{change_id}/pull-request/refresh": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)",
+        "description": "Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)",
+        "operationId": "refresh_pull_request",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/cancel": {
       "post": {
         "tags": [
@@ -4416,6 +4459,26 @@
         }
       }
     },
+    "/api/hooks/github": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "GitHub webhook (J3): a signed delivery makes the factory read the named pull requests again",
+        "description": "Public (no sign-in): the delivery proves itself by `X-Hub-Signature-256`. Off unless\n`existing_repos.pr_updates` is `webhook` and its secret resolves. The payload only names which\nPRs to look at again; their state is always read from the host (`pr_loop.py`).",
+        "operationId": "github_webhook",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/stream": {
       "get": {
         "tags": [
@@ -5649,6 +5712,16 @@
               }
             ],
             "title": "Pr Url"
+          },
+          "pull_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PullRequestState"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "deployed": {
             "anyOf": [
@@ -8651,7 +8724,9 @@
             "type": "string",
             "enum": [
               "accepted",
-              "closed"
+              "closed",
+              "merged",
+              "abandoned"
             ],
             "title": "State"
           },
@@ -9655,6 +9730,131 @@
           "note"
         ],
         "title": "PublishInput"
+      },
+      "PullRequestState": {
+        "properties": {
+          "repo": {
+            "type": "string",
+            "title": "Repo"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "merged",
+              "closed"
+            ],
+            "title": "State"
+          },
+          "head_sha": {
+            "type": "string",
+            "title": "Head Sha",
+            "default": ""
+          },
+          "checks": {
+            "type": "string",
+            "enum": [
+              "none",
+              "pending",
+              "passing",
+              "failing"
+            ],
+            "title": "Checks",
+            "default": "none"
+          },
+          "failing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failing"
+          },
+          "review": {
+            "type": "string",
+            "enum": [
+              "none",
+              "commented",
+              "approved",
+              "changes_requested"
+            ],
+            "title": "Review",
+            "default": "none"
+          },
+          "mergeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mergeable"
+          },
+          "merged_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merged By"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "unread": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unread"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "poll",
+              "webhook",
+              "refresh"
+            ],
+            "title": "Source",
+            "default": "poll"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo",
+          "number",
+          "url",
+          "state",
+          "checked_at"
+        ],
+        "title": "PullRequestState",
+        "description": "What the factory last read about a change's pull request (J3, `pr_loop.py`). The repo's host is\nthe source of truth: a webhook only says \"look again\", and every update is a read of the PR itself."
       },
       "ReadinessView": {
         "properties": {

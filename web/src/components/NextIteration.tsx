@@ -253,7 +253,7 @@ export default function NextIteration({
         <>
           {view.latest_iteration && view.latest_status === "awaiting_feedback" && (
             <span
-              className={cn("pill", view.latest_outcome?.state === "accepted" ? "ok" : "muted")}
+              className={cn("pill", ["accepted", "merged"].includes(view.latest_outcome?.state ?? "") ? "ok" : "muted")}
               data-testid="next-latest-outcome"
               title={view.latest_outcome?.note || undefined}
             >

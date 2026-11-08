@@ -311,12 +311,26 @@ class ExistingReposConfig(BaseModel):
     # A fine-grained token with Contents and Pull requests read/write on the repos.
     write_token_ref: str | None = "env://REPO_GITHUB_TOKEN"  # noqa: S105 - a reference, not a value
     pr_branch_prefix: str = Field(default="factory/", pattern=r"^[A-Za-z0-9._/-]{1,40}$")
+    # following a change's pull request after it opens (J3, `pr_loop.py`): how the factory hears that
+    # checks, reviews or the merge state moved. Either way it then reads the PR itself (REST), so both
+    # give the same result; a person can always press Refresh on the change.
+    #   poll:    every `pr_poll_minutes`, for every open PR. Works on a laptop with no public address.
+    #   webhook: GitHub calls POST /api/hooks/github (signed with `pr_webhook_secret_ref`); a slow
+    #            backstop poll (`pr_webhook_backstop_minutes`, 0 = none) catches a missed delivery.
+    pr_updates: Literal["poll", "webhook"] = "poll"
+    pr_poll_minutes: int = Field(default=5, ge=1, le=1440)
+    pr_webhook_backstop_minutes: int = Field(default=60, ge=0, le=1440)
+    pr_webhook_secret_ref: str | None = "env://REPO_WEBHOOK_SECRET"  # noqa: S105 - a reference, not a value
+    # the REST API of the repos' host (GitHub Enterprise: https://<host>/api/v3)
+    api_url: str = Field(
+        default="https://api.github.com", pattern=r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$"
+    )
 
-    @field_validator("write_token_ref")
+    @field_validator("write_token_ref", "pr_webhook_secret_ref")
     @classmethod
     def _is_reference(cls, v: str | None) -> str | None:
         if v is not None and "://" not in v:
-            raise ValueError("write_token_ref must be a reference like env://NAME, never a value")
+            raise ValueError("secret settings must be a reference like env://NAME, never a value")
         return v
 
 

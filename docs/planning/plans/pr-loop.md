@@ -1,0 +1,51 @@
+# J3: the pull request loop
+
+Started 2026-11-08 on `feat/j3-pr-loop`. Order decided by Saravana 2026-11-08: build the loop first, while
+he prepares the throwaway repo and token, so one live run proves the push and the loop together. Both
+update sources, chosen per factory (decided 2026-11-08).
+
+## What it does
+A change to a team's repo ends by opening a pull request (ADR-0033). The factory then **follows** that PR
+until the team decides: merged, or closed without merging. A followed PR is one a delivered change opened
+(`Change.pr_url`) with no outcome yet.
+
+| PR on the host | The change | Its work items |
+|---|---|---|
+| open: CI and reviews move | `Change.pull_request` updated, an event per move, shown on the change | unchanged |
+| merged | outcome **merged** (by the person who merged) | stay in progress, "awaiting verification" (fixed only when the next assessment's check passes, ADR-0040) |
+| closed unmerged | outcome **abandoned** | back to open |
+| a person accepts or closes it first | their outcome stands; the PR is no longer read | as accept / close |
+
+## How the factory hears about it (`existing_repos.pr_updates`)
+Either way the factory **reads the PR itself** from the REST API (PR, check runs, commit statuses, reviews);
+so both give the same result, and a person can press **Refresh** on the change in either mode.
+
+| | poll (default) | webhook |
+|---|---|---|
+| When | every `pr_poll_minutes` (5) | when GitHub calls `POST /api/hooks/github`, plus a backstop poll every `pr_webhook_backstop_minutes` (60, 0 = none) |
+| Needs | nothing new | a public address for the factory's UI port (a tunnel such as cloudflared or smee.io on a laptop), a webhook on the repo (events: pull requests, reviews, check suites, statuses; content type JSON), and its secret at `pr_webhook_secret_ref` (default `env://REPO_WEBHOOK_SECRET`) |
+| Value | works on a laptop with no public address | updates within seconds, far fewer API calls |
+
+### Webhook security
+- Off (404) unless the mode is `webhook` **and** the secret resolves.
+- Signature `X-Hub-Signature-256` (HMAC-SHA256 of the raw body) checked in constant time before anything
+  is parsed; unsigned or wrongly signed → 401 and nothing read. Body capped at 1 MB (nginx and engine).
+- The payload only names **which** PRs to look at again (repo, number, head SHA, each checked for shape).
+  Its state is never trusted: a forged or replayed delivery can at most cause one extra read.
+- nginx exposes exactly `/api/hooks/github` (POST) without sign-in and drops any identity header; the
+  engine treats a public path without a signed-in caller as **nobody** (no role), never the dev admin.
+
+## Token
+`existing_repos.write_token_ref`, as the pull-request station uses. For the loop the fine-grained token also
+needs **Checks: read** and **Commit statuses: read** (the station's change-risk status already needs
+Commit statuses: write). A part that can't be read is listed on the change ("couldn't read check runs
+(403)"), never taken as a clean result; a PR that can't be read changes nothing.
+
+## Slices
+1. ✅ (this branch) Read and show the PR; merged → merged, closed → abandoned, items follow; poll, webhook
+   and Refresh. Tests: `engine/tests/test_pr_loop.py`.
+2. Red CI → a fix on the same branch and PR: a failing head commit opens a fix change that continues the
+   PR (a member starts it, or autonomous per lane), pushes to the same branch, and the loop reads again.
+3. Review comments → a change that continues the PR (a member starts it).
+4. The live run (J3 "Done when"): an assessment item becomes a PR, CI fails once and is fixed on the same
+   PR, the merge closes the change. Then J3's steps go into `engine/tests/test_journey.py`.

@@ -27,6 +27,7 @@ import {
 import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import ProvidedArtifacts from "./ProvidedArtifacts";
+import PullRequestStatus from "./PullRequestStatus";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
@@ -121,7 +122,7 @@ export default function ChangePanel({
           <CardTitle>Iteration {r.iteration}</CardTitle>
           <StatusPill status={r.status} />
           {r.outcome && (
-            <span className={cn("pill", r.outcome.state === "accepted" ? "ok" : "muted")}>
+            <span className={cn("pill", ["accepted", "merged"].includes(r.outcome.state) ? "ok" : "muted")}>
               {r.outcome.state}
             </span>
           )}
@@ -135,16 +136,7 @@ export default function ChangePanel({
           >
             {KIND_LABEL[r.kind ?? "new"]}
           </span>
-          {r.pr_url && (
-            <a
-              className="pill ok"
-              href={r.pr_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              pull request ↗
-            </a>
-          )}
+          <PullRequestStatus change={r} />
           <a
             className="pill muted no-underline"
             href={`/workflows/${r.workflow_id ?? ""}`}
