@@ -170,6 +170,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         f.manager.host_watcher.start()  # host sleep is not agent time (hostclock.py)
         f.manager.preflight.start()  # readiness checks now and every preflight.interval_minutes
         f.manager.pr_watcher.start()  # follows changes' pull requests on team repos (J3)
+        await f.manager.pr_watcher.resume()  # a merged or closed PR's follow-up cut short by a restart
         interrupted = f.manager.recover_on_startup()
         # a change cut off while its unaccepted release served: production goes back first (ADR-0046)
         await f.manager.settle_interrupted(interrupted)

@@ -8,6 +8,9 @@ When it looks (`existing_repos.pr_updates`):
 - **refresh**: whenever a person presses Refresh on the change, in either mode.
 
 A followed PR is one a delivered change opened (`Change.pr_url`) that no one has given an outcome yet.
+Lists (check runs, statuses, reviews) are read page by page; a source not read whole is said
+(`unread`) and never supports a pass. A merged or closed PR's outcome is saved with the steps that
+follow it (`Change.pr_finalise`), resumed by the next refresh, poll or restart until all are done.
 The write token (`existing_repos.write_token_ref`) is resolved for each read and sent only in the
 `Authorization` header; it is never logged or stored.
 """
@@ -15,13 +18,16 @@ The write token (`existing_repos.write_token_ref`) is resolved for each read and
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from agent_factory import ledger, pr_loop
-from agent_factory.gateway import Http, urllib_http
 from agent_factory.models import Change, ChangeStatus, EventKind, Outcome, PullRequestState
 from agent_factory.secret_refs import SecretError
 
@@ -31,28 +37,55 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# GET url with headers → (status, JSON body, Link header)
+PageHttp = Callable[[str, dict[str, str]], Awaitable[tuple[int, Any, str | None]]]
+
+
+async def urllib_get(url: str, headers: dict[str, str]) -> tuple[int, Any, str | None]:
+    def call() -> tuple[int, Any, str | None]:
+        req = urllib.request.Request(url, method="GET")  # noqa: S310 - the configured https API
+        for k, v in headers.items():
+            req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                raw, status, link = resp.read().decode(), resp.status, resp.headers.get("Link")
+        except urllib.error.HTTPError as exc:
+            raw, status, link = exc.read().decode(errors="replace"), exc.code, None
+        try:
+            return status, json.loads(raw) if raw else None, link
+        except ValueError:
+            return status, raw, link
+
+    return await asyncio.to_thread(call)
+
+
 class PrReadError(Exception):
     """The PR itself couldn't be read (no token, the host refused or is unreachable)."""
 
 
 class PrWatcher:
-    def __init__(self, m: ChangeManager, http: Http | None = None) -> None:
+    def __init__(self, m: ChangeManager, http: PageHttp | None = None) -> None:
         self.m = m
-        self.http: Http = http or urllib_http
+        self.http: PageHttp = http or urllib_get
         self._loop: asyncio.Task[None] | None = None
         self._locks: dict[str, asyncio.Lock] = {}
         self.background: set[asyncio.Task[list[str]]] = set()  # webhook reads still running
 
     # ------------------------------------------------------------ which --
+    def _changes(self) -> list[Change]:
+        return [
+            c
+            for product in self.m.store.list_products()
+            if not product.eval_run_id
+            for c in self.m.store.list_changes(product.id)
+        ]
+
     def followed(self) -> list[Change]:
-        out = []
-        for product in self.m.store.list_products():
-            if product.eval_run_id:
-                continue
-            for c in self.m.store.list_changes(product.id):
-                if self.is_followed(c):
-                    out.append(c)
-        return out
+        """Open PRs to read, and merged or closed ones whose follow-up is unfinished."""
+        return [c for c in self._changes() if self.is_followed(c) or c.pr_finalise]
+
+    def finalising(self) -> list[Change]:
+        return [c for c in self._changes() if c.pr_finalise]
 
     @staticmethod
     def is_followed(c: Change) -> bool:
@@ -96,6 +129,8 @@ class PrWatcher:
                 n += 1
             except PrReadError as exc:
                 log.warning("pull request of change %s not read: %s", c.id, exc)
+            except Exception:  # noqa: BLE001 - a finalisation step failed; the next poll resumes it
+                log.exception("pull request of change %s: follow-up failed", c.id)
         return n
 
     # ---------------------------------------------------------- webhook --
@@ -122,6 +157,8 @@ class PrWatcher:
             return []
         done: list[str] = []
         for c in self.followed():
+            if c.pr_finalise:
+                continue
             ref = pr_loop.parse_pr_url(c.pr_url)
             if ref and any(pr_loop.matches(t, c.pull_request, ref) for t in wanted):
                 try:
@@ -129,6 +166,8 @@ class PrWatcher:
                     done.append(c.id)
                 except PrReadError as exc:
                     log.warning("pull request of change %s not read after a webhook: %s", c.id, exc)
+                except Exception:  # noqa: BLE001 - a finalisation step failed; the next poll resumes it
+                    log.exception("pull request of change %s: follow-up failed after a webhook", c.id)
         return done
 
     # ------------------------------------------------------------- read --
@@ -138,6 +177,8 @@ class PrWatcher:
             change = self.m.store.get_change(change_id)
             if change is None:
                 raise PrReadError(f"change {change_id} not found")
+            if change.pr_finalise:
+                return await self._finalise(change)  # the outcome stands; finish what follows it
             if not self.is_followed(change):
                 return change  # nothing to follow any more (merged, closed, or a person's outcome)
             ref = pr_loop.parse_pr_url(change.pr_url)
@@ -146,7 +187,7 @@ class PrWatcher:
             state = await self._read(ref, source)
             return await self._apply(change, state)
 
-    async def _get(self, url: str, token: str) -> tuple[int, Any]:
+    async def _get(self, url: str, token: str) -> tuple[int, Any, str | None]:
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
@@ -154,9 +195,35 @@ class PrWatcher:
             "User-Agent": "agent-software-factory",
         }
         try:
-            return await self.http("GET", url, headers, None)
+            return await self.http(url, headers)
         except OSError as exc:  # unreachable, TLS, timeout
-            return 0, f"{type(exc).__name__}"
+            return 0, f"{type(exc).__name__}", None
+
+    async def _pages(self, url: str, token: str, key: str | None) -> tuple[list[Any] | None, str | None]:
+        """Every page of a list (`key`: the list's field, None: the body is the list), oldest page first.
+        Returns the rows and, when not read whole, why (rows read so far are kept: a failure on them
+        still counts). Next pages are followed only on the configured API origin, at most MAX_PAGES."""
+        api = self.m.cfg.existing_repos.api_url
+        rows: list[Any] = []
+        total: int | None = None
+        for page in range(1, pr_loop.MAX_PAGES + 1):
+            code, body, link = await self._get(url, token)
+            got = body if key is None else (body.get(key) if isinstance(body, dict) else None)
+            if code != 200 or not isinstance(got, list):
+                why = f"{code or 'unreachable'}" if page == 1 else f"page {page}: {code or 'unreachable'}"
+                return (None if page == 1 else rows), why
+            rows.extend(got)
+            if isinstance(body, dict) and isinstance(body.get("total_count"), int):
+                total = body["total_count"]
+            nxt = pr_loop.next_link(link)
+            if nxt is None:
+                if total is not None and key != "statuses" and len(rows) < total:
+                    return rows, f"{len(rows)} of {total}"
+                return rows, None
+            if not pr_loop.same_origin(nxt, api):
+                return rows, "next page off the API host"
+            url = nxt
+        return rows, f"more than {pr_loop.MAX_PAGES} pages"
 
     async def _read(self, ref: pr_loop.PrRef, source: str) -> PullRequestState:
         cfg = self.m.cfg.existing_repos
@@ -167,26 +234,28 @@ class PrWatcher:
         except SecretError as exc:
             raise PrReadError(f"no token to read pull requests: set {cfg.write_token_ref} ({exc})") from exc
         api = cfg.api_url.rstrip("/") + f"/repos/{quote(ref.slug, safe='/')}"
-        status, pr = await self._get(f"{api}/pulls/{ref.number}", token)
+        status, pr, _ = await self._get(f"{api}/pulls/{ref.number}", token)
         if status != 200 or not isinstance(pr, dict):
             raise PrReadError(f"the host answered {status or 'nothing'} for {ref.slug}#{ref.number}")
         sha = str((pr.get("head") or {}).get("sha") or "")
         unread: list[str] = []
-        runs: Any = None
-        statuses: Any = None
+        incomplete: set[str] = set()
+
+        async def read(name: str, url: str, key: str | None) -> list[Any] | None:
+            rows, why = await self._pages(url, token, key)
+            if why:
+                unread.append(f"{name} ({why})")
+                incomplete.add(name)
+            return rows
+
+        runs = statuses = None
         if sha:
-            code, runs = await self._get(f"{api}/commits/{sha}/check-runs?per_page=100", token)
-            if code != 200:
-                unread.append(f"check runs ({code or 'unreachable'})")
-                runs = None
-            code, statuses = await self._get(f"{api}/commits/{sha}/status?per_page=100", token)
-            if code != 200:
-                unread.append(f"commit statuses ({code or 'unreachable'})")
-                statuses = None
-        code, reviews = await self._get(f"{api}/pulls/{ref.number}/reviews?per_page=100", token)
-        if code != 200:
-            unread.append(f"reviews ({code or 'unreachable'})")
-            reviews = None
+            runs = await read(pr_loop.RUNS, f"{api}/commits/{sha}/check-runs?per_page=100", "check_runs")
+            statuses = await read(pr_loop.STATUSES, f"{api}/commits/{sha}/status?per_page=100", "statuses")
+        else:
+            incomplete |= {pr_loop.RUNS, pr_loop.STATUSES}
+            unread.append("CI (no head commit)")
+        reviews = await read(pr_loop.REVIEWS, f"{api}/pulls/{ref.number}/reviews?per_page=100", None)
         return pr_loop.parse(
             ref,
             pr,
@@ -194,6 +263,7 @@ class PrWatcher:
             statuses=statuses,
             reviews=reviews,
             unread=unread,
+            incomplete=incomplete,
             now=datetime.now(UTC),
             source=source,
         )
@@ -202,33 +272,70 @@ class PrWatcher:
     async def _apply(self, change: Change, state: PullRequestState) -> Change:
         t = pr_loop.transition(change.pull_request, state)
         change.pull_request = state
-        now = datetime.now(UTC)
-        if t.kind in ("merged", "abandoned"):
-            outcome = "merged" if t.kind == "merged" else "abandoned"
-            change.outcome = Outcome(
-                state=outcome,  # type: ignore[arg-type]
-                by=state.merged_by or "the repo's team",
-                at=state.closed_at or now,
-                note=pr_loop.summary(state),
-                status_before=str(change.status),
-            )
+        if t.kind not in ("merged", "abandoned"):
+            self.m.store.save_change(change)
+            for line in t.lines:
+                self.m.store.add_event(
+                    change.id,
+                    EventKind.status,
+                    f"pull request {line}",
+                    data={"pull_request": state.model_dump(mode="json")},
+                )
+            return change
+        # the outcome and what is left to do are saved together, first: from here every step resumes
+        change.outcome = Outcome(
+            state="merged" if t.kind == "merged" else "abandoned",
+            by=state.merged_by or "the repo's team",
+            at=state.closed_at or datetime.now(UTC),
+            note=pr_loop.summary(state),
+            status_before=str(change.status),
+        )
+        change.pr_finalise = pr_loop.finalising_steps()
         self.m.store.save_change(change)
-        for line in t.lines:
-            self.m.store.add_event(
-                change.id,
-                EventKind.decision if t.kind in ("merged", "abandoned") else EventKind.status,
-                f"pull request {line}",
-                data={"pull_request": state.model_dump(mode="json")},
-            )
-        if t.kind in ("merged", "abandoned"):
-            items = self.m.store.list_work_items(change.product_id)
-            pr_url = state.url
-            changed = (
-                ledger.pr_merged(items, change_id=change.id, now=now, pr_url=pr_url, by=state.merged_by)
-                if t.kind == "merged"
-                else ledger.pr_abandoned(items, change_id=change.id, now=now, pr_url=pr_url)
-            )
-            if changed:
-                self.m.store.save_work_items(changed)
-            await self.m._reseal(change)  # the outcome goes into the sealed evidence, as accept/close do
+        return await self._finalise(change)
+
+    async def _finalise(self, change: Change) -> Change:
+        """Bring the event log, the work items and the sealed evidence in line with a merged or closed
+        PR. Each step is idempotent and is cleared only once it is done, so a failure leaves the rest to
+        the next refresh, poll or restart (`resume`)."""
+        state, outcome = change.pull_request, change.outcome
+        assert state is not None and outcome is not None
+        merged = outcome.state == "merged"
+        for step in list(change.pr_finalise):
+            if step == "event":
+                if not any(
+                    (e.data or {}).get("pull_request_final") == state.number
+                    for e in self.m.store.list_events(change.id)
+                ):
+                    self.m.store.add_event(
+                        change.id,
+                        EventKind.decision,
+                        f"pull request {pr_loop.summary(state)}",
+                        data={"pull_request": state.model_dump(mode="json"), "pull_request_final": state.number},
+                    )
+            elif step == "items":
+                items = self.m.store.list_work_items(change.product_id)
+                now = datetime.now(UTC)
+                changed = (
+                    ledger.pr_merged(items, change_id=change.id, now=now, pr_url=state.url, by=state.merged_by)
+                    if merged
+                    else ledger.pr_abandoned(items, change_id=change.id, now=now, pr_url=state.url)
+                )
+                if changed:
+                    self.m.store.save_work_items(changed)
+            elif step == "seal":
+                await self.m._reseal(change)  # the outcome goes into the sealed evidence, as accept/close do
+            change.pr_finalise.remove(step)
+            self.m.store.save_change(change)
         return change
+
+    async def resume(self) -> int:
+        """At startup: finish any merged or closed PR whose follow-up was cut short."""
+        n = 0
+        for c in self.finalising():
+            try:
+                await self.refresh(c.id, "poll")
+                n += 1
+            except Exception:  # noqa: BLE001 - the next refresh or poll tries again
+                log.exception("finalising the pull request of change %s failed", c.id)
+        return n

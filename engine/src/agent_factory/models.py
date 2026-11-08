@@ -215,9 +215,11 @@ class PullRequestState(BaseModel):
     state: Literal["open", "merged", "closed"]
     head_sha: str = ""
     # the repo's own CI on the head commit: check runs and commit statuses folded into one word
-    checks: Literal["none", "pending", "passing", "failing"] = "none"
+    # unknown: a source wasn't read whole (refused, a page failed, the page limit), and what was read
+    # doesn't already decide it; never shown as passing
+    checks: Literal["none", "pending", "passing", "failing", "unknown"] = "none"
     failing: list[str] = Field(default_factory=list)  # names of failing checks (at most 20)
-    review: Literal["none", "commented", "approved", "changes_requested"] = "none"
+    review: Literal["none", "commented", "approved", "changes_requested", "unknown"] = "none"
     mergeable: bool | None = None  # None: the host hasn't worked it out yet
     merged_by: str | None = None
     closed_at: datetime | None = None
@@ -250,6 +252,10 @@ class Change(BaseModel):
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
     pull_request: PullRequestState | None = None  # what the PR loop last read about it (J3)
+    # a merged or closed PR's outcome is saved first, with what is left to do (`pr_loop.finalising_steps`:
+    # the event, the work items, the seal); each step clears itself only once done, so a failure or a
+    # restart resumes here instead of leaving the outcome, the ledger and the evidence disagreeing
+    pr_finalise: list[str] = Field(default_factory=list)
     # what this change's deploy puts on the target (ADR-0046): written before the cluster is touched
     # (revision and digest unknown yet), completed when the deploy passes; cleared when a rollback
     # restores the product's last healthy release

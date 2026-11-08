@@ -2295,6 +2295,8 @@ export interface components {
             /** Pr Url */
             pr_url?: string | null;
             pull_request?: components["schemas"]["PullRequestState"] | null;
+            /** Pr Finalise */
+            pr_finalise?: string[];
             deployed?: components["schemas"]["Release"] | null;
             validation?: components["schemas"]["Validation"] | null;
             schema_approval?: components["schemas"]["SchemaApproval"] | null;
@@ -3972,7 +3974,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            checks: "none" | "pending" | "passing" | "failing";
+            checks: "none" | "pending" | "passing" | "failing" | "unknown";
             /** Failing */
             failing?: string[];
             /**
@@ -3980,7 +3982,7 @@ export interface components {
              * @default none
              * @enum {string}
              */
-            review: "none" | "commented" | "approved" | "changes_requested";
+            review: "none" | "commented" | "approved" | "changes_requested" | "unknown";
             /** Mergeable */
             mergeable?: boolean | null;
             /** Merged By */

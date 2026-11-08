@@ -354,6 +354,8 @@ def pr_merged(items: list[WorkItem], *, change_id: str, now: datetime, pr_url: s
     for it in items:
         if change_id not in it.claimed_by or it.status != "in_progress":
             continue
+        if any(h.event == "merged" and h.change_id == change_id for h in it.history):
+            continue  # already recorded (a finalisation resumed after a failure)
         who = f" by {by}" if by else ""
         _log(
             it, now, "merged", f"pull request merged{who}: {pr_url}; awaiting verification", change_id=change_id, by=by

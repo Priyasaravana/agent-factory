@@ -36,6 +36,8 @@ _SHA = re.compile(r"^[0-9a-f]{7,40}$")
 # check run conclusions that mean the check did not pass (GitHub's list); neutral and skipped are not failures
 _FAILED = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
 _STATUS_FAILED = {"failure", "error"}
+# the three sources a PR's CI and review state come from; one not read whole can't support a clean result
+RUNS, STATUSES, REVIEWS = "check runs", "commit statuses", "reviews"
 
 
 @dataclass(frozen=True)
@@ -51,12 +53,49 @@ def parse_pr_url(url: str | None) -> PrRef | None:
 
 
 # ------------------------------------------------------------------ reading --
-def checks_of(check_runs: Any, statuses: Any) -> tuple[str, list[str]]:
-    """Fold the head commit's check runs and commit statuses into one word, plus the failing names.
-    Our own change-risk status is evidence we set, not the team's CI, so it never counts."""
+def _order(row: dict[str, Any]) -> tuple[str, int]:
+    """Newest last: by its update time, then its id (GitHub ids only grow)."""
+    when = row.get("updated_at") or row.get("completed_at") or row.get("started_at") or row.get("created_at")
+    rid = row.get("id")
+    return (str(when or ""), rid if isinstance(rid, int) else 0)
+
+
+def _rows(rows: Any) -> list[dict[str, Any]]:
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def latest_runs(runs: Any) -> list[dict[str, Any]]:
+    """One check run per check (name and app): the newest. A re-run that passed replaces the failure."""
+    latest: dict[tuple[str, Any], dict[str, Any]] = {}
+    for run in sorted(_rows(runs), key=_order):
+        latest[(str(run.get("name") or "check"), (run.get("app") or {}).get("id"))] = run
+    return list(latest.values())
+
+
+def latest_statuses(statuses: Any) -> list[dict[str, Any]]:
+    """One commit status per context: the newest, whatever order the rows came in (the combined
+    endpoint already promises this; it is enforced here rather than trusted)."""
+    latest: dict[str, dict[str, Any]] = {}
+    for st in sorted(_rows(statuses), key=_order):
+        latest[str(st.get("context") or "status")] = st
+    return list(latest.values())
+
+
+def checks_of(
+    check_runs: Any,
+    statuses: Any,
+    *,
+    runs_complete: bool = True,
+    statuses_complete: bool = True,
+) -> tuple[str, list[str]]:
+    """Fold the head commit's check runs and commit statuses (lists of rows) into one word, plus the
+    failing names. Only the latest run per check and status per context counts. Our own change-risk
+    status is evidence we set, not the team's CI, so it never counts. A source that wasn't read whole
+    (`None`, or its flag False) can't support a pass: what would be `passing` or `none` is `unknown`.
+    A failure that was read is still a failure."""
     failing: list[str] = []
     pending = passed = 0
-    for run in (check_runs or {}).get("check_runs", []) if isinstance(check_runs, dict) else []:
+    for run in latest_runs(check_runs):
         name = str(run.get("name") or "check")
         if run.get("status") != "completed":
             pending += 1
@@ -64,7 +103,7 @@ def checks_of(check_runs: Any, statuses: Any) -> tuple[str, list[str]]:
             failing.append(name)
         else:
             passed += 1
-    for st in (statuses or {}).get("statuses", []) if isinstance(statuses, dict) else []:
+    for st in latest_statuses(statuses):
         name = str(st.get("context") or "status")
         if name == OWN_STATUS:
             continue
@@ -80,15 +119,22 @@ def checks_of(check_runs: Any, statuses: Any) -> tuple[str, list[str]]:
         return "failing", failing[:MAX_FAILING]
     if pending:
         return "pending", []
+    complete = runs_complete and statuses_complete and check_runs is not None and statuses is not None
+    if not complete:
+        return "unknown", []
     return ("passing" if passed else "none"), []
 
 
-def review_of(reviews: Any) -> str:
+def review_of(reviews: Any, *, complete: bool = True) -> str:
     """Each reviewer's latest decisive review counts (as GitHub's own review decision does): any
-    'changes requested' outstanding wins over approvals; a dismissal clears that reviewer."""
+    'changes requested' outstanding wins over approvals; a dismissal clears that reviewer. Reviews come
+    oldest first. Read only in part, an outstanding 'changes requested' still stands; anything else is
+    `unknown` (a later page could hold the decisive review)."""
     latest: dict[str, str] = {}
     commented = False
-    for r in reviews if isinstance(reviews, list) else []:
+    if reviews is None:
+        complete = False
+    for r in _rows(reviews):
         who = str((r.get("user") or {}).get("login") or "")
         state = str(r.get("state") or "").upper()
         if state == "COMMENTED":
@@ -99,6 +145,8 @@ def review_of(reviews: Any) -> str:
             latest.pop(who, None)
     if "CHANGES_REQUESTED" in latest.values():
         return "changes_requested"
+    if not complete:
+        return "unknown"
     if "APPROVED" in latest.values():
         return "approved"
     return "commented" if commented else "none"
@@ -123,12 +171,17 @@ def parse(
     unread: list[str],
     now: datetime,
     source: str,
+    incomplete: frozenset[str] | set[str] = frozenset(),
 ) -> PullRequestState:
-    """The PR's state from its REST answers. Anything that couldn't be read is listed in `unread`, and
-    its part stays at its "don't know" value (checks `none`, review `none`), never a clean result."""
+    """The PR's state from its REST answers: `check_runs`, `statuses` and `reviews` are lists of rows
+    (`None`: not read). `incomplete` names the sources not read whole (`RUNS`, `STATUSES`, `REVIEWS`);
+    `unread` says why, for a person. A source not read whole never supports a clean result: the part
+    shows `unknown` unless what was read already decides it (a failure, changes requested)."""
     merged = bool(pr.get("merged")) or bool(pr.get("merged_at"))
     state = "merged" if merged else ("closed" if pr.get("state") == "closed" else "open")
-    checks, failing = checks_of(check_runs, statuses)
+    checks, failing = checks_of(
+        check_runs, statuses, runs_complete=RUNS not in incomplete, statuses_complete=STATUSES not in incomplete
+    )
     head = str((pr.get("head") or {}).get("sha") or "")
     mergeable = pr.get("mergeable")
     return PullRequestState(
@@ -139,7 +192,7 @@ def parse(
         head_sha=head if _SHA.match(head) else "",
         checks=checks,  # type: ignore[arg-type]
         failing=failing,
-        review=review_of(reviews),  # type: ignore[arg-type]
+        review=review_of(reviews, complete=REVIEWS not in incomplete),  # type: ignore[arg-type]
         mergeable=mergeable if isinstance(mergeable, bool) else None,
         merged_by=str((pr.get("merged_by") or {}).get("login") or "") or None if merged else None,
         closed_at=_when(pr.get("merged_at") if merged else pr.get("closed_at")),
@@ -168,12 +221,14 @@ def summary(s: PullRequestState) -> str:
         return f"#{s.number} closed without merging"
     ci = {
         "none": "no CI reported",
+        "unknown": "CI unknown (not read whole)",
         "pending": "CI running",
         "passing": "CI passing",
         "failing": "CI failing" + (f": {', '.join(s.failing[:5])}" if s.failing else ""),
     }[s.checks]
     review = {
         "none": "no review yet",
+        "unknown": "reviews unknown (not read whole)",
         "commented": "review comments",
         "approved": "approved",
         "changes_requested": "changes requested",
@@ -199,6 +254,33 @@ def transition(prev: PullRequestState | None, now: PullRequestState) -> Transiti
     elif now.unread != prev.unread:
         lines.append(summary(now))
     return Transition("updated", lines) if lines else Transition("unchanged")
+
+
+# ------------------------------------------------------------- pagination --
+MAX_PAGES = 10  # per source and read; more than 1,000 rows on one PR is reported as not read whole
+_LINK = re.compile(r'<(?P<url>[^>]+)>\s*;\s*rel="(?P<rel>[^"]+)"')
+
+
+def next_link(header: str | None) -> str | None:
+    """The `rel="next"` URL of an RFC 8288 `Link` header, as GitHub sends for paginated lists."""
+    for m in _LINK.finditer(header or ""):
+        if "next" in m["rel"].split():
+            return m["url"]
+    return None
+
+
+def same_origin(url: str, api_url: str) -> bool:
+    """A next page is followed only on the configured API's scheme, host and port (and under its path):
+    the token never goes anywhere a response points it."""
+    from urllib.parse import urlsplit
+
+    u, a = urlsplit(url), urlsplit(api_url)
+    return (u.scheme, u.netloc) == (a.scheme, a.netloc) and u.path.startswith(a.path.rstrip("/") + "/")
+
+
+def finalising_steps() -> list[str]:
+    """What still has to happen once a PR is merged or closed, in order; each step is idempotent."""
+    return ["event", "items", "seal"]
 
 
 # ---------------------------------------------------------------- webhook --

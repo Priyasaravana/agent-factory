@@ -436,7 +436,9 @@ per-pack evaluation is in the backlog.
   items reopen; a person's own outcome stops the following. Signed webhook `POST /api/hooks/github` (off unless
   chosen, HMAC checked, payload only names PRs). Pure rules in `pr_loop.py`, watcher `engine/pr_watch.py`,
   tests `tests/test_pr_loop.py`. Token needs Checks: read and Commit statuses: read besides Contents and
-  Pull requests.
+  Pull requests. **Review fixes (2026-11-08):** latest status per context and run per check; every page read
+  (on the API origin, 10 pages at most); a CI or review source not read whole shows unknown, never passing;
+  a merged or closed outcome finishes its event, items and seal idempotently, resumed by refresh, poll or restart.
 - **Next:** slice 2 (red CI → fix on the same branch and PR), slice 3 (review comments), then the live run.
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
   repos with a small CI workflow; `existing_repos.write_token_ref` = a fine-grained token (Contents + Pull

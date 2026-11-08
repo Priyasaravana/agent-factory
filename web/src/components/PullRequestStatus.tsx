@@ -10,12 +10,14 @@ const CI: Record<string, [string, string]> = {
   pending: ["CI running", "info"],
   passing: ["CI passing", "ok"],
   failing: ["CI failing", "bad"],
+  unknown: ["CI unknown", "warn"],
 };
 const REVIEW: Record<string, [string, string]> = {
   none: ["no review", "muted"],
   commented: ["comments", "info"],
   approved: ["approved", "ok"],
   changes_requested: ["changes requested", "warn"],
+  unknown: ["review unknown", "warn"],
 };
 
 /** A change's pull request on the team's repo (J3): where it stands as last read from the host, and a
@@ -59,7 +61,7 @@ export default function PullRequestStatus({ change }: { change: Change }) {
       </a>
       {pr?.state === "open" && (
         <>
-          <span className={cn("pill", ciTone)} title={failing || undefined}>
+          <span className={cn("pill", ciTone)} title={[failing, unread].filter(Boolean).join("\n") || undefined}>
             {ci}
           </span>
           <span className={cn("pill", reviewTone)}>{review}</span>

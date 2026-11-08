@@ -35,6 +35,20 @@ so both give the same result, and a person can press **Refresh** on the change i
 - nginx exposes exactly `/api/hooks/github` (POST) without sign-in and drops any identity header; the
   engine treats a public path without a signed-in caller as **nobody** (no role), never the dev admin.
 
+## Reading it right (review of #166, 2026-11-08)
+- **Latest only:** one commit status per context and one check run per check (name and app) count, the
+  newest by time then id, whatever order the rows come in; a failure a passing retry replaced no longer
+  wins. Our own `agent-factory/change-risk` status never counts.
+- **Every page:** check runs, statuses and reviews are read page by page (`Link: rel="next"`, only on the
+  configured API origin, at most 10 pages); reviews keep their order, so each reviewer's latest word is right.
+- **Not read whole is unknown:** a source refused, a later page failed, the page limit or a short
+  `total_count` is listed on the change, and CI or review that would otherwise pass shows **unknown**. A
+  failure or a "changes requested" that was read still stands.
+- **A terminal outcome converges:** merged or closed, the outcome is saved first with the steps that follow
+  it (`Change.pr_finalise`: event, work items, seal). Each step is idempotent and clears itself only once
+  done; the next refresh, poll or a restart (`PrWatcher.resume`) finishes the rest without reading the PR
+  again, and without a second event or history line.
+
 ## Token
 `existing_repos.write_token_ref`, as the pull-request station uses. For the loop the fine-grained token also
 needs **Checks: read** and **Commit statuses: read** (the station's change-risk status already needs

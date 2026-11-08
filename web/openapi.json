@@ -5723,6 +5723,13 @@
               }
             ]
           },
+          "pr_finalise": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Pr Finalise"
+          },
           "deployed": {
             "anyOf": [
               {
@@ -9765,7 +9772,8 @@
               "none",
               "pending",
               "passing",
-              "failing"
+              "failing",
+              "unknown"
             ],
             "title": "Checks",
             "default": "none"
@@ -9783,7 +9791,8 @@
               "none",
               "commented",
               "approved",
-              "changes_requested"
+              "changes_requested",
+              "unknown"
             ],
             "title": "Review",
             "default": "none"
