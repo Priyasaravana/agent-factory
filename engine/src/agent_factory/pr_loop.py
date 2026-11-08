@@ -65,10 +65,17 @@ def _rows(rows: Any) -> list[dict[str, Any]]:
 
 
 def latest_runs(runs: Any) -> list[dict[str, Any]]:
-    """One check run per check (name and app): the newest. A re-run that passed replaces the failure."""
-    latest: dict[tuple[str, Any], dict[str, Any]] = {}
-    for run in sorted(_rows(runs), key=_order):
-        latest[(str(run.get("name") or "check"), (run.get("app") or {}).get("id"))] = run
+    """The check runs that count. GitHub already drops superseded runs (the watcher asks for
+    `filter=latest`); here runs are collapsed only when they share a verified re-run identity: the same
+    check suite, app and name. Two independent checks with the same name (two workflows, so two suites)
+    both count, so a later pass never hides an unrelated failure. A run without a suite id is kept as is."""
+    latest: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for n, run in enumerate(sorted(_rows(runs), key=_order)):
+        suite = (run.get("check_suite") or {}).get("id")
+        if not isinstance(suite, int):
+            latest[("unpaired", n)] = run
+            continue
+        latest[(suite, (run.get("app") or {}).get("id"), str(run.get("name") or "check"))] = run
     return list(latest.values())
 
 

@@ -36,13 +36,15 @@ so both give the same result, and a person can press **Refresh** on the change i
   engine treats a public path without a signed-in caller as **nobody** (no role), never the dev admin.
 
 ## Reading it right (review of #166, 2026-11-08)
-- **Latest only:** one commit status per context and one check run per check (name and app) count, the
-  newest by time then id, whatever order the rows come in; a failure a passing retry replaced no longer
-  wins. Our own `agent-factory/change-risk` status never counts.
+- **Latest only:** one commit status per context counts, the newest by time then id, whatever order the
+  rows come in; a failure a passing retry replaced no longer wins. Check runs are asked for with GitHub's
+  `filter=latest` and collapsed only on a verified re-run identity (same check suite, app and name), so two
+  independent checks with the same name (two workflows) both count. Our own `agent-factory/change-risk`
+  status never counts.
 - **Every page:** check runs, statuses and reviews are read page by page (`Link: rel="next"`, only on the
   configured API origin, at most 10 pages); reviews keep their order, so each reviewer's latest word is right.
 - **Not read whole is unknown:** a source refused, a later page failed, the page limit or a short
-  `total_count` is listed on the change, and CI or review that would otherwise pass shows **unknown**. A
+  `total_count` (check runs: runs on the commit; combined status: its status contexts) is listed on the change, and CI or review that would otherwise pass shows **unknown**. A
   failure or a "changes requested" that was read still stands.
 - **A terminal outcome converges:** merged or closed, the outcome is saved first with the steps that follow
   it (`Change.pr_finalise`: event, work items, seal). Each step is idempotent and clears itself only once

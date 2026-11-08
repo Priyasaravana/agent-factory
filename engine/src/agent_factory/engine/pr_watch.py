@@ -217,7 +217,9 @@ class PrWatcher:
                 total = body["total_count"]
             nxt = pr_loop.next_link(link)
             if nxt is None:
-                if total is not None and key != "statuses" and len(rows) < total:
+                # check runs: the runs on the commit; combined status: its status contexts (one row each).
+                # Either way fewer rows than the count, with no next page, is a short read.
+                if total is not None and len(rows) < total:
                     return rows, f"{len(rows)} of {total}"
                 return rows, None
             if not pr_loop.same_origin(nxt, api):
@@ -250,7 +252,7 @@ class PrWatcher:
 
         runs = statuses = None
         if sha:
-            runs = await read(pr_loop.RUNS, f"{api}/commits/{sha}/check-runs?per_page=100", "check_runs")
+            runs = await read(pr_loop.RUNS, f"{api}/commits/{sha}/check-runs?filter=latest&per_page=100", "check_runs")
             statuses = await read(pr_loop.STATUSES, f"{api}/commits/{sha}/status?per_page=100", "statuses")
         else:
             incomplete |= {pr_loop.RUNS, pr_loop.STATUSES}

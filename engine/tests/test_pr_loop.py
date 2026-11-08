@@ -74,11 +74,35 @@ def test_only_the_latest_status_per_context_and_run_per_check_counts():
     assert pr_loop.checks_of([], [passed, failed, own]) == ("passing", []), "newest by time, not by position"
     later_fail = {**failed, "id": 4, "updated_at": "2026-11-08T10:10:00Z"}
     assert pr_loop.checks_of([], [failed, passed, later_fail]) == ("failing", ["ci/jenkins"])
-    run = {"name": "test", "app": {"id": 15368}, "status": "completed"}
+    run = {"name": "test", "app": {"id": 15368}, "check_suite": {"id": 500}, "status": "completed"}
     rerun = [{**run, "id": 1, "conclusion": "failure"}, {**run, "id": 2, "conclusion": "success"}]
-    assert pr_loop.checks_of(rerun, []) == ("passing", []), "a re-run that passed replaces the failure"
+    assert pr_loop.checks_of(rerun, []) == ("passing", []), "a re-run in the same suite replaces the failure"
     other_app = {**run, "id": 3, "app": {"id": 99}, "conclusion": "failure"}
     assert pr_loop.checks_of([*rerun, other_app], []) == ("failing", ["test"]), "another app's check is its own"
+
+
+def test_independent_checks_with_the_same_name_both_count():
+    """Review of #166, P1 follow-up: two workflows report `test` through the same app on one commit (two
+    check suites); the later one passing must not hide the other's failure."""
+    run = {"name": "test", "app": {"id": 15368}, "status": "completed"}
+    failed = {
+        **run,
+        "id": 1,
+        "check_suite": {"id": 500},
+        "conclusion": "failure",
+        "completed_at": "2026-11-08T10:00:00Z",
+    }
+    passed = {
+        **run,
+        "id": 2,
+        "check_suite": {"id": 501},
+        "conclusion": "success",
+        "completed_at": "2026-11-08T10:05:00Z",
+    }
+    assert pr_loop.checks_of([failed, passed], []) == ("failing", ["test"])
+    assert pr_loop.checks_of([passed, failed], []) == ("failing", ["test"])
+    no_suite = [{**run, "id": 3, "conclusion": "failure"}, {**run, "id": 4, "conclusion": "success"}]
+    assert pr_loop.checks_of(no_suite, []) == ("failing", ["test"]), "no verified re-run identity: both count"
 
 
 def test_a_ci_source_not_read_whole_never_passes():
@@ -398,7 +422,7 @@ async def test_a_decisive_result_on_page_two_is_read(make_factory, tmp_path, mon
     assert (c.pull_request.checks, c.pull_request.failing) == ("failing", ["e2e"])
     assert c.pull_request.review == "changes_requested", "pages read in order: a's latest word is on page two"
     assert c.pull_request.unread == []
-    assert any("check-runs?per_page=100&page=2" in u for u, _ in gh.calls)
+    assert any("check-runs?filter=latest&per_page=100&page=2" in u for u, _ in gh.calls)
 
 
 async def test_a_failed_second_page_is_not_read_whole(make_factory, tmp_path, monkeypatch):
@@ -471,3 +495,26 @@ async def test_a_terminal_outcome_converges_after_failures(make_factory, tmp_pat
     assert "pull request #7 merged by lead" in _sealed(f, c.id)
     await w.refresh(change.id, "poll")
     assert len([e for e in store.list_events(c.id) if e.data.get("pull_request_final") == 7]) == 1
+
+
+async def test_a_short_combined_status_cannot_pass(make_factory, tmp_path, monkeypatch):
+    """Review of #166, P2 follow-up: the combined status's `total_count` counts its status contexts, so
+    fewer contexts than that with no next page is a short read: CI unknown, never passing."""
+    f, change, _, gh = await _pr_change(make_factory, tmp_path, monkeypatch)
+    gh.runs = []
+    gh.statuses = [{"context": "ci/jenkins", "state": "success"}, {"context": "ci/lint", "state": "failure"}]
+    real = gh._page
+
+    def short(url, rows, key):  # noqa: ANN001, ANN202 - GitHub answering one context of two, no next link
+        code, body, link = real(url, rows, key)
+        if key == "statuses":
+            body = {"statuses": rows[:1], "total_count": len(rows)}
+        return code, body, link
+
+    gh._page = short
+    c = await f.manager.pr_watcher.refresh(change.id, "poll")
+    assert c.pull_request.checks == "unknown" and "commit statuses (1 of 2)" in c.pull_request.unread
+    gh._page = real
+    c = await f.manager.pr_watcher.refresh(change.id, "poll")
+    assert (c.pull_request.checks, c.pull_request.failing) == ("failing", ["ci/lint"]), "read whole: the failure shows"
+    assert any("check-runs?filter=latest&per_page=100" in u for u, _ in gh.calls), "GitHub drops superseded runs"
