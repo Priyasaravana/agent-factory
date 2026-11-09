@@ -100,7 +100,19 @@ class RepoSources:
         ]
 
     # ------------------------------------------------------------ editing --
-    def _built(self, body: RepoSourceInput, by: str, history: list[rs.SourceEdit] | None = None) -> rs.RepoSource:
+    def _audit(
+        self, source_id: str, by: str, action: rs.AuditAction, fields: list[str] | None = None, detail: str = ""
+    ) -> None:
+        edit = rs.SourceEdit(
+            source_id=source_id, by=by, at=datetime.now(UTC), action=action, fields=fields or [], detail=detail
+        )
+        self.store.add_repo_source_audit(edit)
+
+    def history(self, source_id: str | None = None, limit: int = 200) -> list[rs.SourceEdit]:
+        """The audit log, newest first: one source's, or every source's (deleted ones too)."""
+        return self.store.list_repo_source_audit(source_id, limit)
+
+    def _built(self, body: RepoSourceInput, by: str) -> rs.RepoSource:
         try:
             src = rs.RepoSource(
                 id=body.id,
@@ -113,7 +125,6 @@ class RepoSources:
                 webhook_secret_ref=body.webhook_secret_ref,
                 origin="admin",
                 created_by=by,
-                history=list(history or []),
             )
         except ValueError as exc:  # pydantic's ValidationError is a ValueError
             raise rs.SourceError(_first_error(exc)) from exc
@@ -124,8 +135,8 @@ class RepoSources:
         if self.get(body.id) or self.store.get_repo_source(body.id):
             raise rs.SourceError(f"a repository source '{body.id}' already exists")
         src = self._built(body, by)
-        src.history = [rs.SourceEdit(by=by, at=datetime.now(UTC), action="created", fields=[])]
         self.store.save_repo_source(src)
+        self._audit(src.id, by, "created", detail=rs.scope(src))
         return src
 
     def update(self, source_id: str, body: RepoSourceInput, by: str) -> rs.RepoSource:
@@ -134,7 +145,7 @@ class RepoSources:
             raise rs.SourceError(_not_editable(self.get(source_id), source_id))
         if body.id != source_id:
             raise rs.SourceError("a source's id can't change: make a new source and move the products to it")
-        new = self._built(body, old.created_by or by, old.history)
+        new = self._built(body, old.created_by or by)
         fields = rs.diff_fields(old, new)
         if not fields:
             return old
@@ -143,25 +154,30 @@ class RepoSources:
             raise rs.SourceError(
                 f"the change would stop covering {', '.join(moved[:5])}: move them to another source first"
             )
-        new.history = [*old.history, rs.SourceEdit(by=by, at=datetime.now(UTC), action="updated", fields=fields)][-50:]
         self.store.save_repo_source(new)
+        self._audit(source_id, by, "updated", fields)
         return new
 
-    def delete(self, source_id: str) -> None:
-        if self.store.get_repo_source(source_id) is None:
+    def delete(self, source_id: str, by: str) -> None:
+        old = self.store.get_repo_source(source_id)
+        if old is None:
             raise rs.SourceError(_not_editable(self.get(source_id), source_id))
         using = self.products_using(source_id)
         if using:
             names = ", ".join(p.title for p in using[:5])
             raise rs.SourceError(f"'{source_id}' is used by {names}: archive them or move them to another source first")
         self.store.delete_repo_source(source_id)
+        self._audit(source_id, by, "deleted", detail=f"{old.title} ({rs.scope(old)})")
 
-    def move(self, product: Product, source_id: str) -> rs.RepoSource:
+    def move(self, product: Product, source_id: str, by: str) -> rs.RepoSource:
         """Point a repo product at another source (admin): it must cover the repo."""
         ref = self.parse(product.repo_url or "")
         src = rs.choose(ref, self.all(), source_id)
+        before = product.repo_source
         product.repo_source = src.id
         self.store.save_product(product)
+        if before != src.id:
+            self._audit(src.id, by, "product_moved", detail=f"{product.title} from '{before or 'none'}'")
         return src
 
 

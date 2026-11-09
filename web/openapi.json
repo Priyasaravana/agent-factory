@@ -10598,6 +10598,14 @@
           "editable": {
             "type": "boolean",
             "title": "Editable"
+          },
+          "audit": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Audit"
           }
         },
         "type": "object",

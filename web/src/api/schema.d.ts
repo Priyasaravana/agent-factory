@@ -4285,6 +4285,10 @@ export interface components {
             token_refs: string[];
             /** Editable */
             editable: boolean;
+            /** Audit */
+            audit?: {
+                [key: string]: unknown;
+            }[];
         };
         /**
          * RequiredAction

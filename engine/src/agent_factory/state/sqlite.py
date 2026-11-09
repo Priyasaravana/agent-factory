@@ -23,7 +23,7 @@ from agent_factory.models import (
     Transition,
     WorkItem,
 )
-from agent_factory.repo_sources import RepoSource
+from agent_factory.repo_sources import RepoSource, SourceEdit
 from agent_factory.secret_refs import REDACTOR
 from agent_factory.skills import SkillRecord
 from agent_factory.workflow import WorkflowDoc, WorkflowVersionInfo
@@ -74,6 +74,11 @@ CREATE INDEX IF NOT EXISTS work_items_product ON work_items(product_id, status);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- repository sources admins made (ADR-0047): references to tokens, never values; kept across a fresh start
 CREATE TABLE IF NOT EXISTS repo_sources (id TEXT PRIMARY KEY, doc TEXT NOT NULL);
+-- who changed which credentials reach which repos (ADR-0047): append-only, outlives deleted sources
+CREATE TABLE IF NOT EXISTS repo_source_audit (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL, doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS repo_source_audit_source ON repo_source_audit(source_id, seq);
 """
 
 # what a fresh start (ADR-0037 §7) drops: the work, not the people, skills or host history
@@ -525,6 +530,21 @@ class SqliteStateStore:
 
     def delete_repo_source(self, source_id: str) -> None:
         self._exec("DELETE FROM repo_sources WHERE id=?", (source_id,))
+
+    def add_repo_source_audit(self, edit: SourceEdit) -> None:
+        self._exec(
+            "INSERT INTO repo_source_audit(source_id, doc) VALUES (?,?)", (edit.source_id, edit.model_dump_json())
+        )
+
+    def list_repo_source_audit(self, source_id: str | None = None, limit: int = 200) -> list[SourceEdit]:
+        """Newest first."""
+        if source_id is None:
+            rows = self._exec("SELECT doc FROM repo_source_audit ORDER BY seq DESC LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = self._exec(
+                "SELECT doc FROM repo_source_audit WHERE source_id=? ORDER BY seq DESC LIMIT ?", (source_id, limit)
+            ).fetchall()
+        return [SourceEdit.model_validate_json(r[0]) for r in rows]
 
     def get_meta(self, key: str) -> str | None:
         row = self._exec("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

@@ -29,6 +29,13 @@ export function coveringSources(sources: Source[], url: string): Source[] {
   return [...named, ...wild];
 }
 
+const AUDIT_VERB: Record<string, string> = {
+  created: "added",
+  updated: "changed",
+  deleted: "deleted",
+  product_moved: "moved a repo to",
+};
+
 function scope(s: Source): string {
   return s.owners.includes("*") ? "any owner" : s.owners.join(", ");
 }
@@ -362,6 +369,25 @@ export function RepoSourcesCard() {
               </li>
             ))}
           </ul>
+        )}
+        {admin && (data?.audit?.length ?? 0) > 0 && (
+          <details className="rounded-lg border px-3 py-2 text-sm" data-testid="source-audit">
+            <summary className="cursor-pointer font-medium">Recent changes ({data?.audit?.length})</summary>
+            <ul className="m-0 mt-2 grid list-none gap-1.5 p-0 text-xs">
+              {(data?.audit ?? []).map((a, i) => (
+                <li key={i} className="flex flex-wrap gap-x-2">
+                  <span className="text-muted-foreground">{new Date(String(a.at)).toLocaleString()}</span>
+                  <strong>{String(a.by)}</strong>
+                  <span>{AUDIT_VERB[String(a.action)] ?? String(a.action)}</span>
+                  <code>{String(a.source_id)}</code>
+                  {Array.isArray(a.fields) && a.fields.length > 0 && (
+                    <span className="text-muted-foreground">({(a.fields as string[]).join(", ")})</span>
+                  )}
+                  {a.detail ? <span className="text-muted-foreground">{String(a.detail)}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         <ConfirmDialog
           open={deleting !== null}

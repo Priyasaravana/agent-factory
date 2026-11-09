@@ -1410,11 +1410,11 @@ class ChangeManager:
                 except RuntimeError as exc:
                     why = str(exc) + (f"\n\nWith the token of source '{source.id}': {refused}" if refused else "")
                     if not token and not refused:
+                        # names the source, never its reference: change details are visible to members
                         why += (
-                            f"\n\nNo token was used: if the repo is private, set {source.token_ref} on source "
-                            f"'{source.id}'"
-                            if source.token_ref
-                            else f"\n\nNo token was used: if the repo is private, give source '{source.id}' one"
+                            f"\n\nNo token was used: source '{source.id}' "
+                            + ("has a token that doesn't resolve" if source.token_ref else "has no token")
+                            + ". If the repo is private, an admin checks it on Integrations → Repository sources."
                         )
                     return self._hold(change, first, "the repository could not be read", why)
                 if product.repo_ref != branch:
@@ -1428,7 +1428,7 @@ class ChangeManager:
                     + (f" (its token was refused, read anonymously: {refused})" if refused else ""),
                     data={
                         "repo": {"url": product.repo_url, "branch": branch},
-                        "repo_source": {"id": source.id, "token_ref": source.token_ref if token else None},
+                        "repo_source": {"id": source.id, "with_token": bool(token)},
                     },
                 )
             worktree = await self.ws.create_worktree(product.slug, change.id, f"origin/{product.repo_ref}")

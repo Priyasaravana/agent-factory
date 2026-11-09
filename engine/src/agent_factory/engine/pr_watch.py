@@ -43,13 +43,26 @@ log = logging.getLogger(__name__)
 PageHttp = Callable[[str, dict[str, str]], Awaitable[tuple[int, Any, str | None]]]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib's default handler copies `Authorization` onto the next request,
+    whatever its host, so a redirect could hand a source's token to another host (ADR-0047 §4). A 3xx
+    comes back as the response status, and the read fails with it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, PLR0913
+        return None
+
+
+# proxies still apply (ProxyHandler is a default handler); redirects never do
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 async def urllib_get(url: str, headers: dict[str, str]) -> tuple[int, Any, str | None]:
     def call() -> tuple[int, Any, str | None]:
         req = urllib.request.Request(url, method="GET")  # noqa: S310 - the configured https API
         for k, v in headers.items():
             req.add_header(k, v)
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with _OPENER.open(req, timeout=15) as resp:
                 raw, status, link = resp.read().decode(), resp.status, resp.headers.get("Link")
         except urllib.error.HTTPError as exc:
             raw, status, link = exc.read().decode(errors="replace"), exc.code, None
@@ -152,24 +165,25 @@ class PrWatcher:
         found = self.webhook_secrets()
         return found[0][1] if found else None
 
-    def verified_by(self, body: bytes, signature: str | None) -> RepoSource | None:
-        """The source whose secret signed this delivery, each compared in constant time; None: nobody's."""
-        found = None
-        for src, secret in self.webhook_secrets():
-            if pr_loop.signature_ok(secret, body, signature) and found is None:
-                found = src  # keep comparing: the time taken never says which source matched
-        return found
+    def verified_by(self, body: bytes, signature: str | None) -> list[RepoSource]:
+        """Every source whose secret verifies this delivery, each compared in constant time; empty: nobody's.
+        All of them, not the first: sources may share a secret (the default source on each allowed host
+        shares `pr_webhook_secret_ref`), and a delivery for any of them must reach its PRs. A source with a
+        secret of its own still verifies alone, so its PRs stay out of reach of other sources' secrets."""
+        return [src for src, secret in self.webhook_secrets() if pr_loop.signature_ok(secret, body, signature)]
 
-    def schedule_webhook(self, event: str, payload: Any, source: RepoSource | None = None) -> asyncio.Task[list[str]]:
+    def schedule_webhook(
+        self, event: str, payload: Any, sources: list[RepoSource] | None = None
+    ) -> asyncio.Task[list[str]]:
         """Read the named PRs after answering the delivery (the host waits 10 s at most)."""
-        task = asyncio.get_running_loop().create_task(self.on_webhook(event, payload, source), name="pr-webhook")
+        task = asyncio.get_running_loop().create_task(self.on_webhook(event, payload, sources), name="pr-webhook")
         self.background.add(task)
         task.add_done_callback(self.background.discard)
         return task
 
-    async def on_webhook(self, event: str, payload: Any, source: RepoSource | None = None) -> list[str]:
-        """Look again at the followed PRs a (verified) delivery names. With `source` (the one whose secret
-        verified it), only PRs of products on that source, on repos it covers. Returns the change ids refreshed."""
+    async def on_webhook(self, event: str, payload: Any, sources: list[RepoSource] | None = None) -> list[str]:
+        """Look again at the followed PRs a (verified) delivery names. With `sources` (those whose secret
+        verified it), only PRs of products on one of them, on repos it covers. Returns the change ids refreshed."""
         wanted = pr_loop.targets(event, payload)
         if not wanted:
             return []
@@ -178,7 +192,7 @@ class PrWatcher:
             if c.pr_finalise:
                 continue
             ref = pr_loop.parse_pr_url(c.pr_url)
-            if ref and source is not None and not self._on_source(c, ref, source):
+            if ref and sources is not None and not any(self._on_source(c, ref, src) for src in sources):
                 continue
             if ref and any(pr_loop.matches(t, c.pull_request, ref) for t in wanted):
                 try:
@@ -279,12 +293,17 @@ class PrWatcher:
             raise PrReadError(f"{ref.host} is not an allowed host")
         token = self.m.sources.resolve(src.token_ref)
         if not token:
-            raise PrReadError(
-                f"no token to read pull requests: set {src.token_ref or 'a token reference'} on source '{src.id}'"
+            raise PrReadError(  # the source, never its reference (change events are visible to members)
+                f"no token to read pull requests: repository source '{src.id}' has none that resolves"
             )
         origin = src.api_url.rstrip("/")
         api = origin + f"/repos/{quote(ref.slug, safe='/')}"
         status, pr, _ = await self._get(f"{api}/pulls/{ref.number}", token)
+        if 300 <= status < 400:
+            raise PrReadError(
+                f"the host redirected the read of {ref.slug}#{ref.number} ({status}); redirects are never followed "
+                "with a token: if the repo moved, onboard it at its new address"
+            )
         if status != 200 or not isinstance(pr, dict):
             raise PrReadError(f"the host answered {status or 'nothing'} for {ref.slug}#{ref.number}")
         sha = str((pr.get("head") or {}).get("sha") or "")

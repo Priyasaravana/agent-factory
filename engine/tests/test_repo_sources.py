@@ -249,6 +249,11 @@ async def test_the_pr_uses_the_products_source_token(make_factory, tmp_path, mon
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
     envs = [e for e in ex.envs if "GH_TOKEN" in e]
     assert envs and all(e["GH_TOKEN"] == ACME_TOKEN for e in envs)
+    # change events are visible to members: they name the source, never its token reference
+    for cid in (first.id, change.id):
+        events = json.dumps([e.model_dump(mode="json") for e in f.store.list_events(cid)])
+        assert "REPO_ACME_TOKEN" not in events and ACME_TOKEN not in events
+    assert any("used secret the token of repository source 'acme'" in e.message for e in f.store.list_events(change.id))
     assert all(ACME_TOKEN not in c and TOKEN not in c for c in ex.calls)
 
     # the PR is read back with the same source; a source narrowed past the repo stops reading it
@@ -271,17 +276,18 @@ async def test_sources_in_use_are_not_deleted_or_narrowed(make_factory, tmp_path
     f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
     srcs = f.manager.sources
     with pytest.raises(rs.SourceError, match="is used by"):
-        srcs.delete("acme")
+        srcs.delete("acme", "saravana")
     body = RepoSourceInput(id="acme", owners=["acme-labs"], token_ref="env://REPO_ACME_TOKEN")
     with pytest.raises(rs.SourceError, match="stop covering"):
         srcs.update("acme", body, "saravana")
     wider = RepoSourceInput(
         id="acme", title="Acme org", owners=["acme", "acme-labs"], token_ref="env://REPO_ACME_TOKEN2"
     )
-    got = srcs.update("acme", wider, "lead")
-    assert got.history[-1].by == "lead" and got.history[-1].fields == ["owners", "token_ref"]
+    assert srcs.update("acme", wider, "lead").owners == ["acme", "acme-labs"]
+    last = srcs.history("acme")[0]
+    assert (last.by, last.action, last.fields) == ("lead", "updated", ["owners", "token_ref"])
     with pytest.raises(rs.SourceError, match="config file"):
-        srcs.delete("default")
+        srcs.delete("default", "saravana")
 
 
 async def test_an_admin_source_the_config_no_longer_allows_is_unusable(make_factory, tmp_path):
@@ -325,7 +331,17 @@ async def test_sources_over_http_admin_only_and_members_see_less(make_factory, t
         assert (await c.post(f"/api/products/{pid}/repo-source", json=move, headers=MEMBER)).status_code == 403
         r = await c.post(f"/api/products/{pid}/repo-source", json=move, headers=ADMIN)
         assert r.status_code == 200 and r.json()["product"]["repo_source"] == "default"
-        assert (await c.delete("/api/repo-sources/acme", headers=ADMIN)).status_code == 200
+        r = await c.delete("/api/repo-sources/acme", headers=ADMIN)
+        assert r.status_code == 200 and "acme" not in [s["id"] for s in r.json()["sources"]]
+        # the audit log outlives the source: who made it, who moved its repo, who deleted it
+        trail = [(a["source_id"], a["action"], a["by"]) for a in r.json()["audit"]]
+        assert trail[:3] == [
+            ("acme", "deleted", "saravana"),
+            ("default", "product_moved", "saravana"),
+            ("acme", "created", "saravana"),
+        ]
+        assert "REPO_ACME_TOKEN" not in json.dumps(r.json()["audit"]), "field names only, never references"
+        assert (await c.get("/api/repo-sources", headers=MEMBER)).json()["audit"] == [], "admins only"
     await ctx.__aexit__(None, None, None)
 
 
@@ -348,10 +364,122 @@ async def test_a_webhook_refreshes_only_the_prs_its_source_covers(make_factory, 
     monkeypatch.setenv("REPO_ACME_HOOK", SECRET)
     body = json.dumps({"repository": {"full_name": "acme/hello-node"}, "pull_request": {"number": 7}}).encode()
     w = f.manager.pr_watcher
-    assert w.verified_by(body, _sign(body, other_secret)).id == "default"
-    assert w.verified_by(body, _sign(body)).id == "acme"
-    assert w.verified_by(body, _sign(body, "guess")) is None
+    assert [s.id for s in w.verified_by(body, _sign(body, other_secret))] == ["default"]
+    assert [s.id for s in w.verified_by(body, _sign(body))] == ["acme"]
+    assert w.verified_by(body, _sign(body, "guess")) == []
     # signed by the default source's secret: it doesn't cover a product on acme's source
     assert await w.on_webhook("pull_request", json.loads(body), w.verified_by(body, _sign(body, other_secret))) == []
     assert gh.calls == []
     assert await w.on_webhook("pull_request", json.loads(body), w.verified_by(body, _sign(body))) == [change.id]
+
+
+# ------------------------------------------------- review fixes (PR 167) --
+async def test_an_authenticated_pr_read_never_follows_a_redirect_to_another_host():
+    """urllib's default handler copies Authorization onto a cross-host redirect; ours never redirects."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from agent_factory.engine.pr_watch import urllib_get
+
+    seen: list[str | None] = []
+
+    class Other(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    other = ThreadingHTTPServer(("127.0.0.1", 0), Other)
+    target = f"http://localhost:{other.server_address[1]}/stolen"  # another host name, another port
+
+    class Api(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.end_headers()
+
+        def log_message(self, *a):  # noqa: ANN002
+            pass
+
+    api = ThreadingHTTPServer(("127.0.0.1", 0), Api)
+    for srv in (other, api):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        status, _, _ = await urllib_get(
+            f"http://127.0.0.1:{api.server_address[1]}/repos/acme/x/pulls/1", {"Authorization": "Bearer dummy"}
+        )
+    finally:
+        api.shutdown()
+        other.shutdown()
+    assert status == 302, "the redirect comes back as the answer"
+    assert seen == [], "nothing, let alone the token, reached the other host"
+
+
+async def test_default_sources_on_two_hosts_share_the_legacy_webhook_secret(make_factory, tmp_path, monkeypatch):
+    """Review of PR 167: with two allowed hosts, a delivery for the second host's default source used to
+    verify as the first one and refresh nothing. Every source the secret verifies counts; a source with a
+    secret of its own stays isolated."""
+    f = _factory(make_factory, _origin(tmp_path))
+    er = f.manager.cfg.existing_repos
+    er.allowed_hosts = ["github.com", "ghe.example.com"]
+    er.pr_updates = "webhook"  # type: ignore[assignment]
+    monkeypatch.setenv("REPO_WEBHOOK_SECRET", SECRET)
+    f.manager.sources.create(
+        RepoSourceInput(id="acme", owners=["acme"], webhook_secret_ref="env://REPO_ACME_HOOK"), "saravana"
+    )
+    monkeypatch.setenv("REPO_ACME_HOOK", "acme-own-secret")
+    ghe = f.manager.onboard_repo(OnboardRepoInput(repo_url="https://ghe.example.com/platform/app"))
+    acme = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
+    assert (ghe.repo_source, acme.repo_source) == ("default-2", "acme")
+
+    followed = []
+    for product, pr in ((ghe, "https://ghe.example.com/platform/app/pull/7"), (acme, f"{URL}/pull/7")):
+        change = f.manager.start_change(product)
+        assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+        c = f.store.get_change(change.id)
+        c.pr_url = pr
+        f.store.save_change(c)
+        followed.append(c.id)
+    w = f.manager.pr_watcher
+    refreshed: list[str] = []
+
+    async def record(change_id: str, source: str) -> None:
+        refreshed.append(change_id)
+
+    w.refresh = record  # type: ignore[method-assign]
+    for slug, cid in (("platform/app", followed[0]), ("acme/hello-node", followed[1])):
+        body = json.dumps({"repository": {"full_name": slug}, "pull_request": {"number": 7}}).encode()
+        legacy = w.verified_by(body, _sign(body))
+        assert [s.id for s in legacy] == ["default", "default-2"], "both default sources share the secret"
+        refreshed.clear()
+        got = await w.on_webhook("pull_request", json.loads(body), legacy)
+        if cid == followed[0]:
+            assert got == [cid], "the second host's PR is refreshed, not silently dropped"
+        else:
+            assert got == [], "acme's PR needs acme's own secret, not the shared one"
+            own = w.verified_by(body, _sign(body, "acme-own-secret"))
+            assert await w.on_webhook("pull_request", json.loads(body), own) == [cid]
+
+
+async def test_a_missing_token_names_the_source_not_its_reference(make_factory, tmp_path, monkeypatch):
+    ex = GitHubExecutor()
+    f = _factory(lambda **kw: make_factory(executor=ex, **kw), _origin(tmp_path))
+    _acme(f)
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id) == ChangeStatus.awaiting_feedback
+    f.manager.settings.factory_mode = "live"
+    monkeypatch.delenv("REPO_ACME_TOKEN", raising=False)
+    change = f.manager.feedback(product.id, "Add unit tests", ChangeKind.upkeep)
+    assert await wait_run(f, change.id) == ChangeStatus.held
+    held = f.store.get_change(change.id)
+    seen = (
+        held.summary
+        + (held.last_failure or "")
+        + json.dumps([e.model_dump(mode="json") for e in f.store.list_events(change.id)])
+    )
+    assert "source 'acme'" in seen and "REPO_ACME_TOKEN" not in seen

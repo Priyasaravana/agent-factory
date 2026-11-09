@@ -792,7 +792,7 @@ class RepoSourceView(BaseModel):
     webhook_secret_ref: str | None = None
     webhook_ready: bool | None = None
     created_by: str | None = None
-    history: list[dict[str, Any]] = Field(default_factory=list)
+    history: list[dict[str, Any]] = Field(default_factory=list)  # its audit records, newest first
 
 
 class RepoSourcesView(BaseModel):
@@ -800,6 +800,8 @@ class RepoSourcesView(BaseModel):
     allowed_hosts: list[str]
     token_refs: list[str]  # the references an admin-made source may name (config)
     editable: bool  # the caller may add, change and delete admin-made sources
+    # admins: the latest audit records across sources, deleted ones included (ADR-0047 §4)
+    audit: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ProductSourceInput(BaseModel):

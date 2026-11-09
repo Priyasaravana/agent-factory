@@ -33,13 +33,20 @@ class SourceError(ValueError):
     """A source is malformed, not allowed, or doesn't cover a repo. Never carries a secret value."""
 
 
-class SourceEdit(BaseModel):
-    """One change to an admin-made source: who, when, and which fields (references only)."""
+AuditAction = Literal["created", "updated", "deleted", "product_moved"]
 
+
+class SourceEdit(BaseModel):
+    """One audit record of who changed which credentials reach which repos (ADR-0047 §4): a source made,
+    changed or deleted, or a repo moved to another source. Kept in its own log, so it outlives the source.
+    Field names only: never a value, and no reference (the source view shows those to admins)."""
+
+    source_id: str
     by: str
     at: datetime
-    action: Literal["created", "updated"]
-    fields: list[str] = Field(default_factory=list)
+    action: AuditAction
+    fields: list[str] = Field(default_factory=list)  # the fields an update changed
+    detail: str = ""  # e.g. the product moved, and from which source
 
 
 class RepoSource(BaseModel):
@@ -59,7 +66,6 @@ class RepoSource(BaseModel):
     # where it comes from: the config file (read-only in the UI) or an admin (the DB)
     origin: Literal["config", "admin", "default"] = "admin"
     created_by: str | None = None
-    history: list[SourceEdit] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod

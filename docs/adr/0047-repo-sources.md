@@ -44,7 +44,9 @@ credentials that reach it.
      name them (`*`, any owner, is config only).
    - *A token is sent to another host*: the source's host must be on `allowed_hosts`, and its `api_url`
      must be `https://` on that same host or `api.<host>`; next pages are followed only on that origin
-     (`pr_loop.same_origin`, as before).
+     (`pr_loop.same_origin`, as before). **Authenticated reads never follow a redirect** (review of PR 167:
+     urllib's default handler copies `Authorization` onto a redirect to any host): a 3xx is the answer, and
+     the read fails saying so.
    - *An admin points a source at another credential* (the model key, the publish token): admin-made sources
      may only name references matching `source_token_refs`; config sources are the owner's own.
    - *The token leaks through the clone*: a private clone gets the token as an `http.<https://host/>.extraHeader`
@@ -57,14 +59,19 @@ credentials that reach it.
    - *A read-only org gets pushed to*: a `read` source holds the pull-request station before anything is
      pushed.
    - *A forged webhook names another org's PRs*: each source has its own webhook secret; a delivery is
-     accepted only when one source's secret verifies it, and then refreshes only PRs of repos that source
-     covers.
+     accepted only when a source's secret verifies it, and then refreshes only PRs of repos covered by a source
+     whose secret verified it. Every verifying source counts, not the first: the default source on each allowed
+     host shares `pr_webhook_secret_ref` (the legacy shared scope), while a source with a secret of its own
+     still verifies alone, so its PRs stay out of reach of other sources' secrets.
    - *A source in use disappears*: deleting a source that a product still uses is refused; archive the
      product or move it to another source first (admin, on the product).
-   - *Who did what*: creating, changing and deleting a source is admin-only and kept on the source (who,
-     when, what changed; references only, never values).
+   - *Who did what*: creating, changing and deleting a source, and moving a repo to another source, is
+     admin-only and recorded in an append-only audit log (`repo_source_audit`) that outlives the source: who,
+     when, which fields changed. Field names only: never a value or a reference.
    - *Members see more than they need*: members get the source's id, title, host, owners and access, which the
-     onboarding form needs; admins also see the references and whether each one resolves.
+     onboarding form needs; admins also see the references, whether each one resolves, and the audit log.
+     **Change events and hold reasons are visible to members, so they name the source, never its reference**
+     (`StationContext.secret(..., shown=...)`); the reference lives in the admin source view.
 5. **GitHub Enterprise.** A source on another host sets `GH_HOST` and `GH_ENTERPRISE_TOKEN` for `gh`, and
    names the repo as `host/owner/name`; `api_url` is `https://<host>/api/v3`.
 6. **Not yet:** GitLab, Bitbucket and Azure DevOps (a provider each: clone, push, PR and PR reading differ);

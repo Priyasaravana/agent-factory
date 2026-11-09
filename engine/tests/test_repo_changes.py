@@ -195,7 +195,8 @@ async def test_live_without_a_token_holds_before_pushing(make_factory, tmp_path,
     change = f.manager.feedback(product.id, "Add unit tests", ChangeKind.upkeep)
     assert await wait_run(f, change.id) == ChangeStatus.held
     change = f.store.get_change(change.id)
-    assert "no write token" in change.summary and "REPO_GITHUB_TOKEN" in (change.last_failure or "")
+    assert "no write token" in change.summary and "source 'default'" in (change.last_failure or "")
+    assert "REPO_GITHUB_TOKEN" not in (change.last_failure or ""), "references are admin-only (ADR-0047)"
     assert not any(c.startswith(("git push", "gh pr")) for c in ex.calls)
 
 

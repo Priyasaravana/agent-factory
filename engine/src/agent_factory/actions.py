@@ -360,7 +360,7 @@ def _source_view(f: Factory, src: Any, admin: bool) -> RepoSourceView:
         view.webhook_secret_ref = src.webhook_secret_ref
         view.webhook_ready = srcs.ready(src.webhook_secret_ref)
         view.created_by = src.created_by
-        view.history = [h.model_dump(mode="json") for h in src.history]
+        view.history = [h.model_dump(mode="json") for h in srcs.history(src.id, 50)]
     return view
 
 
@@ -386,6 +386,7 @@ async def list_repo_sources(f: Factory) -> RepoSourcesView:
         allowed_hosts=list(er.allowed_hosts),
         token_refs=list(er.source_token_refs) if admin else [],
         editable=admin,
+        audit=[h.model_dump(mode="json") for h in f.manager.sources.history(limit=100)] if admin else [],
     )
 
 
@@ -433,7 +434,7 @@ def delete_repo_source(f: Factory, source_id: str) -> RepoSourcesView:
     from agent_factory.repo_sources import SourceError
 
     try:
-        f.manager.sources.delete(source_id)
+        f.manager.sources.delete(source_id, current_identity().user)
     except SourceError as exc:
         raise _sources_error(exc) from exc
     er = f.cfg.existing_repos
@@ -442,6 +443,7 @@ def delete_repo_source(f: Factory, source_id: str) -> RepoSourcesView:
         allowed_hosts=list(er.allowed_hosts),
         token_refs=list(er.source_token_refs),
         editable=True,
+        audit=[h.model_dump(mode="json") for h in f.manager.sources.history(limit=100)],
     )
 
 
@@ -462,7 +464,7 @@ def set_product_repo_source(f: Factory, product_id: str, body: ProductSourceInpu
         raise FactoryError("a change on this repo is running: move it once it stops")
     before = product.repo_source
     try:
-        src = f.manager.sources.move(product, body.source)
+        src = f.manager.sources.move(product, body.source, current_identity().user)
     except SourceError as exc:
         raise _sources_error(exc) from exc
     if product.latest_change_id and before != src.id:

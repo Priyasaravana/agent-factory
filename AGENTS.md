@@ -178,8 +178,10 @@
   (`ChangeManager.sources`; config sources plus admin-made ones in the DB). Every use of a team
   repo (clone, push, PR, reading the PR, webhook) goes through `sources.for_product`, which
   re-checks the product's recorded source and never swaps tokens. A private clone's token goes
-  only through `workspace.token_env` (git config in the environment). Tests in
-  `tests/test_repo_sources.py`. Pure helpers live in `repo_change.py`. New signals and rules go in
+  only through `workspace.token_env` (git config in the environment). Authenticated PR reads
+  never follow redirects (`pr_watch._NoRedirect`). Change events are member-visible: name a
+  source, never its token reference (`ctx.secret(..., shown=...)`). Source edits go to the
+  append-only `repo_source_audit` log. Tests in `tests/test_repo_sources.py`. Pure helpers live in `repo_change.py`. New signals and rules go in
   `assess.py` with a test in `tests/test_existing_repos.py` that also shows a well-kept
   repo doesn't trip them. The report station folds every station's output (`rollup.py`, pure): issues
   deduplicated across the rules and the scans with every source kept, recommendations ranked

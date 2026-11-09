@@ -273,8 +273,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         body = await request.body()
         if len(body) > pr_loop.MAX_BODY:
             return JSONResponse(status_code=413, content={"detail": "too large"})
-        source = f.manager.pr_watcher.verified_by(body, request.headers.get(pr_loop.SIGNATURE_HEADER))
-        if source is None:
+        verified = f.manager.pr_watcher.verified_by(body, request.headers.get(pr_loop.SIGNATURE_HEADER))
+        if not verified:
             return JSONResponse(status_code=401, content={"detail": "bad signature"})
         event = request.headers.get(pr_loop.EVENT_HEADER, "")
         if event == "ping":
@@ -285,8 +285,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             return JSONResponse(status_code=400, content={"detail": "not JSON"})
         if not pr_loop.targets(event, payload):
             return JSONResponse(status_code=202, content={"accepted": False})
-        # GitHub waits 10 s at most: read afterwards, only PRs on repos the verifying source covers
-        f.manager.pr_watcher.schedule_webhook(event, payload, source)
+        # GitHub waits 10 s at most: read afterwards, only PRs on repos a verifying source covers
+        f.manager.pr_watcher.schedule_webhook(event, payload, verified)
         return JSONResponse(status_code=202, content={"accepted": True})
 
     @app.get(

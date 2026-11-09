@@ -242,35 +242,44 @@ class StationContext:
         """The agent spec bound to this station (agent stations only)."""
         return self.workflow_doc.agent_for(self.station_id)
 
-    def secret(self, ref: str, purpose: str, capability: str | None = None) -> str | None:
+    def secret(self, ref: str, purpose: str, capability: str | None = None, shown: str | None = None) -> str | None:
         """Resolve a secret reference for one step. The value is returned, never
-        logged (the store masks it); the audit trail records only the reference.
+        logged (the store masks it); the audit trail records only the reference, or `shown` in its
+        place when the reference is admin-only (a repository source's token, ADR-0047: change events
+        are visible to members, so they name the source, never its reference).
         Inside a station the credential must serve a capability the station is granted; anything
         undeclared is denied (ADR-0039 §4), and the denial is recorded."""
+        label = shown or ref
+        key = "secret" if shown else "secret_ref"
         if self.grant is not None and (capability is None or not contract.grants(self.grant, capability)):
             why = f"needs {capability}" if capability else "serves no declared capability"
             self.store.add_event(
                 self.change.id,
                 EventKind.decision,
-                f"denied secret {ref} for {purpose}: it {why}, and station '{self.station_id}' is granted "
+                f"denied secret {label} for {purpose}: it {why}, and station '{self.station_id}' is granted "
                 f"{', '.join(sorted(self.grant)) or 'nothing'}",
                 station=self.station_id,
-                data={"secret_ref": ref, "purpose": purpose, "denied": capability or "undeclared"},
+                data={key: label, "purpose": purpose, "denied": capability or "undeclared"},
             )
             return None
         try:
             value = self.secrets.resolve(ref)
         except SecretError as exc:
+            # the resolver's message names the reference (e.g. the variable): left out when it's admin-only
+            detail = "" if shown else f": {exc}"
             self.store.add_event(
-                self.change.id, EventKind.log, f"secret {ref} for {purpose} unavailable: {exc}", station=self.station_id
+                self.change.id,
+                EventKind.log,
+                f"secret {label} for {purpose} unavailable{detail}",
+                station=self.station_id,
             )
             return None
         self.store.add_event(
             self.change.id,
             EventKind.decision,
-            f"used secret {ref} for {purpose}",
+            f"used secret {label} for {purpose}",
             station=self.station_id,
-            data={"secret_ref": ref, "purpose": purpose},
+            data={key: label, "purpose": purpose},
         )
         return value
 
@@ -3158,13 +3167,15 @@ async def pull_request(ctx: StationContext) -> StationResult:
         )
         return StationResult(StationOutcome.passed, f"pull request simulated (dry-run): {branch} → {base}")
     token_ref = source.token_ref or ""
-    token = ctx.secret(token_ref, "pull request", "open-pr") if token_ref else None
+    shown = f"the token of repository source '{source.id}'"
+    token = ctx.secret(token_ref, "pull request", "open-pr", shown=shown) if token_ref else None
     if not token:
         return StationResult(
             StationOutcome.held,
             "no write token for pull requests",
-            f"Set {token_ref or 'a token reference'} on repository source '{source.id}' (a fine-grained GitHub "
-            f"token with Contents and Pull requests read/write on {ref.slug}), then resume this change.",
+            f"Repository source '{source.id}' has no token that resolves. An admin checks it on Integrations → "
+            f"Repository sources (a fine-grained GitHub token with Contents and Pull requests read/write on "
+            f"{ref.slug}), then resumes this change.",
         )
     env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
     gh_repo = shlex.quote(source.gh_repo(ref))

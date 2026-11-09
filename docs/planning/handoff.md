@@ -13,7 +13,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   now be its own source (e.g. `env://REPO_TRIAL_TOKEN` in `.env`, restart once, then add the source in the UI).
   Checked in the cloud session: engine tests for repos, PR loop, access, API and config; web build; UI
   screenshotted at desktop and 390 px against a dry-run engine. Not run live (no GitHub reachable here with a
-  real token).
+  real token). **Review fixes (2026-11-09, Saravana's review of `2682adb`):** no redirects on authenticated PR
+  reads; webhook deliveries count every source whose secret verifies (default sources on several hosts share
+  the legacy secret); token references kept out of member-visible events and hold reasons; source changes in an
+  append-only audit log that survives deletion. ADR-0047 stays proposed.
 - **J3 started 2026-11-08.** Slice 1 of the PR loop in review on `feat/j3-pr-loop`
   ([plans/pr-loop.md](plans/pr-loop.md)): the factory follows a change's PR by poll (default) or signed
   webhook, plus Refresh; merged → outcome merged, closed → abandoned, work items follow. **Waiting on
