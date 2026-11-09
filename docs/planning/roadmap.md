@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-08 (**J3 started**: PR loop slice 1 in review, `feat/j3-pr-loop`, poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-09 (repository sources, ADR-0047, in review on `feat/repo-sources`; 2026-11-08 **J3 started**: PR loop slice 1 in review, `feat/j3-pr-loop`, poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -440,6 +440,13 @@ per-pack evaluation is in the backlog.
   (on the API origin, 10 pages at most); a CI or review source not read whole shows unknown, never passing;
   a merged or closed outcome finishes its event, items and seal idempotently, resumed by refresh, poll or restart.
 - **Next:** slice 2 (red CI → fix on the same branch and PR), slice 3 (review comments), then the live run.
+- ⏳ **Repository sources in review (`feat/repo-sources`, [ADR-0047](../adr/0047-repo-sources.md), asked for by
+  Saravana 2026-11-09):** team repos from several orgs and hosts (github.com, GitHub Enterprise), each through a
+  source with its own token and webhook secret; admins add sources on Integrations (no rebuild, no restart),
+  members pick one when onboarding; private repos are cloned with the source's token (environment only); a
+  `read` source assesses but never pushes; the recorded source is re-checked at every use and never swapped.
+  Config keeps the floor (`allowed_hosts`, `source_token_refs`). Tests `tests/test_repo_sources.py`. Not yet:
+  GitLab/Bitbucket providers, GitHub App tokens (after ADR-0038), onboarding many repos at once.
 - **Live test** of the push/PR path (only tested against a fake `gh`): a throwaway copy of one of Saravana's
   repos with a small CI workflow; `existing_repos.write_token_ref` = a fine-grained token (Contents + Pull
   requests read/write on that repo only).

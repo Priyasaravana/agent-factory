@@ -5,6 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ACTIVE, api, unwrap } from "../api/client";
 import Problems from "../components/Problems";
+import { SourcePicker } from "../components/RepoSources";
 import StackCards from "../components/StackCards";
 import StatusPill from "../components/StatusPill";
 import { Button } from "../components/ui/button";
@@ -170,7 +171,7 @@ function NewOrder({ titleRef }: { titleRef: RefObject<HTMLInputElement | null> }
               </CardTitle>
               <CardDescription>
                 The factory clones it read-only and reports its stack, readiness, findings, test gaps and the changes to
-                make first. Nothing is pushed to the repo.
+                make first. Nothing is pushed to the repo. Private repos are read with their source's token.
               </CardDescription>
             </>
           )}
@@ -187,11 +188,12 @@ function RepoForm() {
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [notes, setNotes] = useState("");
+  const [source, setSource] = useState<string | null>(null);
   const onboard = useMutation({
     mutationFn: () =>
       unwrap(
         api.POST("/api/repos", {
-          body: { repo_url: url.trim(), branch: branch.trim() || null, notes: notes.trim() || null },
+          body: { repo_url: url.trim(), branch: branch.trim() || null, notes: notes.trim() || null, source },
         }),
       ),
     onSuccess: (d) => {
@@ -211,7 +213,10 @@ function RepoForm() {
         Repository URL
         <input
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => {
+            setUrl(e.target.value);
+            setSource(null); // the engine picks the source covering the new owner, unless chosen again
+          }}
           placeholder="https://github.com/owner/repo"
           required
           type="url"
@@ -232,7 +237,7 @@ function RepoForm() {
           className="font-sans text-sm"
         />
       </label>
-      <p className="m-0 text-xs text-muted-foreground">Public repositories for now.</p>
+      <SourcePicker url={url} value={source} onChange={setSource} />
       <Button disabled={onboard.isPending} size="lg">
         <ScanSearch /> {onboard.isPending ? "Starting…" : "Assess repository"}
       </Button>

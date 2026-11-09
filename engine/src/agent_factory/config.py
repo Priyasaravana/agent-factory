@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 import yaml
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
+from agent_factory.repo_sources import RepoSource
+
 if TYPE_CHECKING:
     from agent_factory.base_images import BaseImage
     from agent_factory.packs import PackAdminSecret, PackBinding, PackPreview
@@ -326,12 +328,67 @@ class ExistingReposConfig(BaseModel):
         default="https://api.github.com", pattern=r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$"
     )
 
+    # Repository sources (ADR-0047): how the factory reaches repos in other orgs or hosts, each with
+    # its own token. These are the owner's, shown read-only; admins add more on Integrations.
+    # The single-token settings above stay as the `default` source (every allowed host, any owner)
+    # unless `default_source` is false.
+    sources: list[RepoSource] = Field(default_factory=list)
+    default_source: bool = True
+    # the secret references an admin-made source may name (fnmatch): the UI can never point a source
+    # at another credential (the model key, the publish token). Config sources are not limited.
+    source_token_refs: list[str] = Field(default_factory=lambda: ["env://REPO_*"])
+
     @field_validator("write_token_ref", "pr_webhook_secret_ref")
     @classmethod
     def _is_reference(cls, v: str | None) -> str | None:
         if v is not None and "://" not in v:
             raise ValueError("secret settings must be a reference like env://NAME, never a value")
         return v
+
+    @model_validator(mode="after")
+    def _sources(self) -> ExistingReposConfig:
+        from agent_factory.repo_sources import check_floor
+
+        taken = {s.id for s in self.default_sources()}
+        for s in self.sources:
+            s.origin = "config"
+            if s.id in taken:
+                raise ValueError(f"existing_repos.sources: the id '{s.id}' is used twice (or by the default source)")
+            taken.add(s.id)
+            check_floor(s, self.allowed_hosts, self.source_token_refs)
+        return self
+
+    def default_sources(self) -> list[RepoSource]:
+        """The single-token settings as sources (ADR-0047 §2): one per allowed host, any owner."""
+        from agent_factory.repo_sources import ANY_OWNER, DEFAULT_ID, SourceError, api_host_ok, default_api_url
+
+        if not self.default_source:
+            return []
+        out: list[RepoSource] = []
+        for i, host in enumerate(h.lower() for h in self.allowed_hosts):
+            try:
+                api_host_ok(host, self.api_url)
+                api = self.api_url
+            except SourceError:
+                api = default_api_url(host)
+            out.append(
+                RepoSource(
+                    id=DEFAULT_ID if i == 0 else f"{DEFAULT_ID}-{i + 1}",
+                    title="Default (existing_repos settings)" if i == 0 else f"Default for {host}",
+                    host=host,
+                    api_url=api,
+                    owners=[ANY_OWNER],
+                    access="write",
+                    token_ref=self.write_token_ref,
+                    webhook_secret_ref=self.pr_webhook_secret_ref,
+                    origin="default",
+                )
+            )
+        return out
+
+    def config_sources(self) -> list[RepoSource]:
+        """The default sources (when on), then the config's own."""
+        return self.default_sources() + list(self.sources)
 
 
 CheckName = Literal["secrets", "code", "dependencies", "config"]

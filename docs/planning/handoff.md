@@ -1,9 +1,19 @@
-# Agent Factory: handoff (updated 2026-11-08)
+# Agent Factory: handoff (updated 2026-11-09)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-08)
+## Current state (2026-11-09)
+- **In review, `feat/repo-sources` (2026-11-09):** repository sources ([ADR-0047](../adr/0047-repo-sources.md),
+  status proposed): one source per org or host with its own token, webhook secret and read/write access; admins
+  manage them on **Integrations → Repository sources**, members choose one when onboarding (the engine picks the
+  source naming the repo's owner), admins can move a repo to another source on its page. Clone, push, PR and
+  PR reading all use the product's source, re-checked every time. Existing installs need nothing: the
+  `existing_repos` token settings are the `default` source. **For the J3 live run** the throwaway repo's token can
+  now be its own source (e.g. `env://REPO_TRIAL_TOKEN` in `.env`, restart once, then add the source in the UI).
+  Checked in the cloud session: engine tests for repos, PR loop, access, API and config; web build; UI
+  screenshotted at desktop and 390 px against a dry-run engine. Not run live (no GitHub reachable here with a
+  real token).
 - **J3 started 2026-11-08.** Slice 1 of the PR loop in review on `feat/j3-pr-loop`
   ([plans/pr-loop.md](plans/pr-loop.md)): the factory follows a change's PR by poll (default) or signed
   webhook, plus Refresh; merged → outcome merged, closed → abandoned, work items follow. **Waiting on

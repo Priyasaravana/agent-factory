@@ -98,10 +98,78 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)
-         * @description Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)
+         * Onboard an existing repository (https URL, reached through a repository source) and start its read-only assessment (ADR-0031, ADR-0047)
+         * @description Onboard an existing repository (https URL, reached through a repository source) and start its read-only assessment (ADR-0031, ADR-0047)
          */
         post: operations["onboard_repo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repo-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Repository sources: how the factory reaches team repos on each host and org (ADR-0047). Admins also see each secret reference and whether it resolves (never a value)
+         * @description Repository sources: how the factory reaches team repos on each host and org (ADR-0047). Admins also see each secret reference and whether it resolves (never a value)
+         */
+        get: operations["list_repo_sources"];
+        put?: never;
+        /**
+         * Add a repository source (admin): a host, the orgs or users it covers, read or write, and references to its token and webhook secret, within what the config allows (ADR-0047)
+         * @description Add a repository source (admin): a host, the orgs or users it covers, read or write, and references to its token and webhook secret, within what the config allows (ADR-0047)
+         */
+        post: operations["create_repo_source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repo-sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change an admin-made repository source (admin); refused when it would stop covering a product that uses it
+         * @description Change an admin-made repository source (admin); refused when it would stop covering a product that uses it
+         */
+        put: operations["update_repo_source"];
+        post?: never;
+        /**
+         * Delete an admin-made repository source (admin); refused while a live product uses it
+         * @description Delete an admin-made repository source (admin); refused while a live product uses it
+         */
+        delete: operations["delete_repo_source"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/repo-source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a team repo to another repository source that covers it (admin; ADR-0047): its next clone, push and pull request reading use that source's token
+         * @description Move a team repo to another repository source that covers it (admin; ADR-0047): its next clone, push and pull request reading use that source's token
+         */
+        post: operations["set_product_repo_source"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3469,6 +3537,11 @@ export interface components {
              * @description what the team wants to know
              */
             notes?: string | null;
+            /**
+             * Source
+             * @description the repository source to reach it with (ADR-0047); default: the one that covers its owner
+             */
+            source?: string | null;
         };
         /** OpenQuestionAnswer */
         OpenQuestionAnswer: {
@@ -3862,6 +3935,8 @@ export interface components {
             repo_url?: string | null;
             /** Repo Ref */
             repo_ref?: string | null;
+            /** Repo Source */
+            repo_source?: string | null;
             /** Created By */
             created_by?: string | null;
             /** Owner */
@@ -3900,6 +3975,11 @@ export interface components {
         ProductOwnerInput: {
             /** Owner */
             owner: string;
+        };
+        /** ProductSourceInput */
+        ProductSourceInput: {
+            /** Source */
+            source: string;
         };
         /**
          * ProductSpend
@@ -4107,6 +4187,104 @@ export interface components {
         ReorderStationsInput: {
             /** Order */
             order: string[];
+        };
+        /**
+         * RepoSourceInput
+         * @description A repository source an admin makes or changes (ADR-0047). Secrets are references, never values.
+         */
+        RepoSourceInput: {
+            /**
+             * Id
+             * @description short name, e.g. acme-github
+             */
+            id: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Host
+             * @default github.com
+             */
+            host: string;
+            /**
+             * Api Url
+             * @description default: https://api.github.com or https://<host>/api/v3
+             * @default
+             */
+            api_url: string;
+            /**
+             * Owners
+             * @description orgs or users it covers
+             */
+            owners: string[];
+            /**
+             * Access
+             * @default write
+             * @enum {string}
+             */
+            access: "read" | "write";
+            /**
+             * Token Ref
+             * @description e.g. env://REPO_ACME_TOKEN
+             */
+            token_ref?: string | null;
+            /** Webhook Secret Ref */
+            webhook_secret_ref?: string | null;
+        };
+        /**
+         * RepoSourceView
+         * @description A source as the UI sees it. Members get what onboarding needs; admins also the references and
+         *     whether each resolves (never a value).
+         */
+        RepoSourceView: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Provider */
+            provider: string;
+            /** Host */
+            host: string;
+            /** Owners */
+            owners: string[];
+            /** Access */
+            access: string;
+            /** Origin */
+            origin: string;
+            /**
+             * Products
+             * @default 0
+             */
+            products: number;
+            /** Api Url */
+            api_url?: string | null;
+            /** Token Ref */
+            token_ref?: string | null;
+            /** Token Ready */
+            token_ready?: boolean | null;
+            /** Webhook Secret Ref */
+            webhook_secret_ref?: string | null;
+            /** Webhook Ready */
+            webhook_ready?: boolean | null;
+            /** Created By */
+            created_by?: string | null;
+            /** History */
+            history?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** RepoSourcesView */
+        RepoSourcesView: {
+            /** Sources */
+            sources: components["schemas"]["RepoSourceView"][];
+            /** Allowed Hosts */
+            allowed_hosts: string[];
+            /** Token Refs */
+            token_refs: string[];
+            /** Editable */
+            editable: boolean;
         };
         /**
          * RequiredAction
@@ -5524,6 +5702,160 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_repo_sources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSourcesView"];
+                };
+            };
+        };
+    };
+    create_repo_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepoSourceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSourceView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_repo_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepoSourceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSourceView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_repo_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoSourcesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_product_repo_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSourceInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

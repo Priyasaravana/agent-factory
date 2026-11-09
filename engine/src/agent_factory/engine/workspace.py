@@ -32,6 +32,31 @@ def render_codeowners(repo: Path, owner: str) -> None:
         )
 
 
+def token_env(url: str, token: str) -> dict[str, str]:
+    """Git config, through the environment only, that sends `token` to the repo's own https origin
+    (`http.<origin>/.extraHeader`, matched by git against the request URL) and follows no redirects,
+    so the header can't be carried to another host. Nothing is written to `.git/config`."""
+    import base64
+    from urllib.parse import urlsplit
+
+    u = urlsplit(url)
+    if u.scheme != "https" or not u.hostname:
+        return {}
+    origin = f"https://{u.hostname}/"
+    from agent_factory.secret_refs import REDACTOR
+
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    REDACTOR.add(token)
+    REDACTOR.add(basic)  # the header's form of it, should git ever print it
+    return {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": f"http.{origin}.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        "GIT_CONFIG_KEY_1": "http.followRedirects",
+        "GIT_CONFIG_VALUE_1": "false",
+    }
+
+
 class Workspace:
     def __init__(
         self,
@@ -120,12 +145,18 @@ class Workspace:
         shutil.rmtree(self.product_dir(slug), ignore_errors=True)
         shutil.rmtree(self.holdout_dir(slug), ignore_errors=True)
 
-    async def sync_repo(self, slug: str, url: str, branch: str | None, timeout: float = 300) -> tuple[str, str]:
+    async def sync_repo(
+        self, slug: str, url: str, branch: str | None, timeout: float = 300, token: str | None = None
+    ) -> tuple[str, str]:
         """Clone an existing repository read-only, or fetch its branch again (ADR-0031).
         Shallow, no submodules, no hooks, no LFS, no prompts, and pushing is disabled.
+        A private repo is read with its source's token (ADR-0047 §4): `token_env`, never the command
+        line or `.git/config`, sent only to the repo's own https origin, and no redirects followed.
         Returns (branch, base ref for the change's worktree)."""
         repo = self.product_dir(slug)
         env = {**self.git_env, "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1", "GIT_ASKPASS": "/bin/false"}
+        if token:
+            env |= token_env(url, token)
         safe = "-c core.hooksPath=/dev/null -c protocol.allow=never -c protocol.https.allow=always" + (
             " -c protocol.file.allow=always" if self.local_clones else ""
         )

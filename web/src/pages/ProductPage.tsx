@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  KeyRound,
   Archive,
   ArrowLeft,
   ArrowUpRight,
@@ -22,6 +23,7 @@ import SpendCard from "../components/SpendCard";
 import { useAuth } from "../auth";
 import ReadyFor from "../components/ReadyFor";
 import ReleaseStrategy from "../components/ReleaseStrategy";
+import { ProductSource } from "../components/RepoSources";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import StatusPill from "../components/StatusPill";
@@ -267,12 +269,17 @@ export default function ProductPage() {
               rel="noreferrer"
               className="truncate"
             >
-              {product.repo_url.replace(/^https:\/\/github\.com\//, "")}
+              {product.repo_url.replace(/^https:\/\/(github\.com\/)?/, "")}
             </a>
           ) : (
             <span className="text-muted-foreground">local only</span>
           )}
         </Fact>
+        {product.target === "repo" && product.repo_url && (
+          <Fact icon={<KeyRound />} label="Reached through">
+            <ProductSource productId={product.id} repoUrl={product.repo_url} current={product.repo_source} />
+          </Fact>
+        )}
         {advanced && <SpendCard spend={spend} />}
       </div>
 

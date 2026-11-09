@@ -169,6 +169,7 @@ class Product(BaseModel):
     app_url: str | None = None
     repo_url: str | None = None  # published repo; for an existing repo (target repo), its web URL
     repo_ref: str | None = None  # an existing repo's branch (ADR-0031)
+    repo_source: str | None = None  # the repository source that reaches it (ADR-0047); None: chosen at next use
     created_by: str | None = None
     # the named owner, accountable for incidents, upkeep and retirement (master plan principle 7, §3J);
     # None: its creator. An admin can reassign it.
@@ -750,6 +751,59 @@ class OnboardRepoInput(BaseModel):
     )
     title: str | None = Field(default=None, min_length=3, max_length=120, description="default: owner/repo")
     notes: str | None = Field(default=None, max_length=5_000, description="what the team wants to know")
+    source: str | None = Field(
+        default=None,
+        max_length=40,
+        pattern=r"^[a-z0-9][a-z0-9-]{1,39}$",
+        description="the repository source to reach it with (ADR-0047); default: the one that covers its owner",
+    )
+
+
+class RepoSourceInput(BaseModel):
+    """A repository source an admin makes or changes (ADR-0047). Secrets are references, never values."""
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,39}$", description="short name, e.g. acme-github")
+    title: str = Field(default="", max_length=80)
+    host: str = Field(default="github.com", max_length=200)
+    api_url: str = Field(
+        default="", max_length=300, description="default: https://api.github.com or https://<host>/api/v3"
+    )
+    owners: list[str] = Field(min_length=1, max_length=50, description="orgs or users it covers")
+    access: Literal["read", "write"] = "write"
+    token_ref: str | None = Field(default=None, max_length=300, description="e.g. env://REPO_ACME_TOKEN")
+    webhook_secret_ref: str | None = Field(default=None, max_length=300)
+
+
+class RepoSourceView(BaseModel):
+    """A source as the UI sees it. Members get what onboarding needs; admins also the references and
+    whether each resolves (never a value)."""
+
+    id: str
+    title: str
+    provider: str
+    host: str
+    owners: list[str]
+    access: str
+    origin: str  # config | default | admin (only admin-made ones can be edited here)
+    products: int = 0  # live products that use it
+    api_url: str | None = None  # admin only from here down
+    token_ref: str | None = None
+    token_ready: bool | None = None
+    webhook_secret_ref: str | None = None
+    webhook_ready: bool | None = None
+    created_by: str | None = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RepoSourcesView(BaseModel):
+    sources: list[RepoSourceView]
+    allowed_hosts: list[str]
+    token_refs: list[str]  # the references an admin-made source may name (config)
+    editable: bool  # the caller may add, change and delete admin-made sources
+
+
+class ProductSourceInput(BaseModel):
+    source: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,39}$")
 
 
 class SpecReviewInput(BaseModel):

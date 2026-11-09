@@ -189,8 +189,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
-        "description": "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
+        "summary": "Onboard an existing repository (https URL, reached through a repository source) and start its read-only assessment (ADR-0031, ADR-0047)",
+        "description": "Onboard an existing repository (https URL, reached through a repository source) and start its read-only assessment (ADR-0031, ADR-0047)",
         "operationId": "onboard_repo",
         "requestBody": {
           "content": {
@@ -204,6 +204,215 @@
         },
         "responses": {
           "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repo-sources": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Repository sources: how the factory reaches team repos on each host and org (ADR-0047). Admins also see each secret reference and whether it resolves (never a value)",
+        "description": "Repository sources: how the factory reaches team repos on each host and org (ADR-0047). Admins also see each secret reference and whether it resolves (never a value)",
+        "operationId": "list_repo_sources",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoSourcesView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Add a repository source (admin): a host, the orgs or users it covers, read or write, and references to its token and webhook secret, within what the config allows (ADR-0047)",
+        "description": "Add a repository source (admin): a host, the orgs or users it covers, read or write, and references to its token and webhook secret, within what the config allows (ADR-0047)",
+        "operationId": "create_repo_source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoSourceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoSourceView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repo-sources/{source_id}": {
+      "put": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Change an admin-made repository source (admin); refused when it would stop covering a product that uses it",
+        "description": "Change an admin-made repository source (admin); refused when it would stop covering a product that uses it",
+        "operationId": "update_repo_source",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoSourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoSourceView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Delete an admin-made repository source (admin); refused while a live product uses it",
+        "description": "Delete an admin-made repository source (admin); refused while a live product uses it",
+        "operationId": "delete_repo_source",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoSourcesView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/repo-source": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Move a team repo to another repository source that covers it (admin; ADR-0047): its next clone, push and pull request reading use that source's token",
+        "description": "Move a team repo to another repository source that covers it (admin; ADR-0047): its next clone, push and pull request reading use that source's token",
+        "operationId": "set_product_repo_source",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -8661,6 +8870,20 @@
             ],
             "title": "Notes",
             "description": "what the team wants to know"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]{1,39}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "the repository source to reach it with (ADR-0047); default: the one that covers its owner"
           }
         },
         "type": "object",
@@ -9494,6 +9717,17 @@
             ],
             "title": "Repo Ref"
           },
+          "repo_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Source"
+          },
           "created_by": {
             "anyOf": [
               {
@@ -9658,6 +9892,20 @@
         ],
         "title": "ProductOwnerInput",
         "description": "Name the product's owner (an admin): who is accountable for it after delivery."
+      },
+      "ProductSourceInput": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,39}$",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "ProductSourceInput"
       },
       "ProductSpend": {
         "properties": {
@@ -10117,6 +10365,249 @@
           "order"
         ],
         "title": "ReorderStationsInput"
+      },
+      "RepoSourceInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,39}$",
+            "title": "Id",
+            "description": "short name, e.g. acme-github"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Title",
+            "default": ""
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Host",
+            "default": "github.com"
+          },
+          "api_url": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Api Url",
+            "description": "default: https://api.github.com or https://<host>/api/v3",
+            "default": ""
+          },
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Owners",
+            "description": "orgs or users it covers"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ],
+            "title": "Access",
+            "default": "write"
+          },
+          "token_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Ref",
+            "description": "e.g. env://REPO_ACME_TOKEN"
+          },
+          "webhook_secret_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Secret Ref"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owners"
+        ],
+        "title": "RepoSourceInput",
+        "description": "A repository source an admin makes or changes (ADR-0047). Secrets are references, never values."
+      },
+      "RepoSourceView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Owners"
+          },
+          "access": {
+            "type": "string",
+            "title": "Access"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "products": {
+            "type": "integer",
+            "title": "Products",
+            "default": 0
+          },
+          "api_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Url"
+          },
+          "token_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Ref"
+          },
+          "token_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Ready"
+          },
+          "webhook_secret_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Secret Ref"
+          },
+          "webhook_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Ready"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "History"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "provider",
+          "host",
+          "owners",
+          "access",
+          "origin"
+        ],
+        "title": "RepoSourceView",
+        "description": "A source as the UI sees it. Members get what onboarding needs; admins also the references and\nwhether each resolves (never a value)."
+      },
+      "RepoSourcesView": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/RepoSourceView"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "allowed_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Hosts"
+          },
+          "token_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Token Refs"
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources",
+          "allowed_hosts",
+          "token_refs",
+          "editable"
+        ],
+        "title": "RepoSourcesView"
       },
       "RequiredAction": {
         "properties": {

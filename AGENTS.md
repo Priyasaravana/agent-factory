@@ -172,8 +172,14 @@
   Assessment stations never change the repository; the assessor is observe-only and
   judged by the pure `assess.judge`. Changes (ADR-0033) run the `repo-change` lane, are
   made on a branch of the clone and leave only as a pull request (`pull-request` station,
-  token from `existing_repos.write_token_ref` via the environment); the factory never
-  merges. Pure helpers live in `repo_change.py`. New signals and rules go in
+  token through the environment); the factory never merges.
+  Repository sources (ADR-0047) say which credentials reach which repos: rules are pure in
+  `repo_sources.py` (`choose`, `still_covers`, `check_floor`), kept by `engine/sources.py`
+  (`ChangeManager.sources`; config sources plus admin-made ones in the DB). Every use of a team
+  repo (clone, push, PR, reading the PR, webhook) goes through `sources.for_product`, which
+  re-checks the product's recorded source and never swaps tokens. A private clone's token goes
+  only through `workspace.token_env` (git config in the environment). Tests in
+  `tests/test_repo_sources.py`. Pure helpers live in `repo_change.py`. New signals and rules go in
   `assess.py` with a test in `tests/test_existing_repos.py` that also shows a well-kept
   repo doesn't trip them. The report station folds every station's output (`rollup.py`, pure): issues
   deduplicated across the rules and the scans with every source kept, recommendations ranked

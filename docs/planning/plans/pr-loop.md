@@ -52,7 +52,9 @@ so both give the same result, and a person can press **Refresh** on the change i
   again, and without a second event or history line.
 
 ## Token
-`existing_repos.write_token_ref`, as the pull-request station uses. For the loop the fine-grained token also
+The product's repository source's token ([ADR-0047](../../adr/0047-repo-sources.md); `existing_repos.write_token_ref`
+for the `default` source), as the pull-request station uses. In webhook mode each source has its own secret, and
+a delivery refreshes only PRs on repos the verifying source covers. For the loop the fine-grained token also
 needs **Checks: read** and **Commit statuses: read** (the station's change-risk status already needs
 Commit statuses: write). A part that can't be read is listed on the change ("couldn't read check runs
 (403)"), never taken as a clean result; a PR that can't be read changes nothing.

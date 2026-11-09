@@ -3109,7 +3109,20 @@ async def pull_request(ctx: StationContext) -> StationResult:
     """Push the change's branch and open a pull request with its evidence. The token is a
     reference, resolved for this step and passed through the environment only."""
 
-    ref = assess.parse_repo_url(ctx.product.repo_url or "", ctx.cfg.existing_repos.allowed_hosts)
+    from agent_factory.engine.sources import RepoSources
+    from agent_factory.repo_sources import SourceError
+
+    try:  # the product's source must still cover the repo; never another token (ADR-0047 §3)
+        ref, source = RepoSources(ctx.cfg, ctx.store, ctx.secrets).for_product(ctx.product, ctx.change.id)
+    except SourceError as exc:
+        return StationResult(StationOutcome.held, "no repository source reaches this repo", str(exc))
+    if source.access != "write":
+        return StationResult(
+            StationOutcome.held,
+            f"repository source '{source.id}' is read-only: nothing pushed",
+            f"An admin gives {ref.host}/{ref.owner} a write source (Integrations → Repository sources) or moves "
+            "the product to one, then resumes this change.",
+        )
     files = await _changed_files(ctx)
     if not files:
         return StationResult(StationOutcome.held, "missing evidence: the change has no commits to propose")
@@ -3134,7 +3147,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
     body_file.write_text(f"# {title}\n\n{body}")  # sealed evidence (ADR-0023)
     branch = f"{ctx.cfg.existing_repos.pr_branch_prefix}{ctx.change.id}"
     base = ctx.product.repo_ref or "main"
-    info: dict[str, Any] = {"repo": ref.slug, "branch": branch, "base": base, "title": title}
+    info: dict[str, Any] = {"repo": ref.slug, "branch": branch, "base": base, "title": title, "source": source.id}
     # what the change changed, for its outcome (ADR-0040); sealed with the evidence
     _write_json(ctx, "pull-request.json", {**info, "files": files, "work_items": list(ctx.change.work_items)})
     if ctx.settings.factory_mode == "dry-run":
@@ -3144,25 +3157,27 @@ async def pull_request(ctx: StationContext) -> StationResult:
             {"pull_request": {**info, "simulated": True}},
         )
         return StationResult(StationOutcome.passed, f"pull request simulated (dry-run): {branch} → {base}")
-    token_ref = ctx.cfg.existing_repos.write_token_ref or ""
+    token_ref = source.token_ref or ""
     token = ctx.secret(token_ref, "pull request", "open-pr") if token_ref else None
     if not token:
         return StationResult(
             StationOutcome.held,
             "no write token for pull requests",
-            f"Set {token_ref or 'existing_repos.write_token_ref'} (a fine-grained GitHub token with Contents "
-            f"and Pull requests read/write on {ref.slug}), restart, then resume this change.",
+            f"Set {token_ref or 'a token reference'} on repository source '{source.id}' (a fine-grained GitHub "
+            f"token with Contents and Pull requests read/write on {ref.slug}), then resume this change.",
         )
-    env = {"GH_TOKEN": token, **ctx.ws.git_env_for(ctx.worktree)}
+    env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
+    gh_repo = shlex.quote(source.gh_repo(ref))
+    host_flag = "" if ref.host == "github.com" else f"--hostname {shlex.quote(ref.host)} "
     push = await ctx.cmd(
-        f"gh auth setup-git && git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
+        f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
         env=env,
         timeout=300,
     )
     if not push.ok:
         return StationResult(StationOutcome.held, f"push of {branch} failed", push.output[-2000:])
     pr = await ctx.cmd(
-        f"gh pr create --repo {shlex.quote(ref.slug)} --base {shlex.quote(base)} --head {shlex.quote(branch)} "
+        f"gh pr create --repo {gh_repo} --base {shlex.quote(base)} --head {shlex.quote(branch)} "
         f"--title {shlex.quote(title)} --body-file {shlex.quote(str(body_file))}",
         env=env,
         timeout=120,
@@ -3179,7 +3194,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
     if sha:
         status = await ctx.cmd(
-            f"gh api --method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
+            f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
             f"-f context=agent-factory/change-risk -f description={shlex.quote(desc)}",
             env=env,
             timeout=60,
