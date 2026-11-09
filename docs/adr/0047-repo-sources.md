@@ -80,3 +80,15 @@ credentials that reach it.
 - Products onboarded before this ADR have no `repo_source`: at their next use they resolve by the rule in §3
   (the default source unless a source names their owner), the answer is recorded on the product and an event
   says which source was chosen; from then on §3's "checked again, never falls back" applies.
+
+## Best practices
+Mapped to [practices.md](../practices.md) and the [threat model](../security/threat-model.md).
+
+| Practice | How this decision meets it |
+|---|---|
+| §3 OWASP agentic: identity & privilege abuse | One least-privilege token per org instead of one token for every repo; a `read` source assesses without write access; agents never hold any of them. |
+| §1 Security & governance: secrets as references | Sources hold references only; admin-made ones are limited to the config's patterns; values are resolved per step, sent through the environment, redacted, never stored. |
+| §1 Security & governance: separation of duties | The config owner sets the floor (hosts, references); admins manage sources within it; members only choose among sources that cover their repo. Every source edit is recorded. |
+| §7 Security: fail closed | A source that no longer covers a repo holds the change; it never falls back to another token. Unknown hosts and other API hosts are refused. |
+| §7 Security: webhook authenticity | Per-source secrets, constant-time checks, and a verified delivery only reaches PRs that source covers. |
+
