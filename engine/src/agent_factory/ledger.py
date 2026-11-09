@@ -347,6 +347,36 @@ def release(items: list[WorkItem], *, change_id: str, status: str, now: datetime
     return changed
 
 
+def pr_merged(items: list[WorkItem], *, change_id: str, now: datetime, pr_url: str, by: str | None) -> list[WorkItem]:
+    """The team merged a change's pull request (J3): its items stay in progress, awaiting verification by
+    the next assessment (an issue is fixed only when its check really ran again, ADR-0040)."""
+    changed = []
+    for it in items:
+        if change_id not in it.claimed_by or it.status != "in_progress":
+            continue
+        if any(h.event == "merged" and h.change_id == change_id for h in it.history):
+            continue  # already recorded (a finalisation resumed after a failure)
+        who = f" by {by}" if by else ""
+        _log(
+            it, now, "merged", f"pull request merged{who}: {pr_url}; awaiting verification", change_id=change_id, by=by
+        )
+        changed.append(it)
+    return changed
+
+
+def pr_abandoned(items: list[WorkItem], *, change_id: str, now: datetime, pr_url: str) -> list[WorkItem]:
+    """The team closed a change's pull request without merging (J3): its items go back to open."""
+    changed = []
+    for it in items:
+        if change_id not in it.claimed_by or it.status != "in_progress":
+            continue
+        it.status = "open"
+        it.claimed_by.remove(change_id)
+        _log(it, now, "released", f"pull request closed without merging: {pr_url}", change_id=change_id)
+        changed.append(it)
+    return changed
+
+
 def decide(
     items: list[WorkItem],
     ids: list[str],

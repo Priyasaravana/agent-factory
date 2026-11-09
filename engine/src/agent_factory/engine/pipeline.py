@@ -126,6 +126,9 @@ class ChangeManager:
         from agent_factory.hostclock import SuspendWatcher
 
         self.host_watcher = SuspendWatcher(self.host_suspended)
+        from agent_factory.engine.pr_watch import PrWatcher
+
+        self.pr_watcher = PrWatcher(self)  # follows changes' pull requests on team repos (J3)
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_changes)
 
     # ------------------------------------------------------------ queries --

@@ -12,7 +12,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-PUBLIC_PATHS = {"/api/health"}  # container health checks
+# container health checks, and the repo host's webhook (J3), which proves itself by its signature
+PUBLIC_PATHS = {"/api/health", "/api/hooks/github"}
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Identity:
 
 
 ANONYMOUS = Identity("local", "admin")  # AUTH_MODE=off: single-user laptop
+NOBODY = Identity("", "none")  # AUTH_MODE=gateway, a public path with no signed-in caller
 _current: ContextVar[Identity] = ContextVar("identity", default=ANONYMOUS)
 
 
@@ -71,7 +73,8 @@ class IdentityMiddleware:
             if requires_admin(method, path) and role != "admin":
                 await _deny(send, 403, "admin role required")
                 return
-        token = _current.set(Identity(user, role) if user and role else ANONYMOUS)
+        # a public path without a signed-in caller is nobody, never the single-user dev admin
+        token = _current.set(Identity(user, role) if user and role else NOBODY)
         try:
             await self.app(scope, receive, send)
         finally:

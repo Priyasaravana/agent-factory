@@ -169,6 +169,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             f.sandbox.start()  # image, network and egress proxy; the first build takes a few minutes
         f.manager.host_watcher.start()  # host sleep is not agent time (hostclock.py)
         f.manager.preflight.start()  # readiness checks now and every preflight.interval_minutes
+        f.manager.pr_watcher.start()  # follows changes' pull requests on team repos (J3)
+        await f.manager.pr_watcher.resume()  # a merged or closed PR's follow-up cut short by a restart
         interrupted = f.manager.recover_on_startup()
         # a change cut off while its unaccepted release served: production goes back first (ADR-0046)
         await f.manager.settle_interrupted(interrupted)
@@ -180,6 +182,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         if interrupted:
             app.state.interrupted = interrupted
         yield
+        await f.manager.pr_watcher.stop()
         await f.manager.preflight.stop()
         await f.manager.host_watcher.stop()
         await f.manager.shutdown()
@@ -247,6 +250,43 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             status_code=spec.status_code,
             tags=["agent-tool"] if spec.agent_tool else ["factory"],
         )
+
+    @app.post(
+        "/api/hooks/github",
+        operation_id="github_webhook",
+        tags=["factory"],
+        summary="GitHub webhook (J3): a signed delivery makes the factory read the named pull requests again",
+        status_code=202,
+    )
+    async def github_webhook(request: Request) -> JSONResponse:
+        """Public (no sign-in): the delivery proves itself by `X-Hub-Signature-256`. Off unless
+        `existing_repos.pr_updates` is `webhook` and its secret resolves. The payload only names which
+        PRs to look at again; their state is always read from the host (`pr_loop.py`)."""
+        from agent_factory import pr_loop
+
+        f = holder["f"]
+        secret = f.manager.pr_watcher.webhook_secret()
+        if not secret:
+            return JSONResponse(status_code=404, content={"detail": "not found"})
+        declared = request.headers.get("content-length")
+        if declared and (not declared.isdigit() or int(declared) > pr_loop.MAX_BODY):
+            return JSONResponse(status_code=413, content={"detail": "too large"})
+        body = await request.body()
+        if len(body) > pr_loop.MAX_BODY:
+            return JSONResponse(status_code=413, content={"detail": "too large"})
+        if not pr_loop.signature_ok(secret, body, request.headers.get(pr_loop.SIGNATURE_HEADER)):
+            return JSONResponse(status_code=401, content={"detail": "bad signature"})
+        event = request.headers.get(pr_loop.EVENT_HEADER, "")
+        if event == "ping":
+            return JSONResponse(status_code=200, content={"ok": True})
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "not JSON"})
+        if not pr_loop.targets(event, payload):
+            return JSONResponse(status_code=202, content={"accepted": False})
+        f.manager.pr_watcher.schedule_webhook(event, payload)  # GitHub waits 10 s at most: read afterwards
+        return JSONResponse(status_code=202, content={"accepted": True})
 
     @app.get(
         "/api/changes/{change_id}/stream",

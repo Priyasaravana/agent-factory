@@ -1487,6 +1487,26 @@ async def close_change(f: Factory, change_id: str, body: CloseInput) -> Change:
     return await f.manager.close(change_id, body.reason, current_identity().user or "anonymous")
 
 
+@action(
+    "refresh_pull_request",
+    "Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)",
+    "POST",
+    "/api/changes/{change_id}/pull-request/refresh",
+)
+async def refresh_pull_request(f: Factory, change_id: str) -> Change:
+    from agent_factory.engine.pr_watch import PrReadError
+
+    change = f.store.get_change(change_id)
+    if change is None:
+        raise FactoryError(f"change {change_id} not found")
+    if not change.pr_url:
+        raise InvalidRequestError("this change opened no pull request")
+    try:
+        return await f.manager.pr_watcher.refresh(change_id, "refresh")
+    except PrReadError as exc:
+        raise InvalidRequestError(f"pull request not read: {exc}") from exc
+
+
 @action("cancel_change", "Cancel a change", "POST", "/api/changes/{change_id}/cancel")
 def cancel_change(f: Factory, change_id: str) -> Change:
     _may_steer_change(f, change_id)

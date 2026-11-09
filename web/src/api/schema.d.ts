@@ -984,6 +984,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changes/{change_id}/pull-request/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)
+         * @description Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)
+         */
+        post: operations["refresh_pull_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/cancel": {
         parameters: {
             query?: never;
@@ -1704,6 +1724,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/hooks/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * GitHub webhook (J3): a signed delivery makes the factory read the named pull requests again
+         * @description Public (no sign-in): the delivery proves itself by `X-Hub-Signature-256`. Off unless
+         *     `existing_repos.pr_updates` is `webhook` and its secret resolves. The payload only names which
+         *     PRs to look at again; their state is always read from the host (`pr_loop.py`).
+         */
+        post: operations["github_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/stream": {
         parameters: {
             query?: never;
@@ -2252,6 +2294,9 @@ export interface components {
             };
             /** Pr Url */
             pr_url?: string | null;
+            pull_request?: components["schemas"]["PullRequestState"] | null;
+            /** Pr Finalise */
+            pr_finalise?: string[];
             deployed?: components["schemas"]["Release"] | null;
             validation?: components["schemas"]["Validation"] | null;
             schema_approval?: components["schemas"]["SchemaApproval"] | null;
@@ -3465,7 +3510,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "accepted" | "closed";
+            state: "accepted" | "closed" | "merged" | "abandoned";
             /** By */
             by: string;
             /**
@@ -3901,6 +3946,62 @@ export interface components {
         PublishInput: {
             /** Note */
             note: string;
+        };
+        /**
+         * PullRequestState
+         * @description What the factory last read about a change's pull request (J3, `pr_loop.py`). The repo's host is
+         *     the source of truth: a webhook only says "look again", and every update is a read of the PR itself.
+         */
+        PullRequestState: {
+            /** Repo */
+            repo: string;
+            /** Number */
+            number: number;
+            /** Url */
+            url: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "merged" | "closed";
+            /**
+             * Head Sha
+             * @default
+             */
+            head_sha: string;
+            /**
+             * Checks
+             * @default none
+             * @enum {string}
+             */
+            checks: "none" | "pending" | "passing" | "failing" | "unknown";
+            /** Failing */
+            failing?: string[];
+            /**
+             * Review
+             * @default none
+             * @enum {string}
+             */
+            review: "none" | "commented" | "approved" | "changes_requested" | "unknown";
+            /** Mergeable */
+            mergeable?: boolean | null;
+            /** Merged By */
+            merged_by?: string | null;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Unread */
+            unread?: string[];
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /**
+             * Source
+             * @default poll
+             * @enum {string}
+             */
+            source: "poll" | "webhook" | "refresh";
         };
         /** ReadinessView */
         ReadinessView: {
@@ -6960,6 +7061,37 @@ export interface operations {
             };
         };
     };
+    refresh_pull_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_change: {
         parameters: {
             query?: never;
@@ -8225,6 +8357,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

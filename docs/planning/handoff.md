@@ -1,9 +1,16 @@
-# Agent Factory: handoff (updated 2026-11-06)
+# Agent Factory: handoff (updated 2026-11-08)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-06)
+## Current state (2026-11-08)
+- **J3 started 2026-11-08.** Slice 1 of the PR loop in review on `feat/j3-pr-loop`
+  ([plans/pr-loop.md](plans/pr-loop.md)): the factory follows a change's PR by poll (default) or signed
+  webhook, plus Refresh; merged → outcome merged, closed → abandoned, work items follow. **Waiting on
+  Saravana for the live run:** a throwaway copy of one of his repos with a small CI workflow, and a
+  fine-grained token on it only (Contents, Pull requests read/write; Checks read; Commit statuses
+  read/write) at `existing_repos.write_token_ref`. For webhook mode also a public tunnel to the UI port and
+  `REPO_WEBHOOK_SECRET`. Next code: slice 2, red CI fixed on the same PR.
 - **J2 closed 2026-11-06 (Saravana)** on Plant watering's iteration 4 (`c4888c5614a1`): validated in a temporary
   environment (its first, broken attempt never reached users), the tested image promoted blue/green (live
   green, blue kept), the environment removed, Ready for: pilot. Detail in the roadmap's J2. Both factory lanes

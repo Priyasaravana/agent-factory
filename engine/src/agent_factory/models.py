@@ -196,11 +196,37 @@ class Outcome(BaseModel):
     or **closed** with a reason (held, or delivered but not accepted). Recorded, sealed with the change's
     evidence and never changed afterwards. Deployed is not accepted: only this says so."""
 
-    state: Literal["accepted", "closed"]
+    # merged / abandoned (J3): the team's word on a change to their repo, read from its pull request
+    # (a person merged it, or closed it unmerged); `by` is their account on the repo's host
+    state: Literal["accepted", "closed", "merged", "abandoned"]
     by: str
     at: datetime
     note: str = ""  # accepted: optional note; closed: the reason (required)
     status_before: str | None = None  # what the change was when it was closed
+
+
+class PullRequestState(BaseModel):
+    """What the factory last read about a change's pull request (J3, `pr_loop.py`). The repo's host is
+    the source of truth: a webhook only says "look again", and every update is a read of the PR itself."""
+
+    repo: str  # owner/name
+    number: int
+    url: str
+    state: Literal["open", "merged", "closed"]
+    head_sha: str = ""
+    # the repo's own CI on the head commit: check runs and commit statuses folded into one word
+    # unknown: a source wasn't read whole (refused, a page failed, the page limit), and what was read
+    # doesn't already decide it; never shown as passing
+    checks: Literal["none", "pending", "passing", "failing", "unknown"] = "none"
+    failing: list[str] = Field(default_factory=list)  # names of failing checks (at most 20)
+    review: Literal["none", "commented", "approved", "changes_requested", "unknown"] = "none"
+    mergeable: bool | None = None  # None: the host hasn't worked it out yet
+    merged_by: str | None = None
+    closed_at: datetime | None = None
+    # what couldn't be read this time (e.g. "checks: 403"): said, never taken for a clean result
+    unread: list[str] = Field(default_factory=list)
+    checked_at: datetime
+    source: Literal["poll", "webhook", "refresh"] = "poll"  # what made the factory look this time
 
 
 class Change(BaseModel):
@@ -225,6 +251,11 @@ class Change(BaseModel):
     # starts after the phases that would make them; schema-checked and sealed like any artifact
     provided: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pr_url: str | None = None  # the pull request a change to an existing repo opened (ADR-0033)
+    pull_request: PullRequestState | None = None  # what the PR loop last read about it (J3)
+    # a merged or closed PR's outcome is saved first, with what is left to do (`pr_loop.finalising_steps`:
+    # the event, the work items, the seal); each step clears itself only once done, so a failure or a
+    # restart resumes here instead of leaving the outcome, the ledger and the evidence disagreeing
+    pr_finalise: list[str] = Field(default_factory=list)
     # what this change's deploy puts on the target (ADR-0046): written before the cluster is touched
     # (revision and digest unknown yet), completed when the deploy passes; cleared when a rollback
     # restores the product's last healthy release
@@ -630,7 +661,7 @@ class WorkItemEvent(BaseModel):
     iteration: int | None = None
     change_id: str | None = None
     # found | seen | claimed | proposed | still-present | fixed | reappeared | wont-do | accepted
-    # | reopened | released
+    # | reopened | released | merged (a pull request merged, J3)
     event: str
     note: str = ""
     by: str | None = None
