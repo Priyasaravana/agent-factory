@@ -135,6 +135,18 @@ class RepoSource(BaseModel):
         return {"GH_HOST": self.host, "GH_ENTERPRISE_TOKEN": token}
 
 
+def default_id_for(host: str) -> str:
+    """A credential-less default source's id, from its host alone (stable when the allowlist is
+    reordered): `default-ghe-example-com`; long hosts are cut and given a hash to stay unique."""
+    import hashlib
+
+    slug = host.lower().replace(".", "-")
+    sid = f"{DEFAULT_ID}-{slug}"
+    if len(sid) > 40:
+        sid = f"{DEFAULT_ID}-{slug[:22]}-{hashlib.sha256(host.encode()).hexdigest()[:9]}"
+    return sid
+
+
 def default_api_url(host: str) -> str:
     return "https://api.github.com" if host == "github.com" else f"https://{host}/api/v3"
 

@@ -358,32 +358,59 @@ class ExistingReposConfig(BaseModel):
             check_floor(s, self.allowed_hosts, self.source_token_refs)
         return self
 
+    def legacy_host(self) -> str | None:
+        """The host the single-token settings were made for: the allowed host `api_url` belongs to
+        (github.com for the default API). None when no allowed host matches it."""
+        from agent_factory.repo_sources import SourceError, api_host_ok
+
+        for host in (h.lower() for h in self.allowed_hosts):
+            try:
+                api_host_ok(host, self.api_url)
+            except SourceError:
+                continue
+            return host
+        return None
+
     def default_sources(self) -> list[RepoSource]:
-        """The single-token settings as sources (ADR-0047 §2): one per allowed host, any owner."""
-        from agent_factory.repo_sources import ANY_OWNER, DEFAULT_ID, SourceError, api_host_ok, default_api_url
+        """The single-token settings as sources (ADR-0047 §2), any owner, one per allowed host.
+        Only the legacy host's source (`default`) carries `write_token_ref` and `pr_webhook_secret_ref`:
+        a token is never sent to a host it wasn't made for. Every other allowed host gets a read-only
+        source with no credentials (public repos, read anonymously) until an admin binds a source with
+        its own token. Ids depend on the host, never on the list's order, so a product's recorded
+        source stays on its host when the allowlist changes."""
+        from agent_factory.repo_sources import ANY_OWNER, DEFAULT_ID, default_api_url, default_id_for
 
         if not self.default_source:
             return []
+        legacy = self.legacy_host()
         out: list[RepoSource] = []
-        for i, host in enumerate(h.lower() for h in self.allowed_hosts):
-            try:
-                api_host_ok(host, self.api_url)
-                api = self.api_url
-            except SourceError:
-                api = default_api_url(host)
-            out.append(
-                RepoSource(
-                    id=DEFAULT_ID if i == 0 else f"{DEFAULT_ID}-{i + 1}",
-                    title="Default (existing_repos settings)" if i == 0 else f"Default for {host}",
-                    host=host,
-                    api_url=api,
-                    owners=[ANY_OWNER],
-                    access="write",
-                    token_ref=self.write_token_ref,
-                    webhook_secret_ref=self.pr_webhook_secret_ref,
-                    origin="default",
+        for host in dict.fromkeys(h.lower() for h in self.allowed_hosts):
+            if host == legacy:
+                out.append(
+                    RepoSource(
+                        id=DEFAULT_ID,
+                        title="Default (existing_repos settings)",
+                        host=host,
+                        api_url=self.api_url,
+                        owners=[ANY_OWNER],
+                        access="write",
+                        token_ref=self.write_token_ref,
+                        webhook_secret_ref=self.pr_webhook_secret_ref,
+                        origin="default",
+                    )
                 )
-            )
+            else:
+                out.append(
+                    RepoSource(
+                        id=default_id_for(host),
+                        title=f"Public repos on {host} (no token)",
+                        host=host,
+                        api_url=default_api_url(host),
+                        owners=[ANY_OWNER],
+                        access="read",
+                        origin="default",
+                    )
+                )
         return out
 
     def config_sources(self) -> list[RepoSource]:

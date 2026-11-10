@@ -117,10 +117,47 @@ def test_config_sources_and_the_default_one():
     with pytest.raises(ValueError, match="not allowed"):
         ExistingReposConfig(sources=[{"id": "ghe", "host": "ghe.example.com", "owners": ["acme"]}])
     ghe = ExistingReposConfig(allowed_hosts=["github.com", "ghe.example.com"])
-    assert [(s.id, s.api_url) for s in ghe.config_sources()] == [
-        ("default", "https://api.github.com"),
-        ("default-2", "https://ghe.example.com/api/v3"),
+    assert [(s.id, s.api_url, s.access, s.token_ref, s.webhook_secret_ref) for s in ghe.config_sources()] == [
+        ("default", "https://api.github.com", "write", "env://REPO_GITHUB_TOKEN", "env://REPO_WEBHOOK_SECRET"),
+        ("default-ghe-example-com", "https://ghe.example.com/api/v3", "read", None, None),
     ]
+
+
+def test_the_legacy_token_stays_bound_to_its_own_host():
+    """Review of PR 167 (P1): `write_token_ref` was copied to every allowed host. Only the host its
+    `api_url` belongs to gets it; another host needs a source with its own token."""
+    er = ExistingReposConfig(allowed_hosts=["ghe.example.com", "github.com"])
+    assert er.legacy_host() == "github.com", "the API decides, not the list's order"
+    by_host = {s.host: s for s in er.default_sources()}
+    assert by_host["github.com"].token_ref == "env://REPO_GITHUB_TOKEN"
+    assert (by_host["ghe.example.com"].token_ref, by_host["ghe.example.com"].webhook_secret_ref) == (None, None)
+    ghe_only = ExistingReposConfig(allowed_hosts=["ghe.example.com"], api_url="https://ghe.example.com/api/v3")
+    assert [(s.id, s.token_ref) for s in ghe_only.default_sources()] == [("default", "env://REPO_GITHUB_TOKEN")]
+    unmatched = ExistingReposConfig(allowed_hosts=["ghe.example.com"])  # the API is github.com's
+    assert [s.token_ref for s in unmatched.default_sources()] == [None], "no host to bind it to: no token"
+
+
+def test_default_source_ids_do_not_depend_on_the_allowlist_order():
+    """Review of PR 167 (P2): `default-2` named a position, so reordering moved a product to another host."""
+    a = {
+        s.host: s.id
+        for s in ExistingReposConfig(allowed_hosts=["github.com", "ghe.example.com", "git.acme.io"]).default_sources()
+    }
+    b = {
+        s.host: s.id
+        for s in ExistingReposConfig(allowed_hosts=["git.acme.io", "ghe.example.com", "github.com"]).default_sources()
+    }
+    assert (
+        a
+        == b
+        == {
+            "github.com": "default",
+            "ghe.example.com": "default-ghe-example-com",
+            "git.acme.io": "default-git-acme-io",
+        }
+    )
+    long = rs.default_id_for("a-very-long-enterprise-host-name.internal.example.com")
+    assert len(long) <= 40 and long.startswith("default-") and rs.RepoSource(id=long, owners=["*"]).id == long
 
 
 def test_the_clone_token_travels_in_the_environment_to_the_repos_origin_only():
@@ -419,10 +456,11 @@ async def test_an_authenticated_pr_read_never_follows_a_redirect_to_another_host
     assert seen == [], "nothing, let alone the token, reached the other host"
 
 
-async def test_default_sources_on_two_hosts_share_the_legacy_webhook_secret(make_factory, tmp_path, monkeypatch):
-    """Review of PR 167: with two allowed hosts, a delivery for the second host's default source used to
-    verify as the first one and refresh nothing. Every source the secret verifies counts; a source with a
-    secret of its own stays isolated."""
+async def test_sources_sharing_a_webhook_secret_each_get_their_deliveries(make_factory, tmp_path, monkeypatch):
+    """Review of PR 167: a delivery for the second of two sources sharing a secret used to verify as the
+    first one and refresh nothing. Every source the secret verifies counts; a source with a secret of its
+    own stays isolated. (The second host's default source has no secret at all: credentials are bound per
+    host, so it is given its own source here, sharing the legacy secret on purpose.)"""
     f = _factory(make_factory, _origin(tmp_path))
     er = f.manager.cfg.existing_repos
     er.allowed_hosts = ["github.com", "ghe.example.com"]
@@ -432,9 +470,19 @@ async def test_default_sources_on_two_hosts_share_the_legacy_webhook_secret(make
         RepoSourceInput(id="acme", owners=["acme"], webhook_secret_ref="env://REPO_ACME_HOOK"), "saravana"
     )
     monkeypatch.setenv("REPO_ACME_HOOK", "acme-own-secret")
+    f.manager.sources.create(
+        RepoSourceInput(
+            id="ghe-platform",
+            host="ghe.example.com",
+            owners=["platform"],
+            token_ref="env://REPO_GHE_TOKEN",
+            webhook_secret_ref="env://REPO_WEBHOOK_SECRET",
+        ),
+        "saravana",
+    )
     ghe = f.manager.onboard_repo(OnboardRepoInput(repo_url="https://ghe.example.com/platform/app"))
     acme = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
-    assert (ghe.repo_source, acme.repo_source) == ("default-2", "acme")
+    assert (ghe.repo_source, acme.repo_source) == ("ghe-platform", "acme")
 
     followed = []
     for product, pr in ((ghe, "https://ghe.example.com/platform/app/pull/7"), (acme, f"{URL}/pull/7")):
@@ -454,7 +502,7 @@ async def test_default_sources_on_two_hosts_share_the_legacy_webhook_secret(make
     for slug, cid in (("platform/app", followed[0]), ("acme/hello-node", followed[1])):
         body = json.dumps({"repository": {"full_name": slug}, "pull_request": {"number": 7}}).encode()
         legacy = w.verified_by(body, _sign(body))
-        assert [s.id for s in legacy] == ["default", "default-2"], "both default sources share the secret"
+        assert [s.id for s in legacy] == ["default", "ghe-platform"], "both sources share the secret"
         refreshed.clear()
         got = await w.on_webhook("pull_request", json.loads(body), legacy)
         if cid == followed[0]:
@@ -483,3 +531,67 @@ async def test_a_missing_token_names_the_source_not_its_reference(make_factory, 
         + json.dumps([e.model_dump(mode="json") for e in f.store.list_events(change.id)])
     )
     assert "source 'acme'" in seen and "REPO_ACME_TOKEN" not in seen
+
+
+async def test_a_second_host_never_gets_the_legacy_token(make_factory, tmp_path, monkeypatch):
+    """Review of PR 167 (P1): onboarding a repo on a newly allowed host must not send it github.com's token."""
+    f = _factory(make_factory, _origin(tmp_path))
+    f.manager.cfg.existing_repos.allowed_hosts = ["github.com", "ghe.example.com"]
+    monkeypatch.setenv("REPO_GITHUB_TOKEN", TOKEN)
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url="https://ghe.example.com/platform/app"))
+    assert product.repo_source == "default-ghe-example-com"
+    seen: list[dict[str, str]] = []
+    real = f.manager.ws.ex.run
+
+    async def spy(command, cwd=None, timeout=600, env=None):  # noqa: ANN001, ANN202
+        if "clone" in command or "fetch" in command:
+            seen.append(dict(env or {}))
+        return await real(command, cwd=cwd, timeout=timeout, env=env)
+
+    f.manager.ws.ex.run = spy  # type: ignore[method-assign]
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback, "a public repo still reads anonymously"
+    assert seen and all("GIT_CONFIG_COUNT" not in e and TOKEN not in json.dumps(e) for e in seen)
+
+
+async def test_a_product_bound_to_a_positional_default_id_is_rebound_to_its_hosts(make_factory, tmp_path):
+    """Review of PR 167 (P2): a product saved as `default-2` by an earlier build keeps working."""
+    f = _factory(make_factory, _origin(tmp_path))
+    f.manager.cfg.existing_repos.allowed_hosts = ["github.com", "ghe.example.com"]
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url="https://ghe.example.com/platform/app"))
+    product.repo_source = "default-2"
+    f.store.save_product(product)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_product(product.id).repo_source == "default-ghe-example-com"
+    assert any("'default-2' is now 'default-ghe-example-com'" in e.message for e in f.store.list_events(change.id))
+
+
+async def test_write_access_is_checked_again_right_before_pushing(make_factory, tmp_path, monkeypatch):
+    """Review of PR 167 (P2): a source made read-only while the station waits must stop the push."""
+    from agent_factory.engine import stations
+
+    ex = GitHubExecutor()
+    f = _factory(lambda **kw: make_factory(executor=ex, **kw), _origin(tmp_path))
+    _acme(f)
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
+    first = f.manager.start_change(product)
+    assert await wait_run(f, first.id) == ChangeStatus.awaiting_feedback
+    f.manager.settings.factory_mode = "live"
+    monkeypatch.setenv("REPO_ACME_TOKEN", ACME_TOKEN)
+    real = stations._changed_files
+
+    async def admin_flips_it_mid_station(ctx):  # noqa: ANN001, ANN202
+        files = await real(ctx)
+        if ctx.station_id == "handover":  # the station whose handler opens the pull request
+            body = RepoSourceInput(
+                id="acme", title="Acme org", owners=["acme"], access="read", token_ref="env://REPO_ACME_TOKEN"
+            )
+            f.manager.sources.update("acme", body, "saravana")
+        return files
+
+    monkeypatch.setattr(stations, "_changed_files", admin_flips_it_mid_station)
+    change = f.manager.feedback(product.id, "Add unit tests", ChangeKind.upkeep)
+    assert await wait_run(f, change.id) == ChangeStatus.held
+    assert "is read-only: nothing pushed" in f.store.get_change(change.id).summary
+    assert not any(c.startswith(("git push", "gh pr", "gh auth")) or " git push " in c for c in ex.calls)

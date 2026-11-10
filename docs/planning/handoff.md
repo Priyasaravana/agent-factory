@@ -16,7 +16,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   real token). **Review fixes (2026-11-09, Saravana's review of `2682adb`):** no redirects on authenticated PR
   reads; webhook deliveries count every source whose secret verifies (default sources on several hosts share
   the legacy secret); token references kept out of member-visible events and hold reasons; source changes in an
-  append-only audit log that survives deletion. ADR-0047 stays proposed.
+  append-only audit log that survives deletion. ADR-0047 stays proposed. **Second review (sarvap37, `0409ba0`):**
+  the legacy token is bound to `api_url`'s host only (other hosts: read-only, no credentials, until a source
+  binds one); default source ids are host-based (`default-<host>`), positional ones rebound; the PR station
+  reloads the source and rechecks write access before each push, PR and status write.
 - **J3 started 2026-11-08.** Slice 1 of the PR loop in review on `feat/j3-pr-loop`
   ([plans/pr-loop.md](plans/pr-loop.md)): the factory follows a change's PR by poll (default) or signed
   webhook, plus Refresh; merged → outcome merged, closed → abandoned, work items follow. **Waiting on

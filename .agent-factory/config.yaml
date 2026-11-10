@@ -113,7 +113,8 @@ blueprints:
 existing_repos:
   allowed_hosts: [github.com]     # https URLs on these hosts only: no repository source may reach another
   # pull requests (ADR-0033): a fine-grained token with Contents + Pull requests read/write
-  # on the repos, in .env. A reference, never the value. This is the `default` source (any owner).
+  # on the repos, in .env. A reference, never the value. This is the `default` source (any owner),
+  # bound to api_url's host only: other allowed hosts get no token until a source names one.
   write_token_ref: env://REPO_GITHUB_TOKEN
   # Repository sources (ADR-0047): one per org or host, each with its own token. Admins add more on
   # Integrations → Repository sources (no restart); a repo uses the source that names its owner.

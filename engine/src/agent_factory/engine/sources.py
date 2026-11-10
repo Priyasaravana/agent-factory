@@ -8,6 +8,7 @@ returned to the caller for that step only, and never stored, logged or shown.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
     from agent_factory.config import FactoryConfig
     from agent_factory.secret_refs import SecretResolver
     from agent_factory.state.base import StateStore
+
+
+_GENERATED_DEFAULT = re.compile(r"^default-\d+$")
 
 
 class RepoSources:
@@ -67,7 +71,23 @@ class RepoSources:
         from before ADR-0047 gets one chosen now, recorded on it, with an event on the change."""
         ref = self.parse(product.repo_url or "")
         if product.repo_source:
-            return ref, rs.still_covers(ref, self.all(), product.repo_source)
+            sources = self.all()
+            if _GENERATED_DEFAULT.match(product.repo_source) and not any(s.id == product.repo_source for s in sources):
+                # an id an earlier build gave a default source by position (`default-2`): rebind it to
+                # the default source of the repo's own host, never to a source someone made
+                defaults = [s for s in sources if s.origin == "default"]
+                src = rs.choose(ref, defaults)
+                before, product.repo_source = product.repo_source, src.id
+                self.store.save_product(product)
+                if change_id:
+                    self.store.add_event(
+                        change_id,
+                        EventKind.decision,
+                        f"repository source '{before}' is now '{src.id}' (the default for {ref.host})",
+                        data={"repo_source": {"from": before, "to": src.id, "chosen": "renamed default"}},
+                    )
+                return ref, src
+            return ref, rs.still_covers(ref, sources, product.repo_source)
         src = rs.choose(ref, self.all())
         product.repo_source = src.id
         self.store.save_product(product)

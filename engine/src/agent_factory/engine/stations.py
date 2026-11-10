@@ -3121,17 +3121,36 @@ async def pull_request(ctx: StationContext) -> StationResult:
     from agent_factory.engine.sources import RepoSources
     from agent_factory.repo_sources import SourceError
 
-    try:  # the product's source must still cover the repo; never another token (ADR-0047 §3)
-        ref, source = RepoSources(ctx.cfg, ctx.store, ctx.secrets).for_product(ctx.product, ctx.change.id)
-    except SourceError as exc:
-        return StationResult(StationOutcome.held, "no repository source reaches this repo", str(exc))
-    if source.access != "write":
-        return StationResult(
-            StationOutcome.held,
-            f"repository source '{source.id}' is read-only: nothing pushed",
-            f"An admin gives {ref.host}/{ref.owner} a write source (Integrations → Repository sources) or moves "
-            "the product to one, then resumes this change.",
-        )
+    sources = RepoSources(ctx.cfg, ctx.store, ctx.secrets)
+
+    def writable(before: str, bound: Any = None) -> tuple[Any, Any] | StationResult:
+        """Reload the product's source and check it may still write, right before each remote write
+        (ADR-0047 §4): an admin may make it read-only, change its token or move the repo while the
+        station waits. A change of token or source since the first check holds rather than use either."""
+        try:  # the product's source must still cover the repo; never another token (ADR-0047 §3)
+            got_ref, got = sources.for_product(ctx.product, ctx.change.id)
+        except SourceError as exc:
+            return StationResult(StationOutcome.held, "no repository source reaches this repo", str(exc))
+        if got.access != "write":
+            return StationResult(
+                StationOutcome.held,
+                f"repository source '{got.id}' is read-only: nothing {before}",
+                f"An admin gives {got_ref.host}/{got_ref.owner} a write source (Integrations → Repository sources) "
+                "or moves the product to one, then resumes this change.",
+            )
+        if bound is not None and (got.id, got.token_ref) != (bound.id, bound.token_ref):
+            return StationResult(
+                StationOutcome.held,
+                f"repository source changed while the change waited: nothing {before}",
+                f"The repo's source or its token changed since this station started (now '{got.id}'). "
+                "Resume the change to use the current one.",
+            )
+        return got_ref, got
+
+    first = writable("pushed")
+    if isinstance(first, StationResult):
+        return first
+    ref, source = first
     files = await _changed_files(ctx)
     if not files:
         return StationResult(StationOutcome.held, "missing evidence: the change has no commits to propose")
@@ -3180,6 +3199,8 @@ async def pull_request(ctx: StationContext) -> StationResult:
     env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
     gh_repo = shlex.quote(source.gh_repo(ref))
     host_flag = "" if ref.host == "github.com" else f"--hostname {shlex.quote(ref.host)} "
+    if isinstance(now := writable("pushed", source), StationResult):  # resolving the token may have waited
+        return now
     push = await ctx.cmd(
         f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
         env=env,
@@ -3187,6 +3208,8 @@ async def pull_request(ctx: StationContext) -> StationResult:
     )
     if not push.ok:
         return StationResult(StationOutcome.held, f"push of {branch} failed", push.output[-2000:])
+    if isinstance(now := writable("opened (the branch was pushed)", source), StationResult):
+        return now
     pr = await ctx.cmd(
         f"gh pr create --repo {gh_repo} --base {shlex.quote(base)} --head {shlex.quote(branch)} "
         f"--title {shlex.quote(title)} --body-file {shlex.quote(str(body_file))}",
@@ -3203,7 +3226,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
     sha = (head.lines() or [""])[-1] if head.ok else ""
     holds, approved = risk_data.get("holds", 0), risk_data.get("approved_by")
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
-    if sha:
+    if sha and not isinstance(writable("marked", source), StationResult):  # skipped if no longer writable
         status = await ctx.cmd(
             f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
             f"-f context=agent-factory/change-risk -f description={shlex.quote(desc)}",

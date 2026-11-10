@@ -31,8 +31,14 @@ credentials that reach it.
    | Sources | the sources | config (`existing_repos.sources`, shown read-only) **and** the DB (made on **Integrations → Repository sources**) | admins, no restart |
    | Repos | URL, branch, source | the DB, from the **Products** page | any signed-in member |
    The existing single-token settings stay as the **default source** (`existing_repos.default_source`, on by
-   default: every allowed host, any owner, `write_token_ref`, `api_url`, `pr_webhook_secret_ref`), so an
-   install that sets nothing new behaves as before.
+   default: any owner, `write_token_ref`, `api_url`, `pr_webhook_secret_ref`), so an install that sets nothing
+   new behaves as before. **It is bound to the one host its `api_url` belongs to** (github.com for the default
+   API), never copied to other allowed hosts (review of PR 167: adding a host must not send it the existing
+   token). Every other allowed host gets a read-only default source with no credentials (public repos, read
+   anonymously) until an admin binds a source with its own token. Default source ids come from the host
+   (`default` for the legacy host, `default-<host>` for the others), never from the allowlist's order, so a
+   recorded source stays on its host when hosts are added or reordered; a positional id saved by an earlier
+   build (`default-2`) is rebound to its host's default source at next use, with an event.
 3. **Which source a repo uses.** Onboarding takes an optional `source`; without one the factory picks the
    only source that covers the URL's host and owner, preferring a source that names the owner over one that
    covers any owner; two that name it is an error asking the person to choose. The product records it
@@ -57,12 +63,14 @@ credentials that reach it.
    - *The token reaches agents*: clone, push, pull request and reading the PR run in the engine, never in a
      sandbox (ADR-0014).
    - *A read-only org gets pushed to*: a `read` source holds the pull-request station before anything is
-     pushed.
+     pushed. The source is reloaded and its write access checked again **immediately before each remote write**
+     (push, opening the PR, the status check): an admin may make it read-only, change its token or move the
+     repo while the station waits, and a change of source or token since the station started holds too.
    - *A forged webhook names another org's PRs*: each source has its own webhook secret; a delivery is
      accepted only when a source's secret verifies it, and then refreshes only PRs of repos covered by a source
-     whose secret verified it. Every verifying source counts, not the first: the default source on each allowed
-     host shares `pr_webhook_secret_ref` (the legacy shared scope), while a source with a secret of its own
-     still verifies alone, so its PRs stay out of reach of other sources' secrets.
+     whose secret verified it. Every verifying source counts, not the first: sources may share a secret (an
+     admin may give a new host's source the legacy `pr_webhook_secret_ref`), while a source with a secret of
+     its own still verifies alone, so its PRs stay out of reach of other sources' secrets.
    - *A source in use disappears*: deleting a source that a product still uses is refused; archive the
      product or move it to another source first (admin, on the product).
    - *Who did what*: creating, changing and deleting a source, and moving a repo to another source, is
