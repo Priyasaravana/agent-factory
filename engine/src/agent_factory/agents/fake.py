@@ -209,6 +209,9 @@ class FakeAgentRunner:
                 (req.cwd / "tests" / "test_change.py").write_text("def test_dry_run() -> None:\n    assert True\n")
         elif req.role == "repo-developer":
             (req.cwd / "CHANGES.md").write_text("- dry-run change without tests\n")
+        if req.role == "repo-developer" and "Fix the team's CI" in req.prompt:  # a CI fix on a PR's branch (J3)
+            fixes = req.cwd / "CI-FIXES.md"
+            fixes.write_text((fixes.read_text() if fixes.is_file() else "") + f"- fixed by {req.change_id}\n")
         if req.role == "developer":
             tests = req.cwd / "tests"
             tests.mkdir(exist_ok=True)

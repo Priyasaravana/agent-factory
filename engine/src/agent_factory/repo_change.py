@@ -117,6 +117,13 @@ def pr_title(kind: str, request: str) -> str:
     return title if len(title) <= 72 else title[:71] + "…"
 
 
+def ci_fix_title(number: int, failing: list[str]) -> str:
+    """The commit a CI fix adds to a pull request (J3 slice 2)."""
+    names = ", ".join(failing[:3]) + (" …" if len(failing) > 3 else "")
+    title = f"fix: CI on #{number}" + (f" ({names})" if names else "")
+    return title if len(title) <= 72 else title[:71] + "…"
+
+
 def via_note(report: dict[str, Any]) -> str:
     """Who answered a scan (ADR-0035): ` via Semgrep (code)`, and the fallback if any."""
     via = report.get("via") or ""

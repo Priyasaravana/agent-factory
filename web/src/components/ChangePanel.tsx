@@ -113,7 +113,7 @@ export default function ChangePanel({
 
   if (!change.data)
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
-  const { change: r, stations, risk } = change.data;
+  const { change: r, stations, risk, ci_fix: ciFix } = change.data;
 
   return (
     <Card>
@@ -136,7 +136,7 @@ export default function ChangePanel({
           >
             {KIND_LABEL[r.kind ?? "new"]}
           </span>
-          <PullRequestStatus change={r} />
+          <PullRequestStatus change={r} ciFix={ciFix ?? null} canFix={canSteer && !archived} />
           <a
             className="pill muted no-underline"
             href={`/workflows/${r.workflow_id ?? ""}`}

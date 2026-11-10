@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import blue_green, failures, ledger, rollback, validation, waiting
+from agent_factory import blue_green, failures, ledger, pr_loop, rollback, validation, waiting
 from agent_factory.agents.runner import AgentRunner
 from agent_factory.config import Blueprint, FactoryConfig
 from agent_factory.engine import handoff
@@ -41,6 +41,7 @@ from agent_factory.models import (
     OnboardRepoInput,
     Outcome,
     Pause,
+    PrContinuation,
     Product,
     ProductTarget,
     RiskApproval,
@@ -533,10 +534,12 @@ class ChangeManager:
         source: ChangeSource = ChangeSource.ui,
         requested_by: str | None = None,
         provided: dict[str, dict[str, Any]] | None = None,
+        continues: PrContinuation | None = None,
     ) -> Change:
         """Start a change to a product (ADR-0030). The kind defaults to `new` for the
         first change and `feature` after it; the requester to the signed-in user. `provided`:
-        entry artifacts from the org's own tools, by key (ADR-0039 §5)."""
+        entry artifacts from the org's own tools, by key (ADR-0039 §5). `continues`: a CI fix that
+        continues another change's pull request (`fix_ci`, J3)."""
         from agent_factory.identity import current_identity
 
         if product.archived_at:
@@ -587,6 +590,7 @@ class ChangeManager:
             source=source,
             requested_by=requested_by or current_identity().user,
             provided=dict(provided or {}),
+            continues=continues,
             created_at=now,
             updated_at=now,
         )
@@ -1074,6 +1078,122 @@ class ChangeManager:
             self.store.save_change(change)
         return change
 
+    # ---------------------------------------------------- red CI on a PR (J3 slice 2) --
+    def continuations(self, change: Change) -> list[Change]:
+        """The CI fixes that continued `change`'s pull request, oldest first."""
+        return sorted(
+            (
+                c
+                for c in self.store.list_changes(change.product_id)
+                if c.continues is not None and c.continues.change_id == change.id
+            ),
+            key=lambda c: c.iteration,
+        )
+
+    def ci_fix_mode(self, change: Change) -> str:
+        """The CI fix setting of the lane the change ran, as that lane is now (its active version): a
+        person who sets a lane to autonomous expects the next red CI on its open PRs to be fixed."""
+        try:
+            reg = self.workflows[change.workflow_id or ""]
+            return reg.get(reg.active_version()).ci_fix
+        except Exception:  # noqa: BLE001 - a lane gone or unreadable: a person decides
+            return "ask"
+
+    def ci_fix_offer(self, change: Change) -> pr_loop.CiFix | None:
+        """Whether a fix for the red CI on `change`'s pull request may start now (`pr_loop.ci_fix`, pure).
+        None: the change opened no pull request."""
+        from agent_factory.engine.pr_watch import PrWatcher
+
+        ref = pr_loop.parse_pr_url(change.pr_url)
+        if ref is None:
+            return None
+        fixes = [
+            pr_loop.FixRecord(
+                change_id=c.id,
+                from_sha=c.continues.from_sha,
+                open=c.status not in TERMINAL,
+                auto=c.continues.auto,
+                pushed=bool(c.continues.pushed_sha),
+            )
+            for c in self.continuations(change)
+            if c.continues is not None
+        ]
+        return pr_loop.ci_fix(
+            change.pull_request,
+            fixes,
+            followed=PrWatcher.is_followed(change),
+            slug=ref.slug,
+            mode=self.ci_fix_mode(change),
+            max_auto=self.cfg.existing_repos.ci_fix_auto_rounds,
+        )
+
+    def fix_ci(self, change_id: str, by: str | None, *, auto: bool = False) -> Change:
+        """Start a change that fixes the red CI on `change_id`'s pull request and continues that PR (J3):
+        it works on the PR's branch from the failing head commit, pushes fast-forward to the same branch
+        and never opens a second PR. A member starts it (`auto` False), or the PR loop does when the
+        lane's CI fix is autonomous. The fix runs the same lane and kind as the change it continues; a
+        lane started by itself is asked for by the original requester, so its risk approval stays with
+        someone else (ADR-0027)."""
+        original = self._get(change_id)
+        product = self.store.get_product(original.product_id)
+        if product is None or product.target != ProductTarget.repo:
+            raise InvalidRequestError("only a change to a team's repository has a pull request to fix")
+        offer = self.ci_fix_offer(original)
+        if offer is None or not offer.offer:
+            raise InvalidRequestError(f"no CI fix to start: {offer.reason if offer else 'no pull request'}")
+        if auto and not offer.auto:
+            raise InvalidRequestError(f"not started by itself: {offer.reason}")
+        pr = original.pull_request
+        assert pr is not None
+        cont = PrContinuation(
+            change_id=original.id,
+            pr_url=pr.url,
+            number=pr.number,
+            branch=pr.head_ref,
+            from_sha=pr.head_sha,
+            failing=list(pr.failing),
+            auto=auto,
+        )
+        requester = (original.requested_by or by) if auto else by
+        change = self.start_change(
+            product,
+            change_request=pr_loop.fix_request(pr, original.id),
+            kind=original.kind,
+            source=ChangeSource.ci,
+            requested_by=requester,
+            workflow_id=original.workflow_id,
+            continues=cont,
+        )
+        who = "started by itself (the lane's CI fix is autonomous)" if auto else f"started by {by}"
+        what = f"CI fix {who}: change {change.id} continues pull request #{pr.number} on {pr.head_ref}"
+        data = {"ci_fix": {**cont.model_dump(mode="json"), "fix": change.id}}
+        self.store.add_event(original.id, EventKind.decision, what, data=data)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"continues pull request #{pr.number} of change {original.id}: from {pr.head_sha[:7]} on "
+            f"{pr.head_ref}, pushed fast-forward to the same branch (no new pull request); {who}",
+            data=data,
+        )
+        return change
+
+    def _follow_again(self, change: Change) -> None:
+        """A delivered CI fix pushed to the PR: the change that opened it reads it again now, instead of
+        waiting for the next poll or webhook."""
+        cont = change.continues
+        if cont is None or not cont.pushed_sha or self.settings.factory_mode != "live":
+            return
+
+        async def read() -> None:
+            try:
+                await self.pr_watcher.refresh(cont.change_id, "refresh")
+            except Exception as exc:  # noqa: BLE001 - the next poll reads it anyway
+                self.store.add_event(cont.change_id, EventKind.log, f"pull request not read after the fix: {exc}")
+
+        task = asyncio.get_running_loop().create_task(read(), name=f"pr-after-fix-{change.id}")
+        self.pr_watcher.background.add(task)  # type: ignore[arg-type]
+        task.add_done_callback(self.pr_watcher.background.discard)  # type: ignore[arg-type]
+
     def recover_on_startup(self) -> list[str]:
         """Builder `factory-recover` rule: never silently restart; mark and let a
         human resume, unless the recover policy is explicitly auto."""
@@ -1209,6 +1329,8 @@ class ChangeManager:
             self._update_ledger(self._get(change.id), product)
         except Exception as exc:  # noqa: BLE001
             self.store.add_event(change.id, EventKind.log, f"work ledger update failed: {type(exc).__name__}: {exc}")
+        if change.status == ChangeStatus.awaiting_feedback:
+            self._follow_again(self._get(change.id))
         if not product.eval_run_id:
             return
         from agent_factory.evals import on_change_stopped
@@ -1431,7 +1553,13 @@ class ChangeManager:
                         "repo_source": {"id": source.id, "with_token": bool(token)},
                     },
                 )
-            worktree = await self.ws.create_worktree(product.slug, change.id, f"origin/{product.repo_ref}")
+            if change.continues is not None:  # a CI fix starts on the PR's branch, at the failing commit (J3)
+                fixed = await self._continuation_worktree(change, product, flow)
+                if fixed is None:
+                    return None
+                worktree = fixed
+            else:
+                worktree = await self.ws.create_worktree(product.slug, change.id, f"origin/{product.repo_ref}")
         else:
             owner = str(getattr(self.cfg.policies.publish, "owner", "") or "")
             await self.ws.ensure_product_repo(product.slug, blueprint.template or "", owner)
@@ -1724,6 +1852,46 @@ class ChangeManager:
                 )
             return self._hold(change, sid, result.summary, result.failure_evidence)
         return None
+
+    async def _continuation_worktree(self, change: Change, product: Product, flow: WorkflowDoc) -> Path | None:
+        """A CI fix's worktree: the PR's branch fetched read-only, checked out at the commit whose CI
+        failed. A branch that can't be read, or that moved since the fix was offered, holds the change
+        (None) rather than fixing a commit nobody tested."""
+        from agent_factory.repo_sources import SourceError
+
+        cont = change.continues
+        assert cont is not None
+        first = change.current_station or flow.forward_stations()[0].id
+        if self.ws.change_dir(change.id).exists():
+            return self.ws.change_dir(change.id)  # resume: keep its own worktree
+        if not pr_loop.valid_branch(cont.branch):
+            self._hold(change, first, f"not a branch the factory pushes to: {cont.branch!r}")
+            return None
+        try:  # the product's repository source, as for any read of the repo (ADR-0047)
+            ref, source = self.sources.for_product(product, change.id)
+        except SourceError as exc:
+            self._hold(change, first, "no repository source reaches this repo", str(exc))
+            return None
+        token = self.sources.resolve(source.token_ref)  # environment only; anonymous if it doesn't resolve
+        try:
+            await self.ws.sync_repo(
+                product.slug, ref.url, cont.branch, self.cfg.existing_repos.clone_timeout_seconds, token=token
+            )
+        except RuntimeError as exc:
+            self._hold(change, first, "the pull request's branch could not be read", str(exc))
+            return None
+        head = await self.ws.git(f"rev-parse origin/{cont.branch}", self.ws.product_dir(product.slug))
+        now = (head.lines() or [""])[-1] if head.ok else ""
+        if now != cont.from_sha:
+            self.store.add_event(cont.change_id, EventKind.log, f"CI fix {change.id}: the branch moved, nothing fixed")
+            self._hold(
+                change,
+                first,
+                f"the pull request's branch moved since the fix was offered ({cont.from_sha[:7]} → {now[:7] or '?'}): "
+                "close this change; the pull request is read again and a new fix is offered if CI still fails",
+            )
+            return None
+        return await self.ws.create_worktree(product.slug, change.id, cont.from_sha)
 
     def lane_for(self, product: Product, kind: str) -> str:
         """The workflow a change runs (ADR-0039): the org workflow assigned to the product for this

@@ -1,10 +1,25 @@
-# Agent Factory: handoff (updated 2026-11-09)
+# Agent Factory: handoff (updated 2026-11-12)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
+## Current state (2026-11-12)
+- **J3 slice 2 in review on `feat/j3-ci-fix` (2026-11-10):** red CI fixed on the same PR
+  ([plans/pr-loop.md](plans/pr-loop.md), "Red CI"). Slice 1 (follow the PR) merged as #166. A failing head
+  commit offers **Fix CI** on the change page and in Needs you; the fix is a change that continues the PR
+  from the failing commit on its branch, pushes fast-forward only (`ls-remote` checked first, never forced,
+  never `gh pr create`), and the PR is read again. Lane setting **Red CI on a pull request** (`ci_fix`: ask |
+  autonomous; autonomous starts once per failing commit, at most `existing_repos.ci_fix_auto_rounds` = 2 per
+  PR). Checks run in the cloud session: the new and touched engine tests pass, web build clean (full
+  `scripts/check all` result in the PR). Things to look at in review: the fix is gated on **its own diff only**
+  (`base_ref` = start commit), and the lane's setting is read from its **active** version, not the version the
+  original change was pinned to. **Waiting on Saravana for the live run** (unchanged): a throwaway copy of one
+  of his repos with a small CI workflow, and a fine-grained token on it only (Contents, Pull requests
+  read/write; Checks read; Commit statuses read/write) at `existing_repos.write_token_ref`; for webhook mode
+  also a public tunnel to the UI port and `REPO_WEBHOOK_SECRET`. Next code: slice 3, review comments → a
+  change that continues the PR (the continuation mechanics are reusable).
 ## Current state (2026-11-09)
-- **In review, `feat/repo-sources` (2026-11-09):** repository sources ([ADR-0047](../adr/0047-repo-sources.md),
+- **Merged as #167 (2026-11-12), `feat/repo-sources`:** repository sources ([ADR-0047](../adr/0047-repo-sources.md),
   status proposed): one source per org or host with its own token, webhook secret and read/write access; admins
   manage them on **Integrations → Repository sources**, members choose one when onboarding (the engine picks the
   source naming the repo's owner), admins can move a repo to another source on its page. Clone, push, PR and
@@ -20,13 +35,6 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   the legacy token is bound to `api_url`'s host only (other hosts: read-only, no credentials, until a source
   binds one); default source ids are host-based (`default-<host>`), positional ones rebound; the PR station
   reloads the source and rechecks write access before each push, PR and status write.
-- **J3 started 2026-11-08.** Slice 1 of the PR loop in review on `feat/j3-pr-loop`
-  ([plans/pr-loop.md](plans/pr-loop.md)): the factory follows a change's PR by poll (default) or signed
-  webhook, plus Refresh; merged → outcome merged, closed → abandoned, work items follow. **Waiting on
-  Saravana for the live run:** a throwaway copy of one of his repos with a small CI workflow, and a
-  fine-grained token on it only (Contents, Pull requests read/write; Checks read; Commit statuses
-  read/write) at `existing_repos.write_token_ref`. For webhook mode also a public tunnel to the UI port and
-  `REPO_WEBHOOK_SECRET`. Next code: slice 2, red CI fixed on the same PR.
 - **J2 closed 2026-11-06 (Saravana)** on Plant watering's iteration 4 (`c4888c5614a1`): validated in a temporary
   environment (its first, broken attempt never reached users), the tested image promoted blue/green (live
   green, blue kept), the environment removed, Ready for: pilot. Detail in the roadmap's J2. Both factory lanes

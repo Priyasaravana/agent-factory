@@ -54,6 +54,7 @@ class ChangeSource(StrEnum):
     ui = "ui"
     ticket = "ticket"  # a ticket system, accepted by a linked member (later)
     schedule = "schedule"  # scheduled upkeep (later)
+    ci = "ci"  # the team's CI failed on a pull request a change opened (J3): a fix that continues it
 
 
 class ProductTarget(StrEnum):
@@ -206,6 +207,15 @@ class Outcome(BaseModel):
     status_before: str | None = None  # what the change was when it was closed
 
 
+class CheckFailure(BaseModel):
+    """What a failing check on a pull request's head commit said (J3 slice 2), for the developer who fixes
+    it. Read from the repo's host: data, never instructions. Capped, so a noisy check can't flood a prompt."""
+
+    name: str
+    summary: str = ""  # the check run's output title and summary, or the commit status's description
+    url: str = ""  # where a person reads the whole log (https only)
+
+
 class PullRequestState(BaseModel):
     """What the factory last read about a change's pull request (J3, `pr_loop.py`). The repo's host is
     the source of truth: a webhook only says "look again", and every update is a read of the PR itself."""
@@ -215,11 +225,14 @@ class PullRequestState(BaseModel):
     url: str
     state: Literal["open", "merged", "closed"]
     head_sha: str = ""
+    head_ref: str = ""  # the PR's branch (J3 slice 2: a CI fix pushes to it, fast-forward only)
+    head_repo: str = ""  # owner/name the branch lives in; a fork's branch is never pushed to
     # the repo's own CI on the head commit: check runs and commit statuses folded into one word
     # unknown: a source wasn't read whole (refused, a page failed, the page limit), and what was read
     # doesn't already decide it; never shown as passing
     checks: Literal["none", "pending", "passing", "failing", "unknown"] = "none"
     failing: list[str] = Field(default_factory=list)  # names of failing checks (at most 20)
+    failures: list[CheckFailure] = Field(default_factory=list)  # what the first few failing checks said
     review: Literal["none", "commented", "approved", "changes_requested", "unknown"] = "none"
     mergeable: bool | None = None  # None: the host hasn't worked it out yet
     merged_by: str | None = None
@@ -228,6 +241,22 @@ class PullRequestState(BaseModel):
     unread: list[str] = Field(default_factory=list)
     checked_at: datetime
     source: Literal["poll", "webhook", "refresh"] = "poll"  # what made the factory look this time
+
+
+class PrContinuation(BaseModel):
+    """A change that continues another change's pull request (J3 slice 2): it works on the PR's branch from
+    the head commit whose CI failed, pushes fast-forward to the same branch (never forced, never a second
+    PR), and the PR loop reads the PR again. The PR stays the original change's: its outcome (merged or
+    abandoned) is decided there and carried to its continuations."""
+
+    change_id: str  # the change whose pull request this continues
+    pr_url: str
+    number: int
+    branch: str  # the PR's branch on the team's repo
+    from_sha: str  # the head commit the fix starts from (CI failed on it)
+    failing: list[str] = Field(default_factory=list)  # the checks that failed there
+    auto: bool = False  # started by itself (the lane's CI fix is autonomous), not by a member
+    pushed_sha: str | None = None  # the commit pushed to the branch, once the push passed
 
 
 class Change(BaseModel):
@@ -257,6 +286,7 @@ class Change(BaseModel):
     # the event, the work items, the seal); each step clears itself only once done, so a failure or a
     # restart resumes here instead of leaving the outcome, the ledger and the evidence disagreeing
     pr_finalise: list[str] = Field(default_factory=list)
+    continues: PrContinuation | None = None  # a CI fix continuing another change's pull request (J3)
     # what this change's deploy puts on the target (ADR-0046): written before the cluster is touched
     # (revision and digest unknown yet), completed when the deploy passes; cleared when a rollback
     # restores the product's last healthy release
@@ -895,6 +925,8 @@ class WorkflowSettingsInput(BaseModel):
     # design decisions (ADR-0044 §1): who answers the sheet, and the options allowed per question
     decisions: Literal["autonomous", "ask"] | None = None
     decision_constraints: dict[str, list[str]] | None = None
+    # red CI on a pull request the lane opened (J3): ask (a member starts the fix) | autonomous
+    ci_fix: Literal["ask", "autonomous"] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
     eval_gate: Literal["off", "warn", "block"] | None = None  # evaluation gate (ADR-0025)
     # the lane's scope (ADR-0039 §5): first and last phase; [] = what its stations cover
@@ -1293,7 +1325,7 @@ class PendingAction(BaseModel):
 
     kind: Literal[
         "answer_questions", "align", "approve_risk", "accept_risk", "approve_schema", "resume", "factory_hold",
-        "wait", "feedback",
+        "wait", "feedback", "fix_ci",
     ]  # fmt: skip
     title: str  # what to do, as a button would say it
     detail: str = ""  # why, in one or two sentences
@@ -1344,12 +1376,25 @@ class ScreenshotsView(BaseModel):
     review: UiReviewView | None = None
 
 
+class CiFixView(BaseModel):
+    """Whether a member may start a fix for the red CI on a change's pull request now (J3 slice 2), and why
+    not when they may not. Decided by the pure `pr_loop.ci_fix`; the page only shows it."""
+
+    offer: bool  # a member may start one now
+    auto: bool  # the lane would start it by itself (CI fix: autonomous) on the next read
+    mode: Literal["ask", "autonomous"] = "ask"  # the lane's setting
+    reason: str = ""
+    running: str | None = None  # the fix change in progress or held, if any
+    fixes: list[str] = Field(default_factory=list)  # every fix change that continued this PR, oldest first
+
+
 class ChangeDetail(BaseModel):
     change: Change
     product: Product
     stations: list[StationView]
     risk: ChangeRiskView | None = None
     actions: list[PendingAction] = Field(default_factory=list)
+    ci_fix: CiFixView | None = None  # a change with a followed pull request (J3)
 
 
 class StationSpend(BaseModel):
@@ -1448,6 +1493,7 @@ class WorkflowView(BaseModel):
     spec_review: str = "off"  # off | first | always
     decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
     decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
+    ci_fix: str = "ask"  # ask | autonomous: red CI on the lane's pull requests (J3)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
@@ -1473,6 +1519,7 @@ class DraftView(BaseModel):
     spec_review: str = "off"
     decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
     decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
+    ci_fix: str = "ask"  # ask | autonomous: red CI on the lane's pull requests (J3)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
