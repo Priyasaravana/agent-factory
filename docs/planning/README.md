@@ -8,6 +8,7 @@ account, any tool) can pick up development from a clone of this repo and nothing
 2. [handoff.md](handoff.md): the current working state (what's live, what's open) and how we work:
    environment, checks, commits, lessons learned.
 3. [master-plan.md](master-plan.md): the long-term vision, principles and vocabulary.
+   [north-star.md](north-star.md) says why: the problem we solve, for whom, and the value.
 4. [critique-2026-10-21.md](critique-2026-10-21.md): why the roadmap follows the golden journey.
 5. As needed: [plans/](plans/) (designs agreed but not built yet) and the ADRs in [../adr/](../adr/).
    [archive/](archive/) is history only: never act on it.

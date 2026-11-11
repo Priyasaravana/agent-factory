@@ -17,6 +17,9 @@ blue/green live run, so one new product closes J1's repeatability bar and proves
 > the freeze needs Saravana's, recorded with its date. Concurrent edits meet as git conflicts: keep both.
 
 ## 🎯 North star: the golden journey (decided 2026-10-21)
+Why we build it and for whom (problem, users, value, north star metric): [north-star.md](north-star.md),
+proposed 2026-11-01. The golden journey below is how we prove it.
+
 The factory must show **the whole life of a product**, live, end to end, on a product worth demoing:
 launch → design choices agreed → build a good product → verify → publish → deploy → iterate safely →
 team repo PR → run and maintain → end of life.
