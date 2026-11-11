@@ -595,3 +595,51 @@ async def test_write_access_is_checked_again_right_before_pushing(make_factory, 
     assert await wait_run(f, change.id) == ChangeStatus.held
     assert "is read-only: nothing pushed" in f.store.get_change(change.id).summary
     assert not any(c.startswith(("git push", "gh pr", "gh auth")) or " git push " in c for c in ex.calls)
+
+
+async def test_the_old_first_host_default_binding_is_rebound_too(make_factory, tmp_path):
+    """Second re-review of PR 167 (P2): the earlier build gave `default` to the first allowed host whatever
+    `api_url` said. A GHE product saved as `default` while GHE was listed first is rebound to its host's
+    default source, not held."""
+    f = _factory(make_factory, _origin(tmp_path))
+    f.manager.cfg.existing_repos.allowed_hosts = ["ghe.example.com", "github.com"]
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url="https://ghe.example.com/platform/app"))
+    product.repo_source = "default"  # as the earlier build recorded it
+    f.store.save_product(product)
+    assert f.manager.sources.get("default").host == "github.com", "now the legacy (api_url) host's"
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    assert f.store.get_product(product.id).repo_source == "default-ghe-example-com"
+    assert any("'default' is now 'default-ghe-example-com'" in e.message for e in f.store.list_events(change.id))
+    # a github.com product on `default` is where it should be: untouched
+    gh = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL))
+    gh.repo_source = "default"
+    f.store.save_product(gh)
+    assert f.manager.sources.for_product(gh)[1].id == "default"
+
+
+async def test_only_genuine_generated_defaults_are_rebound(make_factory, tmp_path):
+    """A source someone made is never rebound, even with a default-looking id."""
+    f = _factory(make_factory, _origin(tmp_path))
+    srcs = f.manager.sources
+    # an admin's source that happens to be called `default-2`: kept, and it holds when it stops covering
+    srcs.create(RepoSourceInput(id="default-2", owners=["acme"], token_ref="env://REPO_ACME_TOKEN"), "saravana")
+    product = f.manager.onboard_repo(OnboardRepoInput(repo_url=URL, source="default-2"))
+    assert srcs.for_product(product)[1].id == "default-2"
+    narrowed = f.store.get_repo_source("default-2")
+    narrowed.owners = ["acme-labs"]
+    f.store.save_repo_source(narrowed)
+    with pytest.raises(rs.SourceError, match="no longer covers"):
+        srcs.for_product(product)
+
+    # default sources off: a config source called `default` on another host holds, never rebinds
+    er = f.manager.cfg.existing_repos
+    er.default_source = False
+    er.allowed_hosts = ["github.com", "ghe.example.com"]
+    er.sources = [rs.RepoSource(id="default", host="github.com", owners=["*"], origin="config")]
+    ghe = f.manager.onboard_repo(OnboardRepoInput(repo_url=OTHER_URL, source="default"))
+    ghe.repo_url = "https://ghe.example.com/platform/app"
+    f.store.save_product(ghe)
+    with pytest.raises(rs.SourceError, match="no longer covers"):
+        srcs.for_product(ghe)
+    assert f.store.get_product(ghe.id).repo_source == "default"

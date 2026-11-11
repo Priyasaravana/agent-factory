@@ -38,7 +38,10 @@ credentials that reach it.
    anonymously) until an admin binds a source with its own token. Default source ids come from the host
    (`default` for the legacy host, `default-<host>` for the others), never from the allowlist's order, so a
    recorded source stays on its host when hosts are added or reordered; a positional id saved by an earlier
-   build (`default-2`) is rebound to its host's default source at next use, with an event.
+   build is rebound to its host's default source at next use, with an event: `default-N` that no longer
+   exists, and `default` when it now belongs to another host (the earlier build gave `default` to the first
+   allowed host whatever `api_url` said). Only genuine generated defaults are rebound, and only to a default
+   source; a source someone made, whatever its id, holds instead.
 3. **Which source a repo uses.** Onboarding takes an optional `source`; without one the factory picks the
    only source that covers the URL's host and owner, preferring a source that names the owner over one that
    covers any owner; two that name it is an error asking the person to choose. The product records it

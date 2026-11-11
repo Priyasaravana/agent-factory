@@ -23,7 +23,20 @@ if TYPE_CHECKING:
     from agent_factory.state.base import StateStore
 
 
-_GENERATED_DEFAULT = re.compile(r"^default-\d+$")
+_GENERATED_DEFAULT = re.compile(r"^default(-\d+)?$")
+
+
+def _stale_generated_default(recorded: str, ref: RepoRef, sources: list[rs.RepoSource]) -> bool:
+    """Whether `recorded` is a positional default id from an earlier build that no longer reaches the repo:
+    `default-N` that no source has now, or `default` held by the default source of another host. Never a
+    source someone made (config and admin ids can't take these while the default source is on, and a
+    source that exists and is not a default is left to `still_covers`)."""
+    if not _GENERATED_DEFAULT.match(recorded) or not any(s.origin == "default" for s in sources):
+        return False  # default sources off: nothing generated to rebind to, `still_covers` says why
+    now = next((s for s in sources if s.id == recorded), None)
+    if now is None:
+        return True
+    return now.origin == "default" and now.host != ref.host
 
 
 class RepoSources:
@@ -72,9 +85,10 @@ class RepoSources:
         ref = self.parse(product.repo_url or "")
         if product.repo_source:
             sources = self.all()
-            if _GENERATED_DEFAULT.match(product.repo_source) and not any(s.id == product.repo_source for s in sources):
-                # an id an earlier build gave a default source by position (`default-2`): rebind it to
-                # the default source of the repo's own host, never to a source someone made
+            if _stale_generated_default(product.repo_source, ref, sources):
+                # an id an earlier build gave a default source by list position: `default` for the first
+                # allowed host whatever `api_url` said, `default-N` for the others. Rebind it to the
+                # default source of the repo's own host, never to a source someone made
                 defaults = [s for s in sources if s.origin == "default"]
                 src = rs.choose(ref, defaults)
                 before, product.repo_source = product.repo_source, src.id
