@@ -3255,12 +3255,19 @@ async def pull_request(ctx: StationContext) -> StationResult:
 
 
 async def _push_to_pull_request(
-    ctx: StationContext, ref: assess.RepoRef, files: list[str], title: str
+    ctx: StationContext,
+    ref: assess.RepoRef,
+    source: Any,
+    writable: Callable[..., Any],
+    files: list[str],
+    title: str,
 ) -> StationResult:
     """A CI fix continues the pull request it was started for (J3 slice 2): its commits go onto the PR's
     own branch, fast-forward only. Never a force push and never a second pull request: before pushing, the
     branch on the host must still be the commit the fix started from or one it builds on; a branch that
-    moved or is gone holds the change with nothing pushed. The PR loop then reads the PR again."""
+    moved or is gone holds the change with nothing pushed. The PR loop then reads the PR again.
+    `source` and `writable` are the station's (ADR-0047): the product's repository source, re-checked
+    for write access before each remote write."""
     cont = ctx.change.continues
     assert cont is not None
     original = ctx.store.get_change(cont.change_id)
@@ -3359,13 +3366,17 @@ async def _push_to_pull_request(
         if not status.ok:
             await ctx.emit(EventKind.log, "change-risk status check not set on the new commit")
     body_file = artifacts_dir(ctx) / "pull-request.md"  # written by `pull_request`, sealed with the evidence
-    comment = await ctx.cmd(
-        f"gh pr comment {cont.number} --repo {shlex.quote(source.gh_repo(ref))} "
-        f"--body-file {shlex.quote(str(body_file))}",
-        env=env,
-        timeout=60,
-        retry=False,  # a comment that timed out may have been posted
-    ) if still else None
+    comment = (
+        await ctx.cmd(
+            f"gh pr comment {cont.number} --repo {shlex.quote(source.gh_repo(ref))} "
+            f"--body-file {shlex.quote(str(body_file))}",
+            env=env,
+            timeout=60,
+            retry=False,  # a comment that timed out may have been posted
+        )
+        if still
+        else None
+    )
     if comment is not None and not comment.ok:
         await ctx.emit(EventKind.log, "the fix's comment wasn't posted on the pull request")
     cont.pushed_sha = sha or None
