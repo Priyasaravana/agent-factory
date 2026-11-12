@@ -129,6 +129,9 @@ class ChangeManager:
         from agent_factory.engine.pr_watch import PrWatcher
 
         self.pr_watcher = PrWatcher(self)  # follows changes' pull requests on team repos (J3)
+        from agent_factory.engine.sources import RepoSources
+
+        self.sources = RepoSources(cfg, store, self.secrets)  # how team repos are reached (ADR-0047)
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_changes)
 
     # ------------------------------------------------------------ queries --
@@ -234,15 +237,15 @@ class ChangeManager:
     def onboard_repo(self, data: OnboardRepoInput) -> Product:
         """An existing repository becomes a product with target `repo` (ADR-0031). Nothing
         is cloned yet: the first change (an assessment) clones it read-only."""
-        from agent_factory.assess import RepoUrlError, parse_repo_url
+        from agent_factory.repo_sources import SourceError
 
         bp = self.cfg.existing_repos.blueprint
         line = self.cfg.blueprints.get(bp)
         if not line or line.target != "repo":
             raise FactoryError(f"existing_repos.blueprint '{bp}' is not a blueprint with target: repo")
         try:
-            ref = parse_repo_url(data.repo_url, self.cfg.existing_repos.allowed_hosts)
-        except RepoUrlError as exc:
+            ref, source = self.sources.for_url(data.repo_url, data.source)
+        except SourceError as exc:
             raise InvalidRequestError(str(exc)) from exc
         same = [
             p
@@ -265,6 +268,7 @@ class ChangeManager:
             created_at=_now(),
             repo_url=ref.web_url,
             repo_ref=data.branch,
+            repo_source=source.id,
         )
         return self.store.create_product(product)
 
@@ -1374,24 +1378,58 @@ class ChangeManager:
         flow = self.workflows[change.workflow_id or ""].get(change.workflow_version)
         if blueprint.target == "repo":
             if not self.ws.change_dir(change.id).exists():
-                from agent_factory.assess import parse_repo_url
+                from agent_factory.repo_sources import SourceError
 
-                url = parse_repo_url(product.repo_url or "", self.cfg.existing_repos.allowed_hosts).url
+                first = change.current_station or flow.forward_stations()[0].id
                 try:
-                    branch, base = await self.ws.sync_repo(
-                        product.slug, url, product.repo_ref, self.cfg.existing_repos.clone_timeout_seconds
-                    )
+                    ref, source = self.sources.for_product(product, change.id)
+                except SourceError as exc:
+                    return self._hold(change, first, "no repository source reaches this repo", str(exc))
+                # a private repo is read with the source's token, in the environment only (ADR-0047 §4);
+                # a token that doesn't resolve leaves a public repo readable anonymously
+                token = self.sources.resolve(source.token_ref)
+                refused = ""
+                try:
+                    try:
+                        branch, base = await self.ws.sync_repo(
+                            product.slug,
+                            ref.url,
+                            product.repo_ref,
+                            self.cfg.existing_repos.clone_timeout_seconds,
+                            token=token,
+                        )
+                    except RuntimeError as exc:
+                        if not token:
+                            raise
+                        # a token without access to this repo (another org, expired): a public repo is
+                        # still readable anonymously; said in the event, so a wrong token is visible
+                        refused, token = str(exc).splitlines()[-1][:300], None
+                        branch, base = await self.ws.sync_repo(
+                            product.slug, ref.url, product.repo_ref, self.cfg.existing_repos.clone_timeout_seconds
+                        )
                 except RuntimeError as exc:
-                    first = change.current_station or flow.forward_stations()[0].id
-                    return self._hold(change, first, "the repository could not be read", str(exc))
+                    why = str(exc) + (f"\n\nWith the token of source '{source.id}': {refused}" if refused else "")
+                    if not token and not refused:
+                        # names the source, never its reference: change details are visible to members
+                        why += (
+                            f"\n\nNo token was used: source '{source.id}' "
+                            + ("has a token that doesn't resolve" if source.token_ref else "has no token")
+                            + ". If the repo is private, an admin checks it on Integrations → Repository sources."
+                        )
+                    return self._hold(change, first, "the repository could not be read", why)
                 if product.repo_ref != branch:
                     product.repo_ref = branch
                     self.store.save_product(product)
                 self.store.add_event(
                     change.id,
                     EventKind.decision,
-                    f"cloned {product.repo_url} ({branch}) read-only",
-                    data={"repo": {"url": product.repo_url, "branch": branch}},
+                    f"cloned {product.repo_url} ({branch}) read-only via source '{source.id}'"
+                    + (" with its token" if token else "")
+                    + (f" (its token was refused, read anonymously: {refused})" if refused else ""),
+                    data={
+                        "repo": {"url": product.repo_url, "branch": branch},
+                        "repo_source": {"id": source.id, "with_token": bool(token)},
+                    },
                 )
             worktree = await self.ws.create_worktree(product.slug, change.id, f"origin/{product.repo_ref}")
         else:

@@ -49,7 +49,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
   - 🟡 skills are reviewed and pinned;
   - 🟡 trusted people, untrusted text: only signed-in members start work, the diff decides the risk (ADR-0027) · ⬜ mark requirements and feedback as untrusted data inside prompts.
 - **Tool misuse & unexpected code execution:** ✅ sandbox with egress allowlist, and hooks as a second layer.
-- **Identity & privilege abuse:** ✅ agents hold no credentials beyond the model token and cannot reach the engine · ✅ with the LiteLLM gateway, a virtual key per agent call instead of the model token (ADR-0036; `direct` stays the default) · ✅ each station gets only its phase's capabilities (ADR-0039).
+- **Identity & privilege abuse:** ✅ agents hold no credentials beyond the model token and cannot reach the engine · ✅ with the LiteLLM gateway, a virtual key per agent call instead of the model token (ADR-0036; `direct` stays the default) · ✅ each station gets only its phase's capabilities (ADR-0039) · ✅ team repos reached with one token per org, read-only sources for assessment, never a fallback to another token (ADR-0047).
 - **Supply chain (skills, templates, packages):** ✅ pinned commits, consent for scripts, SBOM + provenance · ⬜ pack id, version and hash in provenance (ADR-0041) · ⬜ image signing (with a registry).
 - **Memory/context poisoning:** 🟡 earlier-iteration docs are fed back. Keep holdout scenarios out of builder context (✅).
 - **Cascading failures & rogue agents:** ✅ deterministic ChangeManager, loop limits, usage limits, HOLD on missing evidence · ✅ failures classed as work, infra or decision: infra retried in place with backoff and a cap, never sent to the developer; time limits per agent call and inside a station (ADR-0043).

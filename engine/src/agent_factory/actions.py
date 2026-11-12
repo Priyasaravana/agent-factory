@@ -94,6 +94,7 @@ from agent_factory.models import (
     Product,
     ProductDetail,
     ProductOwnerInput,
+    ProductSourceInput,
     ProductSpend,
     ProductTarget,
     ProvidedArtifactInfo,
@@ -101,6 +102,9 @@ from agent_factory.models import (
     ReadinessView,
     ReadyForView,
     ReorderStationsInput,
+    RepoSourceInput,
+    RepoSourcesView,
+    RepoSourceView,
     RequirementView,
     ReviewFinding,
     ReviewRequirement,
@@ -320,7 +324,8 @@ async def create_product(f: Factory, body: CreateProductInput) -> ProductDetail:
 
 @action(
     "onboard_repo",
-    "Onboard an existing repository (public https URL) and start its read-only assessment (ADR-0031)",
+    "Onboard an existing repository (https URL, reached through a repository source) and start its "
+    "read-only assessment (ADR-0031, ADR-0047)",
     "POST",
     "/api/repos",
     status_code=201,
@@ -332,6 +337,144 @@ async def onboard_repo(f: Factory, body: OnboardRepoInput) -> ProductDetail:
     f.store.save_product(product)
     f.manager.start_change(product)
     return get_product(f, product.id)
+
+
+# ------------------------------------------------------- repository sources --
+def _source_view(f: Factory, src: Any, admin: bool) -> RepoSourceView:
+    """Members see what onboarding needs; admins also the references and whether each resolves."""
+    srcs = f.manager.sources
+    view = RepoSourceView(
+        id=src.id,
+        title=src.title,
+        provider=src.provider,
+        host=src.host,
+        owners=list(src.owners),
+        access=src.access,
+        origin=src.origin,
+        products=len(srcs.products_using(src.id)),
+    )
+    if admin:
+        view.api_url = src.api_url
+        view.token_ref = src.token_ref
+        view.token_ready = srcs.ready(src.token_ref)
+        view.webhook_secret_ref = src.webhook_secret_ref
+        view.webhook_ready = srcs.ready(src.webhook_secret_ref)
+        view.created_by = src.created_by
+        view.history = [h.model_dump(mode="json") for h in srcs.history(src.id, 50)]
+    return view
+
+
+def _sources_error(exc: Exception) -> FactoryError:
+    msg = str(exc)
+    return FactoryError(msg) if "not found" in msg else InvalidRequestError(msg)
+
+
+@action(
+    "list_repo_sources",
+    "Repository sources: how the factory reaches team repos on each host and org (ADR-0047). "
+    "Admins also see each secret reference and whether it resolves (never a value)",
+    "GET",
+    "/api/repo-sources",
+)
+async def list_repo_sources(f: Factory) -> RepoSourcesView:
+    admin = current_identity().is_admin
+    er = f.cfg.existing_repos
+    # resolving a reference may reach a secret manager: off the event loop
+    views = await asyncio.to_thread(lambda: [_source_view(f, s, admin) for s in f.manager.sources.all()])
+    return RepoSourcesView(
+        sources=views,
+        allowed_hosts=list(er.allowed_hosts),
+        token_refs=list(er.source_token_refs) if admin else [],
+        editable=admin,
+        audit=[h.model_dump(mode="json") for h in f.manager.sources.history(limit=100)] if admin else [],
+    )
+
+
+@action(
+    "create_repo_source",
+    "Add a repository source (admin): a host, the orgs or users it covers, read or write, and references "
+    "to its token and webhook secret, within what the config allows (ADR-0047)",
+    "POST",
+    "/api/repo-sources",
+    status_code=201,
+)
+def create_repo_source(f: Factory, body: RepoSourceInput) -> RepoSourceView:
+    from agent_factory.repo_sources import SourceError
+
+    try:
+        src = f.manager.sources.create(body, current_identity().user)
+    except SourceError as exc:
+        raise _sources_error(exc) from exc
+    return _source_view(f, src, True)
+
+
+@action(
+    "update_repo_source",
+    "Change an admin-made repository source (admin); refused when it would stop covering a product that uses it",
+    "PUT",
+    "/api/repo-sources/{source_id}",
+)
+def update_repo_source(f: Factory, source_id: str, body: RepoSourceInput) -> RepoSourceView:
+    from agent_factory.repo_sources import SourceError
+
+    try:
+        src = f.manager.sources.update(source_id, body, current_identity().user)
+    except SourceError as exc:
+        raise _sources_error(exc) from exc
+    return _source_view(f, src, True)
+
+
+@action(
+    "delete_repo_source",
+    "Delete an admin-made repository source (admin); refused while a live product uses it",
+    "DELETE",
+    "/api/repo-sources/{source_id}",
+)
+def delete_repo_source(f: Factory, source_id: str) -> RepoSourcesView:
+    from agent_factory.repo_sources import SourceError
+
+    try:
+        f.manager.sources.delete(source_id, current_identity().user)
+    except SourceError as exc:
+        raise _sources_error(exc) from exc
+    er = f.cfg.existing_repos
+    return RepoSourcesView(
+        sources=[_source_view(f, s, True) for s in f.manager.sources.all()],
+        allowed_hosts=list(er.allowed_hosts),
+        token_refs=list(er.source_token_refs),
+        editable=True,
+        audit=[h.model_dump(mode="json") for h in f.manager.sources.history(limit=100)],
+    )
+
+
+@action(
+    "set_product_repo_source",
+    "Move a team repo to another repository source that covers it (admin; ADR-0047): its next clone, "
+    "push and pull request reading use that source's token",
+    "POST",
+    "/api/products/{product_id}/repo-source",
+)
+def set_product_repo_source(f: Factory, product_id: str, body: ProductSourceInput) -> ProductDetail:
+    from agent_factory.repo_sources import SourceError
+
+    product = f.store.get_product(product_id)
+    if product is None or product.target != ProductTarget.repo:
+        raise FactoryError("product not found (or not a team repo)")
+    if any(f.manager.is_active(c.id) for c in f.store.list_changes(product_id)):
+        raise FactoryError("a change on this repo is running: move it once it stops")
+    before = product.repo_source
+    try:
+        src = f.manager.sources.move(product, body.source, current_identity().user)
+    except SourceError as exc:
+        raise _sources_error(exc) from exc
+    if product.latest_change_id and before != src.id:
+        f.store.add_event(
+            product.latest_change_id,
+            EventKind.decision,
+            f"repository source moved from '{before or 'none'}' to '{src.id}' by {current_identity().user}",
+            data={"repo_source": {"from": before, "to": src.id, "by": current_identity().user}},
+        )
+    return get_product(f, product_id)
 
 
 @action(

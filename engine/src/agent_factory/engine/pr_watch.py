@@ -11,8 +11,10 @@ A followed PR is one a delivered change opened (`Change.pr_url`) that no one has
 Lists (check runs, statuses, reviews) are read page by page; a source not read whole is said
 (`unread`) and never supports a pass. A merged or closed PR's outcome is saved with the steps that
 follow it (`Change.pr_finalise`), resumed by the next refresh, poll or restart until all are done.
-The write token (`existing_repos.write_token_ref`) is resolved for each read and sent only in the
-`Authorization` header; it is never logged or stored.
+Each PR is read with its product's repository source (ADR-0047): that source's API and token, and
+only while the source still covers the repo. The token is resolved for each read and sent only in the
+`Authorization` header; it is never logged or stored. Each source has its own webhook secret, and a
+delivery one source's secret verifies refreshes only the PRs of repos that source covers.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from urllib.parse import quote
 
 from agent_factory import ledger, pr_loop
 from agent_factory.models import Change, ChangeStatus, EventKind, Outcome, PullRequestState
-from agent_factory.secret_refs import SecretError
+from agent_factory.repo_sources import RepoSource, SourceError
 
 if TYPE_CHECKING:
     from agent_factory.engine.pipeline import ChangeManager
@@ -41,13 +43,26 @@ log = logging.getLogger(__name__)
 PageHttp = Callable[[str, dict[str, str]], Awaitable[tuple[int, Any, str | None]]]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib's default handler copies `Authorization` onto the next request,
+    whatever its host, so a redirect could hand a source's token to another host (ADR-0047 §4). A 3xx
+    comes back as the response status, and the read fails with it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201, PLR0913
+        return None
+
+
+# proxies still apply (ProxyHandler is a default handler); redirects never do
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
 async def urllib_get(url: str, headers: dict[str, str]) -> tuple[int, Any, str | None]:
     def call() -> tuple[int, Any, str | None]:
         req = urllib.request.Request(url, method="GET")  # noqa: S310 - the configured https API
         for k, v in headers.items():
             req.add_header(k, v)
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with _OPENER.open(req, timeout=15) as resp:
                 raw, status, link = resp.read().decode(), resp.status, resp.headers.get("Link")
         except urllib.error.HTTPError as exc:
             raw, status, link = exc.read().decode(errors="replace"), exc.code, None
@@ -134,24 +149,41 @@ class PrWatcher:
         return n
 
     # ---------------------------------------------------------- webhook --
-    def webhook_secret(self) -> str | None:
-        cfg = self.m.cfg.existing_repos
-        if cfg.pr_updates != "webhook" or not cfg.pr_webhook_secret_ref:
-            return None
-        try:
-            return self.m.secrets.resolve(cfg.pr_webhook_secret_ref)
-        except SecretError:
-            return None
+    def webhook_secrets(self) -> list[tuple[RepoSource, str]]:
+        """Every source's webhook secret that resolves (ADR-0047 §4); none: the webhook is off (404)."""
+        if self.m.cfg.existing_repos.pr_updates != "webhook":
+            return []
+        out: list[tuple[RepoSource, str]] = []
+        for src in self.m.sources.all():
+            secret = self.m.sources.resolve(src.webhook_secret_ref)
+            if secret:
+                out.append((src, secret))
+        return out
 
-    def schedule_webhook(self, event: str, payload: Any) -> asyncio.Task[list[str]]:
+    def webhook_secret(self) -> str | None:
+        """The first source's secret (kept for callers that know one source)."""
+        found = self.webhook_secrets()
+        return found[0][1] if found else None
+
+    def verified_by(self, body: bytes, signature: str | None) -> list[RepoSource]:
+        """Every source whose secret verifies this delivery, each compared in constant time; empty: nobody's.
+        All of them, not the first: sources may share a secret (the default source on each allowed host
+        shares `pr_webhook_secret_ref`), and a delivery for any of them must reach its PRs. A source with a
+        secret of its own still verifies alone, so its PRs stay out of reach of other sources' secrets."""
+        return [src for src, secret in self.webhook_secrets() if pr_loop.signature_ok(secret, body, signature)]
+
+    def schedule_webhook(
+        self, event: str, payload: Any, sources: list[RepoSource] | None = None
+    ) -> asyncio.Task[list[str]]:
         """Read the named PRs after answering the delivery (the host waits 10 s at most)."""
-        task = asyncio.get_running_loop().create_task(self.on_webhook(event, payload), name="pr-webhook")
+        task = asyncio.get_running_loop().create_task(self.on_webhook(event, payload, sources), name="pr-webhook")
         self.background.add(task)
         task.add_done_callback(self.background.discard)
         return task
 
-    async def on_webhook(self, event: str, payload: Any) -> list[str]:
-        """Look again at the followed PRs a (verified) delivery names. Returns the change ids refreshed."""
+    async def on_webhook(self, event: str, payload: Any, sources: list[RepoSource] | None = None) -> list[str]:
+        """Look again at the followed PRs a (verified) delivery names. With `sources` (those whose secret
+        verified it), only PRs of products on one of them, on repos it covers. Returns the change ids refreshed."""
         wanted = pr_loop.targets(event, payload)
         if not wanted:
             return []
@@ -160,6 +192,8 @@ class PrWatcher:
             if c.pr_finalise:
                 continue
             ref = pr_loop.parse_pr_url(c.pr_url)
+            if ref and sources is not None and not any(self._on_source(c, ref, src) for src in sources):
+                continue
             if ref and any(pr_loop.matches(t, c.pull_request, ref) for t in wanted):
                 try:
                     await self.refresh(c.id, "webhook")
@@ -169,6 +203,20 @@ class PrWatcher:
                 except Exception:  # noqa: BLE001 - a finalisation step failed; the next poll resumes it
                     log.exception("pull request of change %s: follow-up failed after a webhook", c.id)
         return done
+
+    def _on_source(self, change: Change, ref: pr_loop.PrRef, source: RepoSource) -> bool:
+        product = self.m.store.get_product(change.product_id)
+        if product is None:
+            return False
+        if not product.repo_source:  # from before ADR-0047: chosen (and recorded) now
+            try:
+                self.m.sources.for_product(product, change.id)
+            except SourceError:
+                return False
+        if product.repo_source != source.id:
+            return False
+        owner = ref.slug.split("/", 1)[0]
+        return ref.host == source.host and (source.covers_any_owner() or source.names_owner(owner))
 
     # ------------------------------------------------------------- read --
     async def refresh(self, change_id: str, source: str = "refresh") -> Change:
@@ -184,8 +232,22 @@ class PrWatcher:
             ref = pr_loop.parse_pr_url(change.pr_url)
             if ref is None:
                 raise PrReadError(f"not a pull request address: {change.pr_url}")
-            state = await self._read(ref, source)
+            src = self._source_for(change, ref)
+            state = await self._read(ref, source, src)
             return await self._apply(change, state)
+
+    def _source_for(self, change: Change, ref: pr_loop.PrRef) -> RepoSource:
+        """The product's source, still covering its repo, and the PR on that same repo (ADR-0047 §3)."""
+        product = self.m.store.get_product(change.product_id)
+        if product is None:
+            raise PrReadError(f"product of change {change.id} not found")
+        try:
+            repo, src = self.m.sources.for_product(product, change.id)
+        except SourceError as exc:
+            raise PrReadError(str(exc)) from exc
+        if (ref.host, ref.slug.lower()) != (repo.host, repo.slug.lower()):
+            raise PrReadError(f"{ref.host}/{ref.slug}#{ref.number} is not on the product's repo {repo.slug}")
+        return src
 
     async def _get(self, url: str, token: str) -> tuple[int, Any, str | None]:
         headers = {
@@ -199,11 +261,10 @@ class PrWatcher:
         except OSError as exc:  # unreachable, TLS, timeout
             return 0, f"{type(exc).__name__}", None
 
-    async def _pages(self, url: str, token: str, key: str | None) -> tuple[list[Any] | None, str | None]:
+    async def _pages(self, url: str, token: str, key: str | None, api: str) -> tuple[list[Any] | None, str | None]:
         """Every page of a list (`key`: the list's field, None: the body is the list), oldest page first.
         Returns the rows and, when not read whole, why (rows read so far are kept: a failure on them
         still counts). Next pages are followed only on the configured API origin, at most MAX_PAGES."""
-        api = self.m.cfg.existing_repos.api_url
         rows: list[Any] = []
         total: int | None = None
         for page in range(1, pr_loop.MAX_PAGES + 1):
@@ -227,16 +288,22 @@ class PrWatcher:
             url = nxt
         return rows, f"more than {pr_loop.MAX_PAGES} pages"
 
-    async def _read(self, ref: pr_loop.PrRef, source: str) -> PullRequestState:
-        cfg = self.m.cfg.existing_repos
-        if ref.host not in cfg.allowed_hosts:
+    async def _read(self, ref: pr_loop.PrRef, source: str, src: RepoSource) -> PullRequestState:
+        if ref.host not in self.m.cfg.existing_repos.allowed_hosts or ref.host != src.host:
             raise PrReadError(f"{ref.host} is not an allowed host")
-        try:
-            token = self.m.secrets.resolve(cfg.write_token_ref or "")
-        except SecretError as exc:
-            raise PrReadError(f"no token to read pull requests: set {cfg.write_token_ref} ({exc})") from exc
-        api = cfg.api_url.rstrip("/") + f"/repos/{quote(ref.slug, safe='/')}"
+        token = self.m.sources.resolve(src.token_ref)
+        if not token:
+            raise PrReadError(  # the source, never its reference (change events are visible to members)
+                f"no token to read pull requests: repository source '{src.id}' has none that resolves"
+            )
+        origin = src.api_url.rstrip("/")
+        api = origin + f"/repos/{quote(ref.slug, safe='/')}"
         status, pr, _ = await self._get(f"{api}/pulls/{ref.number}", token)
+        if 300 <= status < 400:
+            raise PrReadError(
+                f"the host redirected the read of {ref.slug}#{ref.number} ({status}); redirects are never followed "
+                "with a token: if the repo moved, onboard it at its new address"
+            )
         if status != 200 or not isinstance(pr, dict):
             raise PrReadError(f"the host answered {status or 'nothing'} for {ref.slug}#{ref.number}")
         sha = str((pr.get("head") or {}).get("sha") or "")
@@ -244,7 +311,7 @@ class PrWatcher:
         incomplete: set[str] = set()
 
         async def read(name: str, url: str, key: str | None) -> list[Any] | None:
-            rows, why = await self._pages(url, token, key)
+            rows, why = await self._pages(url, token, key, origin)
             if why:
                 unread.append(f"{name} ({why})")
                 incomplete.add(name)

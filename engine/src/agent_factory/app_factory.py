@@ -265,8 +265,7 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         from agent_factory import pr_loop
 
         f = holder["f"]
-        secret = f.manager.pr_watcher.webhook_secret()
-        if not secret:
+        if not f.manager.pr_watcher.webhook_secrets():  # each source has its own secret (ADR-0047)
             return JSONResponse(status_code=404, content={"detail": "not found"})
         declared = request.headers.get("content-length")
         if declared and (not declared.isdigit() or int(declared) > pr_loop.MAX_BODY):
@@ -274,7 +273,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         body = await request.body()
         if len(body) > pr_loop.MAX_BODY:
             return JSONResponse(status_code=413, content={"detail": "too large"})
-        if not pr_loop.signature_ok(secret, body, request.headers.get(pr_loop.SIGNATURE_HEADER)):
+        verified = f.manager.pr_watcher.verified_by(body, request.headers.get(pr_loop.SIGNATURE_HEADER))
+        if not verified:
             return JSONResponse(status_code=401, content={"detail": "bad signature"})
         event = request.headers.get(pr_loop.EVENT_HEADER, "")
         if event == "ping":
@@ -285,7 +285,8 @@ def create_app(factory: Factory | None = None) -> FastAPI:
             return JSONResponse(status_code=400, content={"detail": "not JSON"})
         if not pr_loop.targets(event, payload):
             return JSONResponse(status_code=202, content={"accepted": False})
-        f.manager.pr_watcher.schedule_webhook(event, payload)  # GitHub waits 10 s at most: read afterwards
+        # GitHub waits 10 s at most: read afterwards, only PRs on repos a verifying source covers
+        f.manager.pr_watcher.schedule_webhook(event, payload, verified)
         return JSONResponse(status_code=202, content={"accepted": True})
 
     @app.get(

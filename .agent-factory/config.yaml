@@ -111,10 +111,27 @@ blueprints:
     environment: local
 
 existing_repos:
-  allowed_hosts: [github.com]     # https URLs on these hosts only; private repos come later (token reference)
+  allowed_hosts: [github.com]     # https URLs on these hosts only: no repository source may reach another
   # pull requests (ADR-0033): a fine-grained token with Contents + Pull requests read/write
-  # on the repos, in .env. A reference, never the value.
+  # on the repos, in .env. A reference, never the value. This is the `default` source (any owner),
+  # bound to api_url's host only: other allowed hosts get no token until a source names one.
   write_token_ref: env://REPO_GITHUB_TOKEN
+  # Repository sources (ADR-0047): one per org or host, each with its own token. Admins add more on
+  # Integrations → Repository sources (no restart); a repo uses the source that names its owner.
+  # sources:
+  #   - id: acme
+  #     title: Acme on GitHub
+  #     owners: [acme, acme-labs]           # orgs or users it covers ('*': any, config only)
+  #     access: write                       # read: assess only, never push
+  #     token_ref: env://REPO_ACME_TOKEN     # also reads private repos
+  #     webhook_secret_ref: env://REPO_ACME_HOOK
+  #   - id: ghe
+  #     host: ghe.example.com               # must be in allowed_hosts; API defaults to https://<host>/api/v3
+  #     owners: [platform]
+  #     token_ref: vault://kv/factory/ghe#token
+  # default_source: true                    # false: only the sources above
+  # the references an admin-made source may name (fnmatch); config sources aren't limited
+  source_token_refs: ["env://REPO_*"]
 
 # Scan stations (ADR-0035) are named after what they check: secrets, code, dependencies,
 # config. Who answers each check is chosen here, once for the factory:

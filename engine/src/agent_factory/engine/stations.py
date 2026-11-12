@@ -242,35 +242,44 @@ class StationContext:
         """The agent spec bound to this station (agent stations only)."""
         return self.workflow_doc.agent_for(self.station_id)
 
-    def secret(self, ref: str, purpose: str, capability: str | None = None) -> str | None:
+    def secret(self, ref: str, purpose: str, capability: str | None = None, shown: str | None = None) -> str | None:
         """Resolve a secret reference for one step. The value is returned, never
-        logged (the store masks it); the audit trail records only the reference.
+        logged (the store masks it); the audit trail records only the reference, or `shown` in its
+        place when the reference is admin-only (a repository source's token, ADR-0047: change events
+        are visible to members, so they name the source, never its reference).
         Inside a station the credential must serve a capability the station is granted; anything
         undeclared is denied (ADR-0039 §4), and the denial is recorded."""
+        label = shown or ref
+        key = "secret" if shown else "secret_ref"
         if self.grant is not None and (capability is None or not contract.grants(self.grant, capability)):
             why = f"needs {capability}" if capability else "serves no declared capability"
             self.store.add_event(
                 self.change.id,
                 EventKind.decision,
-                f"denied secret {ref} for {purpose}: it {why}, and station '{self.station_id}' is granted "
+                f"denied secret {label} for {purpose}: it {why}, and station '{self.station_id}' is granted "
                 f"{', '.join(sorted(self.grant)) or 'nothing'}",
                 station=self.station_id,
-                data={"secret_ref": ref, "purpose": purpose, "denied": capability or "undeclared"},
+                data={key: label, "purpose": purpose, "denied": capability or "undeclared"},
             )
             return None
         try:
             value = self.secrets.resolve(ref)
         except SecretError as exc:
+            # the resolver's message names the reference (e.g. the variable): left out when it's admin-only
+            detail = "" if shown else f": {exc}"
             self.store.add_event(
-                self.change.id, EventKind.log, f"secret {ref} for {purpose} unavailable: {exc}", station=self.station_id
+                self.change.id,
+                EventKind.log,
+                f"secret {label} for {purpose} unavailable{detail}",
+                station=self.station_id,
             )
             return None
         self.store.add_event(
             self.change.id,
             EventKind.decision,
-            f"used secret {ref} for {purpose}",
+            f"used secret {label} for {purpose}",
             station=self.station_id,
-            data={"secret_ref": ref, "purpose": purpose},
+            data={key: label, "purpose": purpose},
         )
         return value
 
@@ -3109,7 +3118,39 @@ async def pull_request(ctx: StationContext) -> StationResult:
     """Push the change's branch and open a pull request with its evidence. The token is a
     reference, resolved for this step and passed through the environment only."""
 
-    ref = assess.parse_repo_url(ctx.product.repo_url or "", ctx.cfg.existing_repos.allowed_hosts)
+    from agent_factory.engine.sources import RepoSources
+    from agent_factory.repo_sources import SourceError
+
+    sources = RepoSources(ctx.cfg, ctx.store, ctx.secrets)
+
+    def writable(before: str, bound: Any = None) -> tuple[Any, Any] | StationResult:
+        """Reload the product's source and check it may still write, right before each remote write
+        (ADR-0047 §4): an admin may make it read-only, change its token or move the repo while the
+        station waits. A change of token or source since the first check holds rather than use either."""
+        try:  # the product's source must still cover the repo; never another token (ADR-0047 §3)
+            got_ref, got = sources.for_product(ctx.product, ctx.change.id)
+        except SourceError as exc:
+            return StationResult(StationOutcome.held, "no repository source reaches this repo", str(exc))
+        if got.access != "write":
+            return StationResult(
+                StationOutcome.held,
+                f"repository source '{got.id}' is read-only: nothing {before}",
+                f"An admin gives {got_ref.host}/{got_ref.owner} a write source (Integrations → Repository sources) "
+                "or moves the product to one, then resumes this change.",
+            )
+        if bound is not None and (got.id, got.token_ref) != (bound.id, bound.token_ref):
+            return StationResult(
+                StationOutcome.held,
+                f"repository source changed while the change waited: nothing {before}",
+                f"The repo's source or its token changed since this station started (now '{got.id}'). "
+                "Resume the change to use the current one.",
+            )
+        return got_ref, got
+
+    first = writable("pushed")
+    if isinstance(first, StationResult):
+        return first
+    ref, source = first
     files = await _changed_files(ctx)
     if not files:
         return StationResult(StationOutcome.held, "missing evidence: the change has no commits to propose")
@@ -3134,7 +3175,7 @@ async def pull_request(ctx: StationContext) -> StationResult:
     body_file.write_text(f"# {title}\n\n{body}")  # sealed evidence (ADR-0023)
     branch = f"{ctx.cfg.existing_repos.pr_branch_prefix}{ctx.change.id}"
     base = ctx.product.repo_ref or "main"
-    info: dict[str, Any] = {"repo": ref.slug, "branch": branch, "base": base, "title": title}
+    info: dict[str, Any] = {"repo": ref.slug, "branch": branch, "base": base, "title": title, "source": source.id}
     # what the change changed, for its outcome (ADR-0040); sealed with the evidence
     _write_json(ctx, "pull-request.json", {**info, "files": files, "work_items": list(ctx.change.work_items)})
     if ctx.settings.factory_mode == "dry-run":
@@ -3144,25 +3185,33 @@ async def pull_request(ctx: StationContext) -> StationResult:
             {"pull_request": {**info, "simulated": True}},
         )
         return StationResult(StationOutcome.passed, f"pull request simulated (dry-run): {branch} → {base}")
-    token_ref = ctx.cfg.existing_repos.write_token_ref or ""
-    token = ctx.secret(token_ref, "pull request", "open-pr") if token_ref else None
+    token_ref = source.token_ref or ""
+    shown = f"the token of repository source '{source.id}'"
+    token = ctx.secret(token_ref, "pull request", "open-pr", shown=shown) if token_ref else None
     if not token:
         return StationResult(
             StationOutcome.held,
             "no write token for pull requests",
-            f"Set {token_ref or 'existing_repos.write_token_ref'} (a fine-grained GitHub token with Contents "
-            f"and Pull requests read/write on {ref.slug}), restart, then resume this change.",
+            f"Repository source '{source.id}' has no token that resolves. An admin checks it on Integrations → "
+            f"Repository sources (a fine-grained GitHub token with Contents and Pull requests read/write on "
+            f"{ref.slug}), then resumes this change.",
         )
-    env = {"GH_TOKEN": token, **ctx.ws.git_env_for(ctx.worktree)}
+    env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
+    gh_repo = shlex.quote(source.gh_repo(ref))
+    host_flag = "" if ref.host == "github.com" else f"--hostname {shlex.quote(ref.host)} "
+    if isinstance(now := writable("pushed", source), StationResult):  # resolving the token may have waited
+        return now
     push = await ctx.cmd(
-        f"gh auth setup-git && git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
+        f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{shlex.quote(branch)}",
         env=env,
         timeout=300,
     )
     if not push.ok:
         return StationResult(StationOutcome.held, f"push of {branch} failed", push.output[-2000:])
+    if isinstance(now := writable("opened (the branch was pushed)", source), StationResult):
+        return now
     pr = await ctx.cmd(
-        f"gh pr create --repo {shlex.quote(ref.slug)} --base {shlex.quote(base)} --head {shlex.quote(branch)} "
+        f"gh pr create --repo {gh_repo} --base {shlex.quote(base)} --head {shlex.quote(branch)} "
         f"--title {shlex.quote(title)} --body-file {shlex.quote(str(body_file))}",
         env=env,
         timeout=120,
@@ -3177,9 +3226,9 @@ async def pull_request(ctx: StationContext) -> StationResult:
     sha = (head.lines() or [""])[-1] if head.ok else ""
     holds, approved = risk_data.get("holds", 0), risk_data.get("approved_by")
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
-    if sha:
+    if sha and not isinstance(writable("marked", source), StationResult):  # skipped if no longer writable
         status = await ctx.cmd(
-            f"gh api --method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
+            f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
             f"-f context=agent-factory/change-risk -f description={shlex.quote(desc)}",
             env=env,
             timeout=60,
