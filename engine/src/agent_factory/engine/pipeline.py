@@ -1177,6 +1177,33 @@ class ChangeManager:
         )
         return change
 
+    def inherit_pr_outcome(self, fix: Change) -> Change:
+        """A CI fix takes the outcome of the pull request it continued (merged or abandoned), once it has
+        stopped and the change that opened the PR has one. Called when the PR's outcome lands (for fixes
+        already stopped) and when each fix stops (for one still running or held then), so none is skipped.
+        A fix that already has its own outcome (a person closed it) keeps it. The caller seals."""
+        cont = fix.continues
+        if cont is None or fix.outcome is not None or fix.status not in TERMINAL:
+            return fix
+        original = self.store.get_change(cont.change_id)
+        if original is None or original.outcome is None:
+            return fix
+        fix = self._get(fix.id)
+        fix.outcome = original.outcome.model_copy(
+            update={
+                "note": f"through pull request #{cont.number} of change {original.id}: {original.outcome.note}",
+                "status_before": str(fix.status),
+            }
+        )
+        self.store.save_change(fix)
+        self.store.add_event(
+            fix.id,
+            EventKind.decision,
+            f"pull request #{cont.number} {original.outcome.state} (continued by this fix)",
+            data={"outcome": fix.outcome.model_dump(mode="json")},
+        )
+        return fix
+
     def _follow_again(self, change: Change) -> None:
         """A delivered CI fix pushed to the PR: the change that opened it reads it again now, instead of
         waiting for the next poll or webhook."""
@@ -1319,6 +1346,7 @@ class ChangeManager:
             await self._retro(change, product)
             await self._suggest(change, product)
         if not cancelled:
+            change = self.inherit_pr_outcome(change)
             await self._seal(change, product)
             self._after_stop(change, product)
 
@@ -1437,6 +1465,7 @@ class ChangeManager:
             await self._settle_safely(change, product)
             await self.remove_validation(change, product)
             self.store.save_change(change)
+            change = self.inherit_pr_outcome(change)
             await self._seal(change, product)
             self._after_stop(change, product)
 

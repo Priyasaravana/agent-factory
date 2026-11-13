@@ -430,6 +430,25 @@ def fix_request(pr: PullRequestState, original_change: str) -> str:
     return "\n".join(lines)
 
 
+PR_STATE_JQ = "[.state, (.merged | tostring), .head.ref, .head.sha] | @tsv"
+
+
+def push_refusal(output: str, branch: str) -> str:
+    """Why a CI fix must not push, from the PR as read on the host right before the push
+    (`gh api repos/<repo>/pulls/<n> --jq PR_STATE_JQ`); "" when it may. The stored snapshot is not
+    enough: the PR may have been merged or closed since the last poll, its branch still in place."""
+    parts = (output or "").strip().splitlines()[-1:] or [""]
+    fields = parts[0].split("\t")
+    if len(fields) != 4 or fields[0] not in ("open", "closed"):
+        return "the pull request's state could not be read on the host"
+    state, merged, ref, _sha = fields
+    if state != "open":
+        return "the pull request was merged" if merged == "true" else "the pull request was closed"
+    if ref != branch:
+        return f"the pull request's branch is now {ref!r}, not {branch!r}"
+    return ""
+
+
 def ls_remote_sha(output: str, branch: str) -> str:
     """The commit `git ls-remote <url> refs/heads/<branch>` reports for the branch; "" when it is gone."""
     for line in (output or "").splitlines():

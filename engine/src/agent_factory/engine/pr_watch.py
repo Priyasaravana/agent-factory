@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from agent_factory import ledger, pr_loop
-from agent_factory.models import TERMINAL, Change, ChangeStatus, EventKind, Outcome, PullRequestState
+from agent_factory.models import Change, ChangeStatus, EventKind, Outcome, PullRequestState
 from agent_factory.repo_sources import RepoSource, SourceError
 
 if TYPE_CHECKING:
@@ -419,22 +419,12 @@ class PrWatcher:
                 if changed:
                     self.m.store.save_work_items(changed)
             elif step == "continuations":
+                # fixes that have stopped take the outcome now; one still running or held takes it when
+                # it stops (`ChangeManager.inherit_pr_outcome` on every stop), so none is skipped
                 for fix in self.m.continuations(change):
-                    if fix.outcome is None and fix.status in TERMINAL:
-                        fix.outcome = outcome.model_copy(
-                            update={
-                                "note": f"through pull request #{state.number} of change {change.id}: {outcome.note}",
-                                "status_before": str(fix.status),
-                            }
-                        )
-                        self.m.store.save_change(fix)
-                        self.m.store.add_event(
-                            fix.id,
-                            EventKind.decision,
-                            f"pull request {pr_loop.summary(state)} (continued by this fix)",
-                            data={"outcome": fix.outcome.model_dump(mode="json")},
-                        )
-                        await self.m._reseal(fix)
+                    got = self.m.inherit_pr_outcome(fix)
+                    if fix.outcome is None and got.outcome is not None:
+                        await self.m._reseal(got)
             elif step == "seal":
                 await self.m._reseal(change)  # the outcome goes into the sealed evidence, as accept/close do
             change.pr_finalise.remove(step)

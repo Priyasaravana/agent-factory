@@ -3343,6 +3343,18 @@ async def _push_to_pull_request(
             )
     if isinstance(now := writable("pushed", source), StationResult):  # an admin may have changed the source
         return now
+    # the PR as it is on the host now, not the last poll: merged or closed meanwhile, nothing is pushed
+    live = await ctx.cmd(
+        f"gh api {host_flag}repos/{shlex.quote(ref.slug)}/pulls/{cont.number} --jq {shlex.quote(pr_loop.PR_STATE_JQ)}",
+        env=env,
+        timeout=60,
+    )
+    if why := pr_loop.push_refusal(live.whole() if live.ok else "", cont.branch):
+        return StationResult(
+            StationOutcome.held,
+            f"{why}: the fix was not pushed to pull request #{cont.number}",
+            None if live.ok else live.output[-1000:],
+        )
     push = await ctx.cmd(
         f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{branch_q}",
         env=env,

@@ -128,6 +128,15 @@ def test_the_fix_request_and_the_remote_branch():
     assert pr_loop.ls_remote_sha(out, "factory/ab") == "" and pr_loop.ls_remote_sha("", "x") == ""
 
 
+def test_the_pull_request_is_read_again_right_before_the_push():
+    assert pr_loop.push_refusal(f"open\tfalse\tfactory/abc\t{SHA}\n", "factory/abc") == ""
+    assert pr_loop.push_refusal(f"closed\ttrue\tfactory/abc\t{SHA}", "factory/abc") == "the pull request was merged"
+    assert pr_loop.push_refusal(f"closed\tfalse\tfactory/abc\t{SHA}", "factory/abc") == "the pull request was closed"
+    assert "is now 'other'" in pr_loop.push_refusal(f"open\tfalse\tother\t{SHA}", "factory/abc")
+    for unread in ("", "[dry-run] ok: gh api", "open\tfalse"):
+        assert "could not be read" in pr_loop.push_refusal(unread, "factory/abc"), "a failed read never pushes"
+
+
 def test_needs_you_offers_the_fix_or_says_the_lane_starts_it():
     from agent_factory.models import Change, Product
 
@@ -230,6 +239,7 @@ async def _red_pr(make_factory, tmp_path, monkeypatch, *, lane: str = "ask"):
     host.ci[host.head()] = "failure"
     f.manager.pr_watcher.http = host
     ex.scan_outputs["git ls-remote"] = f"{host.head()}\trefs/heads/{branch}\n"
+    ex.scan_outputs["/pulls/7 --jq"] = f"open\tfalse\t{branch}\t{host.head()}\n"  # the PR read before the push
     return f, ex, host, f.store.get_change(change.id), item.id
 
 
@@ -364,3 +374,51 @@ async def test_the_lane_setting_is_a_settings_only_change(make_factory):
     view = set_workflow_settings(f, "repo-change", WorkflowSettingsInput(ci_fix="autonomous"))
     assert view.ci_fix == "autonomous"
     assert settings_only(reg.get(reg.active_version()), reg.draft.get()[1]), "no evaluation measures who starts it"
+
+
+async def test_a_pr_closed_on_the_host_since_the_last_read_gets_no_push(make_factory, tmp_path, monkeypatch):
+    f, ex, host, change, _ = await _red_pr(make_factory, tmp_path, monkeypatch)
+    await f.manager.pr_watcher.refresh(change.id, "poll")
+    pushes = sum("git push" in x for x in ex.calls)
+    fix = f.manager.fix_ci(change.id, "priya")
+    # merged on GitHub after the last poll: the stored PR still says open, the branch still exists
+    ex.scan_outputs["/pulls/7 --jq"] = f"closed\ttrue\t{host.branch}\t{host.head()}\n"
+    assert await wait_run(f, fix.id) == ChangeStatus.held
+    assert "was merged: the fix was not pushed" in (f.store.get_change(fix.id).summary or "")
+    assert sum("git push" in x for x in ex.calls) == pushes
+    ex.scan_outputs.pop("/pulls/7 --jq")  # resumed, and the read fails: nothing is pushed either
+    f.manager.resume(fix.id)
+    assert await wait_run(f, fix.id) == ChangeStatus.held
+    assert "could not be read" in (f.store.get_change(fix.id).summary or "")
+    assert sum("git push" in x for x in ex.calls) == pushes
+
+
+async def test_a_fix_still_running_when_the_pr_closes_takes_its_outcome_when_it_stops(
+    make_factory, tmp_path, monkeypatch
+):
+    f, ex, host, change, _ = await _red_pr(make_factory, tmp_path, monkeypatch)
+    await f.manager.pr_watcher.refresh(change.id, "poll")
+    fix = f.manager.fix_ci(change.id, "priya")
+    host.merged = True
+    c1 = await f.manager.pr_watcher.refresh(change.id, "poll")  # the outcome lands while the fix runs
+    assert c1.outcome.state == "merged" and c1.pr_finalise == []
+    assert f.store.get_change(fix.id).outcome is None, "a running fix isn't given an outcome mid-run"
+    ex.scan_outputs["/pulls/7 --jq"] = f"closed\ttrue\t{host.branch}\t{host.head()}\n"
+    assert await wait_run(f, fix.id) == ChangeStatus.held  # P1: nothing pushed to a merged PR
+    await f.manager.close(fix.id, "the PR was merged without it", "priya")
+    assert f.store.get_change(fix.id).outcome.state == "closed", "a person's own decision on the fix stands"
+
+
+async def test_a_fix_that_stops_after_the_pr_closed_inherits_the_outcome(make_factory, tmp_path, monkeypatch):
+    f, ex, host, change, _ = await _red_pr(make_factory, tmp_path, monkeypatch)
+    await f.manager.pr_watcher.refresh(change.id, "poll")
+    fix = f.manager.fix_ci(change.id, "priya")
+    host.merged = True
+    await f.manager.pr_watcher.refresh(change.id, "poll")  # finalised while the fix runs: it is skipped now
+    assert f.store.get_change(change.id).pr_finalise == [] and f.store.get_change(fix.id).outcome is None
+    f.manager.cancel(fix.id)  # however it stops (cancelled, failed, delivered), it takes the PR's outcome
+    await f.manager._tasks[fix.id]
+    got = f.store.get_change(fix.id)
+    assert got.outcome and got.outcome.state == "merged" and f"of change {change.id}" in got.outcome.note
+    assert got.outcome.status_before == "cancelled"
+    assert f.manager.inherit_pr_outcome(got).outcome == got.outcome, "once"
