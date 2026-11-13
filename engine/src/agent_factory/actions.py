@@ -55,6 +55,7 @@ from agent_factory.models import (
     ChangeOutcome,
     ChangeRiskView,
     ChangeStatus,
+    CiFixView,
     CloseInput,
     ConfigView,
     CopyWorkflowInput,
@@ -143,6 +144,7 @@ from agent_factory.models import (
     WorkItem,
     WorkItemDecisionInput,
 )
+from agent_factory.pr_loop import CiFix
 from agent_factory.providers import CAPABILITIES
 from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRecord
 from agent_factory.workflow import (
@@ -1001,7 +1003,27 @@ def get_change(f: Factory, change_id: str) -> ChangeDetail:
         product=product,
         stations=_station_views(f, change, change.workflow_id or ""),
         risk=_risk_view(f, change),
-        actions=pending_actions(product, change, _since_state(f, change)),
+        actions=pending_actions(product, change, _since_state(f, change), _ci_fix(f, change)),
+        ci_fix=_ci_fix_view(f, change),
+    )
+
+
+def _ci_fix(f: Factory, change: Change) -> CiFix | None:
+    return f.manager.ci_fix_offer(change) if change.pr_url else None
+
+
+def _ci_fix_view(f: Factory, change: Change) -> CiFixView | None:
+    offer = _ci_fix(f, change)
+    if offer is None:
+        return None
+    mode = f.manager.ci_fix_mode(change)
+    return CiFixView(
+        offer=offer.offer,
+        auto=offer.auto,
+        mode="autonomous" if mode == "autonomous" else "ask",
+        reason=offer.reason,
+        running=offer.running,
+        fixes=[c.id for c in f.manager.continuations(change)],
     )
 
 
@@ -1029,17 +1051,25 @@ def list_attention(f: Factory, product_id: str | None = None, include_optional: 
         if not changes:
             continue
         latest = max(changes, key=lambda c: c.iteration)
-        for a in pending_actions(product, latest, _since_state(f, latest)):
-            if a.blocking or include_optional:
-                items.append(
-                    AttentionItem(
-                        **a.model_dump(),
-                        product_id=product.id,
-                        product_title=product.title,
-                        change_id=latest.id,
-                        iteration=latest.iteration,
+        # the latest change, and any earlier one whose pull request's CI fails with a fix to start (J3)
+        earlier = [c for c in changes if c.id != latest.id and c.pr_url and c.pull_request]
+        for change in [latest, *earlier]:
+            offer = _ci_fix(f, change)
+            if change is not latest and not (offer and offer.offer):
+                continue
+            for a in pending_actions(product, change, _since_state(f, change), offer):
+                if change is not latest and a.kind != "fix_ci":
+                    continue
+                if a.blocking or include_optional:
+                    items.append(
+                        AttentionItem(
+                            **a.model_dump(),
+                            product_id=product.id,
+                            product_title=product.title,
+                            change_id=change.id,
+                            iteration=change.iteration,
+                        )
                     )
-                )
     items.sort(key=lambda i: (not i.blocking, i.owner == "system", i.since))
     return items
 
@@ -1461,7 +1491,8 @@ async def edit_spec(f: Factory, change_id: str, body: SpecEditInput) -> SpecView
 @action(
     "set_workflow_settings",
     "Workflow settings in the draft: spec review gate (off | first | always), design decisions "
-    "(autonomous | ask, constraints per question), learn from runs, "
+    "(autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), "
+    "learn from runs, "
     "evaluation gate (off | warn | block)",
     "PATCH",
     "/api/workflows/{workflow_id}/draft/settings",
@@ -1472,6 +1503,8 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
         draft.set_spec_review(body.spec_review)
     if body.decisions is not None or body.decision_constraints is not None:
         draft.set_decisions(body.decisions, body.decision_constraints)
+    if body.ci_fix is not None:
+        draft.set_ci_fix(body.ci_fix)
     if body.learn_from_runs is not None:
         draft.set_learn_from_runs(body.learn_from_runs)
     if body.eval_gate is not None:
@@ -1650,6 +1683,24 @@ async def refresh_pull_request(f: Factory, change_id: str) -> Change:
         raise InvalidRequestError(f"pull request not read: {exc}") from exc
 
 
+@action(
+    "fix_ci",
+    "Start a fix for the red CI on a change's pull request: a change that continues the same pull request, "
+    "pushing fast-forward to its branch (never forced, never a second pull request) (J3)",
+    "POST",
+    "/api/changes/{change_id}/ci-fix",
+)
+async def fix_ci(f: Factory, change_id: str) -> Change:
+    _may_steer_change(f, change_id)
+    change = f.store.get_change(change_id)
+    if change is None:
+        raise FactoryError(f"change {change_id} not found")
+    product = f.store.get_product(change.product_id)
+    if product is not None:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.fix_ci(change_id, current_identity().user or "anonymous")
+
+
 @action("cancel_change", "Cancel a change", "POST", "/api/changes/{change_id}/cancel")
 def cancel_change(f: Factory, change_id: str) -> Change:
     _may_steer_change(f, change_id)
@@ -1767,6 +1818,7 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         spec_review=doc.spec_review,
         decisions=doc.decisions,
         decision_constraints=dict(doc.decision_constraints),
+        ci_fix=doc.ci_fix,
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -2027,6 +2079,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         spec_review=doc.spec_review,
         decisions=doc.decisions,
         decision_constraints=dict(doc.decision_constraints),
+        ci_fix=doc.ci_fix,
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -2277,12 +2330,21 @@ async def publish_draft(f: Factory, workflow_id: str, body: PublishInput) -> Wor
     return info.model_copy(update={"evaluation": note})
 
 
-SETTINGS_ONLY = {"spec_review", "decisions", "decision_constraints", "learn_from_runs", "eval_gate", "evals"}
+SETTINGS_ONLY = {
+    "spec_review",
+    "decisions",
+    "decision_constraints",
+    "ci_fix",
+    "learn_from_runs",
+    "eval_gate",
+    "evals",
+}
 
 
 def settings_only(active: Any, draft: Any) -> bool:
     """True when a draft differs from the active version only in lane settings that no evaluation
-    measures: who answers the design questions, the spec review gate, learning and the gate itself."""
+    measures: who answers the design questions, the spec review gate, who starts a CI fix, learning and
+    the gate itself."""
     a, d = active.model_dump(exclude=SETTINGS_ONLY), draft.model_dump(exclude=SETTINGS_ONLY)
     return a == d
 

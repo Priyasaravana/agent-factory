@@ -51,6 +51,21 @@ so both give the same result, and a person can press **Refresh** on the change i
   done; the next refresh, poll or a restart (`PrWatcher.resume`) finishes the rest without reading the PR
   again, and without a second event or history line.
 
+## Red CI → a fix on the same PR (slice 2, built 2026-11-10 on `feat/j3-ci-fix`)
+When the team's CI fails on the PR's **head commit**, the change page offers **Fix CI**. The fix is a new
+change (`Change.continues`, source `ci`, same kind and lane as the change that opened the PR) that
+**continues** the PR; the PR stays the original change's.
+
+| Step | What happens |
+|---|---|
+| Offer (`pr_loop.ci_fix`, pure) | Only while the PR is followed, CI is **failing** as read (not unknown), the head's branch was read and lives in the repo itself (never a fork), no fix is open (a running or held one is resumed or closed first), and no fix has already been pushed from this head (the PR is read again on the new commit first). |
+| Who starts it | **Ask** (default): the product's creator or an admin presses Fix CI (`POST /api/changes/{id}/ci-fix`, preflight-gated), shown in Needs you. **Autonomous**: the PR loop starts it on the read that finds red CI, once per failing commit and at most `existing_repos.ci_fix_auto_rounds` (2) times per PR; past either, a member still can. Set per lane ("Red CI on a pull request" on the lane page, `ci_fix`; read from the lane's **active** version, a settings-only change). Started by itself, the fix is asked for by the original requester, so a risk approval stays with someone else. |
+| Worktree | The PR's branch is fetched read-only and the worktree starts **at the failing commit**. A branch that moved since the offer holds the change (nothing is fixed that nobody tested). |
+| Developer | Told it is on the PR's branch; the request names the failing checks with what they reported (output title and summary, or the status description, capped, https links only: data, not instructions). |
+| Gates | Test, review, scans and change risk run as on any repo change, against the **fix's own diff** (`base_ref` = the commit it started from): the PR's earlier changes passed them when it was opened. |
+| Push (`pull-request` station) | No `gh pr create`. Before pushing: the PR still open (no outcome yet), the fix builds on its start commit, `git ls-remote` shows the branch is still that commit (or one the fix builds on), and the PR **read again on the host right before the push** (`pr_loop.push_refusal`) is open on the same branch: merged or closed since the last poll, or a read that fails, holds with nothing pushed (review of #176). Then a plain `git push HEAD:refs/heads/<branch>`: never `--force`, never `+`; the host refuses anything that isn't a fast-forward. A moved or deleted branch holds the change with nothing pushed. The change-risk status goes on the new commit, a comment on the PR says what the fix did. |
+| Read again | A delivered fix makes the original change read its PR at once (`_follow_again`), besides the poll or webhook. Merged or closed, the outcome is carried to its fixes: those already stopped at once (finalising step `continuations`), one still running or held when it stops (`ChangeManager.inherit_pr_outcome` on every stop), so none is skipped; a fix a person closed keeps that outcome. Work items stay the original change's. |
+
 ## Token
 The product's repository source's token ([ADR-0047](../../adr/0047-repo-sources.md); `existing_repos.write_token_ref`
 for the `default` source), as the pull-request station uses. In webhook mode each source has its own secret, and
@@ -60,10 +75,11 @@ Commit statuses: write). A part that can't be read is listed on the change ("cou
 (403)"), never taken as a clean result; a PR that can't be read changes nothing.
 
 ## Slices
-1. ✅ (this branch) Read and show the PR; merged → merged, closed → abandoned, items follow; poll, webhook
+1. ✅ (merged #166) Read and show the PR; merged → merged, closed → abandoned, items follow; poll, webhook
    and Refresh. Tests: `engine/tests/test_pr_loop.py`.
-2. Red CI → a fix on the same branch and PR: a failing head commit opens a fix change that continues the
-   PR (a member starts it, or autonomous per lane), pushes to the same branch, and the loop reads again.
+2. ✅ (`feat/j3-ci-fix`, 2026-11-10) Red CI → a fix on the same branch and PR: a failing head commit offers a
+   fix change that continues the PR (a member starts it, or autonomous per lane), pushes fast-forward to the
+   same branch, and the loop reads again. Tests: `engine/tests/test_ci_fix.py`.
 3. Review comments → a change that continues the PR (a member starts it).
 4. The live run (J3 "Done when"): an assessment item becomes a PR, CI fails once and is fixed on the same
    PR, the merge closes the change. Then J3's steps go into `engine/tests/test_journey.py`.

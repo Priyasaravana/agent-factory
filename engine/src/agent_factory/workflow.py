@@ -497,6 +497,10 @@ class WorkflowDoc(BaseModel):
     decisions: Literal["autonomous", "ask"] = "autonomous"
     # options a lane allows per question ({question id: [option ids]}); one option fixes the answer
     decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
+    # red CI on the head commit of a pull request this lane opened (J3 slice 2). ask: the change page offers
+    # a fix and a member starts it · autonomous: the factory starts it itself (at most
+    # `existing_repos.ci_fix_auto_rounds` per PR, once per head commit). Read from the lane's active version.
+    ci_fix: Literal["ask", "autonomous"] = "ask"
     # after a change that needed help, suggest learnings for an admin to accept (ADR-0021)
     learn_from_runs: bool = True
     # evaluation harness (ADR-0025): fixed products run against a new version before it

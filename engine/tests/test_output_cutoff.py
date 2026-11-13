@@ -53,7 +53,8 @@ def _ctx(repo: Path) -> SimpleNamespace:
         return await ex.run(f"git {args}", cwd=cwd)
 
     product = SimpleNamespace(target=ProductTarget.repo, repo_ref="main")
-    return SimpleNamespace(ws=SimpleNamespace(git=git), worktree=repo, product=product)
+    change = SimpleNamespace(continues=None)  # not a CI fix continuing a pull request (J3)
+    return SimpleNamespace(ws=SimpleNamespace(git=git), worktree=repo, product=product, change=change)
 
 
 @pytest.fixture

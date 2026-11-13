@@ -2109,8 +2109,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)",
-        "description": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)",
+        "summary": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
+        "description": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
         "operationId": "set_workflow_settings",
         "parameters": [
           {
@@ -2744,6 +2744,49 @@
         "summary": "Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)",
         "description": "Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)",
         "operationId": "refresh_pull_request",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/ci-fix": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)",
+        "description": "Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)",
+        "operationId": "fix_ci",
         "parameters": [
           {
             "name": "change_id",
@@ -5577,7 +5620,8 @@
               "resume",
               "factory_hold",
               "wait",
-              "feedback"
+              "feedback",
+              "fix_ci"
             ],
             "title": "Kind"
           },
@@ -5939,6 +5983,16 @@
             "type": "array",
             "title": "Pr Finalise"
           },
+          "continues": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrContinuation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deployed": {
             "anyOf": [
               {
@@ -6232,6 +6286,16 @@
             },
             "type": "array",
             "title": "Actions"
+          },
+          "ci_fix": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CiFixView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6448,7 +6512,8 @@
         "enum": [
           "ui",
           "ticket",
-          "schedule"
+          "schedule",
+          "ci"
         ],
         "title": "ChangeSource",
         "description": "Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API."
@@ -6469,6 +6534,30 @@
           "failed"
         ],
         "title": "ChangeStatus"
+      },
+      "CheckFailure": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CheckFailure",
+        "description": "What a failing check on a pull request's head commit said (J3 slice 2), for the developer who fixes\nit. Read from the repo's host: data, never instructions. Capped, so a noisy check can't flood a prompt."
       },
       "CheckView": {
         "properties": {
@@ -6523,6 +6612,57 @@
         ],
         "title": "CheckView",
         "description": "One readiness check. `failed` blocks what it guards (new products and/or new\niterations); `degraded` is shown but never blocks."
+      },
+      "CiFixView": {
+        "properties": {
+          "offer": {
+            "type": "boolean",
+            "title": "Offer"
+          },
+          "auto": {
+            "type": "boolean",
+            "title": "Auto"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "autonomous"
+            ],
+            "title": "Mode",
+            "default": "ask"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "running": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Running"
+          },
+          "fixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fixes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer",
+          "auto"
+        ],
+        "title": "CiFixView",
+        "description": "Whether a member may start a fix for the red CI on a change's pull request now (J3 slice 2), and why\nnot when they may not. Decided by the pure `pr_loop.ci_fix`; the page only shows it."
       },
       "CloseInput": {
         "properties": {
@@ -7348,6 +7488,11 @@
             },
             "type": "object",
             "title": "Decision Constraints"
+          },
+          "ci_fix": {
+            "type": "string",
+            "title": "Ci Fix",
+            "default": "ask"
           },
           "learn_from_runs": {
             "type": "boolean",
@@ -9346,7 +9491,8 @@
               "resume",
               "factory_hold",
               "wait",
-              "feedback"
+              "feedback",
+              "fix_ci"
             ],
             "title": "Kind"
           },
@@ -9517,6 +9663,63 @@
         ],
         "title": "PillarScore",
         "description": "One quality pillar (ADR-0024): readiness signals passed out of applicable.\n`signals` = distinct signals tagged with the pillar; 0 means uncovered (never 100%)."
+      },
+      "PrContinuation": {
+        "properties": {
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          },
+          "pr_url": {
+            "type": "string",
+            "title": "Pr Url"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch"
+          },
+          "from_sha": {
+            "type": "string",
+            "title": "From Sha"
+          },
+          "failing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failing"
+          },
+          "auto": {
+            "type": "boolean",
+            "title": "Auto",
+            "default": false
+          },
+          "pushed_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pushed Sha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "change_id",
+          "pr_url",
+          "number",
+          "branch",
+          "from_sha"
+        ],
+        "title": "PrContinuation",
+        "description": "A change that continues another change's pull request (J3 slice 2): it works on the PR's branch from\nthe head commit whose CI failed, pushes fast-forward to the same branch (never forced, never a second\nPR), and the PR loop reads the PR again. The PR stays the original change's: its outcome (merged or\nabandoned) is decided there and carried to its continuations."
       },
       "PreflightView": {
         "properties": {
@@ -10014,6 +10217,16 @@
             "title": "Head Sha",
             "default": ""
           },
+          "head_ref": {
+            "type": "string",
+            "title": "Head Ref",
+            "default": ""
+          },
+          "head_repo": {
+            "type": "string",
+            "title": "Head Repo",
+            "default": ""
+          },
           "checks": {
             "type": "string",
             "enum": [
@@ -10032,6 +10245,13 @@
             },
             "type": "array",
             "title": "Failing"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/CheckFailure"
+            },
+            "type": "array",
+            "title": "Failures"
           },
           "review": {
             "type": "string",
@@ -13248,6 +13468,21 @@
             ],
             "title": "Decision Constraints"
           },
+          "ci_fix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "autonomous",
+                  "ask"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Fix"
+          },
           "learn_from_runs": {
             "anyOf": [
               {
@@ -13562,6 +13797,11 @@
             },
             "type": "object",
             "title": "Decision Constraints"
+          },
+          "ci_fix": {
+            "type": "string",
+            "title": "Ci Fix",
+            "default": "ask"
           },
           "learn_from_runs": {
             "type": "boolean",

@@ -360,6 +360,12 @@ class Draft:
             doc.decision_constraints = {k: list(v) for k, v in constraints.items() if v}
         self._save(doc)
 
+    def set_ci_fix(self, mode: str) -> None:
+        """Red CI on the lane's pull requests: a member starts the fix (ask) or the factory does (J3)."""
+        _, doc, _ = self.get()
+        doc.ci_fix = mode  # type: ignore[assignment]
+        self._save(doc)
+
     def set_learn_from_runs(self, on: bool) -> None:
         _, doc, _ = self.get()
         doc.learn_from_runs = on

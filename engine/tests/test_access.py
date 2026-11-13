@@ -24,6 +24,7 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 # order are further limited to its creator or an admin (STEERING)
 MEMBER_ACTIONS = {
     "refresh_pull_request",
+    "fix_ci",
     "switch_back",
     "accept_change",
     "close_change",
@@ -47,6 +48,7 @@ MEMBER_ACTIONS = {
     "log_decision",
 }
 STEERING = {
+    "fix_ci",
     "switch_back",
     "accept_change",
     "close_change",

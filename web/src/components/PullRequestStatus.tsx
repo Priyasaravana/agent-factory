@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { GitPullRequest, RefreshCw } from "lucide-react";
+import { GitPullRequest, RefreshCw, Wrench } from "lucide-react";
 import { toast } from "sonner";
-import { api, unwrap, type Change } from "../api/client";
+import { api, unwrap, type Change, type CiFixView } from "../api/client";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 
@@ -21,8 +21,19 @@ const REVIEW: Record<string, [string, string]> = {
 };
 
 /** A change's pull request on the team's repo (J3): where it stands as last read from the host, and a
- * Refresh that reads it again now. Merged or closed shows as the change's outcome. */
-export default function PullRequestStatus({ change }: { change: Change }) {
+ * Refresh that reads it again now. Merged or closed shows as the change's outcome. Red CI offers a fix
+ * that continues the same pull request (slice 2); the engine decides when (`ci_fix`), the page only shows
+ * it. A fix change shows the pull request it continues. */
+export default function PullRequestStatus({
+  change,
+  ciFix = null,
+  canFix = false,
+}: {
+  change: Change;
+  ciFix?: CiFixView | null;
+  /** the product's creator or an admin (the engine checks it too) */
+  canFix?: boolean;
+}) {
   const qc = useQueryClient();
   const pr = change.pull_request;
   const following = change.status === "awaiting_feedback" && !change.outcome && (!pr || pr.state === "open");
@@ -39,6 +50,46 @@ export default function PullRequestStatus({ change }: { change: Change }) {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const fix = useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST("/api/changes/{change_id}/ci-fix", {
+          params: { path: { change_id: change.id } },
+        }),
+      ),
+    onSuccess: (started) => {
+      toast.success(`Fix started: change ${started.id} continues the pull request`);
+      qc.invalidateQueries({ queryKey: ["change", change.id] });
+      qc.invalidateQueries({ queryKey: ["product", change.product_id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cont = change.continues;
+  if (cont) {
+    const pushed = cont.pushed_sha ? `pushed ${cont.from_sha.slice(0, 7)} → ${cont.pushed_sha.slice(0, 7)}` : "";
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1.5" id="pull-request" data-testid="ci-fix-continues">
+        <a
+          className="pill info inline-flex items-center gap-1"
+          href={cont.pr_url}
+          target="_blank"
+          rel="noreferrer"
+          title={[
+            `Fixes CI (${(cont.failing ?? []).join(", ") || "a check"}) on ${cont.branch}, from ${cont.from_sha.slice(0, 7)}`,
+            `Continues change ${cont.change_id}: same branch, same pull request, fast-forward only`,
+            pushed,
+          ]
+            .filter(Boolean)
+            .join("\n")}
+        >
+          <Wrench className="size-3.5" aria-hidden />
+          continues #{cont.number} ↗
+        </a>
+        {cont.auto && <span className="pill muted">started by the lane</span>}
+      </span>
+    );
+  }
   if (!change.pr_url) return null;
 
   const read = pr ? `Last read ${new Date(pr.checked_at).toLocaleString()} (${pr.source})` : "Not read yet";
@@ -48,7 +99,7 @@ export default function PullRequestStatus({ change }: { change: Change }) {
   const [review, reviewTone] = REVIEW[pr?.review ?? "none"];
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="pull-request-status">
+    <span className="inline-flex flex-wrap items-center gap-1.5" id="pull-request" data-testid="pull-request-status">
       <a
         className="pill ok inline-flex items-center gap-1"
         href={pr?.url ?? change.pr_url}
@@ -71,6 +122,30 @@ export default function PullRequestStatus({ change }: { change: Change }) {
             </span>
           )}
         </>
+      )}
+      {ciFix?.offer && canFix && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2"
+          onClick={() => fix.mutate()}
+          disabled={fix.isPending}
+          title={`${ciFix.reason}. A fix works on the pull request's branch and pushes to it (never forced, never a second pull request).`}
+          data-testid="ci-fix-start"
+        >
+          <Wrench />
+          Fix CI
+        </Button>
+      )}
+      {ciFix?.running && (
+        <span className="pill info" title={ciFix.reason}>
+          fix {ciFix.running.slice(0, 6)} in progress
+        </span>
+      )}
+      {ciFix && !ciFix.offer && !ciFix.running && (ciFix.fixes ?? []).length > 0 && pr?.checks !== "passing" && (
+        <span className="pill muted" title={ciFix.reason}>
+          {(ciFix.fixes ?? []).length} CI fix{(ciFix.fixes ?? []).length > 1 ? "es" : ""}
+        </span>
       )}
       {following && (
         <Button

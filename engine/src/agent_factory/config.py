@@ -323,6 +323,9 @@ class ExistingReposConfig(BaseModel):
     pr_poll_minutes: int = Field(default=5, ge=1, le=1440)
     pr_webhook_backstop_minutes: int = Field(default=60, ge=0, le=1440)
     pr_webhook_secret_ref: str | None = "env://REPO_WEBHOOK_SECRET"  # noqa: S105 - a reference, not a value
+    # red CI on a followed PR (J3 slice 2): how many fixes a lane set to autonomous may start by itself on
+    # one pull request; past it the change page still offers the fix to a member
+    ci_fix_auto_rounds: int = Field(default=2, ge=0, le=10)
     # the REST API of the repos' host (GitHub Enterprise: https://<host>/api/v3)
     api_url: str = Field(
         default="https://api.github.com", pattern=r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$"

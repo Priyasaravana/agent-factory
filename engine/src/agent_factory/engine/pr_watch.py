@@ -15,6 +15,10 @@ Each PR is read with its product's repository source (ADR-0047): that source's A
 only while the source still covers the repo. The token is resolved for each read and sent only in the
 `Authorization` header; it is never logged or stored. Each source has its own webhook secret, and a
 delivery one source's secret verifies refreshes only the PRs of repos that source covers.
+
+Red CI (slice 2): after every read of an open PR, `ChangeManager.ci_fix_offer` decides whether a fix may
+start; when the lane's CI fix is autonomous the watcher starts it (`ChangeManager.fix_ci`, through the
+preflight gate like any change). A member starts it from the change page otherwise.
 """
 
 from __future__ import annotations
@@ -350,6 +354,7 @@ class PrWatcher:
                     f"pull request {line}",
                     data={"pull_request": state.model_dump(mode="json")},
                 )
+            await self._fix_by_itself(change, bool(t.lines))
             return change
         # the outcome and what is left to do are saved together, first: from here every step resumes
         change.outcome = Outcome(
@@ -362,6 +367,27 @@ class PrWatcher:
         change.pr_finalise = pr_loop.finalising_steps()
         self.m.store.save_change(change)
         return await self._finalise(change)
+
+    async def _fix_by_itself(self, change: Change, moved: bool) -> None:
+        """Start the CI fix when the lane says so (autonomous) and the rules allow it now. A refusal (the
+        product busy, preflight failing) is said on the change when the PR just moved, so a poll that
+        keeps finding it doesn't fill the log; the next read tries again."""
+        from agent_factory.engine.pipeline import FactoryError
+        from agent_factory.engine.preflight import PreflightFailed
+
+        offer = self.m.ci_fix_offer(change)
+        if offer is None or not offer.auto:
+            return
+        product = self.m.store.get_product(change.product_id)
+        try:
+            if product is not None and product.blueprint in self.m.cfg.blueprints:
+                await self.m.preflight.gate(product.blueprint, "change")
+            self.m.fix_ci(change.id, change.requested_by, auto=True)
+        except (FactoryError, PreflightFailed) as exc:
+            why = f"CI fix not started by itself: {exc}"
+            if moved:
+                self.m.store.add_event(change.id, EventKind.log, why)
+            log.info("change %s: %s", change.id, why)
 
     async def _finalise(self, change: Change) -> Change:
         """Bring the event log, the work items and the sealed evidence in line with a merged or closed
@@ -392,6 +418,13 @@ class PrWatcher:
                 )
                 if changed:
                     self.m.store.save_work_items(changed)
+            elif step == "continuations":
+                # fixes that have stopped take the outcome now; one still running or held takes it when
+                # it stops (`ChangeManager.inherit_pr_outcome` on every stop), so none is skipped
+                for fix in self.m.continuations(change):
+                    got = self.m.inherit_pr_outcome(fix)
+                    if fix.outcome is None and got.outcome is not None:
+                        await self.m._reseal(got)
             elif step == "seal":
                 await self.m._reseal(change)  # the outcome goes into the sealed evidence, as accept/close do
             change.pr_finalise.remove(step)

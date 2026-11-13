@@ -188,6 +188,11 @@
   by severity then impact (assessor's plus one per scan check it didn't ask for), and scan
   coverage stated: a scan that didn't run, was simulated or was answered by the agent is a
   gap, never a clean result. Tests in `tests/test_rollup.py`.
+- PR loop (J3, `docs/planning/plans/pr-loop.md`): the factory follows a repo change's PR (`pr_loop.py`, pure;
+  `engine/pr_watch.py`). Red CI offers a fix that **continues** the PR (`Change.continues`,
+  `ChangeManager.fix_ci`, decided by the pure `pr_loop.ci_fix`): it starts at the failing commit on the PR's
+  branch, is gated on its own diff (`base_ref`), and pushes fast-forward only: never `--force`, never a second
+  `gh pr create`. Tests in `tests/test_pr_loop.py` and `tests/test_ci_fix.py`.
 - Product work ledger (ADR-0040): every delivered assessment is folded into the product's
   `work_items` by the pure `ledger.reconcile` (fingerprints, status, history). An issue is fixed
   only when its check really ran again; judgement items close only after a change addressed

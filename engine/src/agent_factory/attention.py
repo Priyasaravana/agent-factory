@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget
+from agent_factory.pr_loop import CiFix
 
 SYSTEM = "system"
 ADMIN = "an admin"
@@ -20,8 +21,11 @@ def _creator(product: Product | None) -> str:
     return (product.created_by if product and product.created_by else None) or ADMIN
 
 
-def pending_actions(product: Product | None, change: Change, since: datetime) -> list[PendingAction]:
-    """The actions `change` is waiting for, most urgent first. `since` is when it entered its state."""
+def pending_actions(
+    product: Product | None, change: Change, since: datetime, ci_fix: CiFix | None = None
+) -> list[PendingAction]:
+    """The actions `change` is waiting for, most urgent first. `since` is when it entered its state.
+    `ci_fix`: what `pr_loop.ci_fix` decided for its pull request's red CI (J3), when it opened one."""
     if product is not None and product.archived_at:
         return []
     owner = _creator(product)
@@ -167,6 +171,37 @@ def pending_actions(product: Product | None, change: Change, since: datetime) ->
                     "Read the assessment and pick what to change",
                     "Tick items in the work ledger and make a change from them.",
                     "work-ledger",
+                    blocking=False,
+                )
+            ]
+        if ci_fix is not None and ci_fix.auto:
+            return [
+                act(
+                    "wait",
+                    "CI failed on the pull request: the lane starts a fix by itself",
+                    ci_fix.reason + ". The fix continues the same pull request.",
+                    "pull-request",
+                    who=SYSTEM,
+                    blocking=False,
+                )
+            ]
+        if ci_fix is not None and ci_fix.offer:
+            return [
+                act(
+                    "fix_ci",
+                    "CI failed on the pull request: start a fix",
+                    ci_fix.reason + ". A fix continues the same pull request on its branch; nothing is forced.",
+                    "pull-request",
+                )
+            ]
+        if ci_fix is not None and ci_fix.running:
+            return [
+                act(
+                    "wait",
+                    "A fix for the pull request's CI is in progress",
+                    ci_fix.reason + ".",
+                    "pull-request",
+                    who=SYSTEM,
                     blocking=False,
                 )
             ]

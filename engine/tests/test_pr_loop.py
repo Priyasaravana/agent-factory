@@ -476,7 +476,7 @@ async def test_a_terminal_outcome_converges_after_failures(make_factory, tmp_pat
     with pytest.raises(RuntimeError, match="locked"):
         await w.refresh(change.id, "poll")
     c = store.get_change(change.id)
-    assert c.outcome.state == "merged" and c.pr_finalise == ["items", "seal"], "outcome kept, the rest to do"
+    assert c.outcome.state == "merged" and c.pr_finalise == ["items", "continuations", "seal"], "outcome kept, the rest"
     assert [x.id for x in w.followed()] == [change.id], "still followed until it agrees"
     calls = len(gh.calls)
 

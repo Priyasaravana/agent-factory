@@ -238,6 +238,47 @@ export default function WorkflowEditPage() {
         </section>
       )}
 
+      {d.stations.some((s) => s.handler === "pull-request") && (
+        <section className="card" data-testid="ci-fix-setting">
+          <h3>Red CI on a pull request</h3>
+          <p className="muted small">
+            When the team's CI fails on a pull request this lane opened, the factory offers a fix that continues the
+            same pull request: it works on the pull request's branch and pushes to it (fast-forward only, never forced,
+            never a second pull request). With <strong>Fix by itself</strong> the factory starts it on its own, once per
+            failing commit and at most a few times per pull request; a member can always start one from the change page.
+          </p>
+          <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="CI fix">
+            {(
+              [
+                ["ask", "A member starts it", "the change page offers the fix; nothing starts until someone presses it"],
+                ["autonomous", "Fix by itself", "the factory starts the fix when it reads red CI on the pull request"],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={d.ci_fix === value}
+                title={hint}
+                className={`tab ${d.ci_fix === value ? "active" : ""}`}
+                disabled={m.isPending}
+                onClick={() =>
+                  m.mutate(() =>
+                    unwrap(
+                      api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                        params: { path: wid },
+                        body: { ci_fix: value },
+                      }),
+                    ),
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {d.evaluable ? (
         <EvalSettings
           d={d}

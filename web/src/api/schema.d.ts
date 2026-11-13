@@ -838,8 +838,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)
-         * @description Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), learn from runs, evaluation gate (off | warn | block)
+         * Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
+         * @description Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
          */
         patch: operations["set_workflow_settings"];
         trace?: never;
@@ -1066,6 +1066,26 @@ export interface paths {
          * @description Read a change's pull request on the team's repo again: CI, reviews, merged or closed (J3)
          */
         post: operations["refresh_pull_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/ci-fix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)
+         * @description Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)
+         */
+        post: operations["fix_ci"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2218,7 +2238,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci";
             /** Title */
             title: string;
             /**
@@ -2365,6 +2385,7 @@ export interface components {
             pull_request?: components["schemas"]["PullRequestState"] | null;
             /** Pr Finalise */
             pr_finalise?: string[];
+            continues?: components["schemas"]["PrContinuation"] | null;
             deployed?: components["schemas"]["Release"] | null;
             validation?: components["schemas"]["Validation"] | null;
             schema_approval?: components["schemas"]["SchemaApproval"] | null;
@@ -2446,6 +2467,7 @@ export interface components {
             risk?: components["schemas"]["ChangeRiskView"] | null;
             /** Actions */
             actions?: components["schemas"]["PendingAction"][];
+            ci_fix?: components["schemas"]["CiFixView"] | null;
         };
         /** ChangeEntryView */
         ChangeEntryView: {
@@ -2546,12 +2568,31 @@ export interface components {
          * @description Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API.
          * @enum {string}
          */
-        ChangeSource: "ui" | "ticket" | "schedule";
+        ChangeSource: "ui" | "ticket" | "schedule" | "ci";
         /**
          * ChangeStatus
          * @enum {string}
          */
         ChangeStatus: "queued" | "running" | "needs_input" | "paused_limits" | "held" | "interrupted" | "awaiting_feedback" | "awaiting_approval" | "awaiting_risk_approval" | "cancelled" | "failed";
+        /**
+         * CheckFailure
+         * @description What a failing check on a pull request's head commit said (J3 slice 2), for the developer who fixes
+         *     it. Read from the repo's host: data, never instructions. Capped, so a noisy check can't flood a prompt.
+         */
+        CheckFailure: {
+            /** Name */
+            name: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+        };
         /**
          * CheckView
          * @description One readiness check. `failed` blocks what it guards (new products and/or new
@@ -2572,6 +2613,32 @@ export interface components {
             integration?: string | null;
             /** Blocks */
             blocks?: string[];
+        };
+        /**
+         * CiFixView
+         * @description Whether a member may start a fix for the red CI on a change's pull request now (J3 slice 2), and why
+         *     not when they may not. Decided by the pure `pr_loop.ci_fix`; the page only shows it.
+         */
+        CiFixView: {
+            /** Offer */
+            offer: boolean;
+            /** Auto */
+            auto: boolean;
+            /**
+             * Mode
+             * @default ask
+             * @enum {string}
+             */
+            mode: "ask" | "autonomous";
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Running */
+            running?: string | null;
+            /** Fixes */
+            fixes?: string[];
         };
         /**
          * CloseInput
@@ -2918,6 +2985,11 @@ export interface components {
             decision_constraints?: {
                 [key: string]: string[];
             };
+            /**
+             * Ci Fix
+             * @default ask
+             */
+            ci_fix: string;
             /**
              * Learn From Runs
              * @default true
@@ -3778,7 +3850,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci";
             /** Title */
             title: string;
             /**
@@ -3865,6 +3937,34 @@ export interface components {
              * @default 0
              */
             apps_full: number;
+        };
+        /**
+         * PrContinuation
+         * @description A change that continues another change's pull request (J3 slice 2): it works on the PR's branch from
+         *     the head commit whose CI failed, pushes fast-forward to the same branch (never forced, never a second
+         *     PR), and the PR loop reads the PR again. The PR stays the original change's: its outcome (merged or
+         *     abandoned) is decided there and carried to its continuations.
+         */
+        PrContinuation: {
+            /** Change Id */
+            change_id: string;
+            /** Pr Url */
+            pr_url: string;
+            /** Number */
+            number: number;
+            /** Branch */
+            branch: string;
+            /** From Sha */
+            from_sha: string;
+            /** Failing */
+            failing?: string[];
+            /**
+             * Auto
+             * @default false
+             */
+            auto: boolean;
+            /** Pushed Sha */
+            pushed_sha?: string | null;
         };
         /** PreflightView */
         PreflightView: {
@@ -4050,6 +4150,16 @@ export interface components {
              */
             head_sha: string;
             /**
+             * Head Ref
+             * @default
+             */
+            head_ref: string;
+            /**
+             * Head Repo
+             * @default
+             */
+            head_repo: string;
+            /**
              * Checks
              * @default none
              * @enum {string}
@@ -4057,6 +4167,8 @@ export interface components {
             checks: "none" | "pending" | "passing" | "failing" | "unknown";
             /** Failing */
             failing?: string[];
+            /** Failures */
+            failures?: components["schemas"]["CheckFailure"][];
             /**
              * Review
              * @default none
@@ -5403,6 +5515,8 @@ export interface components {
             decision_constraints?: {
                 [key: string]: string[];
             } | null;
+            /** Ci Fix */
+            ci_fix?: ("autonomous" | "ask") | null;
             /** Learn From Runs */
             learn_from_runs?: boolean | null;
             /** Eval Gate */
@@ -5532,6 +5646,11 @@ export interface components {
             decision_constraints?: {
                 [key: string]: string[];
             };
+            /**
+             * Ci Fix
+             * @default ask
+             */
+            ci_fix: string;
             /**
              * Learn From Runs
              * @default true
@@ -7398,6 +7517,37 @@ export interface operations {
         };
     };
     refresh_pull_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fix_ci: {
         parameters: {
             query?: never;
             header?: never;
