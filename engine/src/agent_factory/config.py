@@ -326,6 +326,9 @@ class ExistingReposConfig(BaseModel):
     # red CI on a followed PR (J3 slice 2): how many fixes a lane set to autonomous may start by itself on
     # one pull request; past it the change page still offers the fix to a member
     ci_fix_auto_rounds: int = Field(default=2, ge=0, le=10)
+    # the team's feedback on a followed PR (J3 slice 3): how many answering changes a lane set to autonomous
+    # may start by itself on one pull request; past it the change page still offers it to a member
+    feedback_auto_rounds: int = Field(default=3, ge=0, le=10)
     # the REST API of the repos' host (GitHub Enterprise: https://<host>/api/v3)
     api_url: str = Field(
         default="https://api.github.com", pattern=r"^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$"

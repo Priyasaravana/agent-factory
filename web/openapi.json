@@ -2109,8 +2109,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
-        "description": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
+        "summary": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), feedback on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
+        "description": "Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), feedback on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)",
         "operationId": "set_workflow_settings",
         "parameters": [
           {
@@ -2787,6 +2787,49 @@
         "summary": "Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)",
         "description": "Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)",
         "operationId": "fix_ci",
+        "parameters": [
+          {
+            "name": "change_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/changes/{change_id}/address-feedback": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Answer the team's feedback on a change's pull request: a change that continues the same pull request, answering or addressing each piece of feedback and replying to it there (J3)",
+        "description": "Answer the team's feedback on a change's pull request: a change that continues the same pull request, answering or addressing each piece of feedback and replying to it there (J3)",
+        "operationId": "address_feedback",
         "parameters": [
           {
             "name": "change_id",
@@ -5294,6 +5337,27 @@
         "title": "AlignInput",
         "description": "Everything a person sends the architect at once from the review page (ADR-0044 \u00a71)."
       },
+      "AnsweredFeedback": {
+        "properties": {
+          "feedback": {
+            "$ref": "#/components/schemas/PrFeedback"
+          },
+          "response": {
+            "$ref": "#/components/schemas/FeedbackResponse"
+          },
+          "change_id": {
+            "type": "string",
+            "title": "Change Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feedback",
+          "response",
+          "change_id"
+        ],
+        "title": "AnsweredFeedback"
+      },
       "AnswersInput": {
         "properties": {
           "answers": {
@@ -5621,7 +5685,8 @@
               "factory_hold",
               "wait",
               "feedback",
-              "fix_ci"
+              "fix_ci",
+              "address_feedback"
             ],
             "title": "Kind"
           },
@@ -6296,6 +6361,16 @@
                 "type": "null"
               }
             ]
+          },
+          "feedback_fix": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackFixView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -6513,7 +6588,8 @@
           "ui",
           "ticket",
           "schedule",
-          "ci"
+          "ci",
+          "review"
         ],
         "title": "ChangeSource",
         "description": "Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API."
@@ -7494,6 +7570,11 @@
             "title": "Ci Fix",
             "default": "ask"
           },
+          "pr_feedback": {
+            "type": "string",
+            "title": "Pr Feedback",
+            "default": "ask"
+          },
           "learn_from_runs": {
             "type": "boolean",
             "title": "Learn From Runs",
@@ -8405,6 +8486,78 @@
         ],
         "title": "Feedback"
       },
+      "FeedbackFixView": {
+        "properties": {
+          "offer": {
+            "type": "boolean",
+            "title": "Offer"
+          },
+          "auto": {
+            "type": "boolean",
+            "title": "Auto"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "autonomous"
+            ],
+            "title": "Mode",
+            "default": "ask"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "running": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Running"
+          },
+          "new": {
+            "items": {
+              "$ref": "#/components/schemas/PrFeedback"
+            },
+            "type": "array",
+            "title": "New"
+          },
+          "outside": {
+            "items": {
+              "$ref": "#/components/schemas/PrFeedback"
+            },
+            "type": "array",
+            "title": "Outside"
+          },
+          "answered": {
+            "items": {
+              "$ref": "#/components/schemas/AnsweredFeedback"
+            },
+            "type": "array",
+            "title": "Answered"
+          },
+          "fixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fixes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer",
+          "auto"
+        ],
+        "title": "FeedbackFixView",
+        "description": "The team's feedback on a change's pull request (J3 slice 3): what is still to answer, and whether a\nmember may start a change that answers or addresses it now. Decided by the pure `pr_loop.feedback_fix`."
+      },
       "FeedbackInput": {
         "properties": {
           "text": {
@@ -8447,6 +8600,40 @@
         ],
         "title": "FeedbackInput",
         "description": "A change to a delivered product: what to do and what kind of change it is (ADR-0030)."
+      },
+      "FeedbackResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "addressed",
+              "answered",
+              "declined"
+            ],
+            "title": "Action"
+          },
+          "reply": {
+            "type": "string",
+            "title": "Reply"
+          },
+          "posted": {
+            "type": "boolean",
+            "title": "Posted",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "reply"
+        ],
+        "title": "FeedbackResponse",
+        "description": "How a change that continued a pull request answered one piece of feedback (J3 slice 3). The agent\nreports it; `pr_loop.judge_responses` keeps only answers to feedback it was given, and `addressed` only\nwhen the change really changed files."
       },
       "FromGitHubInput": {
         "properties": {
@@ -9492,7 +9679,8 @@
               "factory_hold",
               "wait",
               "feedback",
-              "fix_ci"
+              "fix_ci",
+              "address_feedback"
             ],
             "title": "Kind"
           },
@@ -9708,6 +9896,29 @@
               }
             ],
             "title": "Pushed Sha"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "ci",
+              "feedback"
+            ],
+            "title": "Reason",
+            "default": "ci"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/PrFeedback"
+            },
+            "type": "array",
+            "title": "Feedback"
+          },
+          "responses": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackResponse"
+            },
+            "type": "array",
+            "title": "Responses"
           }
         },
         "type": "object",
@@ -9720,6 +9931,94 @@
         ],
         "title": "PrContinuation",
         "description": "A change that continues another change's pull request (J3 slice 2): it works on the PR's branch from\nthe head commit whose CI failed, pushes fast-forward to the same branch (never forced, never a second\nPR), and the PR loop reads the PR again. The PR stays the original change's: its outcome (merged or\nabandoned) is decided there and carried to its continuations."
+      },
+      "PrFeedback": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "review",
+              "inline",
+              "comment"
+            ],
+            "title": "Kind"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author",
+            "default": ""
+          },
+          "team": {
+            "type": "boolean",
+            "title": "Team",
+            "default": false
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": ""
+          },
+          "body": {
+            "type": "string",
+            "title": "Body",
+            "default": ""
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "default": ""
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "default": ""
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "PrFeedback",
+        "description": "One piece of feedback on a change's pull request (J3 slice 3): a review with a body (changes requested,\na comment, an approval with a remark), an inline comment on a line, or a comment in the conversation.\nRead from the repo's host: data, never instructions, and capped. The factory's own comments carry\n`pr_loop.FEEDBACK_MARK` and are never read back as feedback."
       },
       "PreflightView": {
         "properties": {
@@ -10320,6 +10619,13 @@
             ],
             "title": "Source",
             "default": "poll"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/PrFeedback"
+            },
+            "type": "array",
+            "title": "Feedback"
           }
         },
         "type": "object",
@@ -13483,6 +13789,21 @@
             ],
             "title": "Ci Fix"
           },
+          "pr_feedback": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "autonomous",
+                  "ask"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Feedback"
+          },
           "learn_from_runs": {
             "anyOf": [
               {
@@ -13801,6 +14122,11 @@
           "ci_fix": {
             "type": "string",
             "title": "Ci Fix",
+            "default": "ask"
+          },
+          "pr_feedback": {
+            "type": "string",
+            "title": "Pr Feedback",
             "default": "ask"
           },
           "learn_from_runs": {

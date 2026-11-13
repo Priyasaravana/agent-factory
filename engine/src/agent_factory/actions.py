@@ -41,6 +41,7 @@ from agent_factory.models import (
     AddStationInput,
     AgentCallView,
     AgentView,
+    AnsweredFeedback,
     AnswersInput,
     AssessmentView,
     AssignWorkflowInput,
@@ -77,6 +78,7 @@ from agent_factory.models import (
     EventKind,
     EvidenceFile,
     EvidenceView,
+    FeedbackFixView,
     FeedbackInput,
     FromGitHubInput,
     FromTemplateInput,
@@ -144,7 +146,7 @@ from agent_factory.models import (
     WorkItem,
     WorkItemDecisionInput,
 )
-from agent_factory.pr_loop import CiFix
+from agent_factory.pr_loop import CiFix, FeedbackFix
 from agent_factory.providers import CAPABILITIES
 from agent_factory.skills import SkillError, SkillLibrary, SkillPreview, SkillRecord
 from agent_factory.workflow import (
@@ -1003,8 +1005,39 @@ def get_change(f: Factory, change_id: str) -> ChangeDetail:
         product=product,
         stations=_station_views(f, change, change.workflow_id or ""),
         risk=_risk_view(f, change),
-        actions=pending_actions(product, change, _since_state(f, change), _ci_fix(f, change)),
+        actions=pending_actions(product, change, _since_state(f, change), _ci_fix(f, change), _feedback(f, change)),
         ci_fix=_ci_fix_view(f, change),
+        feedback_fix=_feedback_view(f, change),
+    )
+
+
+def _feedback(f: Factory, change: Change) -> FeedbackFix | None:
+    return f.manager.feedback_offer(change) if change.pr_url else None
+
+
+def _feedback_view(f: Factory, change: Change) -> FeedbackFixView | None:
+    offer = _feedback(f, change)
+    if offer is None:
+        return None
+    answers = [c for c in f.manager.continuations(change) if c.continues and c.continues.reason == "feedback"]
+    answered = [
+        AnsweredFeedback(feedback=item, response=r, change_id=c.id)
+        for c in answers
+        if c.continues
+        for item in c.continues.feedback
+        for r in c.continues.responses
+        if r.id == item.id and r.posted
+    ]
+    return FeedbackFixView(
+        offer=offer.offer,
+        auto=offer.auto,
+        mode="autonomous" if f.manager.feedback_mode(change) == "autonomous" else "ask",
+        reason=offer.reason,
+        running=offer.running,
+        new=list(offer.new),
+        outside=list(offer.outside),
+        answered=answered,
+        fixes=[c.id for c in answers],
     )
 
 
@@ -1051,14 +1084,14 @@ def list_attention(f: Factory, product_id: str | None = None, include_optional: 
         if not changes:
             continue
         latest = max(changes, key=lambda c: c.iteration)
-        # the latest change, and any earlier one whose pull request's CI fails with a fix to start (J3)
+        # the latest change, and any earlier one whose pull request has red CI to fix or feedback to answer (J3)
         earlier = [c for c in changes if c.id != latest.id and c.pr_url and c.pull_request]
         for change in [latest, *earlier]:
-            offer = _ci_fix(f, change)
-            if change is not latest and not (offer and offer.offer):
+            offer, said = _ci_fix(f, change), _feedback(f, change)
+            if change is not latest and not (offer and offer.offer) and not (said and said.offer):
                 continue
-            for a in pending_actions(product, change, _since_state(f, change), offer):
-                if change is not latest and a.kind != "fix_ci":
+            for a in pending_actions(product, change, _since_state(f, change), offer, said):
+                if change is not latest and a.kind not in ("fix_ci", "address_feedback"):
                     continue
                 if a.blocking or include_optional:
                     items.append(
@@ -1492,6 +1525,7 @@ async def edit_spec(f: Factory, change_id: str, body: SpecEditInput) -> SpecView
     "set_workflow_settings",
     "Workflow settings in the draft: spec review gate (off | first | always), design decisions "
     "(autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), "
+    "feedback on the lane's pull requests (ask | autonomous), "
     "learn from runs, "
     "evaluation gate (off | warn | block)",
     "PATCH",
@@ -1505,6 +1539,8 @@ def set_workflow_settings(f: Factory, workflow_id: str, body: WorkflowSettingsIn
         draft.set_decisions(body.decisions, body.decision_constraints)
     if body.ci_fix is not None:
         draft.set_ci_fix(body.ci_fix)
+    if body.pr_feedback is not None:
+        draft.set_pr_feedback(body.pr_feedback)
     if body.learn_from_runs is not None:
         draft.set_learn_from_runs(body.learn_from_runs)
     if body.eval_gate is not None:
@@ -1701,6 +1737,24 @@ async def fix_ci(f: Factory, change_id: str) -> Change:
     return f.manager.fix_ci(change_id, current_identity().user or "anonymous")
 
 
+@action(
+    "address_feedback",
+    "Answer the team's feedback on a change's pull request: a change that continues the same pull request, "
+    "answering or addressing each piece of feedback and replying to it there (J3)",
+    "POST",
+    "/api/changes/{change_id}/address-feedback",
+)
+async def address_feedback(f: Factory, change_id: str) -> Change:
+    _may_steer_change(f, change_id)
+    change = f.store.get_change(change_id)
+    if change is None:
+        raise FactoryError(f"change {change_id} not found")
+    product = f.store.get_product(change.product_id)
+    if product is not None:
+        await _gate(f, product.blueprint, "change")
+    return f.manager.address_feedback(change_id, current_identity().user or "anonymous")
+
+
 @action("cancel_change", "Cancel a change", "POST", "/api/changes/{change_id}/cancel")
 def cancel_change(f: Factory, change_id: str) -> Change:
     _may_steer_change(f, change_id)
@@ -1819,6 +1873,7 @@ def _workflow_view(f: Factory, workflow_id: str, version: int) -> WorkflowView:
         decisions=doc.decisions,
         decision_constraints=dict(doc.decision_constraints),
         ci_fix=doc.ci_fix,
+        pr_feedback=doc.pr_feedback,
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -2080,6 +2135,7 @@ def get_draft(f: Factory, workflow_id: str) -> DraftView:
         decisions=doc.decisions,
         decision_constraints=dict(doc.decision_constraints),
         ci_fix=doc.ci_fix,
+        pr_feedback=doc.pr_feedback,
         learn_from_runs=doc.learn_from_runs,
         eval_gate=doc.eval_gate,
         evals=doc.evals,
@@ -2335,6 +2391,7 @@ SETTINGS_ONLY = {
     "decisions",
     "decision_constraints",
     "ci_fix",
+    "pr_feedback",
     "learn_from_runs",
     "eval_gate",
     "evals",
@@ -2343,8 +2400,8 @@ SETTINGS_ONLY = {
 
 def settings_only(active: Any, draft: Any) -> bool:
     """True when a draft differs from the active version only in lane settings that no evaluation
-    measures: who answers the design questions, the spec review gate, who starts a CI fix, learning and
-    the gate itself."""
+    measures: who answers the design questions, the spec review gate, who starts a CI fix or an answer to
+    feedback, learning and the gate itself."""
     a, d = active.model_dump(exclude=SETTINGS_ONLY), draft.model_dump(exclude=SETTINGS_ONLY)
     return a == d
 

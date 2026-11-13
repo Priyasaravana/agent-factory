@@ -209,6 +209,9 @@ class FakeAgentRunner:
                 (req.cwd / "tests" / "test_change.py").write_text("def test_dry_run() -> None:\n    assert True\n")
         elif req.role == "repo-developer":
             (req.cwd / "CHANGES.md").write_text("- dry-run change without tests\n")
+        if req.role == "repo-developer" and any(a == "addressed" for _, a in _fake_feedback(req.prompt)):
+            notes = req.cwd / "REVIEW-FIXES.md"  # feedback that asks for a change (J3 slice 3)
+            notes.write_text((notes.read_text() if notes.is_file() else "") + f"- addressed by {req.change_id}\n")
         if req.role == "repo-developer" and "Fix the team's CI" in req.prompt:  # a CI fix on a PR's branch (J3)
             fixes = req.cwd / "CI-FIXES.md"
             fixes.write_text((fixes.read_text() if fixes.is_file() else "") + f"- fixed by {req.change_id}\n")
@@ -262,6 +265,16 @@ class FakeAgentRunner:
             }
         if req.role == "checker":  # a scan station's agent provider or fallback (ADR-0035)
             return {"summary": "[dry-run] checked", "findings": list(self.scan_findings)}
+        if "responses" in props:  # answering feedback on a pull request (J3 slice 3)
+            return {
+                "summary": "[dry-run] answered the review",
+                "test_command": "",
+                "notes": [],
+                "responses": [
+                    {"id": i, "action": a, "reply": f"[dry-run] {a}" + (" with a change" if a == "addressed" else "")}
+                    for i, a in _fake_feedback(req.prompt)
+                ],
+            }
         if "test_command" in props:  # a change to an existing repo (ADR-0033)
             return {"summary": "[dry-run] made the requested change, with a test", "test_command": "", "notes": []}
         if "test_gaps" in props:  # repository assessment (ADR-0031): cite real files, plus one that isn't
@@ -420,3 +433,17 @@ def _fake_answers(prompt: str) -> list[dict[str, Any]]:
                 {"question": qid, "choice": pick, "recommended": pick, "rationale": "dry-run: security pillar default"}
             )
     return answers
+
+
+def _fake_feedback(prompt: str) -> list[tuple[str, str]]:
+    """The feedback ids in an answering change's request, each with what the dry run does about it: a
+    question ('?') is answered, anything else addressed with a change (J3 slice 3)."""
+    if "Answer the team's feedback" not in prompt:
+        return []
+    out: list[tuple[str, str]] = []
+    for block in re.split(r"\n(?=- \[(?:review|inline|comment):\d+\])", prompt)[1:]:
+        m = re.match(r"- \[((?:review|inline|comment):\d+)\]", block)
+        if m:
+            body = block.split("## ", 1)[0]
+            out.append((m[1], "answered" if "?" in body else "addressed"))
+    return out

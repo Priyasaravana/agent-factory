@@ -19,6 +19,12 @@ delivery one source's secret verifies refreshes only the PRs of repos that sourc
 Red CI (slice 2): after every read of an open PR, `ChangeManager.ci_fix_offer` decides whether a fix may
 start; when the lane's CI fix is autonomous the watcher starts it (`ChangeManager.fix_ci`, through the
 preflight gate like any change). A member starts it from the change page otherwise.
+
+Feedback (slice 3): each read also reads the PR's inline review comments and conversation comments (the
+reviews are already read). `ChangeManager.feedback_offer` decides whether a change answering the team's new
+feedback may start; when the lane's feedback setting is autonomous the watcher starts it
+(`ChangeManager.address_feedback`), after a CI fix if both are due (one change continues a PR at a time).
+Feedback text stays on the change's PR state; events name it, never copy it.
 """
 
 from __future__ import annotations
@@ -76,6 +82,11 @@ async def urllib_get(url: str, headers: dict[str, str]) -> tuple[int, Any, str |
             return status, raw, link
 
     return await asyncio.to_thread(call)
+
+
+def _dump(state: PullRequestState) -> dict[str, Any]:
+    """The PR's state for an event: everything but the feedback's text, which stays on the change."""
+    return state.model_dump(mode="json", exclude={"feedback"}) | {"feedback": len(state.feedback)}
 
 
 class PrReadError(Exception):
@@ -329,12 +340,16 @@ class PrWatcher:
             incomplete |= {pr_loop.RUNS, pr_loop.STATUSES}
             unread.append("CI (no head commit)")
         reviews = await read(pr_loop.REVIEWS, f"{api}/pulls/{ref.number}/reviews?per_page=100", None)
+        inline = await read(pr_loop.INLINE, f"{api}/pulls/{ref.number}/comments?per_page=100", None)
+        comments = await read(pr_loop.COMMENTS, f"{api}/issues/{ref.number}/comments?per_page=100", None)
         return pr_loop.parse(
             ref,
             pr,
             check_runs=runs,
             statuses=statuses,
             reviews=reviews,
+            inline=inline,
+            comments=comments,
             unread=unread,
             incomplete=incomplete,
             now=datetime.now(UTC),
@@ -352,7 +367,7 @@ class PrWatcher:
                     change.id,
                     EventKind.status,
                     f"pull request {line}",
-                    data={"pull_request": state.model_dump(mode="json")},
+                    data={"pull_request": _dump(state)},
                 )
             await self._fix_by_itself(change, bool(t.lines))
             return change
@@ -369,25 +384,32 @@ class PrWatcher:
         return await self._finalise(change)
 
     async def _fix_by_itself(self, change: Change, moved: bool) -> None:
-        """Start the CI fix when the lane says so (autonomous) and the rules allow it now. A refusal (the
+        """Start the CI fix, or else the answer to the team's feedback, when the lane says so (autonomous)
+        and the rules allow it now. A refusal (the
         product busy, preflight failing) is said on the change when the PR just moved, so a poll that
         keeps finding it doesn't fill the log; the next read tries again."""
         from agent_factory.engine.pipeline import FactoryError
         from agent_factory.engine.preflight import PreflightFailed
 
-        offer = self.m.ci_fix_offer(change)
-        if offer is None or not offer.auto:
-            return
         product = self.m.store.get_product(change.product_id)
-        try:
-            if product is not None and product.blueprint in self.m.cfg.blueprints:
-                await self.m.preflight.gate(product.blueprint, "change")
-            self.m.fix_ci(change.id, change.requested_by, auto=True)
-        except (FactoryError, PreflightFailed) as exc:
-            why = f"CI fix not started by itself: {exc}"
-            if moved:
-                self.m.store.add_event(change.id, EventKind.log, why)
-            log.info("change %s: %s", change.id, why)
+        # red CI first: an answer to feedback starts after it, on the fixed commit (one at a time per PR)
+        for what, offer, start in (
+            ("CI fix", self.m.ci_fix_offer(change), self.m.fix_ci),
+            ("answer to feedback", self.m.feedback_offer(change), self.m.address_feedback),
+        ):
+            if offer is None or not offer.auto:
+                continue
+            try:
+                if product is not None and product.blueprint in self.m.cfg.blueprints:
+                    await self.m.preflight.gate(product.blueprint, "change")
+                start(change.id, change.requested_by, auto=True)
+                return
+            except (FactoryError, PreflightFailed) as exc:
+                why = f"{what} not started by itself: {exc}"
+                if moved:
+                    self.m.store.add_event(change.id, EventKind.log, why)
+                log.info("change %s: %s", change.id, why)
+                return
 
     async def _finalise(self, change: Change) -> Change:
         """Bring the event log, the work items and the sealed evidence in line with a merged or closed
@@ -406,7 +428,7 @@ class PrWatcher:
                         change.id,
                         EventKind.decision,
                         f"pull request {pr_loop.summary(state)}",
-                        data={"pull_request": state.model_dump(mode="json"), "pull_request_final": state.number},
+                        data={"pull_request": _dump(state), "pull_request_final": state.number},
                     )
             elif step == "items":
                 items = self.m.store.list_work_items(change.product_id)

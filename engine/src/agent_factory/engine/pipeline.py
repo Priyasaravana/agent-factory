@@ -1107,25 +1107,122 @@ class ChangeManager:
         ref = pr_loop.parse_pr_url(change.pr_url)
         if ref is None:
             return None
-        fixes = [
+        return pr_loop.ci_fix(
+            change.pull_request,
+            self._fix_records(change),
+            followed=PrWatcher.is_followed(change),
+            slug=ref.slug,
+            mode=self.ci_fix_mode(change),
+            max_auto=self.cfg.existing_repos.ci_fix_auto_rounds,
+        )
+
+    def _fix_records(self, change: Change) -> list[pr_loop.FixRecord]:
+        """Every change that continued `change`'s pull request (a CI fix or an answer to feedback), as the
+        pure rules see them."""
+        return [
             pr_loop.FixRecord(
                 change_id=c.id,
                 from_sha=c.continues.from_sha,
                 open=c.status not in TERMINAL,
                 auto=c.continues.auto,
                 pushed=bool(c.continues.pushed_sha),
+                kind=c.continues.reason,
+                feedback=frozenset(f.id for f in c.continues.feedback),
+                answered=frozenset(r.id for r in c.continues.responses if r.posted),
             )
             for c in self.continuations(change)
             if c.continues is not None
         ]
-        return pr_loop.ci_fix(
+
+    # ------------------------------------------- the team's feedback on a PR (J3 slice 3) --
+    def feedback_mode(self, change: Change) -> str:
+        """The feedback setting of the lane the change ran, as that lane is now (its active version)."""
+        try:
+            reg = self.workflows[change.workflow_id or ""]
+            return reg.get(reg.active_version()).pr_feedback
+        except Exception:  # noqa: BLE001 - a lane gone or unreadable: a person decides
+            return "ask"
+
+    def feedback_offer(self, change: Change) -> pr_loop.FeedbackFix | None:
+        """Whether a change answering the team's feedback on `change`'s pull request may start now
+        (`pr_loop.feedback_fix`, pure). None: the change opened no pull request."""
+        from agent_factory.engine.pr_watch import PrWatcher
+
+        ref = pr_loop.parse_pr_url(change.pr_url)
+        if ref is None:
+            return None
+        return pr_loop.feedback_fix(
             change.pull_request,
-            fixes,
+            self._fix_records(change),
             followed=PrWatcher.is_followed(change),
             slug=ref.slug,
-            mode=self.ci_fix_mode(change),
-            max_auto=self.cfg.existing_repos.ci_fix_auto_rounds,
+            mode=self.feedback_mode(change),
+            max_auto=self.cfg.existing_repos.feedback_auto_rounds,
         )
+
+    def address_feedback(self, change_id: str, by: str | None, *, auto: bool = False) -> Change:
+        """Start a change that answers or addresses the team's new feedback on `change_id`'s pull request
+        (J3 slice 3): it works on the PR's branch from its head commit, gives each piece of feedback one
+        response (a code change, a reply, or a reasoned decline), pushes fast-forward to the same branch
+        when it changed code, and replies on the PR (in each inline comment's thread). A member starts it,
+        or the PR loop does when the lane's feedback setting is autonomous; started by itself, it is asked
+        for by the original requester, so its risk approval stays with someone else (ADR-0027)."""
+        original = self._get(change_id)
+        product = self.store.get_product(original.product_id)
+        if product is None or product.target != ProductTarget.repo:
+            raise InvalidRequestError("only a change to a team's repository has a pull request to answer on")
+        offer = self.feedback_offer(original)
+        if offer is None or not offer.offer:
+            raise InvalidRequestError(f"no feedback to answer: {offer.reason if offer else 'no pull request'}")
+        if auto and not offer.auto:
+            raise InvalidRequestError(f"not started by itself: {offer.reason}")
+        pr = original.pull_request
+        assert pr is not None
+        items = list(offer.new)
+        cont = PrContinuation(
+            change_id=original.id,
+            pr_url=pr.url,
+            number=pr.number,
+            branch=pr.head_ref,
+            from_sha=pr.head_sha,
+            auto=auto,
+            reason="feedback",
+            feedback=items,
+        )
+        requester = (original.requested_by or by) if auto else by
+        change = self.start_change(
+            product,
+            change_request=pr_loop.feedback_request(pr, items, original.id),
+            kind=original.kind,
+            source=ChangeSource.review,
+            requested_by=requester,
+            workflow_id=original.workflow_id,
+            continues=cont,
+        )
+        who = "started by itself (the lane's feedback setting is autonomous)" if auto else f"started by {by}"
+        n = len(items)
+        what = (
+            f"feedback answered {who}: change {change.id} takes {n} piece{'s' if n > 1 else ''} of feedback on "
+            f"pull request #{pr.number}"
+        )
+        data = {
+            "pr_feedback": {
+                "fix": change.id,
+                "number": pr.number,
+                "from": pr.head_sha,
+                "ids": [f.id for f in items],
+                "auto": auto,
+            }
+        }
+        self.store.add_event(original.id, EventKind.decision, what, data=data)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"continues pull request #{pr.number} of change {original.id} to answer {n} piece"
+            f"{'s' if n > 1 else ''} of feedback from {pr.head_sha[:7]} on {pr.head_ref}; {who}",
+            data=data,
+        )
+        return change
 
     def fix_ci(self, change_id: str, by: str | None, *, auto: bool = False) -> Change:
         """Start a change that fixes the red CI on `change_id`'s pull request and continues that PR (J3):
@@ -1205,10 +1302,12 @@ class ChangeManager:
         return fix
 
     def _follow_again(self, change: Change) -> None:
-        """A delivered CI fix pushed to the PR: the change that opened it reads it again now, instead of
+        """A delivered CI fix or answer to feedback reached the PR (pushed, or replied): the change that opened
+        it reads it again now, instead of
         waiting for the next poll or webhook."""
         cont = change.continues
-        if cont is None or not cont.pushed_sha or self.settings.factory_mode != "live":
+        answered = any(r.posted for r in cont.responses) if cont else False
+        if cont is None or not (cont.pushed_sha or answered) or self.settings.factory_mode != "live":
             return
 
         async def read() -> None:
@@ -1912,7 +2011,9 @@ class ChangeManager:
         head = await self.ws.git(f"rev-parse origin/{cont.branch}", self.ws.product_dir(product.slug))
         now = (head.lines() or [""])[-1] if head.ok else ""
         if now != cont.from_sha:
-            self.store.add_event(cont.change_id, EventKind.log, f"CI fix {change.id}: the branch moved, nothing fixed")
+            self.store.add_event(
+                cont.change_id, EventKind.log, f"change {change.id}: the pull request's branch moved, nothing done"
+            )
             self._hold(
                 change,
                 first,

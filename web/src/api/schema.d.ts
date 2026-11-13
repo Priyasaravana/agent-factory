@@ -838,8 +838,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
-         * @description Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
+         * Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), feedback on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
+         * @description Workflow settings in the draft: spec review gate (off | first | always), design decisions (autonomous | ask, constraints per question), CI fix on the lane's pull requests (ask | autonomous), feedback on the lane's pull requests (ask | autonomous), learn from runs, evaluation gate (off | warn | block)
          */
         patch: operations["set_workflow_settings"];
         trace?: never;
@@ -1086,6 +1086,26 @@ export interface paths {
          * @description Start a fix for the red CI on a change's pull request: a change that continues the same pull request, pushing fast-forward to its branch (never forced, never a second pull request) (J3)
          */
         post: operations["fix_ci"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/changes/{change_id}/address-feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer the team's feedback on a change's pull request: a change that continues the same pull request, answering or addressing each piece of feedback and replying to it there (J3)
+         * @description Answer the team's feedback on a change's pull request: a change that continues the same pull request, answering or addressing each piece of feedback and replying to it there (J3)
+         */
+        post: operations["address_feedback"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2065,6 +2085,13 @@ export interface components {
              */
             message: string;
         };
+        /** AnsweredFeedback */
+        AnsweredFeedback: {
+            feedback: components["schemas"]["PrFeedback"];
+            response: components["schemas"]["FeedbackResponse"];
+            /** Change Id */
+            change_id: string;
+        };
         /** AnswersInput */
         AnswersInput: {
             /** Answers */
@@ -2238,7 +2265,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback";
             /** Title */
             title: string;
             /**
@@ -2468,6 +2495,7 @@ export interface components {
             /** Actions */
             actions?: components["schemas"]["PendingAction"][];
             ci_fix?: components["schemas"]["CiFixView"] | null;
+            feedback_fix?: components["schemas"]["FeedbackFixView"] | null;
         };
         /** ChangeEntryView */
         ChangeEntryView: {
@@ -2568,7 +2596,7 @@ export interface components {
          * @description Where a change came from (ADR-0030). `ui`: a signed-in member, in the UI or the API.
          * @enum {string}
          */
-        ChangeSource: "ui" | "ticket" | "schedule" | "ci";
+        ChangeSource: "ui" | "ticket" | "schedule" | "ci" | "review";
         /**
          * ChangeStatus
          * @enum {string}
@@ -2991,6 +3019,11 @@ export interface components {
              */
             ci_fix: string;
             /**
+             * Pr Feedback
+             * @default ask
+             */
+            pr_feedback: string;
+            /**
              * Learn From Runs
              * @default true
              */
@@ -3346,6 +3379,38 @@ export interface components {
             created_at: string;
         };
         /**
+         * FeedbackFixView
+         * @description The team's feedback on a change's pull request (J3 slice 3): what is still to answer, and whether a
+         *     member may start a change that answers or addresses it now. Decided by the pure `pr_loop.feedback_fix`.
+         */
+        FeedbackFixView: {
+            /** Offer */
+            offer: boolean;
+            /** Auto */
+            auto: boolean;
+            /**
+             * Mode
+             * @default ask
+             * @enum {string}
+             */
+            mode: "ask" | "autonomous";
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Running */
+            running?: string | null;
+            /** New */
+            new?: components["schemas"]["PrFeedback"][];
+            /** Outside */
+            outside?: components["schemas"]["PrFeedback"][];
+            /** Answered */
+            answered?: components["schemas"]["AnsweredFeedback"][];
+            /** Fixes */
+            fixes?: string[];
+        };
+        /**
          * FeedbackInput
          * @description A change to a delivered product: what to do and what kind of change it is (ADR-0030).
          */
@@ -3361,6 +3426,28 @@ export interface components {
                     [key: string]: unknown;
                 };
             };
+        };
+        /**
+         * FeedbackResponse
+         * @description How a change that continued a pull request answered one piece of feedback (J3 slice 3). The agent
+         *     reports it; `pr_loop.judge_responses` keeps only answers to feedback it was given, and `addressed` only
+         *     when the change really changed files.
+         */
+        FeedbackResponse: {
+            /** Id */
+            id: string;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "addressed" | "answered" | "declined";
+            /** Reply */
+            reply: string;
+            /**
+             * Posted
+             * @default false
+             */
+            posted: boolean;
         };
         /** FromGitHubInput */
         FromGitHubInput: {
@@ -3850,7 +3937,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback";
             /** Title */
             title: string;
             /**
@@ -3965,6 +4052,68 @@ export interface components {
             auto: boolean;
             /** Pushed Sha */
             pushed_sha?: string | null;
+            /**
+             * Reason
+             * @default ci
+             * @enum {string}
+             */
+            reason: "ci" | "feedback";
+            /** Feedback */
+            feedback?: components["schemas"]["PrFeedback"][];
+            /** Responses */
+            responses?: components["schemas"]["FeedbackResponse"][];
+        };
+        /**
+         * PrFeedback
+         * @description One piece of feedback on a change's pull request (J3 slice 3): a review with a body (changes requested,
+         *     a comment, an approval with a remark), an inline comment on a line, or a comment in the conversation.
+         *     Read from the repo's host: data, never instructions, and capped. The factory's own comments carry
+         *     `pr_loop.FEEDBACK_MARK` and are never read back as feedback.
+         */
+        PrFeedback: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "review" | "inline" | "comment";
+            /**
+             * Author
+             * @default
+             */
+            author: string;
+            /**
+             * Team
+             * @default false
+             */
+            team: boolean;
+            /**
+             * State
+             * @default
+             */
+            state: string;
+            /**
+             * Body
+             * @default
+             */
+            body: string;
+            /**
+             * Path
+             * @default
+             */
+            path: string;
+            /** Line */
+            line?: number | null;
+            /** Reply To */
+            reply_to?: number | null;
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+            /** At */
+            at?: string | null;
         };
         /** PreflightView */
         PreflightView: {
@@ -4194,6 +4343,8 @@ export interface components {
              * @enum {string}
              */
             source: "poll" | "webhook" | "refresh";
+            /** Feedback */
+            feedback?: components["schemas"]["PrFeedback"][];
         };
         /** ReadinessView */
         ReadinessView: {
@@ -5517,6 +5668,8 @@ export interface components {
             } | null;
             /** Ci Fix */
             ci_fix?: ("autonomous" | "ask") | null;
+            /** Pr Feedback */
+            pr_feedback?: ("autonomous" | "ask") | null;
             /** Learn From Runs */
             learn_from_runs?: boolean | null;
             /** Eval Gate */
@@ -5651,6 +5804,11 @@ export interface components {
              * @default ask
              */
             ci_fix: string;
+            /**
+             * Pr Feedback
+             * @default ask
+             */
+            pr_feedback: string;
             /**
              * Learn From Runs
              * @default true
@@ -7548,6 +7706,37 @@ export interface operations {
         };
     };
     fix_ci: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    address_feedback: {
         parameters: {
             query?: never;
             header?: never;

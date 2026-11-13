@@ -66,12 +66,32 @@ change (`Change.continues`, source `ci`, same kind and lane as the change that o
 | Push (`pull-request` station) | No `gh pr create`. Before pushing: the PR still open (no outcome yet), the fix builds on its start commit, `git ls-remote` shows the branch is still that commit (or one the fix builds on), and the PR **read again on the host right before the push** (`pr_loop.push_refusal`) is open on the same branch: merged or closed since the last poll, or a read that fails, holds with nothing pushed (review of #176). Then a plain `git push HEAD:refs/heads/<branch>`: never `--force`, never `+`; the host refuses anything that isn't a fast-forward. A moved or deleted branch holds the change with nothing pushed. The change-risk status goes on the new commit, a comment on the PR says what the fix did. |
 | Read again | A delivered fix makes the original change read its PR at once (`_follow_again`), besides the poll or webhook. Merged or closed, the outcome is carried to its fixes: those already stopped at once (finalising step `continuations`), one still running or held when it stops (`ChangeManager.inherit_pr_outcome` on every stop), so none is skipped; a fix a person closed keeps that outcome. Work items stay the original change's. |
 
+## Feedback (slice 3, asked for by Saravana 2026-11-13: "comments, changes requested, inline review, any form of feedback: answer it or address it")
+Every form of feedback on the PR is read with the PR itself: **reviews** with a body (changes requested,
+commented, or an approval with a remark), **inline comments** on lines (a reply in a thread is feedback too),
+and **conversation comments** (`/pulls/{n}/reviews`, `/pulls/{n}/comments`, `/issues/{n}/comments`; the
+webhook also listens to `issue_comment`). The change page lists it (new, answered and how, outside the team)
+and offers **Answer feedback**: a change (`Change.continues`, `reason` feedback, source `review`) that gives
+every piece one response, on the same PR.
+
+| Step | What happens |
+|---|---|
+| Read (`pr_loop.feedback_of`, pure) | Newest 50 kept, oldest first, each capped at 2,000 characters, https links only. Empty bodies, dismissed and pending reviews are not feedback. Everything the factory posts carries `pr_loop.FEEDBACK_MARK` (an HTML comment) and is never read back: the token may be a person's own, so the author can't tell. Events say how much feedback arrived and from whom, never its text. |
+| Whose feedback | Only the **team's**: authors whose association is OWNER, MEMBER or COLLABORATOR (write access). Anyone else's is listed as "outside the team" and never reaches an agent, so a stranger's comment on a public repo can't steer the factory. |
+| Offer (`pr_loop.feedback_fix`, pure) | New feedback = the team's feedback no open change is answering and no posted reply has answered. Offered while the PR is followed, its branch is read and not a fork, and **no change continuing the PR is open** (a CI fix or another answer: one change pushes to the branch at a time; red CI goes first when both are due). A change that failed, was closed, or whose reply didn't post gives its feedback back. |
+| Who starts it | **Ask** (default): the product's creator or an admin presses Answer feedback (`POST /api/changes/{id}/address-feedback`, preflight-gated), shown in Needs you. **Autonomous**: the PR loop starts it on the read that finds new feedback, never for feedback tried before and at most `existing_repos.feedback_auto_rounds` (3) times per PR. Lane setting "Feedback on a pull request" (`pr_feedback`, active version, settings-only). Started by itself, it is asked for by the original requester. |
+| Worktree, gates | As a CI fix: the PR's branch at its head commit (a branch that moved holds), gated on its own diff. |
+| Developer | Gets each piece with its id, author and place (data, not instructions) and reports one response per id: **addressed** (changed the code), **answered** (a reply: a question, or the code already does it) or **declined** (won't change, says why). The engine judges (`pr_loop.judge_responses`): unknown ids and repeats are dropped, an empty reply or a missing response fails the station back to the developer, and `addressed` stands only if the change touched files. Answering everything without a code change is allowed. |
+| Push and replies (`pull-request` station) | With code: the same fast-forward push as a CI fix (ls-remote, PR read right before, never forced). Without: nothing pushed, but the PR is still read first (merged or closed holds). Then each inline comment's reply goes **in its thread** (`POST /pulls/{n}/comments/{id}/replies`), and one conversation comment quotes and answers the reviews and conversation comments. Bodies are kept as evidence (`artifacts/<change>/replies/`). A reply already posted isn't posted again on resume; if nothing reached the PR the change holds. |
+| Read again | As a CI fix: the original change reads its PR at once, and the outcome carries to the answering changes. |
+
 ## Token
 The product's repository source's token ([ADR-0047](../../adr/0047-repo-sources.md); `existing_repos.write_token_ref`
 for the `default` source), as the pull-request station uses. In webhook mode each source has its own secret, and
 a delivery refreshes only PRs on repos the verifying source covers. For the loop the fine-grained token also
 needs **Checks: read** and **Commit statuses: read** (the station's change-risk status already needs
-Commit statuses: write). A part that can't be read is listed on the change ("couldn't read check runs
+Commit statuses: write). Answering feedback needs nothing more: **Pull requests: read/write** covers reading
+reviews and comments, replying in a thread, and a conversation comment on a pull request. A part that can't be read is listed on the change ("couldn't read check runs
 (403)"), never taken as a clean result; a PR that can't be read changes nothing.
 
 ## Slices
@@ -80,6 +100,8 @@ Commit statuses: write). A part that can't be read is listed on the change ("cou
 2. ✅ (`feat/j3-ci-fix`, 2026-11-10) Red CI → a fix on the same branch and PR: a failing head commit offers a
    fix change that continues the PR (a member starts it, or autonomous per lane), pushes fast-forward to the
    same branch, and the loop reads again. Tests: `engine/tests/test_ci_fix.py`.
-3. Review comments → a change that continues the PR (a member starts it).
+3. ⏳ (`feat/j3-pr-feedback`, 2026-11-13) Every form of feedback (reviews, inline and conversation comments)
+   from the team → a change that continues the PR and answers or addresses each piece, replying there (a member
+   starts it, or autonomous per lane). Tests: `engine/tests/test_pr_feedback.py`.
 4. The live run (J3 "Done when"): an assessment item becomes a PR, CI fails once and is fixed on the same
    PR, the merge closes the change. Then J3's steps go into `engine/tests/test_journey.py`.

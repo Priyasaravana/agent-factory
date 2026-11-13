@@ -55,6 +55,7 @@ class ChangeSource(StrEnum):
     ticket = "ticket"  # a ticket system, accepted by a linked member (later)
     schedule = "schedule"  # scheduled upkeep (later)
     ci = "ci"  # the team's CI failed on a pull request a change opened (J3): a fix that continues it
+    review = "review"  # the team's feedback on a pull request a change opened (J3): answered or addressed on it
 
 
 class ProductTarget(StrEnum):
@@ -216,6 +217,27 @@ class CheckFailure(BaseModel):
     url: str = ""  # where a person reads the whole log (https only)
 
 
+class PrFeedback(BaseModel):
+    """One piece of feedback on a change's pull request (J3 slice 3): a review with a body (changes requested,
+    a comment, an approval with a remark), an inline comment on a line, or a comment in the conversation.
+    Read from the repo's host: data, never instructions, and capped. The factory's own comments carry
+    `pr_loop.FEEDBACK_MARK` and are never read back as feedback."""
+
+    id: str  # "review:<id>", "inline:<id>" or "comment:<id>": unique on the pull request
+    kind: Literal["review", "inline", "comment"]
+    author: str = ""
+    # the author has write access to the repo (OWNER, MEMBER or COLLABORATOR, as the host says): only the
+    # team's feedback is acted on; anyone else's is shown and left to a person
+    team: bool = False
+    state: str = ""  # a review's state: changes_requested | commented | approved
+    body: str = ""
+    path: str = ""  # an inline comment's file
+    line: int | None = None  # and line, when the host still maps it
+    reply_to: int | None = None  # an inline comment's thread (its first comment): where the answer goes
+    url: str = ""  # https only
+    at: datetime | None = None
+
+
 class PullRequestState(BaseModel):
     """What the factory last read about a change's pull request (J3, `pr_loop.py`). The repo's host is
     the source of truth: a webhook only says "look again", and every update is a read of the PR itself."""
@@ -241,6 +263,21 @@ class PullRequestState(BaseModel):
     unread: list[str] = Field(default_factory=list)
     checked_at: datetime
     source: Literal["poll", "webhook", "refresh"] = "poll"  # what made the factory look this time
+    # every piece of feedback read on the PR (reviews with a body, inline and conversation comments), oldest
+    # first, at most `pr_loop.MAX_FEEDBACK` (J3 slice 3); what is still to answer is worked out against the
+    # changes that continued the PR (`pr_loop.feedback_fix`)
+    feedback: list[PrFeedback] = Field(default_factory=list)
+
+
+class FeedbackResponse(BaseModel):
+    """How a change that continued a pull request answered one piece of feedback (J3 slice 3). The agent
+    reports it; `pr_loop.judge_responses` keeps only answers to feedback it was given, and `addressed` only
+    when the change really changed files."""
+
+    id: str  # the feedback's id
+    action: Literal["addressed", "answered", "declined"]  # changed the code · replied · won't do, with why
+    reply: str  # what is posted on the pull request
+    posted: bool = False  # the reply reached the pull request
 
 
 class PrContinuation(BaseModel):
@@ -257,6 +294,10 @@ class PrContinuation(BaseModel):
     failing: list[str] = Field(default_factory=list)  # the checks that failed there
     auto: bool = False  # started by itself (the lane's CI fix is autonomous), not by a member
     pushed_sha: str | None = None  # the commit pushed to the branch, once the push passed
+    # why it continues the PR: red CI (slice 2) or the team's feedback (slice 3)
+    reason: Literal["ci", "feedback"] = "ci"
+    feedback: list[PrFeedback] = Field(default_factory=list)  # the feedback it answers or addresses
+    responses: list[FeedbackResponse] = Field(default_factory=list)  # what it did about each, once delivered
 
 
 class Change(BaseModel):
@@ -927,6 +968,8 @@ class WorkflowSettingsInput(BaseModel):
     decision_constraints: dict[str, list[str]] | None = None
     # red CI on a pull request the lane opened (J3): ask (a member starts the fix) | autonomous
     ci_fix: Literal["ask", "autonomous"] | None = None
+    # feedback on a pull request the lane opened (J3): ask (a member starts the answer) | autonomous
+    pr_feedback: Literal["ask", "autonomous"] | None = None
     learn_from_runs: bool | None = None  # suggest learnings after runs that needed help (ADR-0021)
     eval_gate: Literal["off", "warn", "block"] | None = None  # evaluation gate (ADR-0025)
     # the lane's scope (ADR-0039 §5): first and last phase; [] = what its stations cover
@@ -1325,7 +1368,7 @@ class PendingAction(BaseModel):
 
     kind: Literal[
         "answer_questions", "align", "approve_risk", "accept_risk", "approve_schema", "resume", "factory_hold",
-        "wait", "feedback", "fix_ci",
+        "wait", "feedback", "fix_ci", "address_feedback",
     ]  # fmt: skip
     title: str  # what to do, as a button would say it
     detail: str = ""  # why, in one or two sentences
@@ -1388,6 +1431,28 @@ class CiFixView(BaseModel):
     fixes: list[str] = Field(default_factory=list)  # every fix change that continued this PR, oldest first
 
 
+class AnsweredFeedback(BaseModel):
+    feedback: PrFeedback
+    response: FeedbackResponse
+    change_id: str
+
+
+class FeedbackFixView(BaseModel):
+    """The team's feedback on a change's pull request (J3 slice 3): what is still to answer, and whether a
+    member may start a change that answers or addresses it now. Decided by the pure `pr_loop.feedback_fix`."""
+
+    offer: bool  # a member may start one now
+    auto: bool  # the lane would start it by itself (feedback: autonomous) on the next read
+    mode: Literal["ask", "autonomous"] = "ask"  # the lane's setting
+    reason: str = ""
+    running: str | None = None  # a change continuing the pull request, in progress or held
+    new: list[PrFeedback] = Field(default_factory=list)  # the team's feedback no change has answered yet
+    outside: list[PrFeedback] = Field(default_factory=list)  # feedback from outside the team: not acted on
+    # every piece of feedback answered or addressed so far, with what was done and by which change
+    answered: list[AnsweredFeedback] = Field(default_factory=list)
+    fixes: list[str] = Field(default_factory=list)  # every change that answered feedback on this PR
+
+
 class ChangeDetail(BaseModel):
     change: Change
     product: Product
@@ -1395,6 +1460,7 @@ class ChangeDetail(BaseModel):
     risk: ChangeRiskView | None = None
     actions: list[PendingAction] = Field(default_factory=list)
     ci_fix: CiFixView | None = None  # a change with a followed pull request (J3)
+    feedback_fix: FeedbackFixView | None = None  # the team's feedback on its pull request (J3 slice 3)
 
 
 class StationSpend(BaseModel):
@@ -1494,6 +1560,7 @@ class WorkflowView(BaseModel):
     decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
     decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
     ci_fix: str = "ask"  # ask | autonomous: red CI on the lane's pull requests (J3)
+    pr_feedback: str = "ask"  # ask | autonomous: the team's feedback on the lane's pull requests (J3)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)
@@ -1520,6 +1587,7 @@ class DraftView(BaseModel):
     decisions: str = "autonomous"  # autonomous | ask (ADR-0044 §1)
     decision_constraints: dict[str, list[str]] = Field(default_factory=dict)
     ci_fix: str = "ask"  # ask | autonomous: red CI on the lane's pull requests (J3)
+    pr_feedback: str = "ask"  # ask | autonomous: the team's feedback on the lane's pull requests (J3)
     learn_from_runs: bool = True
     eval_gate: str = "off"  # off | warn | block (ADR-0025)
     evals: list[EvalCase] = Field(default_factory=list)

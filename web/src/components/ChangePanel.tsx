@@ -28,6 +28,7 @@ import { cn } from "../lib/utils";
 import Problems from "./Problems";
 import ProvidedArtifacts from "./ProvidedArtifacts";
 import PullRequestStatus from "./PullRequestStatus";
+import PullRequestFeedback from "./PullRequestFeedback";
 import AgentCallsPanel from "./AgentCallsPanel";
 import AssessmentPanel from "./AssessmentPanel";
 import ChangeOutcome from "./ChangeOutcome";
@@ -113,7 +114,7 @@ export default function ChangePanel({
 
   if (!change.data)
     return <div className="h-64 animate-pulse rounded-xl bg-muted" />;
-  const { change: r, stations, risk, ci_fix: ciFix } = change.data;
+  const { change: r, stations, risk, ci_fix: ciFix, feedback_fix: feedbackFix } = change.data;
 
   return (
     <Card>
@@ -136,7 +137,12 @@ export default function ChangePanel({
           >
             {KIND_LABEL[r.kind ?? "new"]}
           </span>
-          <PullRequestStatus change={r} ciFix={ciFix ?? null} canFix={canSteer && !archived} />
+          <PullRequestStatus
+            change={r}
+            ciFix={ciFix ?? null}
+            feedback={feedbackFix ?? null}
+            canFix={canSteer && !archived}
+          />
           <a
             className="pill muted no-underline"
             href={`/workflows/${r.workflow_id ?? ""}`}
@@ -201,6 +207,7 @@ export default function ChangePanel({
             </span>
           </p>
         )}
+        <PullRequestFeedback change={r} feedback={feedbackFix ?? null} canAnswer={canSteer && !archived} />
         {!STOPPED.has(r.status) && <Problems error={resume.error} />}
         <StationStrip
           stations={stations.filter((s) => s.state !== "skipped")}

@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-12 (**J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-13 (**J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -439,7 +439,7 @@ per-pack evaluation is in the backlog.
   Pull requests. **Review fixes (2026-11-08):** latest status per context and run per check; every page read
   (on the API origin, 10 pages at most); a CI or review source not read whole shows unknown, never passing;
   a merged or closed outcome finishes its event, items and seal idempotently, resumed by refresh, poll or restart.
-- ⏳ **Slice 2 in review (`feat/j3-ci-fix`, 2026-11-10):** red CI on the PR's head commit offers **Fix CI**: a
+- ✅ **Slice 2 merged (#176, 2026-11-13):** red CI on the PR's head commit offers **Fix CI**: a
   change that continues the PR (`Change.continues`, source `ci`) from the failing commit on the PR's branch,
   gated on its own diff, pushed fast-forward to the same branch (checked with `ls-remote` first; never forced,
   never a second PR), then the PR is read again. A member starts it (creator or admin, Needs you), or the lane
@@ -447,7 +447,18 @@ per-pack evaluation is in the backlog.
   `existing_repos.ci_fix_auto_rounds` (2) per PR. A moved branch or a PR that got its outcome holds the fix with
   nothing pushed; merged or closed, the outcome carries to the fixes. Rules in `pr_loop.ci_fix` (pure); tests
   `tests/test_ci_fix.py`.
-- **Next:** slice 3 (review comments), then the live run.
+- ⏳ **Slice 3 in review (`feat/j3-pr-feedback`, 2026-11-13; scope widened by Saravana 2026-11-13 to "comments,
+  changes requested, inline review, any form of feedback: answer it or address it"):** reviews with a body,
+  inline comments and conversation comments are read with the PR and listed on the change page (new, answered,
+  outside the team). **Answer feedback** starts a change that continues the PR (source `review`) and gives each
+  piece one response: **addressed** (code changed and pushed fast-forward to the same branch), **answered** (a
+  reply) or **declined** (with why), judged by the engine (`pr_loop.judge_responses`). Replies go in each inline
+  comment's thread and in one conversation comment for the rest, all marked so the factory never reads itself
+  back. Only feedback from people with write access is acted on. A member starts it, or the lane when its new
+  **Feedback** setting is autonomous (never twice for the same feedback, at most
+  `existing_repos.feedback_auto_rounds` (3) per PR); one change continues a PR at a time, red CI first. Rules in
+  `pr_loop.feedback_fix` (pure); tests `tests/test_pr_feedback.py`.
+- **Next:** the live run (slice 4).
 - ✅ **Repository sources merged (#167, `feat/repo-sources`, [ADR-0047](../adr/0047-repo-sources.md), asked for by
   Saravana 2026-11-09):** team repos from several orgs and hosts (github.com, GitHub Enterprise), each through a
   source with its own token and webhook secret; admins add sources on Integrations (no rebuild, no restart),
@@ -459,7 +470,8 @@ per-pack evaluation is in the backlog.
   repos with a small CI workflow; `existing_repos.write_token_ref` = a fine-grained token (Contents + Pull
   requests read/write on that repo only).
 - **PR loop:** read checks, reviews and merge state (schedule + "Refresh"); red CI → fix on the same branch,
-  same PR; review comments → a change that continues the PR (a member starts it); merged → change closed,
+  same PR; any feedback from the team → a change that continues the PR and answers or addresses each piece
+  (a member starts it, or the lane); merged → change closed,
   ledger items "awaiting verification"; closed unmerged → abandoned.
 - **Done when:** an assessment item becomes a PR, CI fails once and is fixed on the same PR, and the merge
   closes the change.
