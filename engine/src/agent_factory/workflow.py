@@ -501,6 +501,11 @@ class WorkflowDoc(BaseModel):
     # a fix and a member starts it · autonomous: the factory starts it itself (at most
     # `existing_repos.ci_fix_auto_rounds` per PR, once per head commit). Read from the lane's active version.
     ci_fix: Literal["ask", "autonomous"] = "ask"
+    # the team's feedback on a pull request this lane opened (J3 slice 3): reviews, inline comments and
+    # conversation comments from people with write access. ask: the change page offers to answer it and a
+    # member starts it · autonomous: the factory starts it itself (at most `existing_repos.feedback_auto_rounds`
+    # per PR, never twice for the same feedback). Read from the lane's active version.
+    pr_feedback: Literal["ask", "autonomous"] = "ask"
     # after a change that needed help, suggest learnings for an admin to accept (ADR-0021)
     learn_from_runs: bool = True
     # evaluation harness (ADR-0025): fixed products run against a new version before it

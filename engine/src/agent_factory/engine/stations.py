@@ -3043,19 +3043,50 @@ async def repo_implement(ctx: StationContext) -> StationResult:
 - Report what you changed (for the pull request) and the command that runs the checks.
 
 {"## Fix this failure from a later station (evidence only)" + chr(10) + fix if fix else ""}"""
-    res = await ctx.agent(prompt, repo_change.IMPLEMENT_SCHEMA)
+    answering = cont is not None and cont.reason == "feedback"
+    if answering:
+        prompt += """
+## Answering feedback
+The change above is the team's feedback on the pull request. Report `responses`: exactly one per piece of
+feedback, with its id as given (`review:…`, `inline:…`, `comment:…`), the action (`addressed` only if you
+changed files for it), and the reply to post. If every piece is answered or declined, change no files.
+"""
+    res = await ctx.agent(prompt, repo_change.FEEDBACK_SCHEMA if answering else repo_change.IMPLEMENT_SCHEMA)
     if lim := _limit_result(res):
         return lim
     if not res.ok or not isinstance(res.structured, dict):
         return StationResult(StationOutcome.failed, "developer agent failed", res.error)
     title = repo_change.pr_title(str(ctx.change.kind), ctx.change.change_request or "").replace('"', "'")
-    if cont:
+    if cont and answering:
+        title = repo_change.feedback_title(cont.number, [f.author for f in cont.feedback]).replace('"', "'")
+    elif cont:
         title = repo_change.ci_fix_title(cont.number, cont.failing)
     await ctx.ws.commit_all(ctx.worktree, title + (" (fix)" if fix else ""))
     files = await _changed_files(ctx)
-    if not files:
-        return StationResult(StationOutcome.held, "the developer made no changes to the repository")
     report = res.structured
+    if cont and answering:  # the engine decides which responses stand, never the agent (J3 slice 3)
+        kept, problems = pr_loop.judge_responses(cont.feedback, report.get("responses"), changed=bool(files))
+        _write_json(
+            ctx,
+            "feedback-responses.json",
+            {"responses": [r.model_dump(mode="json") for r in kept], "problems": problems, "files": files},
+        )
+        if problems:
+            return StationResult(
+                StationOutcome.failed,
+                f"feedback not fully answered ({len(problems)} problem{'s' if len(problems) > 1 else ''})",
+                "Give every piece of feedback exactly one response; `addressed` only with a code change:\n- "
+                + "\n- ".join(problems),
+            )
+        cont.responses = kept  # saved with the change; posted by the pull-request station
+        acts = {a: sum(r.action == a for r in kept) for a in ("addressed", "answered", "declined")}
+        await ctx.emit(
+            EventKind.decision,
+            "feedback: " + ", ".join(f"{n} {a}" for a, n in acts.items() if n),
+            {"pr_feedback": {"responses": [r.model_dump(mode="json") for r in kept]}},
+        )
+    if not files and not answering:
+        return StationResult(StationOutcome.held, "the developer made no changes to the repository")
     _write_json(
         ctx,
         "repo-change.json",
@@ -3066,6 +3097,8 @@ async def repo_implement(ctx: StationContext) -> StationResult:
             "files": files,
         },
     )
+    if not files:
+        return StationResult(StationOutcome.passed, "feedback answered without a code change")
     return StationResult(StationOutcome.passed, f"change committed: {len(files)} file(s)")
 
 
@@ -3164,7 +3197,9 @@ async def pull_request(ctx: StationContext) -> StationResult:
         return first
     ref, source = first
     files = await _changed_files(ctx)
-    if not files:
+    cont = ctx.change.continues
+    answer_only = cont is not None and cont.reason == "feedback" and bool(cont.responses)
+    if not files and not answer_only:  # an answer to feedback may be replies alone (J3 slice 3)
         return StationResult(StationOutcome.held, "missing evidence: the change has no commits to propose")
     change, test, review = (_repo_json(ctx, n) for n in ("repo-change.json", "repo-test.json", "repo-review.json"))
     risk_data = _repo_json(ctx, "change-risk.json")
@@ -3184,7 +3219,9 @@ async def pull_request(ctx: StationContext) -> StationResult:
     )
     body_file = artifacts_dir(ctx) / "pull-request.md"
     body_file.parent.mkdir(parents=True, exist_ok=True)
-    body_file.write_text(f"# {title}\n\n{body}")  # sealed evidence (ADR-0023)
+    # a continuation's body is posted as a comment: it carries the mark, so it is never read back as feedback
+    mark = pr_loop.FEEDBACK_MARK + "\n" if ctx.change.continues is not None else ""
+    body_file.write_text(f"{mark}# {title}\n\n{body}")  # sealed evidence (ADR-0023)
     if ctx.change.continues is not None:
         return await _push_to_pull_request(ctx, ref, source, writable, files, title)
     branch = f"{ctx.cfg.existing_repos.pr_branch_prefix}{ctx.change.id}"
@@ -3300,13 +3337,16 @@ async def _push_to_pull_request(
             StationOutcome.held,
             f"the fix doesn't build on {cont.from_sha[:7]}: not pushed (a push to the pull request is never forced)",
         )
+    answering = cont.reason == "feedback"
+    pushing = bool(files)  # an answer to feedback may change no code: then nothing is pushed, only replies
     if ctx.settings.factory_mode == "dry-run":
-        await ctx.emit(
-            EventKind.decision,
-            f"push simulated (dry-run): {cont.branch} on pull request #{cont.number}",
-            {"pull_request": {**info, "simulated": True}},
-        )
-        return StationResult(StationOutcome.passed, f"push simulated (dry-run): pull request #{cont.number}")
+        what = f"push simulated (dry-run): {cont.branch} on pull request #{cont.number}"
+        if answering:
+            what = (what if pushing else f"no push (dry-run): pull request #{cont.number}") + (
+                f"; {len(cont.responses)} repl{'ies' if len(cont.responses) != 1 else 'y'} not posted"
+            )
+        await ctx.emit(EventKind.decision, what, {"pull_request": {**info, "simulated": True}})
+        return StationResult(StationOutcome.passed, f"{what.split(':')[0]}: pull request #{cont.number}")
     token_ref = source.token_ref or ""  # the product's repository source (ADR-0047), as for any push
     shown = f"the token of repository source '{source.id}'"
     token = ctx.secret(token_ref, "pull request", "open-pr", shown=shown) if token_ref else None
@@ -3321,26 +3361,27 @@ async def _push_to_pull_request(
     env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
     host_flag = "" if ref.host == "github.com" else f"--hostname {shlex.quote(ref.host)} "
     branch_q = shlex.quote(cont.branch)
-    remote = await ctx.cmd(
-        f"gh auth setup-git {host_flag}&& git ls-remote {shlex.quote(ref.url)} refs/heads/{branch_q}",
-        env=env,
-        timeout=60,
-    )
-    on_host = pr_loop.ls_remote_sha(remote.whole() if remote.ok else "", cont.branch)
-    if not on_host:
-        return StationResult(
-            StationOutcome.held,
-            f"branch {cont.branch} could not be read on the host, or is gone: the fix was not pushed",
-            remote.output[-1000:],
+    if pushing:
+        remote = await ctx.cmd(
+            f"gh auth setup-git {host_flag}&& git ls-remote {shlex.quote(ref.url)} refs/heads/{branch_q}",
+            env=env,
+            timeout=60,
         )
-    if on_host != cont.from_sha:
-        moved = await ctx.ws.git(f"merge-base --is-ancestor {shlex.quote(on_host)} HEAD", ctx.worktree)
-        if not moved.ok:
+        on_host = pr_loop.ls_remote_sha(remote.whole() if remote.ok else "", cont.branch)
+        if not on_host:
             return StationResult(
                 StationOutcome.held,
-                f"branch {cont.branch} moved since the fix started ({cont.from_sha[:7]} → {on_host[:7]}): "
-                "the fix was not pushed (never forced); close this change and the pull request is read again",
+                f"branch {cont.branch} could not be read on the host, or is gone: the fix was not pushed",
+                remote.output[-1000:],
             )
+        if on_host != cont.from_sha:
+            moved = await ctx.ws.git(f"merge-base --is-ancestor {shlex.quote(on_host)} HEAD", ctx.worktree)
+            if not moved.ok:
+                return StationResult(
+                    StationOutcome.held,
+                    f"branch {cont.branch} moved since the fix started ({cont.from_sha[:7]} → {on_host[:7]}): "
+                    "the fix was not pushed (never forced); close this change and the pull request is read again",
+                )
     if isinstance(now := writable("pushed", source), StationResult):  # an admin may have changed the source
         return now
     # the PR as it is on the host now, not the last poll: merged or closed meanwhile, nothing is pushed
@@ -3352,18 +3393,22 @@ async def _push_to_pull_request(
     if why := pr_loop.push_refusal(live.whole() if live.ok else "", cont.branch):
         return StationResult(
             StationOutcome.held,
-            f"{why}: the fix was not pushed to pull request #{cont.number}",
+            f"{why}: the {'answer' if answering else 'fix'} was not "
+            f"{'pushed to' if pushing else 'posted on'} pull request #{cont.number}",
             None if live.ok else live.output[-1000:],
         )
-    push = await ctx.cmd(
-        f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{branch_q}",
-        env=env,
-        timeout=300,
-    )
-    if not push.ok:  # the host refuses a push that isn't a fast-forward: nothing is forced
-        return StationResult(StationOutcome.held, f"push to {cont.branch} refused", push.output[-2000:])
-    head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
-    sha = (head.lines() or [""])[-1] if head.ok else ""
+    sha = ""
+    if pushing:
+        push = await ctx.cmd(
+            f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{branch_q}",
+            env=env,
+            timeout=300,
+        )
+        if not push.ok:  # the host refuses a push that isn't a fast-forward: nothing is forced
+            return StationResult(StationOutcome.held, f"push to {cont.branch} refused", push.output[-2000:])
+        head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
+        sha = (head.lines() or [""])[-1] if head.ok else ""
+        cont.pushed_sha = sha or None
     risk_data = _repo_json(ctx, "change-risk.json")
     holds, approved = risk_data.get("holds", 0), risk_data.get("approved_by")
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
@@ -3377,6 +3422,8 @@ async def _push_to_pull_request(
         )
         if not status.ok:
             await ctx.emit(EventKind.log, "change-risk status check not set on the new commit")
+    if answering:
+        return await _post_replies(ctx, ref, source, env, host_flag, still=still, pushed=sha or None, info=info)
     body_file = artifacts_dir(ctx) / "pull-request.md"  # written by `pull_request`, sealed with the evidence
     comment = (
         await ctx.cmd(
@@ -3391,7 +3438,6 @@ async def _push_to_pull_request(
     )
     if comment is not None and not comment.ok:
         await ctx.emit(EventKind.log, "the fix's comment wasn't posted on the pull request")
-    cont.pushed_sha = sha or None
     moved_to = f"{cont.from_sha[:7]} → {sha[:7] or '?'}"
     await ctx.emit(
         EventKind.decision,
@@ -3407,6 +3453,87 @@ async def _push_to_pull_request(
     return StationResult(
         StationOutcome.passed, f"fix pushed to pull request #{cont.number} ({moved_to}, a person merges)"
     )
+
+
+async def _post_replies(
+    ctx: StationContext,
+    ref: assess.RepoRef,
+    source: Any,
+    env: dict[str, str],
+    host_flag: str,
+    *,
+    still: bool,
+    pushed: str | None,
+    info: dict[str, Any],
+) -> StationResult:
+    """Post an answer to feedback on the pull request (J3 slice 3): each inline comment's reply in its own
+    thread, and one conversation comment for the reviews and conversation comments. Every body carries
+    `pr_loop.FEEDBACK_MARK` and is kept as evidence. A reply already posted (a resumed station) isn't posted
+    again; replies that fail hold the change once nothing reached the PR, so a person can resume it."""
+    cont = ctx.change.continues
+    assert cont is not None
+    by_id = {f.id: f for f in cont.feedback}
+    out = artifacts_dir(ctx) / "replies"
+    out.mkdir(parents=True, exist_ok=True)
+    failed: list[str] = []
+    if still:
+        for r in cont.responses:
+            f = by_id.get(r.id)
+            if r.posted or f is None or f.kind != "inline" or f.reply_to is None:
+                continue
+            body = out / f"{r.id.replace(':', '-')}.md"
+            body.write_text(pr_loop.reply_body(r, pushed=pushed, change_id=ctx.change.id))
+            res = await ctx.cmd(
+                f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/pulls/{cont.number}/comments/"
+                f"{f.reply_to}/replies -F body=@{shlex.quote(str(body))}",
+                env=env,
+                timeout=60,
+                retry=False,  # a reply that timed out may have been posted
+            )
+            r.posted = res.ok
+            if not res.ok:
+                failed.append(r.id)
+        rest = [r for r in cont.responses if not r.posted and (f := by_id.get(r.id)) is not None and f.kind != "inline"]
+        if rest:
+            body = out / "summary.md"
+            body.write_text(
+                pr_loop.summary_body(
+                    cont.feedback, rest, pushed=pushed, from_sha=cont.from_sha, change_id=ctx.change.id
+                )
+            )
+            res = await ctx.cmd(
+                f"gh pr comment {cont.number} --repo {shlex.quote(source.gh_repo(ref))} "
+                f"--body-file {shlex.quote(str(body))}",
+                env=env,
+                timeout=60,
+                retry=False,
+            )
+            for r in rest:
+                r.posted = res.ok
+            if not res.ok:
+                failed += [r.id for r in rest]
+    posted = sum(r.posted for r in cont.responses)
+    _write_json(ctx, "feedback-responses.json", {"responses": [r.model_dump(mode="json") for r in cont.responses]})
+    pushed_note = f"pushed {cont.from_sha[:7]} → {pushed[:7]}" if pushed else "no code change"
+    line = f"feedback on pull request #{cont.number}: {posted} of {len(cont.responses)} answers posted ({pushed_note})"
+    data = {"pull_request": info, "pr_feedback": {"fix": ctx.change.id, "pushed": pushed, "posted": posted}}
+    await ctx.emit(EventKind.decision, line, data)
+    ctx.store.add_event(cont.change_id, EventKind.decision, f"change {ctx.change.id}: {line}", data=data)
+    if not still and not pushed:
+        return StationResult(
+            StationOutcome.held, "the repository source can no longer write: nothing was posted on the pull request"
+        )
+    if failed and not pushed and not posted:
+        return StationResult(
+            StationOutcome.held,
+            f"replies not posted on pull request #{cont.number}: resume to try again",
+            "Could not post: " + ", ".join(failed),
+        )
+    if failed:
+        await ctx.emit(
+            EventKind.log, f"{len(failed)} repl{'ies' if len(failed) > 1 else 'y'} not posted: {', '.join(failed)}"
+        )
+    return StationResult(StationOutcome.passed, f"{line.split(': ', 1)[1]}; a person merges")
 
 
 # ------------------------------------------------------------ scan stations --

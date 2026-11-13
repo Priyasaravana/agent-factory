@@ -23,6 +23,28 @@ IMPLEMENT_SCHEMA: dict[str, Any] = {
     },
 }
 
+# a change that answers the team's feedback on a pull request (J3 slice 3): the same report, plus one
+# response per piece of feedback it was given (judged by `pr_loop.judge_responses`)
+FEEDBACK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["summary", "test_command", "responses"],
+    "properties": {
+        **IMPLEMENT_SCHEMA["properties"],
+        "responses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "action", "reply"],
+                "properties": {
+                    "id": {"type": "string"},  # the feedback's id, as given
+                    "action": {"type": "string", "enum": ["addressed", "answered", "declined"]},
+                    "reply": {"type": "string"},  # posted on the pull request as written
+                },
+            },
+        },
+    },
+}
+
 REVIEW_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["summary", "findings"],
@@ -121,6 +143,13 @@ def ci_fix_title(number: int, failing: list[str]) -> str:
     """The commit a CI fix adds to a pull request (J3 slice 2)."""
     names = ", ".join(failing[:3]) + (" …" if len(failing) > 3 else "")
     title = f"fix: CI on #{number}" + (f" ({names})" if names else "")
+    return title if len(title) <= 72 else title[:71] + "…"
+
+
+def feedback_title(number: int, authors: list[str]) -> str:
+    """The commit an answer to feedback adds to a pull request (J3 slice 3)."""
+    names = ", ".join(f"@{a}" for a in list(dict.fromkeys(a for a in authors if a))[:3])
+    title = f"fix: review feedback on #{number}" + (f" ({names})" if names else "")
     return title if len(title) <= 72 else title[:71] + "…"
 
 

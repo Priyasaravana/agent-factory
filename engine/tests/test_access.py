@@ -25,6 +25,7 @@ OTHER = {"X-Auth-User": "bob", "X-Auth-Role": "member"}
 MEMBER_ACTIONS = {
     "refresh_pull_request",
     "fix_ci",
+    "address_feedback",
     "switch_back",
     "accept_change",
     "close_change",
@@ -49,6 +50,7 @@ MEMBER_ACTIONS = {
 }
 STEERING = {
     "fix_ci",
+    "address_feedback",
     "switch_back",
     "accept_change",
     "close_change",

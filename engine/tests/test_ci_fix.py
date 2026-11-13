@@ -186,6 +186,9 @@ class FakeHost:
         self.origin, self.branch = origin, branch
         self.ci: dict[str, str] = {}  # head sha -> conclusion
         self.merged = False
+        self.reviews: list[dict[str, Any]] = []
+        self.inline: list[dict[str, Any]] = []  # review comments on lines (slice 3)
+        self.comments: list[dict[str, Any]] = []  # conversation comments (slice 3)
 
     def head(self) -> str:
         return _git(self.origin, "rev-parse", self.branch)
@@ -210,7 +213,11 @@ class FakeHost:
         if path.startswith(f"/commits/{sha}/status"):
             return 200, {"statuses": [], "total_count": 0}, None
         if path.startswith("/pulls/7/reviews"):
-            return 200, [], None
+            return 200, self.reviews, None
+        if path.startswith("/pulls/7/comments"):
+            return 200, self.inline, None
+        if path.startswith("/issues/7/comments"):
+            return 200, self.comments, None
         return 404, {"message": "Not Found"}, None
 
 
