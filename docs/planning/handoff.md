@@ -1,17 +1,17 @@
-# Agent Factory: handoff (updated 2026-11-12)
+# Agent Factory: handoff (updated 2026-11-13)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-12)
-- **J3 slice 2 in review on `feat/j3-ci-fix` (2026-11-10):** red CI fixed on the same PR
+## Current state (2026-11-13)
+- **J3 slice 2 merged as #176 (2026-11-13):** red CI fixed on the same PR
   ([plans/pr-loop.md](plans/pr-loop.md), "Red CI"). Slice 1 (follow the PR) merged as #166. A failing head
   commit offers **Fix CI** on the change page and in Needs you; the fix is a change that continues the PR
   from the failing commit on its branch, pushes fast-forward only (`ls-remote` checked first, never forced,
   never `gh pr create`), and the PR is read again. Lane setting **Red CI on a pull request** (`ci_fix`: ask |
   autonomous; autonomous starts once per failing commit, at most `existing_repos.ci_fix_auto_rounds` = 2 per
   PR). Checks run in the cloud session: the new and touched engine tests pass, web build clean (full
-  `scripts/check all` result in the PR). Things to look at in review: the fix is gated on **its own diff only**
+  `scripts/check all` result in the PR). The fix is gated on **its own diff only**
   (`base_ref` = start commit), and the lane's setting is read from its **active** version, not the version the
   original change was pinned to. **Waiting on Saravana for the live run** (unchanged): a throwaway copy of one
   of his repos with a small CI workflow, and a fine-grained token on it only (Contents, Pull requests
