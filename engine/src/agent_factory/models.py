@@ -226,8 +226,10 @@ class PrFeedback(BaseModel):
     id: str  # "review:<id>", "inline:<id>" or "comment:<id>": unique on the pull request
     kind: Literal["review", "inline", "comment"]
     author: str = ""
-    # the author has write access to the repo (OWNER, MEMBER or COLLABORATOR, as the host says): only the
-    # team's feedback is acted on; anyone else's is shown and left to a person
+    # the author's role on this repo, read from the host (`/collaborators/{login}/permission`): admin, maintain,
+    # write, triage, read, none, or unknown when it couldn't be read. Only write access or above makes the
+    # feedback the team's, acted on; anyone else's (unknown included: it fails closed) is shown and left to a person
+    permission: str = "unknown"
     team: bool = False
     state: str = ""  # a review's state: changes_requested | commented | approved
     body: str = ""

@@ -189,6 +189,7 @@ class FakeHost:
         self.reviews: list[dict[str, Any]] = []
         self.inline: list[dict[str, Any]] = []  # review comments on lines (slice 3)
         self.comments: list[dict[str, Any]] = []  # conversation comments (slice 3)
+        self.roles: dict[str, str] = {}  # login -> role on the repo; missing: 404 (no access); "error": 500
 
     def head(self) -> str:
         return _git(self.origin, "rev-parse", self.branch)
@@ -218,6 +219,14 @@ class FakeHost:
             return 200, self.inline, None
         if path.startswith("/issues/7/comments"):
             return 200, self.comments, None
+        if path.startswith("/collaborators/") and path.endswith("/permission"):
+            role = self.roles.get(path.split("/")[2])
+            if role is None:
+                return 404, {"message": "Not Found"}, None
+            if role == "error":
+                return 500, {"message": "oops"}, None
+            perm = {"maintain": "write", "triage": "read"}.get(role, role)
+            return 200, {"permission": perm, "role_name": role, "user": {"login": path.split("/")[2]}}, None
         return 404, {"message": "Not Found"}, None
 
 

@@ -454,7 +454,8 @@ per-pack evaluation is in the backlog.
   piece one response: **addressed** (code changed and pushed fast-forward to the same branch), **answered** (a
   reply) or **declined** (with why), judged by the engine (`pr_loop.judge_responses`). Replies go in each inline
   comment's thread and in one conversation comment for the rest, all marked so the factory never reads itself
-  back. Only feedback from people with write access is acted on. A member starts it, or the lane when its new
+  back, and each reply is posted once (its own marker, checked on the host). Only feedback from people whose role
+  on the repo (read from the host, failing closed) is write or above is acted on. A member starts it, or the lane when its new
   **Feedback** setting is autonomous (never twice for the same feedback, at most
   `existing_repos.feedback_auto_rounds` (3) per PR); one change continues a PR at a time, red CI first. Rules in
   `pr_loop.feedback_fix` (pure); tests `tests/test_pr_feedback.py`.

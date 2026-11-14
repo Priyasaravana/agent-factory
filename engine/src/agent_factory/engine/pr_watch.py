@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Awaitable, Callable
@@ -89,6 +90,9 @@ def _dump(state: PullRequestState) -> dict[str, Any]:
     return state.model_dump(mode="json", exclude={"feedback"}) | {"feedback": len(state.feedback)}
 
 
+ROLE_TTL = 600.0  # seconds an author's role on a repo is trusted before it is read again
+
+
 class PrReadError(Exception):
     """The PR itself couldn't be read (no token, the host refused or is unreachable)."""
 
@@ -100,6 +104,8 @@ class PrWatcher:
         self._loop: asyncio.Task[None] | None = None
         self._locks: dict[str, asyncio.Lock] = {}
         self.background: set[asyncio.Task[list[str]]] = set()  # webhook reads still running
+        # authors' roles on a repo, read from the host: (repo API url, login) -> (role, read at, monotonic)
+        self._roles: dict[tuple[str, str], tuple[str, float]] = {}
 
     # ------------------------------------------------------------ which --
     def _changes(self) -> list[Change]:
@@ -342,7 +348,7 @@ class PrWatcher:
         reviews = await read(pr_loop.REVIEWS, f"{api}/pulls/{ref.number}/reviews?per_page=100", None)
         inline = await read(pr_loop.INLINE, f"{api}/pulls/{ref.number}/comments?per_page=100", None)
         comments = await read(pr_loop.COMMENTS, f"{api}/issues/{ref.number}/comments?per_page=100", None)
-        return pr_loop.parse(
+        state = pr_loop.parse(
             ref,
             pr,
             check_runs=runs,
@@ -355,6 +361,30 @@ class PrWatcher:
             now=datetime.now(UTC),
             source=source,
         )
+        roles = await self._roles_of(api, token, [f.author for f in state.feedback])
+        if unknown := sorted(a for a, r in roles.items() if r == "unknown"):
+            state.unread = sorted({*state.unread, f"repo roles of {', '.join(unknown[:5])} (feedback not acted on)"})
+        return pr_loop.with_roles(state, roles)
+
+    async def _roles_of(self, api: str, token: str, authors: list[str]) -> dict[str, str]:
+        """Each author's role on the repo (`/collaborators/{login}/permission`), so only people with write
+        access count as the team (review of #178: an association such as MEMBER doesn't prove it). Roles
+        read are kept 10 minutes; one that can't be read is "unknown", not cached, and fails closed."""
+        out: dict[str, str] = {}
+        now = time.monotonic()
+        for login in list(dict.fromkeys(a for a in authors if a))[: pr_loop.MAX_AUTHORS]:
+            if not pr_loop.valid_login(login):
+                out[login] = "unknown"
+                continue
+            hit = self._roles.get((api, login))
+            if hit and now - hit[1] < ROLE_TTL:
+                out[login] = hit[0]
+                continue
+            code, body, _ = await self._get(f"{api}/collaborators/{quote(login, safe='')}/permission", token)
+            out[login] = pr_loop.role_of(code, body)
+            if out[login] != "unknown":
+                self._roles[(api, login)] = (out[login], now)
+        return out
 
     # ------------------------------------------------------------ apply --
     async def _apply(self, change: Change, state: PullRequestState) -> Change:

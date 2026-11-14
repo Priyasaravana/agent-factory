@@ -4084,6 +4084,11 @@ export interface components {
              */
             author: string;
             /**
+             * Permission
+             * @default unknown
+             */
+            permission: string;
+            /**
              * Team
              * @default false
              */

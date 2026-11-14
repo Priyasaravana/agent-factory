@@ -197,7 +197,9 @@
   (`ChangeManager.address_feedback`, `continues.reason` feedback): the engine judges its responses
   (`pr_loop.judge_responses`), and everything the factory posts on a PR carries `pr_loop.FEEDBACK_MARK` so it is
   never read back as feedback. Never give an agent feedback from outside the team. Tests in `tests/test_pr_loop.py`,
-  `tests/test_ci_fix.py` and `tests/test_pr_feedback.py`.
+  `tests/test_ci_fix.py` and `tests/test_pr_feedback.py`. "The team" is an author's role on the repo read from the
+  host (`pr_loop.with_roles`, failing closed), never their author association. Each reply is posted once: its
+  `pr_loop.reply_marker` is looked for on the host before posting and after any failed POST.
 - Product work ledger (ADR-0040): every delivered assessment is folded into the product's
   `work_items` by the pure `ledger.reconcile` (fingerprints, status, history). An issue is fixed
   only when its check really ran again; judgement items close only after a change addressed

@@ -54,7 +54,10 @@ INLINE, COMMENTS = "review comments", "conversation comments"
 
 # everything the factory posts on a pull request carries this (invisible once rendered): it is never read back
 FEEDBACK_MARK = "<!-- agent-factory -->"
-TEAM = {"OWNER", "MEMBER", "COLLABORATOR"}  # author associations with write access to the repo
+# roles on the repo that make feedback the team's (review of #178: an author association such as MEMBER is not
+# proof of write access, an org member may only read the repo; the role is read per author and fails closed)
+WRITE_ROLES = {"admin", "maintain", "write"}
+MAX_AUTHORS = 30  # authors whose role is read per read of the PR (the rest stay unknown: not the team's)
 MAX_FEEDBACK = 50  # pieces of feedback kept per read (the newest)
 MAX_FEEDBACK_TEXT = 2000
 MAX_REPLY = 3000
@@ -284,10 +287,41 @@ def _text(v: Any) -> str:
     return t if len(t) <= MAX_FEEDBACK_TEXT else t[: MAX_FEEDBACK_TEXT - 1] + "…"
 
 
-def _author(row: dict[str, Any]) -> tuple[str, bool]:
+def _author(row: dict[str, Any]) -> str:
     raw = row.get("user")
-    login = str(raw.get("login") or "") if isinstance(raw, dict) else ""
-    return login[:100], str(row.get("author_association") or "").upper() in TEAM
+    return (str(raw.get("login") or "") if isinstance(raw, dict) else "")[:100]
+
+
+_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?")
+
+
+def valid_login(login: str) -> bool:
+    """A login the factory may put in a URL to read its role (anything else stays unknown)."""
+    return bool(_LOGIN.fullmatch(login))
+
+
+def role_of(code: int, body: Any) -> str:
+    """The author's role from `/collaborators/{login}/permission`: `role_name` (admin, maintain, write, triage,
+    read) or else `permission`; 404 is no access ("none"); anything else couldn't be read ("unknown")."""
+    if code == 404:
+        return "none"
+    if code != 200 or not isinstance(body, dict):
+        return "unknown"
+    for key in ("role_name", "permission"):
+        v = body.get(key)
+        if isinstance(v, str) and v.lower() in {"admin", "maintain", "write", "triage", "read", "none"}:
+            return v.lower()
+    return "unknown"
+
+
+def with_roles(state: PullRequestState, roles: dict[str, str]) -> PullRequestState:
+    """The PR state with each piece of feedback's author role, and `team` only for write access or above.
+    An author whose role wasn't read is not the team's (fails closed)."""
+    feedback = [
+        f.model_copy(update={"permission": (r := roles.get(f.author, "unknown")), "team": r in WRITE_ROLES})
+        for f in state.feedback
+    ]
+    return state.model_copy(update={"feedback": feedback})
 
 
 def _int(v: Any) -> int | None:
@@ -298,21 +332,20 @@ def feedback_of(reviews: Any, inline: Any, comments: Any) -> list[PrFeedback]:
     """Every piece of feedback on the PR, oldest first (the newest MAX_FEEDBACK): reviews with a body
     (changes requested, commented, or an approval with a remark; dismissed and pending ones are not
     feedback), inline comments (a reply in a thread is answered in that thread), and conversation
-    comments. Empty ones, and anything carrying FEEDBACK_MARK (the factory's own words), are left out."""
+    comments. Empty ones, and anything carrying FEEDBACK_MARK (the factory's own words), are left out.
+    Nobody is the team's yet: `with_roles` decides that from each author's role on the repo."""
     out: list[PrFeedback] = []
 
     def add(kind: str, row: dict[str, Any], **extra: Any) -> None:
         rid, body = _int(row.get("id")), _text(row.get("body"))
         if rid is None or not body or FEEDBACK_MARK in str(row.get("body")):
             return
-        author, team = _author(row)
         when = _when(row.get("submitted_at") or row.get("created_at"))
         out.append(
             PrFeedback(
                 id=f"{kind}:{rid}",
                 kind=kind,  # type: ignore[arg-type]
-                author=author,
-                team=team,
+                author=_author(row),
                 body=body,
                 url=_https(row.get("html_url")),
                 at=when,
@@ -670,6 +703,24 @@ def judge_responses(
 _SAID = {"addressed": "Addressed", "answered": "Answer", "declined": "Not changed"}
 
 
+REPLY_KEY = re.compile(r"<!-- agent-factory:reply ([A-Za-z0-9_-]{1,64})/([a-z]+(?::\d+)?) -->")
+# the same marker for jq's scan on the host's comments: no capture groups, so scan prints whole markers
+REPLY_SCAN = r"<!-- agent-factory:reply [A-Za-z0-9_-]{1,64}/[a-z]+(?::[0-9]+)? -->"
+SUMMARY = "summary"  # the key of the one conversation comment that answers reviews and conversation comments
+
+
+def reply_marker(change_id: str, key: str) -> str:
+    """A stable, invisible marker naming one reply (`key`: a feedback id, or SUMMARY) of one change, so a
+    reply that reached the PR while its POST seemed to fail is found again instead of posted twice
+    (review of #178)."""
+    return f"<!-- agent-factory:reply {change_id}/{key} -->"
+
+
+def posted_keys(text: str, change_id: str) -> set[str]:
+    """The keys of `change_id`'s replies found in the PR's comments (`text`: their bodies, any format)."""
+    return {m[2] for m in REPLY_KEY.finditer(text) if m[1] == change_id}
+
+
 def reply_line(r: FeedbackResponse, pushed: str | None) -> str:
     head = _SAID[r.action] + (f" in {_short(pushed)}" if r.action == "addressed" and pushed else "")
     return f"**{head}:** {r.reply}"
@@ -677,7 +728,8 @@ def reply_line(r: FeedbackResponse, pushed: str | None) -> str:
 
 def reply_body(r: FeedbackResponse, *, pushed: str | None, change_id: str) -> str:
     """A reply in an inline comment's thread."""
-    return f"{FEEDBACK_MARK}\n{reply_line(r, pushed)}\n\n<sub>Agent Software Factory · change {change_id}</sub>\n"
+    head = f"{FEEDBACK_MARK}\n{reply_marker(change_id, r.id)}"
+    return f"{head}\n{reply_line(r, pushed)}\n\n<sub>Agent Software Factory · change {change_id}</sub>\n"
 
 
 def summary_body(
@@ -687,7 +739,7 @@ def summary_body(
     in their threads), saying what the change pushed."""
     by_id = {f.id: f for f in items}
     what = f"pushed {_short(from_sha)} → {_short(pushed)}" if pushed else "no code change"
-    out = [FEEDBACK_MARK, f"Feedback answered by change {change_id} ({what}).", ""]
+    out = [FEEDBACK_MARK, reply_marker(change_id, SUMMARY), f"Feedback answered by change {change_id} ({what}).", ""]
     for r in responses:
         f = by_id.get(r.id)
         if f is None or f.kind == "inline":
