@@ -17,7 +17,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   in the PR); web build clean. Things to look at in review: the "team" rule (author association), and that an
   answer-only change still runs the lane's test/review/scan stations on an empty diff. **Not run live.** The
   live run (slice 4) needs the same throwaway repo and token as before; the token's Pull requests read/write
-  already covers replies.
+  already covers replies, and reading authors' roles needs only repository Metadata: read (always granted).
+- **#178 review fixes (2026-11-14):** [P1] the team is decided by each author's role on the repo read from the
+  host (`pr_loop.role_of`, `with_roles`; unknown fails closed), not their association; [P2] the station holds
+  until every reply is posted, and Resume posts only the rest without pushing again; [P2] each reply carries
+  `pr_loop.reply_marker`, and the PR's comments are read before posting and after any failed POST, so a reply
+  that reached the host is never posted twice (nothing is posted if they can't be read).
 
 ## Current state (2026-11-13)
 - **J3 slice 2 merged as #176 (2026-11-13):** red CI fixed on the same PR

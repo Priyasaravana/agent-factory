@@ -3339,6 +3339,12 @@ async def _push_to_pull_request(
         )
     answering = cont.reason == "feedback"
     pushing = bool(files)  # an answer to feedback may change no code: then nothing is pushed, only replies
+    here = ""
+    if pushing:
+        head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
+        here = (head.lines() or [""])[-1] if head.ok else ""
+    # resumed after its push (replies still to post): the push isn't checked or made again
+    already = bool(here) and cont.pushed_sha == here
     if ctx.settings.factory_mode == "dry-run":
         what = f"push simulated (dry-run): {cont.branch} on pull request #{cont.number}"
         if answering:
@@ -3361,7 +3367,7 @@ async def _push_to_pull_request(
     env = {**source.gh_env(token), **ctx.ws.git_env_for(ctx.worktree)}
     host_flag = "" if ref.host == "github.com" else f"--hostname {shlex.quote(ref.host)} "
     branch_q = shlex.quote(cont.branch)
-    if pushing:
+    if pushing and not already:
         remote = await ctx.cmd(
             f"gh auth setup-git {host_flag}&& git ls-remote {shlex.quote(ref.url)} refs/heads/{branch_q}",
             env=env,
@@ -3397,8 +3403,8 @@ async def _push_to_pull_request(
             f"{'pushed to' if pushing else 'posted on'} pull request #{cont.number}",
             None if live.ok else live.output[-1000:],
         )
-    sha = ""
-    if pushing:
+    sha = here if already else ""
+    if pushing and not already:
         push = await ctx.cmd(
             f"gh auth setup-git {host_flag}&& git push {shlex.quote(ref.url)} HEAD:refs/heads/{branch_q}",
             env=env,
@@ -3406,14 +3412,13 @@ async def _push_to_pull_request(
         )
         if not push.ok:  # the host refuses a push that isn't a fast-forward: nothing is forced
             return StationResult(StationOutcome.held, f"push to {cont.branch} refused", push.output[-2000:])
-        head = await ctx.ws.git("rev-parse HEAD", ctx.worktree)
-        sha = (head.lines() or [""])[-1] if head.ok else ""
+        sha = here
         cont.pushed_sha = sha or None
     risk_data = _repo_json(ctx, "change-risk.json")
     holds, approved = risk_data.get("holds", 0), risk_data.get("approved_by")
     desc = (f"{holds} risky change(s) approved by {approved}" if holds and approved else "no risky changes")[:140]
     still = not isinstance(writable("marked or commented (the fix was pushed)", source), StationResult)
-    if sha and still:
+    if sha and still and not already:
         status = await ctx.cmd(
             f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/statuses/{sha} -f state=success "
             f"-f context=agent-factory/change-risk -f description={shlex.quote(desc)}",
@@ -3468,72 +3473,109 @@ async def _post_replies(
 ) -> StationResult:
     """Post an answer to feedback on the pull request (J3 slice 3): each inline comment's reply in its own
     thread, and one conversation comment for the reviews and conversation comments. Every body carries
-    `pr_loop.FEEDBACK_MARK` and is kept as evidence. A reply already posted (a resumed station) isn't posted
-    again; replies that fail hold the change once nothing reached the PR, so a person can resume it."""
+    `pr_loop.FEEDBACK_MARK` and its own `pr_loop.reply_marker`, and is kept as evidence.
+
+    Each reply is posted once (review of #178): before posting, and again after any POST that failed (it may
+    have reached the host and only the answer was lost), the PR's comments are read for this change's
+    markers and what is there counts as posted. If they can't be read, nothing is posted. The station passes
+    only when every reply is on the PR; otherwise it holds, the push and the replies posted so far kept, and
+    Resume posts only the rest."""
     cont = ctx.change.continues
     assert cont is not None
     by_id = {f.id: f for f in cont.feedback}
     out = artifacts_dir(ctx) / "replies"
     out.mkdir(parents=True, exist_ok=True)
-    failed: list[str] = []
-    if still:
-        for r in cont.responses:
-            f = by_id.get(r.id)
-            if r.posted or f is None or f.kind != "inline" or f.reply_to is None:
-                continue
-            body = out / f"{r.id.replace(':', '-')}.md"
-            body.write_text(pr_loop.reply_body(r, pushed=pushed, change_id=ctx.change.id))
-            res = await ctx.cmd(
-                f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/pulls/{cont.number}/comments/"
-                f"{f.reply_to}/replies -F body=@{shlex.quote(str(body))}",
-                env=env,
-                timeout=60,
-                retry=False,  # a reply that timed out may have been posted
-            )
-            r.posted = res.ok
-            if not res.ok:
-                failed.append(r.id)
-        rest = [r for r in cont.responses if not r.posted and (f := by_id.get(r.id)) is not None and f.kind != "inline"]
-        if rest:
-            body = out / "summary.md"
-            body.write_text(
-                pr_loop.summary_body(
-                    cont.feedback, rest, pushed=pushed, from_sha=cont.from_sha, change_id=ctx.change.id
-                )
-            )
-            res = await ctx.cmd(
-                f"gh pr comment {cont.number} --repo {shlex.quote(source.gh_repo(ref))} "
-                f"--body-file {shlex.quote(str(body))}",
-                env=env,
-                timeout=60,
-                retry=False,
-            )
-            for r in rest:
-                r.posted = res.ok
-            if not res.ok:
-                failed += [r.id for r in rest]
-    posted = sum(r.posted for r in cont.responses)
-    _write_json(ctx, "feedback-responses.json", {"responses": [r.model_dump(mode="json") for r in cont.responses]})
     pushed_note = f"pushed {cont.from_sha[:7]} → {pushed[:7]}" if pushed else "no code change"
-    line = f"feedback on pull request #{cont.number}: {posted} of {len(cont.responses)} answers posted ({pushed_note})"
-    data = {"pull_request": info, "pr_feedback": {"fix": ctx.change.id, "pushed": pushed, "posted": posted}}
-    await ctx.emit(EventKind.decision, line, data)
-    ctx.store.add_event(cont.change_id, EventKind.decision, f"change {ctx.change.id}: {line}", data=data)
-    if not still and not pushed:
-        return StationResult(
-            StationOutcome.held, "the repository source can no longer write: nothing was posted on the pull request"
+    kept = f" The push ({pushed_note}) is kept." if pushed else ""
+
+    def inline_of(r: Any) -> Any:
+        f = by_id.get(r.id)
+        return f if f is not None and f.kind == "inline" and f.reply_to is not None else None
+
+    async def on_host() -> bool:
+        """Mark posted every reply of this change found on the PR. False: the comments couldn't be read."""
+        found = ""
+        for path in (f"pulls/{cont.number}/comments", f"issues/{cont.number}/comments"):
+            res = await ctx.cmd(
+                f"gh api {host_flag}--paginate {shlex.quote(f'repos/{ref.slug}/{path}?per_page=100')} "
+                f"--jq {shlex.quote('.[].body | scan(' + json.dumps(pr_loop.REPLY_SCAN) + ')')}",
+                env=env,
+                timeout=120,
+            )
+            if not res.ok:
+                return False
+            found += res.whole()
+        keys = pr_loop.posted_keys(found, ctx.change.id)
+        for r in cont.responses:
+            if r.id in keys or (inline_of(r) is None and pr_loop.SUMMARY in keys):
+                r.posted = True
+        return True
+
+    async def done(outcome: StationOutcome, summary: str, detail: str | None = None) -> StationResult:
+        posted = sum(r.posted for r in cont.responses)
+        _write_json(ctx, "feedback-responses.json", {"responses": [r.model_dump(mode="json") for r in cont.responses]})
+        line = (
+            f"feedback on pull request #{cont.number}: {posted} of {len(cont.responses)} answers posted ({pushed_note})"
         )
-    if failed and not pushed and not posted:
-        return StationResult(
+        data = {"pull_request": info, "pr_feedback": {"fix": ctx.change.id, "pushed": pushed, "posted": posted}}
+        await ctx.emit(EventKind.decision, line, data)
+        ctx.store.add_event(cont.change_id, EventKind.decision, f"change {ctx.change.id}: {line}", data=data)
+        return StationResult(outcome, summary, detail)
+
+    if not still:
+        return await done(
             StationOutcome.held,
-            f"replies not posted on pull request #{cont.number}: resume to try again",
-            "Could not post: " + ", ".join(failed),
+            "the repository source can no longer write: replies not posted on the pull request" + kept,
         )
+    if any(not r.posted for r in cont.responses) and not await on_host():
+        return await done(
+            StationOutcome.held,
+            f"couldn't read pull request #{cont.number}'s comments to check which replies are already there: "
+            "nothing posted, so nothing is posted twice; resume to try again" + kept,
+        )
+    failed = False
+    for r in cont.responses:
+        f = inline_of(r)
+        if r.posted or f is None:
+            continue
+        body = out / f"{r.id.replace(':', '-')}.md"
+        body.write_text(pr_loop.reply_body(r, pushed=pushed, change_id=ctx.change.id))
+        res = await ctx.cmd(
+            f"gh api {host_flag}--method POST repos/{shlex.quote(ref.slug)}/pulls/{cont.number}/comments/"
+            f"{f.reply_to}/replies -F body=@{shlex.quote(str(body))}",
+            env=env,
+            timeout=60,
+            retry=False,  # a reply that timed out may have been posted: the host is read again instead
+        )
+        r.posted = res.ok
+        failed |= not res.ok
+    if rest := [r for r in cont.responses if not r.posted and inline_of(r) is None]:
+        body = out / "summary.md"
+        body.write_text(
+            pr_loop.summary_body(cont.feedback, rest, pushed=pushed, from_sha=cont.from_sha, change_id=ctx.change.id)
+        )
+        res = await ctx.cmd(
+            f"gh pr comment {cont.number} --repo {shlex.quote(source.gh_repo(ref))} "
+            f"--body-file {shlex.quote(str(body))}",
+            env=env,
+            timeout=60,
+            retry=False,
+        )
+        for r in rest:
+            r.posted = res.ok
+        failed |= not res.ok
     if failed:
-        await ctx.emit(
-            EventKind.log, f"{len(failed)} repl{'ies' if len(failed) > 1 else 'y'} not posted: {', '.join(failed)}"
+        await on_host()  # what failed may have landed: it counts as posted, and is never posted again
+    if missing := [r.id for r in cont.responses if not r.posted]:
+        n = len(missing)
+        return await done(
+            StationOutcome.held,
+            f"{n} of {len(cont.responses)} repl{'ies' if len(cont.responses) > 1 else 'y'} not posted on pull "
+            f"request #{cont.number}: resume to post {'them' if n > 1 else 'it'} (posted ones aren't posted again)."
+            + kept,
+            "Not posted: " + ", ".join(missing),
         )
-    return StationResult(StationOutcome.passed, f"{line.split(': ', 1)[1]}; a person merges")
+    return await done(StationOutcome.passed, f"{len(cont.responses)} answers posted ({pushed_note}); a person merges")
 
 
 # ------------------------------------------------------------ scan stations --

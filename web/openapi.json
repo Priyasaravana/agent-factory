@@ -9952,6 +9952,11 @@
             "title": "Author",
             "default": ""
           },
+          "permission": {
+            "type": "string",
+            "title": "Permission",
+            "default": "unknown"
+          },
           "team": {
             "type": "boolean",
             "title": "Team",
