@@ -3,6 +3,27 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
+## Current state (2026-11-13, evening)
+- **J3 slice 3 in review on `feat/j3-pr-feedback` (2026-11-13):** the team's feedback on a change's PR is
+  answered or addressed on the same PR ([plans/pr-loop.md](plans/pr-loop.md), "Feedback"). Scope from
+  Saravana (2026-11-13): every form of feedback (comments, changes requested, inline review), each answered or
+  addressed. Reviews, inline comments and conversation comments are read with the PR (`pr_loop.feedback_of`);
+  only authors with write access count as the team. **Answer feedback** (change page, Needs you) or the lane's
+  new **Feedback on a pull request** setting (`pr_feedback`: ask | autonomous) starts a change continuing the
+  PR (`Change.continues.reason` = feedback, source `review`); the developer reports one response per piece
+  (addressed | answered | declined), judged by `pr_loop.judge_responses`; the pull-request station pushes
+  fast-forward when code changed (or nothing), then replies in each inline thread and with one conversation
+  comment, every body carrying `pr_loop.FEEDBACK_MARK`. Checks in the cloud session: `scripts/check all` (result
+  in the PR); web build clean. Things to look at in review: the "team" rule (author association), and that an
+  answer-only change still runs the lane's test/review/scan stations on an empty diff. **Not run live.** The
+  live run (slice 4) needs the same throwaway repo and token as before; the token's Pull requests read/write
+  already covers replies, and reading authors' roles needs only repository Metadata: read (always granted).
+- **#178 review fixes (2026-11-14):** [P1] the team is decided by each author's role on the repo read from the
+  host (`pr_loop.role_of`, `with_roles`; unknown fails closed), not their association; [P2] the station holds
+  until every reply is posted, and Resume posts only the rest without pushing again; [P2] each reply carries
+  `pr_loop.reply_marker`, and the PR's comments are read before posting and after any failed POST, so a reply
+  that reached the host is never posted twice (nothing is posted if they can't be read).
+
 ## Current state (2026-11-13)
 - **J3 slice 2 merged as #176 (2026-11-13):** red CI fixed on the same PR
   ([plans/pr-loop.md](plans/pr-loop.md), "Red CI"). Slice 1 (follow the PR) merged as #166. A failing head

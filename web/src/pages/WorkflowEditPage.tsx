@@ -279,6 +279,49 @@ export default function WorkflowEditPage() {
         </section>
       )}
 
+      {d.stations.some((s) => s.handler === "pull-request") && (
+        <section className="card" data-testid="pr-feedback-setting">
+          <h3>Feedback on a pull request</h3>
+          <p className="muted small">
+            When someone with write access to the repo reviews a pull request this lane opened (changes requested, a
+            line comment, a question in the conversation), the factory offers a change that answers each piece on the
+            same pull request: it fixes the code and pushes to the branch (fast-forward only), replies with an answer,
+            or explains why it would not change it. Replies go in each comment's thread. Feedback from anyone else is
+            shown, never acted on. With <strong>Answer by itself</strong> the factory starts it on its own, never twice
+            for the same feedback and at most a few times per pull request.
+          </p>
+          <div className="flex flex-wrap gap-1 rounded-lg border bg-card p-1 w-fit" role="radiogroup" aria-label="Feedback">
+            {(
+              [
+                ["ask", "A member starts it", "the change page offers to answer; nothing starts until someone presses it"],
+                ["autonomous", "Answer by itself", "the factory answers when it reads new feedback from the team"],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={d.pr_feedback === value}
+                title={hint}
+                className={`tab ${d.pr_feedback === value ? "active" : ""}`}
+                disabled={m.isPending}
+                onClick={() =>
+                  m.mutate(() =>
+                    unwrap(
+                      api.PATCH("/api/workflows/{workflow_id}/draft/settings", {
+                        params: { path: wid },
+                        body: { pr_feedback: value },
+                      }),
+                    ),
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {d.evaluable ? (
         <EvalSettings
           d={d}

@@ -366,6 +366,12 @@ class Draft:
         doc.ci_fix = mode  # type: ignore[assignment]
         self._save(doc)
 
+    def set_pr_feedback(self, mode: str) -> None:
+        """Feedback on the lane's pull requests: a member starts the answer (ask) or the factory does (J3)."""
+        _, doc, _ = self.get()
+        doc.pr_feedback = mode  # type: ignore[assignment]
+        self._save(doc)
+
     def set_learn_from_runs(self, on: bool) -> None:
         _, doc, _ = self.get()
         doc.learn_from_runs = on

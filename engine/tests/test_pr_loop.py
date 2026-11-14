@@ -224,6 +224,8 @@ class FakeGitHub:
         self.runs: list[dict[str, Any]] = [{"name": "test", "status": "in_progress"}]
         self.statuses: list[dict[str, Any]] = [{"context": pr_loop.OWN_STATUS, "state": "success"}]
         self.reviews: list[dict[str, Any]] = []
+        self.inline: list[dict[str, Any]] = []  # review comments on lines (slice 3)
+        self.comments: list[dict[str, Any]] = []  # conversation comments (slice 3)
         self.denied: set[str] = set()  # path parts answered 403 (e.g. "/check-runs", "page=2")
         self.page_size = 100
         self.calls: list[tuple[str, dict[str, str]]] = []
@@ -250,6 +252,10 @@ class FakeGitHub:
             return self._page(url, self.statuses, "statuses")
         if path.startswith("/pulls/7/reviews"):
             return self._page(url, self.reviews, None)
+        if path.startswith("/pulls/7/comments"):
+            return self._page(url, self.inline, None)
+        if path.startswith("/issues/7/comments"):
+            return self._page(url, self.comments, None)
         return 404, {"message": "Not Found"}, None
 
 

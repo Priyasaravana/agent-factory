@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget
-from agent_factory.pr_loop import CiFix
+from agent_factory.pr_loop import CiFix, FeedbackFix
 
 SYSTEM = "system"
 ADMIN = "an admin"
@@ -22,10 +22,15 @@ def _creator(product: Product | None) -> str:
 
 
 def pending_actions(
-    product: Product | None, change: Change, since: datetime, ci_fix: CiFix | None = None
+    product: Product | None,
+    change: Change,
+    since: datetime,
+    ci_fix: CiFix | None = None,
+    feedback: FeedbackFix | None = None,
 ) -> list[PendingAction]:
     """The actions `change` is waiting for, most urgent first. `since` is when it entered its state.
-    `ci_fix`: what `pr_loop.ci_fix` decided for its pull request's red CI (J3), when it opened one."""
+    `ci_fix`: what `pr_loop.ci_fix` decided for its pull request's red CI (J3), when it opened one;
+    `feedback`: what `pr_loop.feedback_fix` decided for the team's feedback on it (J3 slice 3)."""
     if product is not None and product.archived_at:
         return []
     owner = _creator(product)
@@ -174,8 +179,9 @@ def pending_actions(
                     blocking=False,
                 )
             ]
+        on_pr: list[PendingAction] = []
         if ci_fix is not None and ci_fix.auto:
-            return [
+            on_pr.append(
                 act(
                     "wait",
                     "CI failed on the pull request: the lane starts a fix by itself",
@@ -184,27 +190,51 @@ def pending_actions(
                     who=SYSTEM,
                     blocking=False,
                 )
-            ]
-        if ci_fix is not None and ci_fix.offer:
-            return [
+            )
+        elif ci_fix is not None and ci_fix.offer:
+            on_pr.append(
                 act(
                     "fix_ci",
                     "CI failed on the pull request: start a fix",
                     ci_fix.reason + ". A fix continues the same pull request on its branch; nothing is forced.",
                     "pull-request",
                 )
-            ]
-        if ci_fix is not None and ci_fix.running:
-            return [
+            )
+        if feedback is not None and feedback.auto:
+            on_pr.append(
                 act(
                     "wait",
-                    "A fix for the pull request's CI is in progress",
-                    ci_fix.reason + ".",
+                    "Feedback on the pull request: the lane answers it by itself",
+                    feedback.reason + ". Each piece is answered or addressed on the same pull request.",
                     "pull-request",
                     who=SYSTEM,
                     blocking=False,
                 )
-            ]
+            )
+        elif feedback is not None and feedback.offer:
+            on_pr.append(
+                act(
+                    "address_feedback",
+                    "Feedback on the pull request: answer it",
+                    feedback.reason + ". A change answers or addresses each piece on the same pull request "
+                    "and replies to it there.",
+                    "pull-request",
+                )
+            )
+        running = (ci_fix.running if ci_fix else None) or (feedback.running if feedback else None)
+        if not on_pr and running:
+            on_pr.append(
+                act(
+                    "wait",
+                    f"A change continuing the pull request is in progress (change {running})",
+                    (ci_fix.reason if ci_fix and ci_fix.running else feedback.reason if feedback else "") + ".",
+                    "pull-request",
+                    who=SYSTEM,
+                    blocking=False,
+                )
+            )
+        if on_pr:
+            return on_pr
         if product is not None and product.target == ProductTarget.repo:
             return [
                 act(

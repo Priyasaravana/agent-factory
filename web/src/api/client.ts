@@ -17,6 +17,9 @@ export const KIND_LABEL: Record<ChangeKind, string> = {
 };
 export type ChangeDetail = components["schemas"]["ChangeDetail"];
 export type CiFixView = components["schemas"]["CiFixView"];
+export type FeedbackFixView = components["schemas"]["FeedbackFixView"];
+export type PrFeedback = components["schemas"]["PrFeedback"];
+export type FeedbackResponse = components["schemas"]["FeedbackResponse"];
 export type ProductDetail = components["schemas"]["ProductDetail"];
 export type FactoryEvent = components["schemas"]["Event"];
 export type AttentionItem = components["schemas"]["AttentionItem"];
