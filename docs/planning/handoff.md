@@ -1,7 +1,17 @@
-# Agent Factory: handoff (updated 2026-11-13)
+# Agent Factory: handoff (updated 2026-11-15)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
+
+## Current state (2026-11-15)
+- **Security assessment in review on `docs/security-assessment-2026-11-15` (docs only, no code changed):**
+  [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md), 18 findings (4 high) from a
+  code review and scanners on main `43b36d3`. **Nothing was run live:** S-01 and S-02 (the network findings)
+  come from reading the code and the compose file, and each names the probe that would prove it; the first
+  step of the fix is to run that probe. Roadmap backlog entry added with a proposed placement; **waiting on
+  Saravana to decide the order** (the proposal puts S-01, S-02, S-04 and S-03's refusal before more J3 live
+  runs). The threat model now names the boundaries the assessment found missing. The J3 state below is
+  unchanged.
 
 ## Current state (2026-11-13, evening)
 - **J3 slice 3 in review on `feat/j3-pr-feedback` (2026-11-13):** the team's feedback on a change's PR is

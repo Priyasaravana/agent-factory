@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-13 (**J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-15 (**security assessment added to the backlog**, 18 findings, placement proposed and not decided: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -593,6 +593,26 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
+- **Security assessment 2026-11-15** (added 2026-11-15; code review and scanners on main `43b36d3`, nothing run
+  live): 18 findings, 4 high, in [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md),
+  each with evidence, a fix and a size. The main class: agent-written code also runs outside the sandbox
+  (`docker build`, the image start check, app pods), on a network with open internet and a route to the
+  engine, which trusts `X-Auth-*` from any caller. **Proposed placement; the order, and anything in the
+  freeze, is Saravana's call (not decided):**
+  - **Before more J3 live runs (~3.5 days), "close the paths around the sandbox":** S-01 the engine proves
+    a request came from the gateway; S-02 builds, the start check and app pods get no open network and no
+    route to the engine; S-04 the factory's session cookie never reaches generated apps on `localhost`; and
+    S-03's refusal (a shared instance won't start with the subscription token in sandboxes).
+  - **Inside J3 (~1.5 days):** S-11 external text marked as untrusted in every prompt (the item under
+    "Security and models" below, widened to team repo contents, PR comments and CI logs); S-06's
+    short-lived GitHub App tokens.
+  - **Before J4, with "Upgradable selections" (~2.5 days):** S-05 Pod Security `restricted` on app
+    namespaces; S-07 images built from the lockfile, checksummed downloads, digests; S-08 security gates in
+    the factory's own CI (with "Actions pinned to SHAs" below); S-10 gateway headers and rate limits; the
+    `opentelemetry-api` bump to 1.45.2 in both lockfiles.
+  - **With auth and roles for shared instances (after J5):** S-03's auth-injecting proxy, S-09 token expiry
+    and scope, S-12 to S-15, S-17, and the rest of S-06 with the secret store (ADR-0038).
+  - **Any time:** S-16, S-18.
 - **Live-test usability findings** (added 2026-11-03, a separate task from the four-run live campaign, which
   hasn't started): 14 findings from the Expense claims delivery and campaign set-up, in
   [plans/live-test-usability.md](plans/live-test-usability.md), with proposed slices. Three are High and block
