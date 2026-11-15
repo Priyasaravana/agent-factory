@@ -238,7 +238,8 @@ export default function WorkflowEditPage() {
         </section>
       )}
 
-      {d.stations.some((s) => s.handler === "pull-request") && (
+      {d.works_on === "repo" &&
+        d.stations.some((s) => s.handler === "handover" || s.handler === "pull-request") && (
         <section className="card" data-testid="ci-fix-setting">
           <h3>Red CI on a pull request</h3>
           <p className="muted small">
@@ -279,7 +280,8 @@ export default function WorkflowEditPage() {
         </section>
       )}
 
-      {d.stations.some((s) => s.handler === "pull-request") && (
+      {d.works_on === "repo" &&
+        d.stations.some((s) => s.handler === "handover" || s.handler === "pull-request") && (
         <section className="card" data-testid="pr-feedback-setting">
           <h3>Feedback on a pull request</h3>
           <p className="muted small">
