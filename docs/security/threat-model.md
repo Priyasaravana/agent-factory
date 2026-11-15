@@ -1,6 +1,7 @@
 # Threat model: agents in the factory
 
-Status: living document · last reviewed 2026-09-30.
+Status: living document · last reviewed 2026-11-15 (see [assessment-2026-11-15.md](assessment-2026-11-15.md):
+its open findings are marked S-nn below).
 It is structured on the [OWASP Top 10 for Agentic Applications (2026)](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/).
 
 ## Assets and trust boundaries
@@ -22,7 +23,14 @@ It is structured on the [OWASP Top 10 for Agentic Applications (2026)](https://g
   - browser → gateway (auth) → engine;
   - engine → sandbox (untrusted);
   - sandbox → egress allowlist → internet;
-  - engine → dind (privileged).
+  - engine → dind (privileged);
+  - **agent-written code outside the sandbox (open, S-02):** a Dockerfile's `RUN` steps at Build, the
+    image start check and the deployed app pods run on dind's default network, not the sandbox network:
+    the egress allowlist does not apply to them, and they have a route to the compose network;
+  - **anything on the compose network → engine (open, S-01):** the engine takes `X-Auth-User` /
+    `X-Auth-Role` from any caller that reaches it; only nginx is meant to;
+  - **browser: factory UI ↔ generated apps (open, S-04):** both are served on `localhost`, so they share
+    cookies and count as the same site.
 
 Untrusted inputs: requirements and feedback text, imported skills and templates,
 package registries, and anything an agent writes (code, tests, charts).
@@ -44,8 +52,8 @@ Desktop VM (or the Linux host).
 - **Mitigations:**
   - dind publishes only the app ports, and only on 127.0.0.1;
   - its API needs mutual TLS, and only the factory holds the client key;
-  - agents never reach it: sandboxes are on an internal network with no route to `docker:2376`, which `make sandbox-check` proves;
-  - nothing untrusted runs in dind with privileges: sandboxes and app pods run as non-root.
+  - agents never reach it: sandboxes are on an internal network with no route to `docker:2376`, which `make sandbox-check` proves (builds and app pods are not on that network: S-02);
+  - nothing untrusted runs in dind with privileges: sandboxes run as non-root, and so do app pods as the pack charts ship them (not enforced by the cluster: S-05).
 - **Removal path:**
   - phase 5 delivers to a real cluster (`deploy/helm`), so dind is needed only for local development;
   - rootless dind or Sysbox is an option for teams that need the local cluster on shared hosts.
@@ -54,11 +62,11 @@ Desktop VM (or the Linux host).
 
 | # | Risk | How it applies here | Controls | Open |
 |---|---|---|---|---|
-| 1 | Goal hijack / prompt injection | Requirements, feedback, skill text or a package README tell an agent to exfiltrate or skip checks | Sandbox has nothing to exfiltrate but the model token and the worktree, and egress is allowlisted. Deterministic stations re-check everything (verify, readiness, scan, acceptance); an agent's claim is never evidence | Mark requirements/feedback as untrusted in prompts; model token behind an auth proxy |
+| 1 | Goal hijack / prompt injection | Requirements, feedback, skill text or a package README tell an agent to exfiltrate or skip checks | Sandbox has nothing to exfiltrate but the model token and the worktree, and egress is allowlisted. Deterministic stations re-check everything (verify, readiness, scan, acceptance); an agent's claim is never evidence | Mark requirements/feedback as untrusted in prompts, and team repo contents, PR comments and CI logs with them (S-11); model token behind an auth proxy (S-03) |
 | 2 | Tool misuse | Bash used to delete, push, or reach the cluster | Sandbox: read-only image, worktree-only writes, no Docker/cluster. Hooks deny `git push`, destructive commands and credential reads. Observe-only roles limited to read commands | — |
-| 3 | Identity & privilege abuse | Agent acts as a factory user or admin; a compromised service escalates to root | Agents cannot reach the engine or gateway (internal network). Identity only via the auth gateway (ADR-0012). Changing workflows, skills and repository sources is admin-only; team repos are reached with one least-privilege token per org (repository sources, ADR-0047: the recorded source is re-checked at every use and never swapped, admin-made sources may only name references the config allows); steering a product (feedback, answers, resume, cancel, spec decisions, archive, transcripts) is for its creator or an admin, pinned per action by `test_access.py`. No factory service runs as root or holds capabilities (ADR-0018) | Privileged dind (accepted, see above) |
+| 3 | Identity & privilege abuse | Agent acts as a factory user or admin; a compromised service escalates to root | Agents cannot reach the engine or gateway (internal network). Identity only via the auth gateway (ADR-0012). Changing workflows, skills and repository sources is admin-only; team repos are reached with one least-privilege token per org (repository sources, ADR-0047: the recorded source is re-checked at every use and never swapped, admin-made sources may only name references the config allows); steering a product (feedback, answers, resume, cancel, spec decisions, archive, transcripts) is for its creator or an admin, pinned per action by `test_access.py`. No factory service runs as root or holds capabilities (ADR-0018) | Privileged dind (accepted, see above); the engine does not check that identity headers came from the gateway (S-01); the session cookie reaches generated apps on `localhost` (S-04) |
 | 4 | Supply chain | Malicious skill, template or package | Skills and templates pinned to commits and reviewed before install (scripts need consent). Lockfiles; Trivy scan; SBOM + provenance per image; Dependabot in generated repos | Image signing (with the registry provider); digest-pinned scanner images |
-| 5 | Unexpected code execution | Agent-written tests or build scripts run with engine privileges | `make verify` runs in a sandbox (ADR-0014). Docker builds run in dind with no secrets | — |
+| 5 | Unexpected code execution | Agent-written tests or build scripts run with engine privileges | `make verify` runs in a sandbox (ADR-0014). Docker builds run in dind with no secrets | Builds, the image start check and app pods are not on the sandbox network: open internet and a route to the engine (S-02); pod privileges are caught by a pattern in the diff, not refused by the cluster (S-05) |
 | 6 | Memory & context poisoning | Earlier iterations, learnings or docs steer later changes | Learnings are human-approved; context docs are versioned with the workflow; iteration history is summarised from engine records. Suggested learnings (ADR-0021) come from an observe-only retro, are vetted (no check-weakening lessons, evidence required), and reach agents only after an admin accepts them into a draft that is then published as a new version | Review learnings in the UI before publishing (workflow changes are admin-only: ADR-0012 middleware, pinned per action by `test_access.py`) |
 | 7 | Insecure inter-agent communication | One agent's output misleads another | Agents never talk directly: the engine passes evidence only. The builder gets observed behaviour, never holdout text | — |
 | 8 | Cascading failures | Fix loops burn budget or corrupt the repo; a change starts against a broken dependency | Attempt and loop budgets, wall-clock limit, usage-limit pause, HOLD on missing evidence, fresh worktree per change. Preflight refuses new products and changes while a guarding check fails (ADR-0015) | — |
