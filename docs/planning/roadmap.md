@@ -427,7 +427,7 @@ per-pack evaluation is in the backlog.
   proved, and not asked of J2: a rollback to the kept colour after a bad switch (J4's restore drill can
   add it).
 
-**J3. Team repo (~3 days)** ⏳ started 2026-11-08; design and slices in [plans/pr-loop.md](plans/pr-loop.md)
+**J3. Team repo (~3 days)** ✅ live acceptance completed 2026-11-15; started 2026-11-08; design and slices in [plans/pr-loop.md](plans/pr-loop.md)
 - **Order decided by Saravana 2026-11-08:** build the PR loop first while he prepares the throwaway repo
   and token; one live run then proves the push and the loop together. Updates by **poll or webhook**, chosen
   per factory (`existing_repos.pr_updates`), both reading the PR itself from the REST API, plus Refresh.
@@ -671,4 +671,4 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
 - In an agent's cloud workspace, run the CLI with `AGENT_FACTORY_ALLOW_ROOT=1`.
 
 ### J3 live evidence follow-up — 2026-11-15
-Core journey passed on sample-app PRs #8/#9. PR #10 proved automatic once-only feedback and CI-first serialization (iterations 15–18, all merged outcomes). Token permission-loss hold/Resume, inline reply threading, question-only answers, decline and own-reply filtering passed on PR #9. Outside-team exclusion proved before collaborator promotion; UI permission label added in `fix/j3-live-controls`. UI controls for shipped Handover lane repaired; Docker web build passed and local UI activated. Original manual lane policies restored as v4 after v3 trial. See handoff for remaining source-change status.
+Core journey passed on sample-app PRs #8/#9. PR #10 proved automatic once-only feedback and CI-first serialization (iterations 15–18, all merged outcomes). Token permission-loss hold/Resume, inline reply threading, question-only answers, decline and own-reply filtering passed on PR #9. Outside-team exclusion proved before collaborator promotion; UI permission label added in `fix/j3-live-controls`. UI controls for shipped Handover lane repaired; Docker web build passed and local UI activated. Original manual lane policies restored as v4 after v3 trial. Final outside-account retest passed on PR #11: read access displayed, outside the team, no answer action or continuation. All 11 live cases completed (token recovery exercised on answer-only replies). See handoff for source-change validation status.
