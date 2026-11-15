@@ -3,15 +3,19 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-15)
+## Current state (2026-11-15, J3 live follow-up)
+- Core J3 proved live on sarvap37/sample-app PRs #8 and #9: assessment item to PR, deliberate red CI fixed on the same branch, merge recorded merged outcomes for the original and all CI/feedback continuations. Inline-thread replies, decline, self-reply filtering, question-only response and read-only-token hold/Resume also exercised. PR #9 closed iterations 9–14. Follow-up PR #10 proved autonomous feedback once per comment (iteration 16), automatic CI repair before queued feedback (17 then 18), one reply summary each, and merge closure of iterations 15–18. Trial settings published as repo-change v3, restored to manual as v4.
+- `fix/j3-live-controls`: live testing found the workflow editor hid CI/feedback settings for the shipped repo-change lane (handover handler; UI checked only pull-request). Accept both handlers for repo lanes; show each feedback author's permission beside its kind. TypeScript and Docker web build passed; corrected controls and permission labels verified in live UI. Local web image rebuilt and activated. Final outside-account retest passed on sample-app PR #11: Priyasaravana permission read, labelled outside the team, no answer action or continuation. Fix PR #180 reviewed at ae2e2a8 with no actionable findings; CI required before merge. Local sign-in failures with the modified config do not reproduce on untouched main (8 passed). Existing config edits and Claude outputs are unrelated and retained.
+
+## Current state (2026-11-15, security assessment)
 - **Security assessment in review on `docs/security-assessment-2026-11-15` (docs only, no code changed):**
   [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md), 18 findings (4 high) from a
   code review and scanners on main `43b36d3`. **Nothing was run live:** S-01 and S-02 (the network findings)
   come from reading the code and the compose file, and each names the probe that would prove it; the first
   step of the fix is to run that probe. Roadmap backlog entry added with a proposed placement; **waiting on
   Saravana to decide the order** (the proposal puts S-01, S-02, S-04 and S-03's refusal before more J3 live
-  runs). The threat model now names the boundaries the assessment found missing. The J3 state below is
-  unchanged.
+  runs). The threat model now names the boundaries the assessment found missing. It changes nothing
+  in the J3 state above and below.
 
 ## Current state (2026-11-13, evening)
 - **J3 slice 3 in review on `feat/j3-pr-feedback` (2026-11-13):** the team's feedback on a change's PR is

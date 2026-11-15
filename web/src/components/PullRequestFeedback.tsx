@@ -34,7 +34,9 @@ function Row({
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="font-medium">@{f.author || "someone"}</span>
-          <span className="truncate text-xs text-muted-foreground">{where(f)}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {where(f)} · {f.permission || "unknown"} access
+          </span>
           {f.url && (
             <a
               href={f.url}
