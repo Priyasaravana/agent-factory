@@ -6,6 +6,7 @@
 #
 #   scripts/sandbox-paths-probe.sh           report only (exit 0)
 #   PROBE_ENFORCE=1 scripts/sandbox-paths-probe.sh   fail when a path that must be closed is open
+#   PROBE_PROVE_RULE=1 ...   CI only: also lift dind's firewall rule for a moment and show the path opens
 set -uo pipefail
 IMAGE=${SANDBOX_IMAGE:-}   # default: the sandbox image the factory built in dind (repository agent-factory-sandbox)
 NET=${SANDBOX_NETWORK:-factory-sandbox}
@@ -42,6 +43,20 @@ want_closed "the gateway (UI) from inside" "$(reach -- "http://$WEB:8080/")"
 known_open  "the open internet"            "$(reach -- https://example.com)"
 want_open   "the firewall rule is in place (dind is healthy only with it)" \
   "$(dind test -f /run/dind-firewall.ok && echo open || echo closed)"
+
+if [ "${PROBE_PROVE_RULE:-0}" = 1 ]; then
+  # CI only: lift the rule for a moment to show it is what closes the path (never on a factory in use)
+  SUBNET=$(dind sh -c "ip -4 route show dev eth0 scope link" | awk '{print $1; exit}')
+  rule="DOCKER-USER -d $SUBNET -m conntrack --ctstate NEW -j DROP"
+  if dind iptables -D $rule 2>/dev/null; then
+    want_open "without the rule the same container reaches the engine (the rule is what closes it)" \
+      "$(reach -- "http://$FACTORY:8000/api/health")"
+    dind sh -c "iptables -A $rule" || { echo "could not put the rule back"; exit 2; }
+    want_closed "with the rule back, the engine's port" "$(reach -- "http://$FACTORY:8000/api/health")"
+  else
+    say FAIL "the rule could not be lifted for the proof"; fail=1
+  fi
+fi
 
 echo "a Dockerfile RUN step (default build network):"
 ctx=$(dind mktemp -d | tr -d '\r')

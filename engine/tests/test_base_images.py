@@ -254,3 +254,23 @@ def test_the_registry_username_is_not_a_secret(monkeypatch):
     assert _login_name("env://AF_TEST_REGISTRY_USER") == "someone-unique-name"
     assert not REDACTOR.knows("someone-unique-name")
     assert _login_name("plain-user") == "plain-user" and _login_name("vault://x") == ""
+
+
+def test_the_start_check_runs_the_image_with_no_way_out():
+    """S-02 (assessment 2026-11-15): the image is agent-written code; it starts once, boxed in."""
+    limits = "--cap-drop ALL --security-opt no-new-privileges --memory 1g --pids-limit 256"
+    # with the sandbox image to ask from: an internal network, no published port, asked by name
+    start, probe = base_images.start_check("af-start-1", "kudos:abc", 3000, "/api/healthz", "sandbox:t1")
+    net = base_images.START_CHECK_NETWORK
+    assert start == [
+        f"docker network inspect {net} >/dev/null 2>&1 || docker network create --internal {net}",
+        f"docker run -d --rm --name af-start-1 --network {net} {limits} kudos:abc",
+    ]
+    assert " -p " not in start[1], "nothing published: the internal network is the only way to it"
+    assert probe is not None and probe.startswith(f"docker run --rm --network {net} {limits} sandbox:t1 sh -c ")
+    assert "curl -fsS http://af-start-1:3000/api/healthz" in probe
+    # without one (dry-run, sandbox off): published as before, with the same limits
+    start, probe = base_images.start_check("af-start-1", "kudos:abc", 3000, "/api/healthz", None)
+    assert start == [f"docker run -d --rm --name af-start-1 {limits} -p 3000 kudos:abc"] and probe is None
+    for cmd in start:
+        assert "--privileged" not in cmd and "--network host" not in cmd

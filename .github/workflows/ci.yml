@@ -206,7 +206,7 @@ jobs:
       - name: the engine answers only the gateway, on its own site (scripts/gateway-check.sh, S-01 and S-04)
         run: scripts/gateway-check.sh
       - name: code outside the sandbox can't reach the factory (scripts/sandbox-paths-probe.sh, S-02)
-        run: PROBE_ENFORCE=1 scripts/sandbox-paths-probe.sh
+        run: PROBE_ENFORCE=1 PROBE_PROVE_RULE=1 scripts/sandbox-paths-probe.sh
       - name: browser smoke test
         run: |
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium

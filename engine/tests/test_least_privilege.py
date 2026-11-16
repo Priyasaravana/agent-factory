@@ -140,3 +140,19 @@ def test_a_product_delivered_on_the_uis_host_is_shown_at_its_new_address(make_fa
     f.store.save_product(product)
     build_factory(f.settings, cfg, f.store, FakeExecutor(), FakeAgentRunner())  # a restart
     assert f.store.get_product(product.id).app_url == "http://127.0.0.1:8083"
+
+
+def test_dind_starts_behind_its_firewall_and_is_healthy_only_with_it():
+    """S-02 (assessment 2026-11-15): containers inside dind can't open connections to the compose network."""
+    dind = COMPOSE["dind"]
+    assert dind["entrypoint"] == ["/usr/local/bin/dind-firewall.sh"]
+    assert "./cluster/dind-firewall.sh:/usr/local/bin/dind-firewall.sh:ro" in dind["volumes"]
+    assert "/run/dind-firewall.ok" in dind["healthcheck"]["test"][-1], "no rule, not healthy, no factory"
+    assert COMPOSE["factory"]["depends_on"]["dind"]["condition"] == "service_healthy"
+    script = (ROOT / "cluster" / "dind-firewall.sh").read_text()
+    assert '-I DOCKER-USER 1 -d "$subnet" -m conntrack --ctstate NEW -j DROP' in script
+    assert script.rstrip().endswith('exec dockerd-entrypoint.sh "$@"'), "dockerd still starts the image's way"
+    assert 'rm -f "$OK"' in script, "a stale marker from an earlier start never counts"
+    # only the model gateway's port is let through, for the sandboxes' egress proxy (ADR-0036)
+    assert dind["environment"]["DIND_COMPOSE_ALLOW_PORTS"] == "${DIND_COMPOSE_ALLOW_PORTS:-4000}"
+    assert (ROOT / "cluster" / "dind-firewall.sh").stat().st_mode & 0o111, "executable: it is the entrypoint"
