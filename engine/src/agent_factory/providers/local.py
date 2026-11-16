@@ -17,6 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
+from agent_factory.providers import app_network
 from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
@@ -156,11 +157,28 @@ class LocalProvider:
 
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult:
         ns, slug = namespace(ctx.product), ctx.product.slug
+        sets = [
+            f"image.repository={image.repository}",
+            f"image.tag={image.tag}",
+            f"service.nodePort={ctx.product.node_port}",
+        ]
         helm = (
             f"helm upgrade --install {slug} {ctx.blueprint.chart_path} --namespace {ns} --create-namespace "
-            f"--set image.repository={image.repository} --set image.tag={image.tag} "
-            f"--set service.nodePort={ctx.product.node_port} --wait --timeout 5m"
+            + " ".join(f"--set {x}" for x in sets)
+            + " --wait --timeout 5m"
         )
+        restricted = ctx.blueprint.app_egress == "restricted"
+        if restricted:  # policies add up: the chart may not ship one that undoes the namespace's (S-02)
+            render = await ctx.cmd(
+                app_network.render_command("helm", slug, ctx.blueprint.chart_path, ns, sets), timeout=120
+            )
+            if not render.ok:
+                return StepResult(False, "deployment failed: the chart does not render", render.output[-2500:])
+            live = getattr(ctx.settings, "factory_mode", "live") == "live"
+            if problems := app_network.widening(render.whole(), live):
+                return StepResult(
+                    False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
+                )
         # the namespace's egress policy first, so the app's pods never run without it (S-02)
         net = await ctx.cmd("set -e; " + "; ".join(egress_steps("kubectl", ns, ctx.blueprint.app_egress)), timeout=120)
         if not net.ok:
@@ -168,6 +186,8 @@ class LocalProvider:
         res = await ctx.cmd(helm, timeout=420)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
+        if restricted and (refusal := await self._installed_egress(ctx, ns)):
+            return refusal
         smoke = await self._probe(ctx, ctx.blueprint.health_path)
         if not smoke.ok:
             return StepResult(False, "deployment failed", smoke.output[-2500:])
@@ -179,6 +199,11 @@ class LocalProvider:
             f"deployed {image} to {ns} (revision {revision}, {digest}); {ctx.blueprint.health_path.lstrip('/')} ok",
             data={"revision": revision, "digest": digest, "unidentified": why},
         )
+
+    async def _installed_egress(self, ctx: StationContext, ns: str) -> StepResult | None:
+        """After the release: what the namespace really holds (a template can render differently on the
+        cluster). A policy that allows egress besides the engine's is removed and the deploy fails."""
+        return await app_network.after_release(ctx, "kubectl", ns, lambda cmd, timeout: ctx.cmd(cmd, timeout=timeout))
 
     async def _probe(self, ctx: StationContext, path: str) -> CommandResult:
         url = f"{self.internal_url(ctx)}{path}"

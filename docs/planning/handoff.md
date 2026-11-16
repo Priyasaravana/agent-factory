@@ -20,6 +20,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **In review on `fix/sandbox-paths` (#182, 2026-11-16):** S-02 (three of
   four fixes), S-04 and S-03's refusal, one PR as Saravana decided 2026-11-16. ADR-0048 (proposed) has the
   decisions; the roadmap's "Next, in order" has what each does.
+  - **#182 review fix (2026-11-16):** [P1] an agent-written chart could undo the namespace's egress policy
+    with a second, allow-all NetworkPolicy (policies are additive). Under `restricted` the deploy now refuses
+    a rendered chart that widens or sidesteps the policy (`app_network.widening`) and reads the namespace
+    back after the release (`after_release`, removing what it finds). Tests in `tests/test_app_network.py`.
+    Not a cluster-side ceiling: that is an admission policy, proposed with S-05 (ADR-0048, "Not decided").
   - **Proved on the real stack (CI `e2e`):** dind starts behind `cluster/dind-firewall.sh` and the stack comes
     up healthy; from a container on dind's default bridge and from a Dockerfile `RUN` step the engine, auth
     and the gateway are unreachable, and with the rule lifted for a moment the engine is reachable again

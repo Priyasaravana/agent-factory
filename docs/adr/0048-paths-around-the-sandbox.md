@@ -31,6 +31,14 @@ cover, and that the factory's own services trusted whoever reached them:
    deploy providers apply one NetworkPolicy to the app's namespace before the release goes in. It is the
    engine's, not the chart's, so a change to the product's chart can't drop it. A blueprint whose apps must
    call something outside says `app_egress: open`, and the policy is removed.
+   **The chart can't widen it either** (review of #182, 2026-11-16). Kubernetes adds policies together, so a
+   second policy that allows egress would undo the engine's with the engine's intact. Under `restricted` a
+   deploy is refused, before anything is installed, when the rendered chart (`helm template`, hooks
+   included; `app_network.widening`, pure) ships a NetworkPolicy with an egress rule, another plugin's
+   policy kind, a Role that may change NetworkPolicies, or a pod on `hostNetwork`. After the release the
+   namespace is read back (`after_release`): a policy that allows egress besides the engine's is removed
+   and the deploy fails, because a template can render differently on the cluster (`lookup`). An
+   ingress-only policy is fine. A render or an answer the engine can't read is refused, never taken as clean.
 4. **The UI and the apps are different sites.** Apps on the local cluster are served on `127.0.0.1:<port>`
    (`local.off_the_factory_site`; a configured `http://localhost` is served the same way, and products already
    delivered are shown at the new address from the next start). The gateway sends a UI opened on `127.0.0.1`
@@ -49,6 +57,14 @@ cover, and that the factory's own services trusted whoever reached them:
 - **Whether the cluster enforces the policy.** kind's network plugin enforces NetworkPolicy from v0.24 (the
   factory ships v0.27); another cluster's plugin may not. The policy is necessary, not proof: nothing in
   the factory tests enforcement yet.
+- **An admission boundary for app namespaces.** The checks above are the engine reading the chart and the
+  namespace at deploy time. They don't stop a workload that gets cluster rights some other way from
+  changing policies later, and between the release and the read-back a policy that only appeared on the
+  cluster is in force for a moment. The ceiling a chart cannot get past is in the cluster: a
+  ValidatingAdmissionPolicy (or AdminNetworkPolicy where the plugin has it) that refuses egress policies in
+  app namespaces. It needs the cluster bootstrap and a live kind run, so it goes with S-05 (Pod Security
+  `restricted`), before J4. A `helm rollback` restores a revision that passed these checks when it was
+  deployed; revisions from before this ADR were not checked.
 - Pod Security `restricted` on app namespaces is S-05, placed before J4.
 
 ## Consequences

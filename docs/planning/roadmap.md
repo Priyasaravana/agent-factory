@@ -58,6 +58,10 @@ in the backlog entry below):
      capabilities, bounded, and with the sandbox image to ask from, on an internal network with no way out
      (`base_images.start_check`). Both deploy providers apply a default-deny egress NetworkPolicy (DNS and
      the namespace itself) before every release (`providers/app_network.py`; `app_egress: open` per blueprint).
+     **Review fix (2026-11-16, sarvap37 on `e3bdbe0`):** policies add up, so a chart that ships its own
+     egress-allowing policy would undo it; a deploy now refuses such a chart before installing (also another
+     plugin's policy kind, a Role that may change policies, `hostNetwork`) and reads the namespace back after
+     the release. The cluster-side ceiling (admission policy) is proposed with S-05.
      Proved on the real stack in CI `e2e` by `scripts/sandbox-paths-probe.sh`, which also lifts the rule for
      a moment to show it is what closes the path. **Not run in live mode:** the start check's isolated path
      and the NetworkPolicy were never exercised with real builds and a real kind cluster (CI is dry-run).
