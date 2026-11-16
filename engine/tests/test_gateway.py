@@ -10,10 +10,12 @@ import pytest
 from conftest import PRODUCT, wait_run
 from pydantic import ValidationError
 
+from agent_factory.agents import FakeAgentRunner
 from agent_factory.agents.hooks import evaluate
 from agent_factory.agents.runner import AgentRequest, AgentResult, ClaudeAgentRunner
 from agent_factory.config import ModelGatewayConfig
 from agent_factory.engine.preflight import Preflight
+from agent_factory.executor import FakeExecutor
 from agent_factory.gateway import (
     DIRECT_MODEL_EGRESS,
     CallScope,
@@ -24,6 +26,7 @@ from agent_factory.gateway import (
     gateway_egress,
     key_request,
     sandbox_env,
+    shared_refusal,
     withheld_env,
 )
 from agent_factory.providers.base import Readiness
@@ -411,3 +414,27 @@ def test_sandbox_check_keeps_the_gateway_egress(monkeypatch, tmp_path):
     assert built[0].egress[0] == "model-gateway:4000" and DIRECT_MODEL_EGRESS not in built[0].egress
     assert built[0].model_endpoint == "model-gateway:4000"
     assert "model-gateway:4000=10.0.0.5:4000" in built[0].routes
+
+
+def test_a_shared_instance_runs_only_with_a_virtual_key_per_call():
+    """S-03 (assessment 2026-11-15): the engine's own model credential is readable in a sandbox otherwise."""
+    assert shared_refusal(False, "direct", "api_key") is None, "one person's laptop: their own credential"
+    assert shared_refusal(False, "litellm", "subscription") is None
+    assert shared_refusal(True, "litellm", "api_key") is None
+    assert "directly" in (shared_refusal(True, "direct", "api_key") or "")
+    assert "subscription mode" in (shared_refusal(True, "litellm", "subscription") or "")
+
+
+def test_a_shared_instance_refuses_to_start_live_before_any_sandbox_exists(make_factory, cfg, tmp_path):
+    from agent_factory.app_factory import build_factory
+    from agent_factory.state import SqliteStateStore
+
+    f = make_factory()
+    shared = cfg.model_copy(deep=True)
+    shared.factory.shared = True
+    live = f.settings.model_copy(update={"factory_mode": "live", "data_dir": str(tmp_path / "live")})
+    with pytest.raises(RuntimeError, match="shared instance"):
+        build_factory(live, shared, SqliteStateStore(":memory:"), FakeExecutor(), FakeAgentRunner())
+    # dry-run uses no model: nothing to refuse
+    dry = f.settings.model_copy(update={"data_dir": str(tmp_path / "dry")})
+    build_factory(dry, shared, SqliteStateStore(":memory:"), FakeExecutor(), FakeAgentRunner())

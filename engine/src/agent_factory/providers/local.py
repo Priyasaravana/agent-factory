@@ -13,6 +13,7 @@ import shlex
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
@@ -26,6 +27,20 @@ if TYPE_CHECKING:
 
 def failed_detail(cmd: str, res: CommandResult) -> str:
     return f"`{cmd}` exited {res.returncode}:\n{res.output[-4000:]}"
+
+
+def off_the_factory_site(url: str) -> str:
+    """An app's address on another site than the factory UI (assessment 2026-11-15, S-04; pure).
+
+    The UI is `http://localhost:8080`. Cookies are scoped by host, not port, so an app served on
+    `localhost:<port>` would be sent the factory's session cookie with every request and would count
+    as the same site for SameSite. `127.0.0.1` is the same machine and another site: an app there
+    gets no factory cookie. (The gateway sends anyone who opens the UI on 127.0.0.1 to localhost,
+    so the two never meet.) Any other host is left alone."""
+    parts = urlsplit(url)
+    if parts.hostname != "localhost":
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.replace("localhost", "127.0.0.1", 1)))
 
 
 def namespace(product: Product) -> str:
@@ -119,7 +134,7 @@ class LocalProvider:
         return f"http://{ctx.settings.dind_host}:{ctx.product.host_port}"
 
     def public_url(self, ctx: StationContext) -> str:
-        return f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}"
+        return off_the_factory_site(f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}")
 
     def identity(self, ctx: StationContext) -> dict[str, str]:
         """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a

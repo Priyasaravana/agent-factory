@@ -103,3 +103,40 @@ def test_the_gateway_proof_reaches_only_the_engine_and_nginx_each_with_its_own_c
         assert "proxy_set_header X-Gateway-Proof $gateway_proof;" in block, block.splitlines()[0]
     to_auth = [block for block in re.split(r"\n  location ", conf) if "proxy_pass $auth" in block]
     assert to_auth and not any("gateway_proof" in block for block in to_auth), "the auth service never gets it"
+
+
+def test_apps_are_never_served_on_the_factory_uis_host():
+    """S-04 (assessment 2026-11-15): cookies are scoped by host, not port, so an app on `localhost` would be
+    sent the factory's session cookie."""
+    from agent_factory.config import FactorySection
+    from agent_factory.providers.local import off_the_factory_site
+
+    assert off_the_factory_site("http://localhost:8081") == "http://127.0.0.1:8081"
+    assert off_the_factory_site("http://localhost") == "http://127.0.0.1"
+    assert off_the_factory_site("http://127.0.0.1:8081") == "http://127.0.0.1:8081"
+    for other in ("http://kudos.localtest.me:8180/", "https://apps.example.com", "http://notlocalhost:8081"):
+        assert off_the_factory_site(other) == other, "any other host is left alone"
+    assert FactorySection().public_app_base_url == "http://127.0.0.1"
+    # the UI itself is published on loopback and reached as localhost; the gateway keeps it there
+    conf = (ROOT / "web" / "nginx.conf").read_text()
+    assert "127.0.0.1:8080:8080" in COMPOSE["web"]["ports"]
+    assert "$ui_on_app_host" in conf and "return 308 $scheme://localhost$ui_port$request_uri;" in conf
+    # and a write to the API or the auth service from another site's page is refused before any check
+    for name in ("/api/", "/auth/"):
+        block = next(b for b in re.split(r"\n  location ", conf) if b.startswith(name))
+        assert "if ($cross_site_write) { return 403" in block, name
+
+
+def test_a_product_delivered_on_the_uis_host_is_shown_at_its_new_address(make_factory, cfg):
+    from conftest import PRODUCT
+
+    from agent_factory.agents import FakeAgentRunner
+    from agent_factory.app_factory import build_factory
+    from agent_factory.executor import FakeExecutor
+
+    f = make_factory()
+    product = f.manager.create_product(PRODUCT)
+    product.app_url = "http://localhost:8083"
+    f.store.save_product(product)
+    build_factory(f.settings, cfg, f.store, FakeExecutor(), FakeAgentRunner())  # a restart
+    assert f.store.get_product(product.id).app_url == "http://127.0.0.1:8083"

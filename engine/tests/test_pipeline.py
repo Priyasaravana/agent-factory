@@ -34,7 +34,7 @@ async def test_happy_path_delivers_and_opens_feedback_gate(make_factory):
     ]  # fmt: skip
     product = f.store.get_product(product.id)
     assert product.latest_status == ChangeStatus.awaiting_feedback
-    assert product.app_url == "http://localhost:8081"
+    assert product.app_url == "http://127.0.0.1:8081", "never the UI's host (S-04)"
 
     repo = f.manager.ws.product_dir(product.slug)
     wt = f.manager.ws.change_dir(change.id)
