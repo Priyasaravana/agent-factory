@@ -6,7 +6,8 @@
 #
 #   scripts/sandbox-paths-probe.sh           report only (exit 0)
 #   PROBE_ENFORCE=1 scripts/sandbox-paths-probe.sh   fail when a path that must be closed is open
-#   PROBE_PROVE_RULE=1 ...   CI only: also lift dind's firewall rule for a moment and show the path opens
+#   PROBE_PROVE_RULE=1 ...   CI only: also take dind's firewall rules away and show what each is worth,
+#                            that a connection opened meanwhile is cut, and that a stuck watcher is unhealthy
 set -uo pipefail
 IMAGE=${SANDBOX_IMAGE:-}   # default: the sandbox image the factory built in dind (repository agent-factory-sandbox)
 NET=${SANDBOX_NETWORK:-factory-sandbox}
@@ -41,23 +42,48 @@ want_closed "the engine's port"            "$(reach -- "http://$FACTORY:8000/api
 want_closed "the auth service"             "$(reach -- "http://$AUTH:8001/auth/me")"
 want_closed "the gateway (UI) from inside" "$(reach -- "http://$WEB:8080/")"
 known_open  "the open internet"            "$(reach -- https://example.com)"
-want_open   "the firewall rule is in place (dind is healthy only with it)" \
-  "$(dind test -f /run/dind-firewall.ok && echo open || echo closed)"
+want_open   "dind's own check passes: both rules really in place and their watcher running" \
+  "$(dind /usr/local/bin/dind-firewall.sh check >/dev/null 2>&1 && echo open || echo closed)"
 
 if [ "${PROBE_PROVE_RULE:-0}" = 1 ]; then
-  # CI only: lift the rule for a moment to show it is what closes the path (never on a factory in use)
+  # CI only (never on a factory in use): take the rules away and show what each is worth.
   SUBNET=$(dind sh -c "ip -4 route show dev eth0 scope link" | awk '{print $1; exit}')
-  rule="DOCKER-USER -d $SUBNET -m conntrack --ctstate NEW -j DROP"
-  if dind iptables -D $rule 2>/dev/null; then
-    want_open "without the rule the same container reaches the engine (the rule is what closes it)" \
-      "$(reach -- "http://$FACTORY:8000/api/health")"
-    # dind's own watcher puts it back (within 15 s); the probe only waits, so this also shows it heals
-    for _ in $(seq 1 30); do dind iptables -C $rule 2>/dev/null && break; sleep 1; done
-    dind iptables -C $rule 2>/dev/null || { echo "the rule did not come back; restart dind (docker compose restart dind)"; exit 2; }
-    want_closed "the rule came back by itself, and the engine's port is closed again" "$(reach -- "http://$FACTORY:8000/api/health")"
-  else
-    say FAIL "the rule could not be lifted for the proof"; fail=1
-  fi
+  RULE="-d $SUBNET -m conntrack --ctdir ORIGINAL -j DROP"
+  check() { dind /usr/local/bin/dind-firewall.sh check >/dev/null 2>&1 && echo open || echo closed; }
+  # a connection held open: connect, send half a request, wait, send the rest, say what came back
+  LONG='import socket,sys,time
+s=socket.create_connection((sys.argv[1],8000),5); s.sendall(b"GET /api/health HTTP/1.0\r\n"); print("connected",flush=True)
+time.sleep(float(sys.argv[2]))
+try:
+    s.sendall(b"Host: probe\r\n\r\n"); s.settimeout(5); print("answered" if s.recv(16) else "closed by the engine")
+except OSError as exc:
+    print("cut:", type(exc).__name__)'
+  WATCHER=$(dind cat /run/dind-firewall.pid | tr -d '\r')
+  dind kill -STOP "$WATCHER"   # hold the watcher still, so the rules stay away while we look
+  dind sh -c "iptables -t filter -D DOCKER-USER $RULE" || { say FAIL "the DOCKER-USER rule could not be lifted"; fail=1; }
+  want_closed "one rule gone: dind's check fails (it reads the rules, not a marker)" "$(check)"
+  want_closed "one rule gone: the engine's port is still closed (the other rule holds)" "$(reach -- "http://$FACTORY:8000/api/health")"
+  dind sh -c "iptables -t mangle -D FORWARD $RULE" || { say FAIL "the mangle rule could not be lifted"; fail=1; }
+  want_open "both rules gone: the same container reaches the engine (the rules are what closes it)" \
+    "$(reach -- "http://$FACTORY:8000/api/health")"
+  ctl=$(dind docker run --rm "$IMAGE" python3 -c "$LONG" "$FACTORY" 1 2>&1 | tr -d '\r' | tail -1)
+  want_open "control: a held connection is answered while the rules are away" "$([ "$ctl" = answered ] && echo open || echo closed)" "$ctl"
+  dind docker rm -f probe-long >/dev/null 2>&1
+  dind docker run -d --name probe-long "$IMAGE" python3 -c "$LONG" "$FACTORY" 8 >/dev/null
+  for _ in $(seq 1 10); do dind docker logs probe-long 2>&1 | grep -q connected && break; sleep 1; done
+  dind kill -CONT "$WATCHER"   # the watcher runs again: both rules must be back within seconds
+  for _ in $(seq 1 10); do [ "$(check)" = open ] && break; sleep 1; done
+  want_open "the watcher put both rules back by itself" "$(check)"
+  want_closed "with the rules back, the engine's port is closed again" "$(reach -- "http://$FACTORY:8000/api/health")"
+  dind docker wait probe-long >/dev/null 2>&1
+  long=$(dind docker logs probe-long 2>&1 | tr -d '\r' | tail -1); dind docker rm -f probe-long >/dev/null 2>&1
+  want_closed "a connection opened while the rules were away is cut when they return" \
+    "$(case "$long" in cut:*) echo closed;; *) echo open;; esac)" "$long"
+  # a watcher that is alive but not watching must not look healthy
+  dind kill -STOP "$WATCHER"; sleep 12
+  want_closed "a stuck watcher: dind's check fails though the rules are in place" "$(check)"
+  dind kill -CONT "$WATCHER"; sleep 2
+  want_open "the watcher running again: dind's check passes" "$(check)"
 fi
 
 echo "a Dockerfile RUN step (default build network):"
@@ -101,7 +127,7 @@ say INFO "  the same container reaches the internet: $(dind docker exec probe-st
 say INFO "  a sibling on the same network reaches it by name: $(dind docker run --rm --network probe-internal "$IMAGE" curl -s -o /dev/null --max-time 5 http://probe-start:8000/ && echo yes || echo no)"
 dind docker rm -f probe-start >/dev/null 2>&1; dind docker network rm probe-internal >/dev/null 2>&1
 say INFO "a container on $NET reaches the engine: $(reach --network "$NET" -- "http://$FACTORY:8000/api/health")"
-say INFO "iptables in dind: $(dind sh -c 'iptables -S DOCKER-USER 2>&1 | head -3' | tr -d '\r' | tr '\n' ';')"
+say INFO "iptables in dind: $(dind sh -c 'iptables -S DOCKER-USER 2>&1 | head -3; iptables -t mangle -S FORWARD 2>&1 | head -4' | tr -d '\r' | tr '\n' ';')"
 say INFO "dind routes: $(dind sh -c 'ip -4 route' | tr -d '\r' | tr '\n' ';')"
 say INFO "dind bridges: $(dind docker network ls --format '{{.Name}}:{{.Driver}}' | tr -d '\r' | tr '\n' ' ')"
 dind rm -rf "$ctx" >/dev/null 2>&1; rm -f "/tmp/probe-build.$$"

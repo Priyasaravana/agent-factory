@@ -147,12 +147,19 @@ def test_dind_starts_behind_its_firewall_and_is_healthy_only_with_it():
     dind = COMPOSE["dind"]
     assert dind["entrypoint"] == ["/usr/local/bin/dind-firewall.sh"]
     assert "./cluster/dind-firewall.sh:/usr/local/bin/dind-firewall.sh:ro" in dind["volumes"]
-    assert "/run/dind-firewall.ok" in dind["healthcheck"]["test"][-1], "no rule, not healthy, no factory"
+    health = dind["healthcheck"]["test"][-1]
+    assert "/usr/local/bin/dind-firewall.sh check" in health, "healthy only with the rules really there"
+    assert ".ok" not in health, "never a marker file: it can go stale (review of #182)"
     assert COMPOSE["factory"]["depends_on"]["dind"]["condition"] == "service_healthy"
     script = (ROOT / "cluster" / "dind-firewall.sh").read_text()
-    assert '-I DOCKER-USER 1 -d "$subnet" -m conntrack --ctstate NEW -j DROP' in script
+    # two rules in two tables, the first before dockerd starts; both cut a connection, not just its start
+    assert "--ctdir ORIGINAL -j DROP" in script and "--ctstate NEW" not in script
+    assert script.index("put mangle FORWARD ||") < script.index("exec dockerd-entrypoint.sh"), "before any container"
+    assert "not starting dockerd" in script and "put filter DOCKER-USER" in script
     assert script.rstrip().endswith('exec dockerd-entrypoint.sh "$@"'), "dockerd still starts the image's way"
-    assert 'rm -f "$OK"' in script, "a stale marker from an earlier start never counts"
+    check = script[script.index('if [ "${1:-}" = check ]') : script.index('rm -f "$PIDFILE" "$BEAT"')]
+    assert "has mangle FORWARD" in check and "has filter DOCKER-USER" in check, "the real rules"
+    assert "kill -0" in check and "$BEAT" in check, "and a watcher that is alive and still passing"
     # only the model gateway's port is let through, for the sandboxes' egress proxy (ADR-0036)
     assert dind["environment"]["DIND_COMPOSE_ALLOW_PORTS"] == "${DIND_COMPOSE_ALLOW_PORTS:-4000}"
     assert (ROOT / "cluster" / "dind-firewall.sh").stat().st_mode & 0o111, "executable: it is the entrypoint"

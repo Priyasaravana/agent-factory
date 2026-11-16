@@ -29,8 +29,9 @@ services:
       - "127.0.0.1:8081-8100:8081-8100"  # generated apps (kind NodePorts 30080-30099)
       - "127.0.0.1:8180:8180"            # generated apps behind the local ingress (ADR-0026)
     healthcheck:
-      # healthy only with the firewall rule in place: the factory never starts on a dind without it
-      test: ["CMD-SHELL", "docker info >/dev/null && test -f /run/dind-firewall.ok"]
+      # healthy only with both firewall rules really in place and their watcher running (it reads the
+      # rules, not a marker): the factory never starts on a dind without them
+      test: ["CMD-SHELL", "docker info >/dev/null && /usr/local/bin/dind-firewall.sh check"]
       interval: 5s
       retries: 30
 
