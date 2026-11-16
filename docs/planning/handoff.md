@@ -20,8 +20,26 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   factory and web, makes the volumes), then `make sandbox-check`.
 - **J3's steps are in the journey test** (`test_j3_team_repo`, J3.0 to J3.4, same branch): assessment item →
   PR → red CI read → fix on the same PR → green → merge closes the change and its fix.
-- **Next:** S-02. Start with the probe the finding names (a container on dind's default bridge reaching the
-  compose network and the internet), on Saravana's Mac, before changing anything.
+- **In review on `fix/sandbox-paths` (#182, 2026-11-16; stacked on #181, merge #181 first):** S-02 (three of
+  four fixes), S-04 and S-03's refusal, one PR as Saravana decided 2026-11-16. ADR-0048 (proposed) has the
+  decisions; the roadmap's "Next, in order" has what each does.
+  - **Proved on the real stack (CI `e2e`):** dind starts behind `cluster/dind-firewall.sh` and the stack comes
+    up healthy; from a container on dind's default bridge and from a Dockerfile `RUN` step the engine, auth
+    and the gateway are unreachable, and with the rule lifted for a moment the engine is reachable again
+    (`scripts/sandbox-paths-probe.sh`, `PROBE_PROVE_RULE=1` in CI only); the UI on 127.0.0.1 redirects to
+    localhost and cross-site writes get 403 (`scripts/gateway-check.sh`); sandbox check and the browser smoke
+    test still pass.
+  - **Not proved, needs a live run on the Mac:** (1) the start check's isolated path (internal network,
+    asked from a sandbox-image container) on a real Next.js build with a fallback base image; (2) the
+    NetworkPolicy on the real kind cluster: that a deploy still passes its smoke check and e2e, and that a pod
+    really can't reach the internet (`kubectl -n app-<slug> exec` a pod, or run a `curlimages/curl` pod there);
+    (3) the dind entrypoint on Docker Desktop (it tries dockerd's iptables backend, nft then legacy; if dind
+    stays unhealthy after `make upgrade`, `docker compose logs dind | grep dind-firewall` says why);
+    (4) live model calls through the model gateway still work (port 4000 is the one exception in the rule).
+  - **After merging, on the Mac:** `make upgrade`, then `make sandbox-check` (now also runs both probe
+    scripts). App links move to `http://127.0.0.1:<port>`.
+- **Open, placement not decided (Saravana):** S-02's last part, builds and the open internet (roadmap item 3).
+- **Next:** the live run above; then J4, unless Saravana places the builds item first.
 
 ## Earlier state (2026-11-15, J3 live follow-up)
 - Core J3 proved live on sarvap37/sample-app PRs #8 and #9: assessment item to PR, deliberate red CI fixed on the same branch, merge recorded merged outcomes for the original and all CI/feedback continuations. Inline-thread replies, decline, self-reply filtering, question-only response and read-only-token hold/Resume also exercised. PR #9 closed iterations 9–14. Follow-up PR #10 proved autonomous feedback once per comment (iteration 16), automatic CI repair before queued feedback (17 then 18), one reply summary each, and merge closure of iterations 15–18. Trial settings published as repo-change v3, restored to manual as v4.

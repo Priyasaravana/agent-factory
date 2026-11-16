@@ -51,8 +51,10 @@ if [ "${PROBE_PROVE_RULE:-0}" = 1 ]; then
   if dind iptables -D $rule 2>/dev/null; then
     want_open "without the rule the same container reaches the engine (the rule is what closes it)" \
       "$(reach -- "http://$FACTORY:8000/api/health")"
-    dind sh -c "iptables -A $rule" || { echo "could not put the rule back"; exit 2; }
-    want_closed "with the rule back, the engine's port" "$(reach -- "http://$FACTORY:8000/api/health")"
+    # dind's own watcher puts it back (within 15 s); the probe only waits, so this also shows it heals
+    for _ in $(seq 1 30); do dind iptables -C $rule 2>/dev/null && break; sleep 1; done
+    dind iptables -C $rule 2>/dev/null || { echo "the rule did not come back; restart dind (docker compose restart dind)"; exit 2; }
+    want_closed "the rule came back by itself, and the engine's port is closed again" "$(reach -- "http://$FACTORY:8000/api/health")"
   else
     say FAIL "the rule could not be lifted for the proof"; fail=1
   fi

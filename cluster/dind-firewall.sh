@@ -10,6 +10,7 @@
 #     only NEW connections are dropped;
 #   - DIND_COMPOSE_ALLOW_PORTS (default 4000, the model gateway) stays reachable: the sandboxes'
 #     egress proxy routes model calls there (ADR-0036), each with its own virtual key;
+#   - the rule is checked every 15 seconds and put back if something removed it;
 #   - /run/dind-firewall.ok exists only while the rule is in place; the compose health check
 #     needs it, so the factory doesn't start on a dind without the rule.
 set -eu
@@ -31,6 +32,8 @@ apply() {
   if ! "$bin" -C DOCKER-USER -d "$subnet" -m conntrack --ctstate NEW -j DROP 2>/dev/null; then
     "$bin" -I DOCKER-USER 1 -d "$subnet" -m conntrack --ctstate NEW -j DROP
     for port in $ALLOW_PORTS; do
+      # one copy of each exception, above the drop (an earlier copy is removed first)
+      while "$bin" -D DOCKER-USER -d "$subnet" -p tcp --dport "$port" -m conntrack --ctstate NEW -j RETURN 2>/dev/null; do :; done
       "$bin" -I DOCKER-USER 1 -d "$subnet" -p tcp --dport "$port" -m conntrack --ctstate NEW -j RETURN
     done
     echo "[dind-firewall] containers can no longer open connections to $subnet (except tcp ports: $ALLOW_PORTS)"

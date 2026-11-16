@@ -70,6 +70,11 @@ is not a person on the network: it is code an agent wrote or a package it instal
 - Effort: ~0.5 day.
 
 **S-02 · Builds, the start check and app pods run agent-written code outside the sandbox network**
+- **Status: partly fixed on `fix/sandbox-paths` (2026-11-16, ADR-0048).** Done: fix 4 (the rule in dind,
+  proved in CI `e2e` by `scripts/sandbox-paths-probe.sh`, which lifts it for a moment and shows the path
+  open), fix 2 (the start check), fix 3 (the NetworkPolicy, applied by the engine; enforcement not tested
+  live). **Open: fix 1.** BuildKit in dind refuses a custom build network, so a `RUN` step still has the
+  open internet; it can no longer reach the engine. See ADR-0048, "Not decided here".
 - Evidence: `engine/stations.py:1209` and `:1211` run `docker build --pull` with no `--network`;
   `:1345` runs the built image with `docker run -d --rm -p` and no hardening flags; neither chart has a
   NetworkPolicy and app namespaces carry no Pod Security labels (`providers/helm.py:270`).
@@ -90,6 +95,8 @@ is not a person on the network: it is code an agent wrote or a package it instal
 - Effort: ~2 days.
 
 **S-03 · The Claude subscription token is readable inside every agent sandbox**
+- **Status: the refusal is on `fix/sandbox-paths` (2026-11-16):** `factory.shared: true` starts live only
+  with the gateway in api_key mode. The auth-injecting proxy and the secret-in-tree check stay open.
 - Evidence: `sandbox/spec.py:34` forwards `CLAUDE_CODE_OAUTH_TOKEN`; in gateway `subscription` mode
   (`gateway.py:95-107`) it is still forwarded. Hooks block the variable's *name* in commands
   (`agents/hooks.py`), which `/proc/self/environ` or any script sidesteps.
@@ -103,6 +110,9 @@ is not a person on the network: it is code an agent wrote or a package it instal
 - Effort: ~1 day for the proxy; the refusal is ~1 hour.
 
 **S-04 · The factory session cookie is sent to generated apps on `localhost`**
+- **Status: fixed on `fix/sandbox-paths` (2026-11-16, ADR-0048):** apps on `127.0.0.1`, the UI kept on
+  `localhost`, and an `Origin` check at the gateway (`scripts/gateway-check.sh` in CI `e2e`). The cookie
+  keeps its name: `__Host-` needs `Secure`, which plain-http localhost can't rely on in every browser.
 - Evidence: the UI is `http://localhost:8080`, apps are `http://localhost:8081-8100`
   (`docker-compose.yml:24`, `config.py:32`). Cookies are scoped by host, not port, and the cookie is
   host-only for `localhost` (`auth/app.py:203-211`).

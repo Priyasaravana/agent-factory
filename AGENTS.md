@@ -48,6 +48,14 @@
   (`engine/src/agent_factory/sandbox/`, ADR-0014): use `ctx.agent(...)` and
   `ctx.cmd(..., untrusted=True)`. Privileged steps (docker build, kubectl, helm,
   git publish) stay in the engine. New egress goes through `sandbox.egress`.
+  Agent-written code also runs outside the sandbox, in dind (ADR-0048): a Dockerfile's `RUN` steps, the
+  image start check (`base_images.start_check`: no capabilities, bounded, no way out when there is a
+  probe image) and app pods (`providers/app_network.py`: the engine applies a default-deny egress policy
+  to the namespace before every release; a new deploy path calls `egress_steps`). Nothing inside dind
+  reaches the compose network (`cluster/dind-firewall.sh`); a new compose service that containers in
+  dind must reach is a port in `DIND_COMPOSE_ALLOW_PORTS`, decided deliberately. Apps are never served
+  on the UI's host (`local.off_the_factory_site`). `scripts/sandbox-paths-probe.sh` proves it on the
+  running stack; a path it lists as KNOWN is open on purpose, for now.
 - Generated repos must stay at agent-readiness Level 3 (`readiness.py`). A new
   golden path ships the same signals in its template.
 - Stack packs (ADR-0041): what the factory builds comes from a **stack pack**, an ADR-0039 pack
