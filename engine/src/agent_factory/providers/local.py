@@ -17,6 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
+from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
 
@@ -160,6 +161,10 @@ class LocalProvider:
             f"--set image.repository={image.repository} --set image.tag={image.tag} "
             f"--set service.nodePort={ctx.product.node_port} --wait --timeout 5m"
         )
+        # the namespace's egress policy first, so the app's pods never run without it (S-02)
+        net = await ctx.cmd("set -e; " + "; ".join(egress_steps("kubectl", ns, ctx.blueprint.app_egress)), timeout=120)
+        if not net.ok:
+            return StepResult(False, "deployment failed: the namespace's egress policy", net.output[-2500:])
         res = await ctx.cmd(helm, timeout=420)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])

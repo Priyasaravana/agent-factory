@@ -62,6 +62,9 @@ class Blueprint(BaseModel):
     scan_command: str | None = None
     scan_fail_on: Literal["critical", "high"] = "critical"  # lower severities are recorded, never block
     chart_path: str = "deploy/chart"
+    # what its apps' pods may reach (S-02, `providers/app_network.py`): restricted = DNS and their own
+    # namespace only; open = whatever the cluster allows, for apps that must call something outside
+    app_egress: Literal["restricted", "open"] = "restricted"
     environment: str = "local"  # where its delivery steps run (see `environments`)
     # Quality gate station: the generated repo must reach this agent-readiness level (1-3)
     min_readiness_level: int = Field(default=3, ge=0, le=3)

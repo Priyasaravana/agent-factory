@@ -7,7 +7,7 @@
 #   scripts/sandbox-paths-probe.sh           report only (exit 0)
 #   PROBE_ENFORCE=1 scripts/sandbox-paths-probe.sh   fail when a path that must be closed is open
 set -uo pipefail
-IMAGE=${SANDBOX_IMAGE:-agent-factory-sandbox}
+IMAGE=${SANDBOX_IMAGE:-}   # default: the sandbox image the factory built in dind (repository agent-factory-sandbox)
 NET=${SANDBOX_NETWORK:-factory-sandbox}
 fail=0
 say() { printf '  %-5s %s%s\n' "$1" "$2" "${3:+  ($3)}"; }
@@ -22,7 +22,14 @@ reach() {
   if dind docker run --rm "${args[@]}" "$IMAGE" curl -s -o /dev/null --max-time 6 "$1" >/dev/null 2>&1; then echo open; else echo closed; fi
 }
 
+[ -n "$IMAGE" ] || IMAGE=$(dind docker images agent-factory-sandbox --format '{{.Repository}}:{{.Tag}}' | tr -d '\r' | head -1)
+# controls: a "closed" below means the request failed, so first show the probe itself works
+if [ -z "$IMAGE" ] || ! dind docker run --rm --network none "$IMAGE" curl --version >/dev/null 2>&1; then
+  echo "probe not usable: no sandbox image with curl in dind (run \`make sandbox-check\` first; image '$IMAGE')"; exit 2
+fi
+echo "probe image: $IMAGE"
 FACTORY=$(ip_of factory); AUTH=$(ip_of auth); WEB=$(ip_of web)
+if [ -z "$FACTORY" ] || [ -z "$AUTH" ]; then echo "probe not usable: the stack's addresses can't be read"; exit 2; fi
 echo "compose addresses: factory=$FACTORY auth=$AUTH web=$WEB"
 echo "dind: $(dind docker version -f 'server {{.Server.Version}}' 2>&1 | tr -d '\r'), builder: $(dind docker buildx version 2>&1 | head -1 | tr -d '\r')"
 
@@ -39,6 +46,9 @@ build() { # build NAME EXTRA-ARGS... ; the RUN step curls $URL
   dind sh -c "printf 'FROM $IMAGE\nARG URL\nARG BUST\nRUN curl -s -o /dev/null --max-time 6 \"\$URL\"\n' > $ctx/Dockerfile"
   if dind docker build -q --build-arg "URL=$url" --build-arg "BUST=$RANDOM$RANDOM" "$@" "$ctx" >/dev/null 2>"/tmp/probe-build.$$"; then echo open; else echo closed; fi
 }
+if [ "$(build "file:///etc/hostname")" != open ]; then
+  echo "probe not usable: a plain build fails in dind: $(tr -d '\r' < "/tmp/probe-build.$$" | tail -3 | tr '\n' ' ')"; exit 2
+fi
 want_closed "the engine's port"  "$(build "http://$FACTORY:8000/api/health")"
 want_closed "the open internet"  "$(build https://example.com)"
 

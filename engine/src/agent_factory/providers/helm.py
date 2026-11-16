@@ -32,6 +32,7 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from agent_factory import blue_green
+from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
 
@@ -267,7 +268,8 @@ class HelmProvider:
                 "ingress.host, ingress.className, ingress.tls, ingress.annotations) and support service.type="
                 f"ClusterIP and imagePullSecrets.\n{render.output[-1500:]}",
             )
-        steps: list[str] = [f"{k} create namespace {ns} --dry-run=client -o yaml | {k} apply -f -"]
+        # the namespace, then its egress policy before the release, so no pod runs without it (S-02)
+        steps: list[str] = egress_steps(k, ns, ctx.blueprint.app_egress)
         if ctx.slot:  # a temporary validation environment: findable by a person and by the sweep
             steps.append(
                 f"{k} label namespace {ns} --overwrite agent-factory.io/validation={shlex.quote(ctx.change.id)} "
