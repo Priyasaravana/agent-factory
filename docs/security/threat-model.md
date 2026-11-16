@@ -26,10 +26,11 @@ It is structured on the [OWASP Top 10 for Agentic Applications (2026)](https://g
   - engine → dind (privileged);
   - **agent-written code outside the sandbox (S-02, partly closed 2026-11-16, ADR-0048):** a Dockerfile's
     `RUN` steps at Build, the image start check and the deployed app pods are not on the sandbox network.
-    Closed: none of them can open a connection to the compose network (dind's firewall rule); the start
-    check runs boxed in; app pods have default-deny egress (where the cluster enforces NetworkPolicy).
-    **Still open:** a `RUN` step and the scanner containers have the open internet, the egress allowlist
-    does not apply to them;
+    Closed: none of them can open a connection to the compose network (dind's two firewall rules, the
+    first in place before dockerd starts); the start check runs boxed in; app pods have default-deny
+    egress that their own chart can't widen (where the cluster enforces NetworkPolicy).
+    **Still open (ADR-0048, "Residual risks", none accepted):** a `RUN` step and the scanner containers
+    have the open internet; DNS from app pods can carry data out; a cluster-side ceiling is missing;
   - **anything on the compose network → engine (S-01, closed 2026-11-16):** the engine takes
     `X-Auth-User` / `X-Auth-Role` only from a request carrying the gateway's proof, a secret only nginx
     and the engine hold (ADR-0012); every other caller gets 401, the webhook included. Containers inside

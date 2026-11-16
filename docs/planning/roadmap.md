@@ -62,6 +62,11 @@ in the backlog entry below):
      egress-allowing policy would undo it; a deploy now refuses such a chart before installing (also another
      plugin's policy kind, a Role that may change policies, `hostNetwork`) and reads the namespace back after
      the release. The cluster-side ceiling (admission policy) is proposed with S-05.
+     **Second review (2026-11-16):** the firewall fails closed (two rules, the first before dockerd starts,
+     established connections cut, a health check on the real rules); apps already running on the local
+     cluster get the policy at start; the smoke test proves the cookie stays off the apps' host. **S-02
+     stays partly open**, and the residual risks in ADR-0048 are not accepted until Saravana records an
+     acceptance.
      Proved on the real stack in CI `e2e` by `scripts/sandbox-paths-probe.sh`, which also lifts the rule for
      a moment to show it is what closes the path. **Not run in live mode:** the start check's isolated path
      and the NetworkPolicy were never exercised with real builds and a real kind cluster (CI is dry-run).

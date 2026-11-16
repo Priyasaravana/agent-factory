@@ -54,7 +54,8 @@
   to the namespace before every release; a new deploy path calls `egress_steps`, refuses a rendered chart
   that widens or sidesteps the policy (`widening`: policies add up) and reads the namespace back after the
   release (`after_release`); a new way to widen egress gets a case in `tests/test_app_network.py`). Nothing inside dind
-  reaches the compose network (`cluster/dind-firewall.sh`); a new compose service that containers in
+  reaches the compose network (`cluster/dind-firewall.sh`: two rules, the first before dockerd starts; its
+  `check` reads the real rules, never a marker); a new compose service that containers in
   dind must reach is a port in `DIND_COMPOSE_ALLOW_PORTS`, decided deliberately. Apps are never served
   on the UI's host (`local.off_the_factory_site`). `scripts/sandbox-paths-probe.sh` proves it on the
   running stack; a path it lists as KNOWN is open on purpose, for now.

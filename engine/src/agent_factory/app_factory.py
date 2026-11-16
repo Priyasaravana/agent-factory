@@ -185,6 +185,16 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         await f.manager.settle_interrupted(interrupted)
         # temporary validation environments left behind by a crash or a failed removal (ADR-0046)
         await f.manager.sweep_validation()
+        # apps delivered before the egress policy existed get it now, not at their next deploy (ADR-0048)
+        secured, unsecured = await f.manager.secure_app_namespaces()
+        if secured:
+            log.info("egress policy applied to %d app namespace(s): %s", len(secured), ", ".join(secured))
+        if unsecured:
+            log.error(
+                "the egress policy could NOT be applied to: %s. Their pods may still reach the internet; "
+                "it is applied again at their next deploy and at the next start",
+                ", ".join(unsecured),
+            )
         from agent_factory.evals import recover_on_startup as recover_evals
 
         await recover_evals(f.manager)  # evaluations cut short by a restart are cancelled (ADR-0025)

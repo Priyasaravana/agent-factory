@@ -27,6 +27,30 @@ SHOTS = os.environ.get("SMOKE_SCREENSHOTS", "smoke-screenshots")
 DELIVERED = "delivered · awaiting feedback"
 
 
+def _cookie_listener() -> dict:
+    """A tiny local web server that records the Cookie header of each path it is asked for."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen: dict = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            seen[self.path] = self.headers.get("Cookie") or ""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<p>stand-in app</p>")
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = HTTPServer(("0.0.0.0", 0), Handler)  # noqa: S104 - both localhost and 127.0.0.1, this test only
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    seen["port"] = server.server_address[1]
+    return seen
+
+
 def main() -> int:
     os.makedirs(SHOTS, exist_ok=True)
     errors: list[str] = []
@@ -50,6 +74,23 @@ def main() -> int:
             page.get_by_label("Password").fill(PASSWORD)
             page.get_by_role("button", name="Sign in").click()
             expect(page.get_by_role("heading", name="Products", exact=True)).to_be_visible(timeout=20_000)
+
+            step("the session cookie stays on the UI's site (S-04)")
+            # A stand-in for a generated app, listening on this machine. Apps are served on 127.0.0.1,
+            # the UI on localhost: the same listener is asked both ways, in the signed-in browser.
+            seen = _cookie_listener()
+            port = seen["port"]
+            if "://localhost" in BASE:
+                other = page.context.new_page()
+                other.goto(f"http://localhost:{port}/as-the-ui-host")
+                other.goto(f"http://127.0.0.1:{port}/as-an-app")
+                other.goto(BASE.replace("localhost", "127.0.0.1") + "/products")
+                assert other.url.startswith(BASE), f"the UI on 127.0.0.1 is sent to localhost, got {other.url}"
+                other.close()
+                control, app = seen["/as-the-ui-host"], seen["/as-an-app"]
+                assert "factory_session=" in control, "control: a listener on the UI's host does get the cookie"
+                assert "factory_session" not in app, f"an app on 127.0.0.1 must get no factory cookie, got {app!r}"
+                assert page.context.cookies(f"http://127.0.0.1:{port}") == [], "no cookie is stored for the apps' host"
 
             step("readiness")
             page.goto(BASE + "/integrations")

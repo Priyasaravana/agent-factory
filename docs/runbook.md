@@ -24,6 +24,14 @@ asked to choose your own. Create a product and watch all 8 stations pass. The ge
 5. Create the product. A first iteration usually takes 20–60 minutes, depending
    on fix loops.
 
+## Before more than one person uses an instance
+Nothing detects that a factory is shared, so say so: set `factory.shared: true` in the config (ADR-0048). It
+then starts live only with the model gateway in api_key mode (`model_gateway.provider: litellm`,
+`credential: api_key`), so no agent sandbox holds anyone's own model credential: each agent call gets a
+virtual key that is capped, short-lived and revoked when the call ends. After turning it on, run one change
+and check in the gateway's own key list that no key of a finished call is still valid. Auth and roles for
+shared instances (invitations, per-product access) are not built yet: see the roadmap.
+
 ## Operating
 | Situation | What to do |
 |---|---|

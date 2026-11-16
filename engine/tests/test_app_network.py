@@ -221,3 +221,31 @@ async def test_a_policy_found_only_on_the_cluster_is_removed_and_the_deploy_fail
     ex.scan_outputs["get networkpolicies"] = "error: the server is unavailable"
     unread = await after_release(live, "kubectl", "app-kudos", run)
     assert unread is not None and "could not be read" in unread.summary
+
+
+async def test_apps_already_running_get_the_policy_at_start_not_at_their_next_deploy(make_factory, cfg):
+    """Review of #182: an upgrade must not leave delivered apps without the control."""
+    ex = FakeExecutor()
+    f = make_factory(ex)
+    running = f.manager.create_product(PRODUCT)
+    running.app_url = "http://127.0.0.1:8081"
+    f.store.save_product(running)
+    not_yet = f.manager.create_product(PRODUCT.model_copy(update={"title": "Not delivered yet"}))
+    ex.calls.clear()
+    assert await f.manager.secure_app_namespaces() == ([], []), "dry-run has no cluster"
+    assert ex.calls == []
+
+    f.manager.settings.factory_mode = "live"
+    secured, failed = await f.manager.secure_app_namespaces()
+    assert (secured, failed) == (["app-bookmarks-service"], [])
+    [cmd] = ex.calls
+    assert "kind: NetworkPolicy" in cmd and "namespace: app-bookmarks-service" in cmd
+    assert f"app-{not_yet.slug}" not in cmd, "nothing to secure before a first deploy (the deploy does it)"
+
+    # a blueprint that opens egress on purpose is left alone; a cluster that refuses is reported
+    ex.calls.clear()
+    ex.fail_on.append("kubectl create namespace")
+    assert await f.manager.secure_app_namespaces() == ([], ["app-bookmarks-service"])
+    cfg.blueprints[running.blueprint].app_egress = "open"
+    ex.calls.clear()
+    assert await f.manager.secure_app_namespaces() == ([], []) and ex.calls == []

@@ -2212,6 +2212,31 @@ class ChangeManager:
                     removed.append(change.id)
         return removed
 
+    async def secure_app_namespaces(self) -> tuple[list[str], list[str]]:
+        """At start-up: every app already running on the local cluster gets its namespace's egress policy
+        now, not at its next deploy (ADR-0048; review of #182: an upgrade must not leave delivered apps
+        without the control). Returns (namespaces secured, namespaces that could not be). A cluster target
+        needs its own kubeconfig for each step, so its namespaces get the policy at their next deploy."""
+        from agent_factory.providers.app_network import egress_steps
+        from agent_factory.providers.local import namespace
+
+        secured: list[str] = []
+        failed: list[str] = []
+        if self.settings.factory_mode != "live":
+            return secured, failed
+        for product in self.store.list_products():
+            blueprint = self.cfg.blueprints.get(product.blueprint)
+            if product.archived_at or not product.app_url or blueprint is None or blueprint.target != "new":
+                continue
+            if blueprint.app_egress != "restricted":
+                continue
+            if getattr(self.providers.for_blueprint(product.blueprint).deploy, "kind", "") != "local":
+                continue
+            ns = namespace(product)
+            res = await self.ex.run("set -e; " + "; ".join(egress_steps("kubectl", ns, "restricted")), timeout=120)
+            (secured if res.ok else failed).append(ns)
+        return secured, failed
+
     def _record_release(self, change: Change, product: Product, sid: str) -> str | None:
         """This change's release passed acceptance (or handover, in a lane without acceptance): it is
         the product's healthy release now, saved at once so no later failure (a merge, a publish, a

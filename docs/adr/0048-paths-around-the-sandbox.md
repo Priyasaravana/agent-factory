@@ -17,12 +17,19 @@ cover, and that the factory's own services trusted whoever reached them:
 - the engine's own model credential sits in every sandbox unless the gateway mints a key per call (S-03).
 
 ## Decision
-1. **dind keeps its containers off the compose network** (`cluster/dind-firewall.sh`, dind's entrypoint). One
-   rule in `DOCKER-USER` drops every new connection a container inside dind opens to the compose subnet,
-   whatever flags its `docker run` or `docker build` had. Replies to connections that came in pass (the engine
-   calling an app on a published port). Only the model gateway's port stays reachable
-   (`DIND_COMPOSE_ALLOW_PORTS`, default 4000), for the sandboxes' egress proxy. dind is healthy only while
-   the rule is in place, so the factory doesn't start without it.
+1. **dind keeps its containers off the compose network** (`cluster/dind-firewall.sh`, dind's entrypoint).
+   Two rules that say the same thing, in two tables that are lost independently: `mangle FORWARD`, put in
+   **before dockerd starts** (so no container ever runs without it; Docker never touches that table), and
+   `DOCKER-USER` once dockerd has made the chain. Each drops every packet a container sends on a connection
+   it opened to the compose subnet (conntrack direction ORIGINAL), whatever flags its `docker run` or
+   `docker build` had, so a connection that got through while a rule was missing is cut when the rule
+   returns. Replies to connections that came in pass (the engine calling an app on a published port). Only
+   the model gateway's port stays reachable (`DIND_COMPOSE_ALLOW_PORTS`, default 4000), for the sandboxes'
+   egress proxy. A watcher checks both rules every second and puts back what is missing. dind's health check
+   (`dind-firewall.sh check`) reads the real rules and the watcher's liveness and last pass, never a marker
+   file; the factory doesn't start on an unhealthy dind, and dind doesn't start dockerd at all if the first
+   rule can't be installed (review of #182, 2026-11-16: the first version had one NEW-only rule, a 15-second
+   poll and a marker file).
 2. **The start check is boxed in** (`base_images.start_check`, pure). No capabilities, no privilege
    escalation, bounded memory and processes. With the sandbox image to ask from, the image runs on an
    `--internal` network with no published port and is asked by name from a second throw-away container; in
@@ -66,6 +73,19 @@ cover, and that the factory's own services trusted whoever reached them:
   `restricted`), before J4. A `helm rollback` restores a revision that passed these checks when it was
   deployed; revisions from before this ADR were not checked.
 - Pod Security `restricted` on app namespaces is S-05, placed before J4.
+
+## Residual risks (stated, not accepted)
+None of these is accepted by this ADR. An acceptance needs an owner, a reason, the workloads and data it
+covers and an expiry, recorded here by Saravana; until then they are open findings.
+
+| Residual | What it allows | What would close it |
+|---|---|---|
+| Builds and scanners have the open internet (S-02, fix 1) | A Dockerfile `RUN` step or a scanner container can send out whatever it can read: the build context, which is the product's worktree. No factory credential is in that context. | The build-network design above. |
+| DNS is allowed from app pods | Data can leave in DNS queries through the cluster's resolver. The policy stops direct connections, not this channel. | A resolver for app namespaces that answers only cluster names (or logs and limits external lookups). |
+| The firewall can be missing for up to about a second | Both rules would have to be removed at once (by root inside dind); connections opened meanwhile are cut when the rules return. Proved in CI by the probe. | Nothing planned; the window is the watcher's interval. |
+| A policy that appears only on the cluster | In force between the release and the read-back (seconds). | The admission policy above. |
+| `factory.shared` is a declaration | An instance that is shared without saying so still runs with the engine's own model credential in its sandboxes. | Auth and roles for shared instances (after J5): the engine then knows it is shared. Until then the runbook requires the setting for any instance more than one person uses. |
+| Existing apps on a cluster target | Their namespaces get the policy at their next deploy, not at upgrade (the local cluster's get it at start, `secure_app_namespaces`). | Redeploy each, or apply the policy by hand; listed in `docs/upgrading.md`. |
 
 ## Consequences
 - `make upgrade` restarts dind with the new entrypoint (the kind cluster and images are kept in its

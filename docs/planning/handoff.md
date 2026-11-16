@@ -25,6 +25,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     a rendered chart that widens or sidesteps the policy (`app_network.widening`) and reads the namespace
     back after the release (`after_release`, removing what it finds). Tests in `tests/test_app_network.py`.
     Not a cluster-side ceiling: that is an admission policy, proposed with S-05 (ADR-0048, "Not decided").
+  - **#182 second review (2026-11-16, sarvap37's assessment of `e3bdbe0`):** [P2] the firewall did not fail
+    closed (one NEW-only rule, a 15 s poll, a marker file). Now two rules in two tables, the first before
+    dockerd starts, both cutting established connections; a 1 s watcher; a health check that reads the real
+    rules and the watcher. Apps already running on the local cluster get the policy at start
+    (`ChangeManager.secure_app_namespaces`). The browser smoke test checks that a signed-in browser sends
+    no factory cookie to a listener on 127.0.0.1 (and does to one on localhost, as a control). Residual
+    risks are a table in ADR-0048; **none is accepted: that needs Saravana (owner, reason, scope, expiry).**
   - **Proved on the real stack (CI `e2e`):** dind starts behind `cluster/dind-firewall.sh` and the stack comes
     up healthy; from a container on dind's default bridge and from a Dockerfile `RUN` step the engine, auth
     and the gateway are unreachable, and with the rule lifted for a moment the engine is reachable again
@@ -38,6 +45,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     (3) the dind entrypoint on Docker Desktop (it tries dockerd's iptables backend, nft then legacy; if dind
     stays unhealthy after `make upgrade`, `docker compose logs dind | grep dind-firewall` says why);
     (4) live model calls through the model gateway still work (port 4000 is the one exception in the rule).
+  - **Evidence the reviewer asks for before sign-off, still missing (all need the Mac or a real cluster):**
+    cluster negative tests from a pod (internet, another namespace, the factory's services) with DNS and
+    same-namespace working, repeated with an adversarial chart and a hook; Docker Desktop cold start,
+    restart and rule loss; the isolated start check with a fallback image; model-gateway calls with the
+    per-call key revoked after success, failure and timeout; cross-site writes through his own reverse
+    proxy if one is used.
   - **After merging, on the Mac:** `make upgrade`, then `make sandbox-check` (now also runs both probe
     scripts). App links move to `http://127.0.0.1:<port>`.
 - **Open, placement not decided (Saravana):** S-02's last part, builds and the open internet (roadmap item 3).
