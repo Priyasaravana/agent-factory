@@ -1,9 +1,29 @@
-# Agent Factory: handoff (updated 2026-11-15)
+# Agent Factory: handoff (updated 2026-11-16)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-15, J3 live follow-up)
+## Current state (2026-11-16)
+- **Decided by Saravana 2026-11-16:** J3 is closed, and the assessment's first group ("close the paths around
+  the sandbox": S-01, S-02, S-04, S-03's refusal) comes now, before J4, in that order (roadmap, "Next, in order").
+- **S-01 in review on `fix/s01-gateway-proof` (2026-11-16):** identity headers count only with the gateway's
+  proof (ADR-0012, updated). `cluster/init.sh` makes the secret once, in two volumes (engine's copy for uid
+  10001, nginx's config line for uid 101); `web/nginx.conf` includes it and sets `X-Gateway-Proof` on both
+  locations that pass to the engine; the engine reads `GATEWAY_PROOF_FILE` at start (refusing gateway mode
+  without it) and answers only `/api/health` without the proof. Tests: `tests/test_identity.py` (forged admin
+  headers, wrong proofs, the webhook, start refusal), `tests/test_least_privilege.py` (who holds the proof,
+  every engine location sets it). In tests the client from `test_api._client` stands for the gateway and sends
+  the proof. **Not run live:** the cloud session has no Docker and no nginx, so the nginx include, the init
+  step inside the real container and `scripts/gateway-check.sh` first run in CI `e2e` (the init step's
+  commands were exercised in a scratch folder: stable across restarts, a malformed secret is remade, modes
+  0400). If `e2e` is red on this PR, look there first. After merging, on the Mac: `make upgrade` (rebuilds
+  factory and web, makes the volumes), then `make sandbox-check`.
+- **J3's steps are in the journey test** (`test_j3_team_repo`, J3.0 to J3.4, same branch): assessment item →
+  PR → red CI read → fix on the same PR → green → merge closes the change and its fix.
+- **Next:** S-02. Start with the probe the finding names (a container on dind's default bridge reaching the
+  compose network and the internet), on Saravana's Mac, before changing anything.
+
+## Earlier state (2026-11-15, J3 live follow-up)
 - Core J3 proved live on sarvap37/sample-app PRs #8 and #9: assessment item to PR, deliberate red CI fixed on the same branch, merge recorded merged outcomes for the original and all CI/feedback continuations. Inline-thread replies, decline, self-reply filtering, question-only response and read-only-token hold/Resume also exercised. PR #9 closed iterations 9–14. Follow-up PR #10 proved autonomous feedback once per comment (iteration 16), automatic CI repair before queued feedback (17 then 18), one reply summary each, and merge closure of iterations 15–18. Trial settings published as repo-change v3, restored to manual as v4.
 - `fix/j3-live-controls`: live testing found the workflow editor hid CI/feedback settings for the shipped repo-change lane (handover handler; UI checked only pull-request). Accept both handlers for repo lanes; show each feedback author's permission beside its kind. TypeScript and Docker web build passed; corrected controls and permission labels verified in live UI. Local web image rebuilt and activated. Final outside-account retest passed on sample-app PR #11: Priyasaravana permission read, labelled outside the team, no answer action or continuation. Fix PR #180 reviewed at ae2e2a8 with no actionable findings; CI required before merge. Local sign-in failures with the modified config do not reproduce on untouched main (8 passed). Existing config edits and Claude outputs are unrelated and retained.
 

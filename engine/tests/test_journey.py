@@ -4,7 +4,9 @@ One product goes through the journey the way a person drives it: through the HTT
 current Next.js pack, with the agents and commands faked and git real. Each milestone adds its
 steps here when it lands, so a step that works never silently breaks. Today: J1, launch done well
 (request → align with Design decisions set to ask → modules and sign-in → e2e before deploy →
-readiness → publish).
+readiness → publish), and J3, team repo (an assessment item → a pull request → red CI fixed on the
+same pull request → the merge closes the change), on a team repo with a local origin and the repo
+host's answers faked.
 
 When this fails, the assertion message names the journey step that broke. The detailed rules of
 each step have their own tests (test_decisions, test_app_sign_in, test_preview_e2e, test_no_progress,
@@ -15,12 +17,14 @@ from __future__ import annotations
 import json
 
 from conftest import PRODUCT, wait_run
+from test_access import ADMIN
 from test_api import _client
 from test_app_sign_in import PASSWORD, RecordingExecutor, _secret_json
+from test_ci_fix import SLUG, _git, _red_pr
 
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.engine.stations import ADMIN_PASSWORD_ENV
-from agent_factory.models import ChangeStatus, EventKind
+from agent_factory.models import ChangeSource, ChangeStatus, EventKind
 
 WF = "new-product"
 ORG = "acme-apps"  # stands for the dedicated GitHub org in `policies.publish.owner`
@@ -138,4 +142,60 @@ async def test_j1_launch_done_well(make_factory, monkeypatch):
         for name in ("decisions.json", "discussion.json", "readiness.json", "traceability.json"):
             assert (evidence / name).is_file(), f"evidence: {name}"
         assert messages[-1].startswith("evidence sealed:"), "the run ends sealed"
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_j3_team_repo(make_factory, tmp_path, monkeypatch):
+    """J3 "Done when": an assessment item becomes a PR, CI fails once and is fixed on the same PR, and
+    the merge closes the change. The rules of each step: test_repo_changes, test_pr_loop, test_ci_fix."""
+    # J3.0 A team repo is onboarded and assessed; a person turns one open item into a change, which
+    # leaves the factory only as a pull request. Its CI then fails on the host.
+    f, ex, host, change, item_id = await _red_pr(make_factory, tmp_path, monkeypatch)
+    red = host.head()
+    assert change.pr_url == f"https://github.com/{SLUG}/pull/7", "J3.0 the change is a pull request"
+    assert sum(x.startswith("gh pr create") for x in ex.calls) == 1, "J3.0 one pull request"
+    assert not any(x.startswith("gh pr merge") for x in ex.calls), "J3.0 the factory never merges"
+    f.settings.auth_mode = "gateway"  # as shipped: people reach the engine only through the gateway
+    app, ctx, c = await _client(f)
+    async with c:
+        # J3.1 The factory follows the pull request: it reads the red CI and says what a person can do.
+        r = await c.post(f"/api/changes/{change.id}/pull-request/refresh", headers=ADMIN)
+        assert r.status_code == 200 and r.json()["pull_request"]["checks"] == "failing", f"J3.1 red CI read: {r.text}"
+        detail = (await c.get(f"/api/changes/{change.id}", headers=ADMIN)).json()
+        assert [a["kind"] for a in detail["actions"]] == ["fix_ci"], "J3.1 'Needs you' offers Fix CI"
+        assert detail["change"]["pull_request"]["failures"], "J3.1 what the failing check reported is shown"
+
+        # J3.2 Fix CI: a change that continues the same pull request from the failing commit.
+        r = await c.post(f"/api/changes/{change.id}/ci-fix", headers=ADMIN)
+        assert r.status_code == 200, f"J3.2 start the fix: {r.text}"
+        fix_id = r.json()["id"]
+        assert await wait_run(f, fix_id, 60) == ChangeStatus.awaiting_feedback, "J3.2 the fix is delivered"
+        fix = f.store.get_change(fix_id)
+        assert fix.source == ChangeSource.ci and fix.continues, "J3.2 the fix continues the change"
+        assert (fix.continues.change_id, fix.continues.from_sha) == (change.id, red), "J3.2 from the failing commit"
+        wt = f.manager.ws.change_dir(fix_id)
+        assert _git(wt, "rev-parse", "HEAD~1") == red, "J3.2 built on the pull request's head"
+        pushes = [x for x in ex.calls if "git push" in x and f"HEAD:refs/heads/{host.branch}" in x]
+        assert pushes and all("--force" not in x and ":+" not in x for x in pushes), "J3.2 pushed fast-forward"
+        assert sum(x.startswith("gh pr create") for x in ex.calls) == 1, "J3.2 the same pull request, no second"
+
+        # J3.3 CI passes on the fix's commit: the factory reads it and has nothing more to offer.
+        _git(host.origin, "fetch", "-q", str(wt), f"run/{fix_id}:{host.branch}")  # the push, on the origin
+        host.ci[host.head()] = "success"
+        r = await c.post(f"/api/changes/{change.id}/pull-request/refresh", headers=ADMIN)
+        pr = r.json()["pull_request"]
+        assert (pr["head_sha"], pr["checks"]) == (host.head(), "passing"), f"J3.3 green CI read: {r.text}"
+        detail = (await c.get(f"/api/changes/{change.id}", headers=ADMIN)).json()
+        assert not detail["ci_fix"]["offer"], "J3.3 no further fix is offered"
+
+        # J3.4 The team merges on the host: the merge closes the change and its fix; the item awaits
+        # verification (it is fixed only when its check really runs again).
+        host.merged = True
+        r = await c.post(f"/api/changes/{change.id}/pull-request/refresh", headers=ADMIN)
+        assert r.status_code == 200 and r.json()["outcome"]["state"] == "merged", f"J3.4 merged: {r.text}"
+        fix = f.store.get_change(fix_id)
+        assert fix.outcome and fix.outcome.state == "merged", "J3.4 the fix takes the pull request's outcome"
+        item = next(i for i in f.store.list_work_items(change.product_id) if i.id == item_id)
+        assert item.status == "in_progress", "J3.4 the item awaits verification"
+        assert change.id not in [x.id for x in f.manager.pr_watcher.followed()], "J3.4 the following stops"
     await ctx.__aexit__(None, None, None)

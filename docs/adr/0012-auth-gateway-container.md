@@ -34,10 +34,24 @@ single sign-on, without rewriting the factory each time.
 - `AUTH_MODE=off` (default outside compose) keeps local dev and tests
   single-user.
 
+- **The headers count only with the gateway's proof** (added 2026-11-16, assessment 2026-11-15 finding
+  S-01; order decided by Saravana 2026-11-16). The unpublished port was not enough: anything on the
+  engine's network could send the two headers and be an admin. `factory-init` now makes one random
+  secret (32 bytes, hex) and writes it twice: for the engine (`GATEWAY_PROOF_FILE`, readable only by
+  uid 10001) and for nginx as a config line (readable only by uid 101). nginx adds it as
+  `X-Gateway-Proof` to every request it passes to the engine, overwriting anything the browser sent;
+  the engine compares it in constant time (`identity.proved`) and answers nothing without it except
+  its own container health check: not the API, whatever identity is claimed, and not the webhook.
+  In gateway mode the engine refuses to start without a usable proof, and nginx without its line.
+  The auth service never gets it. Proved on the running stack by `scripts/gateway-check.sh`
+  (`make sandbox-check`, CI `e2e`); rules in `tests/test_identity.py` and
+  `tests/test_least_privilege.py`. To rotate: remove the `gateway-proof-engine` volume's `secret` and
+  restart the stack. Separating the networks (engine reachable only by `web`) comes with S-02.
+
 ## Consequences
 - **SSO is a swap, not a rewrite.** Replace the `auth` container with an
   OIDC-aware proxy (e.g. oauth2-proxy with Okta or Entra ID) that answers the
-  same check and sets the same two headers. The engine and UI don't change.
+  same check and sets the same two headers, and adds the gateway's proof. The engine and UI don't change.
 - **Known gap until the agent sandbox (phase 3):** agents run inside the
   factory container and could call the engine directly with forged headers.
   The sandbox removes that path.

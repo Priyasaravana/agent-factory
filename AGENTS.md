@@ -40,7 +40,10 @@
   `tests/test_hooks.py` for every rule.
 - `auth/` is a separate service (own package, container and database). It must not
   import the engine, and the engine must not import it: they meet only at the
-  gateway headers `X-Auth-User` / `X-Auth-Role` (see ADR-0012).
+  gateway headers `X-Auth-User` / `X-Auth-Role` (see ADR-0012). The headers count only with the
+  gateway's proof (`X-Gateway-Proof`, `identity.read_proof` / `proved`): a new nginx location that
+  passes to the engine sets it (`tests/test_least_privilege.py`), a new path the engine answers
+  without it goes in `identity.UNPROVED_PATHS` deliberately, and nothing else ever holds or logs it.
 - Agents and agent-written code (tests, Makefiles) run only in sandboxes
   (`engine/src/agent_factory/sandbox/`, ADR-0014): use `ctx.agent(...)` and
   `ctx.cmd(..., untrusted=True)`. Privileged steps (docker build, kubectl, helm,

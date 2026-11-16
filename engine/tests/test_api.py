@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import httpx
+from conftest import GATEWAY_PROOF
 
 from agent_factory.app_factory import create_app
 
@@ -11,7 +12,11 @@ async def _client(f):
     app = create_app(f)
     ctx = app.router.lifespan_context(app)
     await ctx.__aenter__()
-    return app, ctx, httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t")
+    # the test client stands for the gateway: it adds the proof nginx adds (ignored with AUTH_MODE=off)
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://t", headers={"X-Gateway-Proof": GATEWAY_PROOF}
+    )
+    return app, ctx, client
 
 
 async def test_order_lifecycle_over_http(make_factory):

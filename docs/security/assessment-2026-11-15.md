@@ -53,6 +53,9 @@ is not a person on the network: it is code an agent wrote or a package it instal
 ### High
 
 **S-01 · The engine trusts identity headers from any caller on its network**
+- **Status: fixed on `fix/s01-gateway-proof` (2026-11-16)**, the shared secret (ADR-0012, "the gateway's
+  proof"); the probe is `scripts/gateway-check.sh`, in `make sandbox-check` and CI `e2e`. The separate
+  network stays with S-02.
 - Evidence: `engine/src/agent_factory/identity.py:68` reads `X-Auth-User` / `X-Auth-Role` with no proof
   they came from the gateway. The engine listens on `0.0.0.0:8000` on the compose network, which dind is
   also on.

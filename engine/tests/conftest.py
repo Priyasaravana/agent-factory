@@ -47,6 +47,7 @@ def make_seeds(root: Path) -> Path:
 
 
 _CREATED: list[Factory] = []
+GATEWAY_PROOF = "t" * 64  # what the gateway adds to every request (identity.read_proof); not a real secret
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +61,10 @@ async def _stop_runs_after_test():
 @pytest.fixture
 def make_factory(tmp_path, cfg):
     def make(executor: FakeExecutor | None = None, agents: FakeAgentRunner | None = None) -> Factory:
+        proof = tmp_path / "gateway-proof"
+        proof.write_text(GATEWAY_PROOF + "\n")
         settings = Settings(
+            gateway_proof_file=str(proof),  # used only by tests that switch to AUTH_MODE=gateway
             factory_mode="dry-run",
             factory_config=str(REPO / ".agent-factory" / "config.yaml"),
             factory_home=str(REPO),

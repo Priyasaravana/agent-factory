@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-15 (**security assessment added to the backlog**, 18 findings, placement proposed and not decided: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-16 (**J3 closed; the security set "close the paths around the sandbox" is now, before J4**, both decided by Saravana 2026-11-16; S-01 in review on `fix/s01-gateway-proof`; 2026-11-15: **security assessment added to the backlog**, 18 findings, placement proposed: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -39,6 +39,24 @@ unproven** (design sheet, align with the architect, modules and sign-in, the cha
 look and feel in progress, and J2–J5 not started.
 
 ## ⏭ Next, in order
+**Now: close the paths around the sandbox (decided by Saravana 2026-11-16, ~3.5 days), then J4.** The four
+findings of the [2026-11-15 assessment](../security/assessment-2026-11-15.md) where agent-written code
+reaches something it shouldn't come before J4, in this order (the rest of the assessment keeps the placement
+in the backlog entry below):
+1. ⏳ **S-01, the engine proves a request came from the gateway (~½ day): in review on
+   `fix/s01-gateway-proof` (2026-11-16).** `factory-init` makes one random secret; nginx adds it as
+   `X-Gateway-Proof` to every request it passes to the engine; the engine (`identity.read_proof`, `proved`)
+   answers nothing without it but its own health check, whatever identity is claimed, the webhook included,
+   and refuses to start in gateway mode without one (ADR-0012, updated). Tests `tests/test_identity.py`,
+   `tests/test_least_privilege.py`; the live probe is `scripts/gateway-check.sh` (`make sandbox-check`,
+   CI `e2e`). **Not run live in the cloud session (no Docker): CI `e2e` is its first real run.**
+2. **S-02, builds, the start check and app pods get no open network and no route to the engine (~2 days):**
+   first run the probe the finding names, then its four fixes in the finding's order.
+3. **S-04, the factory's session cookie never reaches generated apps on `localhost` (~½ day).**
+4. **S-03's refusal (~1 hour):** a shared instance won't start with the subscription token in sandboxes.
+- **Then:** J4.
+
+**Before that (done):**
 **Now: correctness before more live runs (decided by Saravana 2026-11-04, ~4.5 days).** The 2026-11-03/04
 campaign showed the factory deciding on cut-off output, downgrading instead of stopping, and reporting more
 than it proved ([plans/live-test-usability.md](plans/live-test-usability.md), "Assessment"). Results built on
@@ -427,7 +445,7 @@ per-pack evaluation is in the backlog.
   proved, and not asked of J2: a rollback to the kept colour after a bad switch (J4's restore drill can
   add it).
 
-**J3. Team repo (~3 days)** ✅ live acceptance completed 2026-11-15; started 2026-11-08; design and slices in [plans/pr-loop.md](plans/pr-loop.md)
+**J3. Team repo (~3 days)** ✅ closed 2026-11-16 by Saravana (live acceptance completed 2026-11-15; its steps are `test_j3_team_repo` in `engine/tests/test_journey.py`, J3.0 to J3.4); started 2026-11-08; design and slices in [plans/pr-loop.md](plans/pr-loop.md)
 - **Order decided by Saravana 2026-11-08:** build the PR loop first while he prepares the throwaway repo
   and token; one live run then proves the push and the loop together. Updates by **poll or webhook**, chosen
   per factory (`existing_repos.pr_updates`), both reading the PR itself from the REST API, plus Refresh.
@@ -597,9 +615,9 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
   live): 18 findings, 4 high, in [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md),
   each with evidence, a fix and a size. The main class: agent-written code also runs outside the sandbox
   (`docker build`, the image start check, app pods), on a network with open internet and a route to the
-  engine, which trusts `X-Auth-*` from any caller. **Proposed placement; the order, and anything in the
-  freeze, is Saravana's call (not decided):**
-  - **Before more J3 live runs (~3.5 days), "close the paths around the sandbox":** S-01 the engine proves
+  engine, which trusts `X-Auth-*` from any caller. **Placement: the first group decided by Saravana
+  2026-11-16 (now, before J4: see "Next, in order"); the other groups are still the proposal:**
+  - **Now, before J4 (~3.5 days), "close the paths around the sandbox":** S-01 the engine proves
     a request came from the gateway; S-02 builds, the start check and app pods get no open network and no
     route to the engine; S-04 the factory's session cookie never reaches generated apps on `localhost`; and
     S-03's refusal (a shared instance won't start with the subscription token in sandboxes).
