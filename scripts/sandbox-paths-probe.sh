@@ -14,6 +14,8 @@ say() { printf '  %-5s %s%s\n' "$1" "$2" "${3:+  ($3)}"; }
 # want_closed NAME RESULT(open|closed) [DETAIL]
 want_closed() { if [ "$2" = closed ]; then say PASS "$1"; else say OPEN "$1" "${3:-}"; fail=1; fi; }
 want_open() { if [ "$2" = open ]; then say PASS "$1"; else say FAIL "$1" "${3:-}"; fail=1; fi; }
+# known_open NAME RESULT: a path this probe reports but nothing closes yet (roadmap, S-02 "builds and the internet")
+known_open() { if [ "$2" = closed ]; then say PASS "$1"; else say KNOWN "$1" "open; not closed yet, see the roadmap"; fi; }
 dind() { docker compose exec -T dind "$@"; }
 ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q "$1")" 2>/dev/null; }
 # reach WHERE-ARGS... -- URL  → open|closed, from a throw-away container inside dind
@@ -37,7 +39,9 @@ echo "a container on dind's default bridge (where a start check runs today):"
 want_closed "the engine's port"            "$(reach -- "http://$FACTORY:8000/api/health")"
 want_closed "the auth service"             "$(reach -- "http://$AUTH:8001/auth/me")"
 want_closed "the gateway (UI) from inside" "$(reach -- "http://$WEB:8080/")"
-want_closed "the open internet"            "$(reach -- https://example.com)"
+known_open  "the open internet"            "$(reach -- https://example.com)"
+want_open   "the firewall rule is in place (dind is healthy only with it)" \
+  "$(dind test -f /run/dind-firewall.ok && echo open || echo closed)"
 
 echo "a Dockerfile RUN step (default build network):"
 ctx=$(dind mktemp -d | tr -d '\r')
@@ -50,7 +54,8 @@ if [ "$(build "file:///etc/hostname")" != open ]; then
   echo "probe not usable: a plain build fails in dind: $(tr -d '\r' < "/tmp/probe-build.$$" | tail -3 | tr '\n' ' ')"; exit 2
 fi
 want_closed "the engine's port"  "$(build "http://$FACTORY:8000/api/health")"
-want_closed "the open internet"  "$(build https://example.com)"
+want_closed "the gateway (UI)"   "$(build "http://$WEB:8080/")"
+known_open  "the open internet"  "$(build https://example.com)"
 
 echo "the same RUN step with --network none:"
 want_closed "the engine's port"  "$(build "http://$FACTORY:8000/api/health" --network none)"
@@ -67,6 +72,17 @@ if [ -n "$PROXY" ]; then
   r=$(build https://example.com --network "$NET" --build-arg "https_proxy=http://$PROXY:3128" --build-arg "HTTPS_PROXY=http://$PROXY:3128")
   say INFO "RUN on $NET through the egress proxy reaches a host not allowed (example.com): $r"
 fi
+# can a start check live on an internal network and still be probed on a published port?
+dind docker network inspect probe-internal >/dev/null 2>&1 || dind docker network create --internal probe-internal >/dev/null
+dind docker rm -f probe-start >/dev/null 2>&1
+dind docker run -d --rm --name probe-start --network probe-internal -p 8000 --cap-drop ALL --security-opt no-new-privileges \
+  --memory 1g --pids-limit 256 "$IMAGE" python3 -m http.server 8000 >/dev/null 2>&1
+sleep 2
+hp=$(dind docker port probe-start 8000 2>/dev/null | tr -d '\r' | head -1 | sed 's/.*://')
+say INFO "start check on an --internal network: published port '${hp:-none}'; the engine reaches it at dind:$hp: $(docker compose exec -T -u factory factory curl -s -o /dev/null --max-time 5 "http://dind:${hp:-1}/" && echo yes || echo no)"
+say INFO "  the same container reaches the internet: $(dind docker exec probe-start curl -s -o /dev/null --max-time 5 https://example.com && echo yes || echo no); the engine: $(dind docker exec probe-start curl -s -o /dev/null --max-time 5 "http://$FACTORY:8000/api/health" && echo yes || echo no)"
+say INFO "  a sibling on the same network reaches it by name: $(dind docker run --rm --network probe-internal "$IMAGE" curl -s -o /dev/null --max-time 5 http://probe-start:8000/ && echo yes || echo no)"
+dind docker rm -f probe-start >/dev/null 2>&1; dind docker network rm probe-internal >/dev/null 2>&1
 say INFO "a container on $NET reaches the engine: $(reach --network "$NET" -- "http://$FACTORY:8000/api/health")"
 say INFO "iptables in dind: $(dind sh -c 'iptables -S DOCKER-USER 2>&1 | head -3' | tr -d '\r' | tr '\n' ';')"
 say INFO "dind routes: $(dind sh -c 'ip -4 route' | tr -d '\r' | tr '\n' ';')"

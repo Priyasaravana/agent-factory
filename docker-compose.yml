@@ -7,14 +7,19 @@ services:
     image: docker:27-dind
     restart: unless-stopped              # come back after Docker Desktop restarts / laptop sleep
     privileged: true                     # required by Docker-in-Docker; scoped to this container
+    # Containers inside dind (builds, start checks, scanners, kind nodes and app pods) can't open
+    # connections to this compose network, where the engine, auth and the gateway live (S-02).
+    entrypoint: ["/usr/local/bin/dind-firewall.sh"]
     environment:
       DOCKER_TLS_CERTDIR: /certs
+      DIND_COMPOSE_ALLOW_PORTS: ${DIND_COMPOSE_ALLOW_PORTS:-4000}   # the model gateway (sandbox egress route)
     networks:
       default:
         # dind's generated TLS server cert is valid for "docker" (not the service name),
         # so the factory must connect as tcp://docker:2376 or TLS verification fails.
         aliases: [docker]
     volumes:
+      - ./cluster/dind-firewall.sh:/usr/local/bin/dind-firewall.sh:ro
       - dind-certs:/certs
       - dind-data:/var/lib/docker        # images + kind cluster survive restarts
       # Same host folder at the same path as in the factory, so agent sandboxes
@@ -24,7 +29,8 @@ services:
       - "127.0.0.1:8081-8100:8081-8100"  # generated apps (kind NodePorts 30080-30099)
       - "127.0.0.1:8180:8180"            # generated apps behind the local ingress (ADR-0026)
     healthcheck:
-      test: ["CMD", "docker", "info"]
+      # healthy only with the firewall rule in place: the factory never starts on a dind without it
+      test: ["CMD-SHELL", "docker info >/dev/null && test -f /run/dind-firewall.ok"]
       interval: 5s
       retries: 30
 
