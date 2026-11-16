@@ -76,3 +76,30 @@ def test_the_model_gateway_is_optional_unprivileged_and_isolated():
     assert COMPOSE["model-gateway-db"]["user"] == "70:70"
     assert "non_root" in COMPOSE["model-gateway"]["image"]
     assert set(COMPOSE["model-gateway"]["environment"]) == {"LITELLM_MASTER_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL"}
+
+
+def test_the_gateway_proof_reaches_only_the_engine_and_nginx_each_with_its_own_copy():
+    """S-01 (assessment 2026-11-15): identity headers count only with the proof nginx adds."""
+    factory, web, init = COMPOSE["factory"], COMPOSE["web"], COMPOSE["factory-init"]
+    assert factory["environment"]["AUTH_MODE"] == "gateway"
+    assert factory["environment"]["GATEWAY_PROOF_FILE"] == "/run/gateway-proof/secret"
+    assert "gateway-proof-engine:/run/gateway-proof:ro" in factory["volumes"]
+    assert web["volumes"] == ["gateway-proof-web:/etc/nginx/gateway-proof:ro"], "nginx gets its config line only"
+    assert web["depends_on"]["factory-init"]["condition"] == "service_completed_successfully"
+    assert not any("gateway-proof-web" in v for v in factory["volumes"])
+    holders = [name for name, svc in COMPOSE.items() if any("gateway-proof" in str(v) for v in svc.get("volumes", []))]
+    assert sorted(holders) == ["factory", "factory-init", "web"], "no other service holds the proof"
+    init_mounts = {"gateway-proof-engine:/gateway-proof/engine", "gateway-proof-web:/gateway-proof/web"}
+    assert init_mounts <= set(init["volumes"])
+    assert "ports" not in factory, "the engine publishes no port: the gateway is the only way in"
+    script = (ROOT / "cluster" / "init.sh").read_text()
+    assert "/dev/urandom" in script and "chmod 0400" in script and "umask 077" in script
+
+    conf = (ROOT / "web" / "nginx.conf").read_text()
+    assert "include /etc/nginx/gateway-proof/proof.conf;" in conf
+    to_engine = [block for block in re.split(r"\n  location ", conf) if "proxy_pass $engine" in block]
+    assert len(to_engine) == 2, "the API and the webhook"
+    for block in to_engine:
+        assert "proxy_set_header X-Gateway-Proof $gateway_proof;" in block, block.splitlines()[0]
+    to_auth = [block for block in re.split(r"\n  location ", conf) if "proxy_pass $auth" in block]
+    assert to_auth and not any("gateway_proof" in block for block in to_auth), "the auth service never gets it"

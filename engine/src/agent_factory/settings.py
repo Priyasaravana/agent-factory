@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     factory_mode: Literal["live", "dry-run"] = "dry-run"
     # gateway = identity comes from the auth gateway (X-Auth-User/Role via nginx); off = single-user dev
     auth_mode: Literal["off", "gateway"] = "off"
+    # gateway mode: the file holding the secret the gateway adds to every request (identity.read_proof)
+    gateway_proof_file: str | None = None
     factory_config: str = "/opt/factory/.agent-factory/config.yaml"
     factory_home: str = "/opt/factory"  # templates/, prompts/, plugin/
     data_dir: str | None = None  # overrides config.factory.data_dir

@@ -17,8 +17,9 @@ up-live: ## start in live mode (real agents + kind)
 down: ## stop everything (keeps cluster, images and data)
 	docker compose down
 
-sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist)
+sandbox-check: ## prove the agent sandbox isolation (no secrets, no Docker, egress allowlist) and that the engine answers only the gateway
 	docker compose exec -u factory factory agent-factory sandbox check
+	scripts/gateway-check.sh
 
 privilege-check: ## prove least privilege: no root, no capabilities, only dind privileged (ADR-0018)
 	scripts/privilege-check.sh

@@ -203,6 +203,8 @@ jobs:
         run: docker compose exec -T -u factory factory agent-factory sandbox check
       - name: least privilege (make privilege-check)
         run: scripts/privilege-check.sh
+      - name: the engine answers only the gateway (scripts/gateway-check.sh, S-01)
+        run: scripts/gateway-check.sh
       - name: browser smoke test
         run: |
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium

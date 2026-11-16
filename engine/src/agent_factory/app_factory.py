@@ -26,7 +26,7 @@ from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
 from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, resolve_address
 from agent_factory.github import fetch_dir
-from agent_factory.identity import IdentityMiddleware
+from agent_factory.identity import IdentityMiddleware, read_proof
 from agent_factory.models import TERMINAL, ChangeStatus
 from agent_factory.packs import Pack
 from agent_factory.packs import install as install_packs
@@ -198,7 +198,9 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         redoc_url=None,
     )
     settings = factory.settings if factory else Settings()
-    app.add_middleware(IdentityMiddleware, mode=settings.auth_mode)
+    # gateway mode refuses to start without the gateway proof (S-01): never headers on trust alone
+    proof = read_proof(settings.gateway_proof_file) if settings.auth_mode == "gateway" else None
+    app.add_middleware(IdentityMiddleware, mode=settings.auth_mode, proof=proof)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
