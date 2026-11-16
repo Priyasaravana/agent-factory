@@ -6,21 +6,18 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 ## Current state (2026-11-16)
 - **Decided by Saravana 2026-11-16:** J3 is closed, and the assessment's first group ("close the paths around
   the sandbox": S-01, S-02, S-04, S-03's refusal) comes now, before J4, in that order (roadmap, "Next, in order").
-- **S-01 in review on `fix/s01-gateway-proof` (2026-11-16):** identity headers count only with the gateway's
+- **S-01 merged 2026-11-16 (#181):** identity headers count only with the gateway's
   proof (ADR-0012, updated). `cluster/init.sh` makes the secret once, in two volumes (engine's copy for uid
   10001, nginx's config line for uid 101); `web/nginx.conf` includes it and sets `X-Gateway-Proof` on both
   locations that pass to the engine; the engine reads `GATEWAY_PROOF_FILE` at start (refusing gateway mode
   without it) and answers only `/api/health` without the proof. Tests: `tests/test_identity.py` (forged admin
   headers, wrong proofs, the webhook, start refusal), `tests/test_least_privilege.py` (who holds the proof,
   every engine location sets it). In tests the client from `test_api._client` stands for the gateway and sends
-  the proof. **Not run live:** the cloud session has no Docker and no nginx, so the nginx include, the init
-  step inside the real container and `scripts/gateway-check.sh` first run in CI `e2e` (the init step's
-  commands were exercised in a scratch folder: stable across restarts, a malformed secret is remade, modes
-  0400). If `e2e` is red on this PR, look there first. After merging, on the Mac: `make upgrade` (rebuilds
-  factory and web, makes the volumes), then `make sandbox-check`.
+  the proof. Proved on the real stack by CI `e2e` (`scripts/gateway-check.sh`); not yet run on the Mac:
+  `make upgrade` (rebuilds factory and web, makes the volumes), then `make sandbox-check`.
 - **J3's steps are in the journey test** (`test_j3_team_repo`, J3.0 to J3.4, same branch): assessment item →
   PR → red CI read → fix on the same PR → green → merge closes the change and its fix.
-- **In review on `fix/sandbox-paths` (#182, 2026-11-16; stacked on #181, merge #181 first):** S-02 (three of
+- **In review on `fix/sandbox-paths` (#182, 2026-11-16):** S-02 (three of
   four fixes), S-04 and S-03's refusal, one PR as Saravana decided 2026-11-16. ADR-0048 (proposed) has the
   decisions; the roadmap's "Next, in order" has what each does.
   - **Proved on the real stack (CI `e2e`):** dind starts behind `cluster/dind-firewall.sh` and the stack comes
