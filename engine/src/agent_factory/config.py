@@ -180,6 +180,9 @@ class OperateConfig(BaseModel):
     keep_samples_hours: int = Field(default=72, ge=1, le=24 * 90)
     backup_every_hours: float = Field(default=24, gt=0, le=24 * 30)
     keep_backups: int = Field(default=7, ge=1, le=365)
+    # the largest backup (and final export) kept: a bigger one fails instead of filling the factory's
+    # own data volume (the dump comes from the app's container, which agent-written code controls)
+    max_backup_mb: int = Field(default=5120, ge=1, le=1024 * 1024)
     # a backup that has never been restored doesn't count: a drill restores the newest one
     restore_drill_every_days: float = Field(default=7, gt=0, le=365)
     upkeep_every_hours: float = Field(default=24, gt=0, le=24 * 30)

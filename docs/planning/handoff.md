@@ -3,8 +3,22 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-17)
-- **J4 and J5 built in one PR** (`feat/j4-j5-run-retire`, asked for by Saravana 2026-11-16; ADR-0049, proposed).
+## Current state (2026-11-17, end-to-end audit)
+- **In review on `test/e2e-lifecycle-audit`:** an end-to-end audit of the product lifecycle (J1→J5) on main
+  `702548e` for security, reliability, cost and delivery, with every decision taken autonomously as Saravana
+  asked. Findings and fixes are in roadmap "Next, in order" under J4/J5. Code: `engine/retirement.py`
+  (`_stop_waiting`, the product frozen before any await), `pipeline._execute` (no change runs on a retiring
+  product) and `settle_production` (never onto a removed app), `operate.auto_upkeep_pick` and
+  `Operations.start_upkeep`, `operate.max_backup_mb` with `providers.base.file_limit` (`kube(..., max_bytes=)`),
+  `Operations.tick` (readings side by side, `PROBES_AT_ONCE`), `packs.SCRATCH_DATABASE`. ADR-0049 updated.
+  Tests: `test_retire.py` (waiting changes, a change on a retiring product), `test_operations.py` (one automatic
+  upkeep try, backup limit, side-by-side readings, scratch name), `test_operate.py`.
+- **Not run here:** the containerised stack (Docker Hub is outside the cloud session's network policy), so CI
+  `e2e`, `images`, `cluster-security` and `model-gateway` are the stack evidence; the live J4/J5 run on the Mac
+  ([plans/run-and-retire.md](plans/run-and-retire.md)) is still what closes J4 and J5.
+
+## Earlier state (2026-11-17)
+- **J4 and J5 merged as #185** (`702548e`; built in one PR on `feat/j4-j5-run-retire`, asked for by Saravana 2026-11-16; ADR-0049, proposed).
   Code map: pure rules in `operate.py` (target, evaluate, error rate, backup/restore judgement, upkeep parsers,
   production proof) and `retire.py` (steps, timeline, record); acting in `engine/operations.py` (the watch,
   backup, restore drill, upkeep, `tick`/`start` from the app lifespan in live mode only) and

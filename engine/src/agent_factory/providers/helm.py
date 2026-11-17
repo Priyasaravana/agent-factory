@@ -34,7 +34,15 @@ from typing import TYPE_CHECKING, Any
 from agent_factory import blue_green
 from agent_factory.providers import app_network
 from agent_factory.providers.app_network import egress_steps
-from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
+from agent_factory.providers.base import (
+    CheckContext,
+    ImageRef,
+    ProviderError,
+    Readiness,
+    StepResult,
+    file_limit,
+    secret_data,
+)
 from agent_factory.providers.helm_release import HelmRelease
 
 if TYPE_CHECKING:
@@ -347,9 +355,13 @@ class HelmProvider:
         curl = self._curl(self._origin(self.host(ctx)) + path).replace("curl -fsS", f"curl -fsS -m 8 {out}", 1)
         return await ctx.cmd(curl, timeout=15, retry=False, record=False)
 
-    async def kube(self, ctx: StationContext, args: str, purpose: str, timeout: float = 300) -> Any:
+    async def kube(
+        self, ctx: StationContext, args: str, purpose: str, timeout: float = 300, max_bytes: int | None = None
+    ) -> Any:
         """`kubectl` in the release's namespace, for the pack's data commands (backup, restore:
-        J4). The output is never recorded: it can be the product's data."""
+        J4). The output is never recorded: it can be the product's data. `max_bytes`: no file the
+        command writes may grow past it (`ulimit -f`, in 512-byte blocks): a backup's redirect fails
+        instead of filling the factory's disk."""
         env = self._env(ctx, purpose)
         if env is None:
             from agent_factory.executor import CommandResult
@@ -357,7 +369,9 @@ class HelmProvider:
             return CommandResult("kubectl", 1, f"kubeconfig ({self._kube_ref}) not available")
         kenv, kfile = env
         body = f"kubectl{self._flags('kubectl')} -n {self.namespace(ctx)} {args}"
-        return await ctx.cmd(self._kube(body, kfile), env=kenv, timeout=timeout, retry=False, record=False)
+        return await ctx.cmd(
+            file_limit(max_bytes) + self._kube(body, kfile), env=kenv, timeout=timeout, retry=False, record=False
+        )
 
     def identity(self, ctx: StationContext) -> dict[str, str]:
         """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a

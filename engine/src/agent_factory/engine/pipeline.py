@@ -1470,7 +1470,16 @@ class ChangeManager:
             assert product is not None
             try:
                 try:
-                    await self._drive(change, product)
+                    if product.retirement is not None:
+                        # a change that was waiting (held, paused, interrupted) when the product began
+                        # retiring never runs: nothing reaches a retired product's cluster or repository
+                        change.status = ChangeStatus.cancelled
+                        change.summary = "not run: the product " + (
+                            "is retired" if product.retirement.done else "is being retired"
+                        )
+                        self.store.add_event(change.id, EventKind.status, change.summary)
+                    else:
+                        await self._drive(change, product)
                 except Exception as exc:  # noqa: BLE001 - engine faults become a visible failure
                     trace = traceback.format_exc()[-4000:]
                     change.status = ChangeStatus.failed
@@ -2324,6 +2333,15 @@ class ChangeManager:
         person. A first delivery has nothing to restore, and says so."""
         product = self.store.get_product(product.id) or product
         if not rollback.serving_unaccepted(change, product):
+            return
+        if product.archived_at:
+            # the app was removed (archived or retired): restoring a release would bring it back
+            self.store.add_event(
+                change.id,
+                EventKind.decision,
+                "production is not restored: the product's app was removed, so nothing serves",
+                data={"rollback": {"ok": None, "reason": "app removed"}},
+            )
             return
         last = product.release
         if last is None:

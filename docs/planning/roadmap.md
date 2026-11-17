@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-17 (**J4 and J5 built in one PR, in review on `feat/j4-j5-run-retire`** (asked for by Saravana 2026-11-16, ahead of S-02's open part, whose placement stays his call); #182 merged 2026-11-17; 2026-11-16: **J3 closed; the security set "close the paths around the sandbox" is now, before J4**, both decided by Saravana 2026-11-16; S-01 merged (#181); S-02 (all but builds and the internet), S-04 and S-03's refusal in review on `fix/sandbox-paths` (#182, one PR for the rest, decided by Saravana 2026-11-16); 2026-11-15: **security assessment added to the backlog**, 18 findings, placement proposed: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-17 (**end-to-end lifecycle audit in review on `test/e2e-lifecycle-audit`**: J1→J5 journey run, 6 findings fixed (security, reliability, cost), see J4/J5 below; **J4 and J5 merged as #185** (`702548e`), built in one PR (asked for by Saravana 2026-11-16, ahead of S-02's open part, whose placement stays his call); #182 merged 2026-11-17; 2026-11-16: **J3 closed; the security set "close the paths around the sandbox" is now, before J4**, both decided by Saravana 2026-11-16; S-01 merged (#181); S-02 (all but builds and the internet), S-04 and S-03's refusal in review on `fix/sandbox-paths` (#182, one PR for the rest, decided by Saravana 2026-11-16); 2026-11-15: **security assessment added to the backlog**, 18 findings, placement proposed: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -79,12 +79,27 @@ in the backlog entry below):
    own network behind the egress proxy, or `--network none` after a sandboxed dependency fetch (changes both
    templates' Dockerfiles). Proposed: with S-07 (images built from the lockfile) before J4, since both
    change how images are built. The probe reports it as KNOWN until then.
-- ⏳ **J4 and J5: built, in review on `feat/j4-j5-run-retire` (2026-11-17, one PR, asked for by Saravana
+- ⏳ **J4 and J5: built, merged 2026-11-17 (#185, `702548e`; one PR, asked for by Saravana
   2026-11-16; [ADR-0049](../adr/0049-run-maintain-retire.md), proposed).** Every J4 and J5 item below is built and
   scripted in the journey test (J4.0–J4.8, J5.1–J5.3, dry-run). **Not run live yet:** the live run that closes both
   is [plans/run-and-retire.md](plans/run-and-retire.md). Decisions for Saravana: `policies.recover.mode` default
   (shipped `manual`), `operate.upkeep_start` (shipped `ask`), the owner may steer like the creator, and whether the
   local target's restore drill (a scratch database, the app doesn't run on it) is enough for production.
+  - **End-to-end audit, 2026-11-17 (`test/e2e-lifecycle-audit`, decided autonomously as Saravana asked):** the
+    full check suite and the scripted journey J1→J5 run in the cloud session (the containerised stack couldn't
+    be built there: Docker Hub is outside its network policy). Fixed, each with a test that fails on `702548e`:
+    (1) **[high, security/reliability]** a held, paused, interrupted or waiting change survived retirement and a
+    Resume would deploy to and publish a retired product: the freeze now cancels them (each settling production
+    first) and `_execute` never runs a change on a product being retired; production is never restored onto a
+    product whose app was removed. (2) **[medium, cost]** `upkeep_start: auto` restarted the same failed fix on
+    every cycle without end: an item gets one automatic try (`operate.auto_upkeep_pick`). (3) **[medium,
+    reliability]** a backup had no size bound and could fill the factory's volume: `operate.max_backup_mb`
+    (5 GB, `ulimit -f`). (4) **[medium, reliability]** the watch read products one after another, so a few
+    unresponsive apps delayed every other product's alert: readings are side by side (8 at once). (5) **[low,
+    safety]** a pack database named `restore_drill` would make the drill drop production's: refused at load.
+    (6) **[delivery]** this entry said "in review" after #185 merged. **For Saravana:** a retired product's
+    export is kept with no expiry (proposal in ADR-0049, "Not decided"); `model_gateway.change_budget_usd` has
+    no default, so only attempts, loops and the time budget bound a change's spend.
 
 **Before that (done):**
 **Now: correctness before more live runs (decided by Saravana 2026-11-04, ~4.5 days).** The 2026-11-03/04
@@ -525,7 +540,7 @@ per-pack evaluation is in the backlog.
 - **Done when:** an assessment item becomes a PR, CI fails once and is fixed on the same PR, and the merge
   closes the change.
 
-**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)** · ⏳ built 2026-11-17, in review, not run live
+**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)** · ⏳ built and merged 2026-11-17 (#185), audited end to end the same day, not run live
 - **First, a named product owner** (decided 2026-10-31; master plan §3J, still "later" in `models.py`): each
   product has an owner, its creator by default, reassignable by an admin; incidents, upkeep changes and the
   retire flow name the owner, and "Needs you" routes product items to them.
@@ -546,7 +561,7 @@ per-pack evaluation is in the backlog.
   **And** (decided 2026-10-31): the product has a named owner and a declared availability target whose breach
   alerts; its data is backed up and a restore is proven; a factory restart mid-change resumes the change.
 
-**J5. End of life (~2 days)** · ⏳ built 2026-11-17, in review, not run live
+**J5. End of life (~2 days)** · ⏳ built and merged 2026-11-17 (#185), audited end to end the same day, not run live
 - A **retire** flow: freeze changes, final sealed evidence, data export, undeploy, archive the product repo,
   a decommission record on Outcomes.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be

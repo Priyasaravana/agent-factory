@@ -182,6 +182,10 @@ class PackMetrics(BaseModel):
     status_label: str = Field(default="status", pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,60}$")
 
 
+# the database a restore drill makes beside production's when the deploy target can't give it a release
+SCRATCH_DATABASE = "restore_drill"
+
+
 class PackData(BaseModel):
     """The product's data and how it is backed up and restored (J4). Every command runs inside the
     release's `workload` (`kubectl exec`), never in the engine: `backup` writes the backup to stdout,
@@ -205,6 +209,10 @@ class PackData(BaseModel):
             value = getattr(self, name)
             if value is not None and "{database}" not in value:
                 raise ValueError(f"data.{name} must name {{database}}: a restore drill never acts on the product's own")
+        if self.database == SCRATCH_DATABASE:
+            raise ValueError(
+                f"data.database can't be '{SCRATCH_DATABASE}': a restore drill drops a database of that name"
+            )
         if bool(self.scratch_create) != bool(self.scratch_drop):
             raise ValueError("data.scratch_create and data.scratch_drop come together")
         return self

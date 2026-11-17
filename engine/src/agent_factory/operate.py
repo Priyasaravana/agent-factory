@@ -387,6 +387,19 @@ def upkeep_candidate(rows: list[Outdated]) -> dict[str, Any] | None:
     }
 
 
+def auto_upkeep_pick(candidates: Iterable[Any], scheduled: set[str]) -> tuple[list[Any], list[Any]]:
+    """`upkeep_start: auto` (J4): which open items the factory may start a change for by itself, and
+    which it leaves for the owner. An item a scheduled change already addressed, and the check still
+    finds, had its automatic try: trying again on every upkeep cycle would spend model budget and
+    redeploy production for the same failure, without end. `scheduled`: ids of the product's changes
+    the factory started on a schedule. Items are anything with `claimed_by`. Pure."""
+    picked: list[Any] = []
+    left: list[Any] = []
+    for it in candidates:
+        (left if set(getattr(it, "claimed_by", None) or []) & scheduled else picked).append(it)
+    return picked, left
+
+
 def upkeep_due(last: datetime | None, every_hours: float, now: datetime) -> bool:
     return last is None or now - last >= timedelta(hours=every_hours)
 

@@ -136,6 +136,49 @@ async def test_retiring_is_refused_without_the_name_or_while_a_change_runs(make_
     assert await wait_run(f, running.id, 90) == ChangeStatus.awaiting_feedback
 
 
+async def _waiting_change(f, p, status: ChangeStatus):  # noqa: ANN001, ANN202
+    """A second iteration that stopped short and waits on a person (held, needs answers, ...)."""
+    change = f.manager.feedback(p.id, "Add full-text search over notes.")
+    assert await wait_run(f, change.id, 90) == ChangeStatus.awaiting_feedback
+    await asyncio.sleep(0.05)  # its post-run work (retro, seal) finishes
+    change = f.store.get_change(change.id)
+    change.status = status
+    f.store.save_change(change)
+    return change
+
+
+@pytest.mark.parametrize(
+    "status", [ChangeStatus.held, ChangeStatus.interrupted, ChangeStatus.awaiting_approval, ChangeStatus.needs_input]
+)
+async def test_retiring_stops_the_changes_still_waiting_on_the_product(make_factory, monkeypatch, status):
+    """E2E audit 2026-11-17: retirement refused only *running* changes, so a held one survived it and a
+    later Resume would deploy to, and publish, a retired product."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    waiting = await _waiting_change(f, p, status)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    assert done.retirement.done
+    freeze = next(s for s in done.retirement.steps if s.id == "freeze")
+    assert waiting.id in freeze.detail, "the freeze says which changes it stopped"
+    assert f.store.get_change(waiting.id).status == ChangeStatus.cancelled
+    with pytest.raises(FactoryError, match="cannot be resumed"):
+        f.manager.resume(waiting.id)
+
+
+async def test_a_change_never_runs_on_a_product_being_retired(make_factory, monkeypatch):
+    """Defence in depth: whatever schedules a change (a resume, a wake after a pause, a restart), it is
+    cancelled before its first station once the product's retirement has begun."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    waiting = await _waiting_change(f, p, ChangeStatus.held)
+    frozen = f.store.get_product(p.id)
+    frozen.retirement = retire.begin("priya", REASON, "priya", datetime.now(UTC))
+    f.store.save_product(frozen)
+    before = len(ex.calls)
+    f.manager.resume(waiting.id)
+    assert await wait_run(f, waiting.id, 30) == ChangeStatus.cancelled
+    assert f.store.get_change(waiting.id).summary == "not run: the product is being retired"
+    assert not [c for c in ex.calls[before:] if "helm" in c or "docker build" in c], "nothing reached the cluster"
+
+
 async def test_a_step_that_fails_holds_the_retirement_and_the_next_call_continues_it(make_factory, monkeypatch):
     f, ex, p = await _published(make_factory, monkeypatch)
     ex.fail_on.append("pg_dump")

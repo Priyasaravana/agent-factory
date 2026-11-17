@@ -116,6 +116,14 @@ class DeployProvider(Provider, Protocol):
     # A target without them records no releases and rolls nothing back, and the evidence says so.
 
 
+def file_limit(max_bytes: int | None) -> str:
+    """A shell prefix that caps the size of any file the command writes (`ulimit -f`, POSIX 512-byte
+    blocks, rounded up): past it the writer gets SIGXFSZ and the command fails. Empty: no cap."""
+    if not max_bytes:
+        return ""
+    return f"ulimit -f {-(-max_bytes // 512)}; "
+
+
 def secret_data(output: str) -> dict[str, str] | None:
     """The decoded `data` of `kubectl get secret -o json` output (None: no such Secret, or not
     JSON). Every value is registered with the redactor first, so it is masked wherever it would be

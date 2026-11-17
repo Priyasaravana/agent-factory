@@ -154,12 +154,17 @@ class Retirer:
             )
         owner = product.owner or product.created_by or None
         r = product.retirement or retire.begin(by, reason, owner, _now())
+        product = self._save(product, r)  # frozen from here: `start_change` and `_execute` refuse it
         latest = max(changes, key=lambda c: c.iteration) if changes else None
         detail = ""
 
         async def step(step_id: str) -> tuple[str, str]:
             if step_id == "freeze":
-                return "done", "no change can start on this product any more"
+                stopped = await self._stop_waiting(product, by)
+                note = "no change can start on this product any more"
+                if stopped:
+                    note += f"; stopped {len(stopped)} change(s) still waiting on it: {', '.join(stopped)}"
+                return "done", note
             if step_id == "export":
                 return await self._export(product, by, without_export)
             if step_id == "undeploy":
@@ -193,6 +198,26 @@ class Retirer:
                 data={"retired_by": by, "done": r.done, "record_sha256": r.record_sha256},
             )
         return product
+
+    async def _stop_waiting(self, product: Product, by: str) -> list[str]:
+        """Cancel every change of the product that hasn't stopped (held, paused, interrupted, waiting on a
+        person): left as they are, a resume would deploy to, or publish, a retired product. Each one's
+        cancellation settles production first (ADR-0046), so this waits for them before the app goes."""
+        from agent_factory.models import TERMINAL
+
+        # the product is frozen before this runs (its retirement is saved): nothing new starts meanwhile
+        waiting = [c for c in self.store.list_changes(product.id) if c.status not in TERMINAL]
+        tasks = []
+        for c in waiting:
+            self.m.cancel(c.id)
+            self.store.add_event(
+                c.id, EventKind.decision, f"cancelled: the product is being retired (by {by})", station=STATION
+            )
+            if (t := self.m._tasks.get(c.id)) is not None:
+                tasks.append(t)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return [c.id for c in waiting]
 
     async def _export(self, product: Product, by: str, without: bool) -> tuple[str, str]:
         ops = self.m.operations

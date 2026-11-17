@@ -497,6 +497,67 @@ async def test_upkeep_never_starts_during_an_incident(make_factory):
     assert await ops.start_upkeep(p) is None, "the fix comes first"
 
 
+async def test_auto_upkeep_tries_a_fix_once_and_then_leaves_it_for_the_owner(make_factory):
+    """E2E audit 2026-11-17 (cost): with `upkeep_start: auto`, an item a scheduled change didn't fix
+    reopened and started the same change again on every upkeep cycle, spending model budget and
+    redeploying production without end."""
+    f, ex, p = await delivered(make_factory)
+    ops = f.manager.operations
+    f.manager.cfg.operate.upkeep_start = "auto"
+    ex.scan_outputs["uv pip list --outdated"] = PIP_OUTDATED
+    await ops.upkeep(p)
+    first = await ops.start_upkeep(p)
+    assert first is not None and await wait_run(f, first.id, 90) == ChangeStatus.awaiting_feedback
+    await asyncio.sleep(0.05)
+    await ops.upkeep(f.store.get_product(p.id))  # the dependencies are still behind: the fix didn't hold
+    [item] = [i for i in f.store.list_work_items(p.id) if i.category == ledger.UPKEEP]
+    assert item.status == "open" and first.id in item.claimed_by
+    assert await ops.start_upkeep(f.store.get_product(p.id)) is None, "the same fix is not started again"
+    assert await ops.start_upkeep(f.store.get_product(p.id)) is None
+    said = [e for e in f.store.list_events(first.id) if "left for the owner" in e.message]
+    assert len(said) == 1 and item.id in said[0].message, "said once, not on every cycle"
+    changes = f.store.list_changes(p.id)
+    assert [c.source for c in changes].count(ChangeSource.schedule) == 1
+
+
+async def test_a_backup_never_grows_past_its_limit(make_factory):
+    """E2E audit 2026-11-17 (reliability): the dump comes from the app's container, which agent-written
+    code controls; an unbounded one could fill the factory's own data volume."""
+    f, ex, p = await delivered(make_factory)
+    ops = f.manager.operations
+    ok = await ops.backup(p)
+    assert ok.ok
+    dump = next(c for c in ex.calls if "pg_dump" in c)
+    cap = f.manager.cfg.operate.max_backup_mb * 1024 * 1024
+    assert dump.startswith(f"ulimit -f {cap // 512}; "), "the redirect's file is capped by the shell"
+    f.manager.cfg.operate.max_backup_mb = 1
+    ex.data["app"] = "x" * (2 * 1024 * 1024)
+    rec = await ops.backup(f.store.get_product(p.id))
+    assert not rec.ok and "operate.max_backup_mb (1 MB)" in rec.summary
+    assert [x.name for x in ops.backup_dir(p).glob("*.backup")] == [ok.data["file"]], "the oversized file is removed"
+
+
+async def test_one_app_that_doesnt_answer_doesnt_delay_the_others_readings(make_factory, monkeypatch):
+    """E2E audit 2026-11-17 (reliability): readings were taken one product after another, so a few apps
+    waiting out their timeouts pushed every other product's reading (and alert) past the interval."""
+    import time
+
+    f, ex, p = await delivered(make_factory)
+    ops = f.manager.operations
+    many = [p.model_copy(update={"id": f"p{i}"}) for i in range(6)]
+    monkeypatch.setattr(f.store, "list_products", lambda *a, **k: many)
+    monkeypatch.setattr(ops, "why_not", lambda product: None)
+    monkeypatch.setattr(ops, "_deploying", lambda product: True)  # readings only, no maintenance
+
+    async def slow(product, now=None):  # noqa: ANN001, ANN202
+        await asyncio.sleep(0.4)  # an app waiting out its timeout
+
+    monkeypatch.setattr(ops, "watch", slow)
+    start = time.monotonic()
+    await ops.tick(wait=True)
+    assert time.monotonic() - start < 1.2, "the six readings were taken side by side"
+
+
 # ---------------------------------------------------------------- schedule --
 async def test_one_pass_does_what_is_due_and_no_more(make_factory):
     f, ex, p = await delivered(make_factory)
@@ -605,6 +666,8 @@ def test_data_commands_must_name_the_database_so_a_drill_never_acts_on_productio
         packs.PackOperate.model_validate(_operate(restore="pg_restore -d app"))
     with pytest.raises(ValueError, match="come together"):
         packs.PackOperate.model_validate(_operate(scratch_create="createdb {database}"))
+    with pytest.raises(ValueError, match="a restore drill drops a database of that name"):
+        packs.PackOperate.model_validate(_operate(database="restore_drill"))  # production would be the scratch
     with pytest.raises(ValueError):
         packs.PackOperate.model_validate(_operate(workload="statefulset/x; rm -rf /"))
     with pytest.raises(ValueError):
