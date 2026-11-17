@@ -56,7 +56,9 @@ def main() -> int:
     errors: list[str] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None)
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        # one context for every tab, so the second tab below shares the signed-in session
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on(
             "console",
@@ -81,7 +83,7 @@ def main() -> int:
             seen = _cookie_listener()
             port = seen["port"]
             if "://localhost" in BASE:
-                other = page.context.new_page()
+                other = context.new_page()
                 other.goto(f"http://localhost:{port}/as-the-ui-host")
                 other.goto(f"http://127.0.0.1:{port}/as-an-app")
                 other.goto(BASE.replace("localhost", "127.0.0.1") + "/products")
@@ -90,7 +92,7 @@ def main() -> int:
                 control, app = seen["/as-the-ui-host"], seen["/as-an-app"]
                 assert "factory_session=" in control, "control: a listener on the UI's host does get the cookie"
                 assert "factory_session" not in app, f"an app on 127.0.0.1 must get no factory cookie, got {app!r}"
-                assert page.context.cookies(f"http://127.0.0.1:{port}") == [], "no cookie is stored for the apps' host"
+                assert context.cookies(f"http://127.0.0.1:{port}") == [], "no cookie is stored for the apps' host"
 
             step("readiness")
             page.goto(BASE + "/integrations")
