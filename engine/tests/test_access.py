@@ -45,6 +45,12 @@ MEMBER_ACTIONS = {
     "decide_work_items",
     "set_deploy_strategy",
     "approve_schema",
+    "set_availability_target",
+    "check_health",
+    "backup_product",
+    "run_restore_drill",
+    "check_upkeep",
+    "retire_product",
     "run_preflight",
     "log_decision",
 }
@@ -68,6 +74,12 @@ STEERING = {
     "decide_work_items",
     "set_deploy_strategy",
     "approve_schema",
+    "set_availability_target",
+    "check_health",
+    "backup_product",
+    "run_restore_drill",
+    "check_upkeep",
+    "retire_product",
 }
 MUTATING = [s for s in actions.REGISTRY.values() if s.method not in {"GET", "HEAD", "OPTIONS"}]
 
@@ -144,7 +156,7 @@ async def test_only_the_creator_or_an_admin_steers_an_order(make_factory):
         for method, url, body in attempts:
             r = await c.request(method, url, json=body, headers=OTHER)
             assert r.status_code == 403, f"{url}: {r.status_code}"
-            assert r.json()["detail"] == "only the product's creator or an admin can do this"
+            assert r.json()["detail"] == "only the product's creator, its owner or an admin can do this"
         r = await c.post(f"/api/products/{oid}/feedback", json={"text": "add a reset endpoint"}, headers=MEMBER)
         assert r.status_code == 201, "the creator can"
         change2 = r.json()["id"]

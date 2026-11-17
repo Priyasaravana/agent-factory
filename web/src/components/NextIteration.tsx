@@ -9,6 +9,8 @@ import {
   ShieldCheck,
   Sparkles,
   Wrench,
+  RefreshCw,
+  Siren,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -22,9 +24,17 @@ import { Button } from "./ui/button";
 import { Panel } from "./ui/panel";
 
 type Item = components["schemas"]["WorkItem"];
-type Group = "features" | "ui" | "quality" | "security" | "other";
+type Group = "incidents" | "features" | "ui" | "quality" | "security" | "upkeep" | "other";
 
-const GROUPS: { key: Group; title: string; icon: ReactNode; hint: string; empty: string }[] = [
+const GROUPS: { key: Group; title: string; icon: ReactNode; hint: string; empty: string; quiet?: boolean }[] = [
+  {
+    key: "incidents",
+    title: "Incidents",
+    icon: <Siren className="size-4 text-bad" aria-hidden />,
+    hint: "the live product is outside its availability target: fix this first",
+    empty: "",
+    quiet: true,
+  },
   {
     key: "features",
     title: "Features",
@@ -52,6 +62,14 @@ const GROUPS: { key: Group; title: string; icon: ReactNode; hint: string; empty:
     icon: <ShieldCheck className="size-4 text-warn" aria-hidden />,
     hint: "vulnerabilities in the image with a released fix",
     empty: "No open vulnerabilities with a released fix in the latest image scan.",
+  },
+  {
+    key: "upkeep",
+    title: "Upkeep",
+    icon: <RefreshCw className="size-4 text-muted-foreground" aria-hidden />,
+    hint: "dependencies that fell behind, found by the scheduled upkeep check",
+    empty: "",
+    quiet: true,
   },
   {
     key: "other",
@@ -141,14 +159,25 @@ export default function NextIteration({
   const [provided, setProvided] = useState<Record<string, Record<string, unknown>> | null>({});
 
   const view = q.data;
-  const grouped: Item[] = view ? [...view.features, ...(view.ui ?? []), ...view.quality, ...view.security] : [];
+  const grouped: Item[] = view
+    ? [
+        ...(view.incidents ?? []),
+        ...view.features,
+        ...(view.ui ?? []),
+        ...view.quality,
+        ...view.security,
+        ...(view.upkeep ?? []),
+      ]
+    : [];
   const inGroups = new Set(grouped.map((i) => i.id));
   const other = (ledger.data ?? []).filter((i) => picked.has(i.id) && !inGroups.has(i.id) && i.status === "open");
   const lists: Record<Group, Item[]> = {
+    incidents: view?.incidents ?? [],
     features: view?.features ?? [],
     ui: view?.ui ?? [],
     quality: view?.quality ?? [],
     security: view?.security ?? [],
+    upkeep: view?.upkeep ?? [],
     other,
   };
   const all = [...grouped, ...other];
@@ -233,10 +262,12 @@ export default function NextIteration({
   };
   const counts = (g: Group) => lists[g].filter((i) => picked.has(i.id)).length;
   const parts = [
+    counts("incidents") && plural(counts("incidents"), "incident fix", "incident fixes"),
     counts("features") && plural(counts("features"), "feature"),
     counts("ui") && plural(counts("ui"), "screen fix", "screen fixes"),
     counts("quality") && plural(counts("quality"), "quality item"),
     counts("security") && plural(counts("security"), "security fix", "security fixes"),
+    counts("upkeep") && plural(counts("upkeep"), "upkeep item"),
     counts("other") && plural(counts("other"), "work item"),
     note.length >= 3 && "your note",
   ].filter(Boolean) as string[];
@@ -263,6 +294,11 @@ export default function NextIteration({
                 : "delivered, not accepted yet"}
             </span>
           )}
+          {lists.incidents.length > 0 && (
+            <span className="pill bad" data-testid="next-incident-count">
+              {plural(lists.incidents.length, "incident")}
+            </span>
+          )}
           <span className="pill muted">{plural(lists.features.length, "feature")}</span>
           {lists.ui.length > 0 && (
             <span className="pill bad" data-testid="next-ui-count">
@@ -271,6 +307,7 @@ export default function NextIteration({
           )}
           <span className="pill muted">{plural(lists.quality.length, "quality item")}</span>
           <span className="pill muted">{plural(lists.security.length, "security fix", "security fixes")}</span>
+          {lists.upkeep.length > 0 && <span className="pill muted">{plural(lists.upkeep.length, "upkeep item")}</span>}
           <span>tick what to do next, or describe a change</span>
         </>
       }
@@ -282,7 +319,7 @@ export default function NextIteration({
           if (ready) start.mutate();
         }}
       >
-        {GROUPS.filter((g) => g.key !== "other" || other.length > 0).map((g) => {
+        {GROUPS.filter((g) => (g.key === "other" ? other.length > 0 : !g.quiet || lists[g.key].length > 0)).map((g) => {
           const items = lists[g.key];
           const allOn = items.length > 0 && items.every((i) => picked.has(i.id));
           const open = more.has(g.key);

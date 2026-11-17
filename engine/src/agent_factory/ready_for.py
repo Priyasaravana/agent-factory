@@ -8,8 +8,11 @@ evidence and never by an agent's claim, plus what the next tier still needs:
   and is named);
 - **pilot**: demo, plus a named owner (accountable for incidents, upkeep and retirement) and a
   rollback proven on this product (production restored to the recorded release and verified);
-- **production**: pilot, plus an availability target, an alert on it and a tested restore (J4,
-  not built: until then nothing is above pilot, and the statement says so).
+- **production**: pilot, plus an availability target, an alert on it that is running, and a tested
+  restore of its data (J4, `operate.production_proof`): the target is the stack pack's, tightened by
+  the product; the alert counts while the Operate watch is reading the product; the restore counts
+  once a drill restored a backup and the data matched (a stack that declares no data has nothing to
+  restore, and the statement says so).
 
 `assess` is pure. `gather` reads a delivered change's evidence (`readiness.json`,
 `traceability.json`) and the product's rollback events, so the handover and the product page say
@@ -20,8 +23,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from agent_factory import operate
 
 if TYPE_CHECKING:
     from agent_factory.models import Change, Product
@@ -29,11 +35,11 @@ if TYPE_CHECKING:
 
 TIERS = ("none", "demo", "pilot", "production")
 LEVEL = 3
-# J4 (operate) proves these; until it is built no product is above pilot
+# what production needs when nothing about running the product is known (no stack pack)
 PRODUCTION_NEEDS = [
-    "an availability target for the product (J4)",
-    "an alert when it is missed (J4)",
-    "a tested restore of its data (J4)",
+    "an availability target for the product",
+    "an alert when it is missed",
+    "a tested restore of its data",
 ]
 
 
@@ -44,6 +50,9 @@ class Inputs:
     trace: list[dict[str, Any]] | None  # traceability rows; None: none recorded
     owner: str | None
     rollback: str | None  # the change whose verified rollback proves it; None: never proven
+    # run and maintain (J4, `production`): target, watched, alert_proven, restore, data_declared;
+    # None: nothing is known about running it
+    production: dict[str, Any] | None = None
 
 
 @dataclass
@@ -116,7 +125,14 @@ def assess(i: Inputs) -> ReadyFor:
         return ReadyFor("none", proven, "demo", demo_needs, tested)
     if pilot_needs:
         return ReadyFor("demo", proven, "pilot", pilot_needs, tested)
-    return ReadyFor("pilot", proven, "production", list(PRODUCTION_NEEDS), tested)
+    if i.production is None:
+        return ReadyFor("pilot", proven, "production", list(PRODUCTION_NEEDS), tested)
+    p = i.production
+    restore = p.get("restore") or (None if p.get("data_declared") else "the stack declares no data to restore")
+    has, needs = operate.production_proof(p.get("target"), bool(p.get("watched")), p.get("alert_proven"), restore)
+    if needs:
+        return ReadyFor("pilot", proven + has, "production", needs, tested)
+    return ReadyFor("production", proven + has, None, [], tested)
 
 
 def _read(path: Path) -> Any:
@@ -141,7 +157,38 @@ def owner_of(product: Product) -> str | None:
     return product.owner or product.created_by or None
 
 
-def gather(store: StateStore, data_dir: Path, product: Product, change: Change, *, delivered: bool) -> Inputs:
+def production(store: StateStore, product: Product, pack: Any, cfg: Any, now: datetime | None = None) -> dict[str, Any]:
+    """What was really measured about running this product (J4), from the store: its target (the
+    pack's `stack.operate`, tightened by the product), whether the watch is reading it now, the
+    last alert, and the last restore drill that passed. `cfg`: the factory's `operate` settings."""
+    now = now or datetime.now(UTC)
+    if pack is None:
+        return {"target": None, "watched": False, "alert_proven": None, "restore": None, "data_declared": False}
+    a = pack.availability
+    target = operate.Target(a.success, a.window_minutes, a.min_samples, a.max_error_rate)
+    if product.availability is not None:
+        target = operate.tighten(target, product.availability.success, product.availability.max_error_rate)[0]
+    recent = store.list_health_samples(product.id, now - timedelta(seconds=max(120, 3 * cfg.probe_seconds)))
+    alert = store.list_operations(product.id, "alert", 1)
+    drill = next((r for r in store.list_operations(product.id, "restore", 20) if r.ok), None)
+    return {
+        "target": target.text(),
+        "watched": bool(cfg.enabled and recent and product.retirement is None and not product.archived_at),
+        "alert_proven": f"it fired on {alert[0].at:%Y-%m-%d}" if alert else None,
+        "restore": f"drill on {drill.at:%Y-%m-%d}" if drill else None,
+        "data_declared": pack.data is not None,
+    }
+
+
+def gather(  # noqa: PLR0913 - the evidence and what is known about running the product
+    store: StateStore,
+    data_dir: Path,
+    product: Product,
+    change: Change,
+    *,
+    delivered: bool,
+    running: dict[str, Any] | None = None,
+) -> Inputs:
     folder = data_dir / "artifacts" / change.id
     readiness = _read(folder / "readiness.json")
     level = readiness.get("level") if isinstance(readiness, dict) else None
@@ -152,6 +199,7 @@ def gather(store: StateStore, data_dir: Path, product: Product, change: Change, 
         trace=trace if isinstance(trace, list) else None,
         owner=owner_of(product),
         rollback=proven_rollback(store, product.id),
+        production=running,
     )
 
 

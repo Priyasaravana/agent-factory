@@ -1013,6 +1013,413 @@
         }
       }
     },
+    "/api/products/{product_id}/operations": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Run and maintain (J4): the product's owner, availability against its target, open incidents, backups and the last restore drill, upkeep, and what the factory did for it",
+        "description": "Run and maintain (J4): the product's owner, availability against its target, open incidents, backups and the last restore drill, upkeep, and what the factory did for it",
+        "operationId": "get_operations",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/availability": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Tighten the product's availability target (it may not go below its stack's default)",
+        "description": "Tighten the product's availability target (it may not go below its stack's default)",
+        "operationId": "set_availability_target",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/health-check": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Read the live product's health now and judge it against its target: a breach opens an incident, a window within target closes it (the Operate watch does this on a schedule)",
+        "description": "Read the live product's health now and judge it against its target: a breach opens an incident, a window within target closes it (the Operate watch does this on a schedule)",
+        "operationId": "check_health",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/backup": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Back the product's data up now, with its stack's backup command",
+        "description": "Back the product's data up now, with its stack's backup command",
+        "operationId": "backup_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/restore-drill": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Prove the newest backup: restore it away from production and compare the data with the backup's fingerprint",
+        "description": "Prove the newest backup: restore it away from production and compare the data with the backup's fingerprint",
+        "operationId": "run_restore_drill",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/upkeep": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Check the live product for what has aged: scan its image again and compare its dependencies with their newest releases; findings go to the work ledger",
+        "description": "Check the live product for what has aged: scan its image again and compare its dependencies with their newest releases; findings go to the work ledger",
+        "operationId": "check_upkeep",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/retire": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Retire a product (it can't be undone): nothing new starts, its data is exported one last time, its app is removed, its repository archived and a decommission record sealed; a retirement that stopped continues where it stopped",
+        "description": "Retire a product (it can't be undone): nothing new starts, its data is exported one last time, its app is removed, its repository archived and a decommission record sealed; a retirement that stopped continues where it stopped",
+        "operationId": "retire_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetireInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/history": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The product's full history, from its first request to its decommission: changes with their sealed evidence, incidents, upkeep, backups, restore drills and its retirement",
+        "description": "The product's full history, from its first request to its decommission: changes with their sealed evidence, incidents, upkeep, backups, restore drills and its retirement",
+        "operationId": "get_product_history",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductHistory"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/decommission": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "A retired product's sealed decommission record, checked again against its manifest",
+        "description": "A retired product's sealed decommission record, checked again against its manifest",
+        "operationId": "get_decommission_record",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecommissionView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/work-items/decide": {
       "post": {
         "tags": [
@@ -5686,7 +6093,10 @@
               "wait",
               "feedback",
               "fix_ci",
-              "address_feedback"
+              "address_feedback",
+              "incident",
+              "upkeep",
+              "retire"
             ],
             "title": "Kind"
           },
@@ -5759,6 +6169,208 @@
         ],
         "title": "AttentionItem",
         "description": "A pending action with the product and change it belongs to (`GET /api/attention`)."
+      },
+      "AvailabilityInput": {
+        "properties": {
+          "success": {
+            "type": "number",
+            "maximum": 0.9999,
+            "minimum": 0.5,
+            "title": "Success"
+          },
+          "max_error_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Error Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "AvailabilityInput",
+        "description": "Tighten the product's availability target: the share of health checks that must answer,\nand optionally the share of requests that may fail with a server error."
+      },
+      "AvailabilityTarget": {
+        "properties": {
+          "success": {
+            "type": "number",
+            "maximum": 0.9999,
+            "minimum": 0.5,
+            "title": "Success"
+          },
+          "max_error_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Error Rate"
+          },
+          "set_by": {
+            "type": "string",
+            "title": "Set By",
+            "default": ""
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "AvailabilityTarget",
+        "description": "A product's own availability target (J4): it tightens its stack pack's default."
+      },
+      "AvailabilityView": {
+        "properties": {
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "success": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success"
+          },
+          "max_error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Error Rate"
+          },
+          "floor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor"
+          },
+          "chosen_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "product",
+                  "pack"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen By"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "ok",
+              "breached",
+              "off"
+            ],
+            "title": "State",
+            "default": "off"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples",
+            "default": 0
+          },
+          "measured": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured"
+          },
+          "error_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Rate"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last At"
+          },
+          "watching": {
+            "type": "boolean",
+            "title": "Watching",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "AvailabilityView"
       },
       "BlueprintUse": {
         "properties": {
@@ -6108,6 +6720,13 @@
                 "type": "null"
               }
             ]
+          },
+          "auto_resumed": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Auto Resumed"
           },
           "hold_class": {
             "anyOf": [
@@ -7160,6 +7779,60 @@
         ],
         "title": "DecisionsView",
         "description": "A change's design decisions (ADR-0044): the questions, the answers, who decided, what changed\nthis iteration, the pillar roadmap, and the discussion with the architect."
+      },
+      "DecommissionView": {
+        "properties": {
+          "record": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Record"
+          },
+          "sealed": {
+            "type": "boolean",
+            "title": "Sealed",
+            "default": false
+          },
+          "intact": {
+            "type": "boolean",
+            "title": "Intact",
+            "default": false
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          },
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added"
+          },
+          "manifest_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Sha256"
+          }
+        },
+        "type": "object",
+        "title": "DecommissionView",
+        "description": "A retired product's decommission record (J5), verified now: `intact` says the sealed folder\nstill matches its manifest and the manifest the digest stored on the product."
       },
       "DeliveryBinding": {
         "properties": {
@@ -8785,6 +9458,68 @@
         ],
         "title": "HealthView"
       },
+      "HistoryEntry": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "change_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Id"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "kind",
+          "title"
+        ],
+        "title": "HistoryEntry"
+      },
       "HumanTouches": {
         "properties": {
           "answered_questions": {
@@ -9065,6 +9800,20 @@
             "type": "array",
             "title": "Ui"
           },
+          "incidents": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Incidents"
+          },
+          "upkeep": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Upkeep"
+          },
           "can_start": {
             "type": "boolean",
             "title": "Can Start"
@@ -9279,6 +10028,206 @@
           "question"
         ],
         "title": "OpenQuestionView"
+      },
+      "OperationRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "backup",
+              "restore",
+              "upkeep",
+              "alert",
+              "recovered",
+              "retire",
+              "owner"
+            ],
+            "title": "Kind"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "by": {
+            "type": "string",
+            "title": "By",
+            "default": "factory"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "kind",
+          "at",
+          "ok",
+          "summary"
+        ],
+        "title": "OperationRecord",
+        "description": "Something the factory did for a product outside a change (J4, J5): a backup, a restore\ndrill, an upkeep check, an alert, a step of its retirement. Append-only: the product's\nhistory after delivery."
+      },
+      "OperationsView": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "owner_named": {
+            "type": "boolean",
+            "title": "Owner Named",
+            "default": false
+          },
+          "live": {
+            "type": "boolean",
+            "title": "Live",
+            "default": false
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Not"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/AvailabilityView",
+            "default": {
+              "state": "off",
+              "samples": 0,
+              "reasons": [],
+              "watching": false
+            }
+          },
+          "incidents": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Incidents"
+          },
+          "data_declared": {
+            "type": "boolean",
+            "title": "Data Declared",
+            "default": false
+          },
+          "last_backup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_restore": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restore_proven": {
+            "type": "boolean",
+            "title": "Restore Proven",
+            "default": false
+          },
+          "restore_overdue": {
+            "type": "boolean",
+            "title": "Restore Overdue",
+            "default": false
+          },
+          "backups": {
+            "type": "integer",
+            "title": "Backups",
+            "default": 0
+          },
+          "upkeep_declared": {
+            "type": "boolean",
+            "title": "Upkeep Declared",
+            "default": false
+          },
+          "last_upkeep": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upkeep_items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkItem"
+            },
+            "type": "array",
+            "title": "Upkeep Items"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/OperationRecord"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "retirement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Retirement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id"
+        ],
+        "title": "OperationsView",
+        "description": "Run and maintain, for one product (J4): its owner, availability against its target, open\nincidents, backups and the last restore drill, upkeep, and what the factory did (`records`)."
       },
       "Outcome": {
         "properties": {
@@ -9508,6 +10457,13 @@
             },
             "type": "array",
             "title": "Weekly"
+          },
+          "retired": {
+            "items": {
+              "$ref": "#/components/schemas/RetiredProduct"
+            },
+            "type": "array",
+            "title": "Retired"
           }
         },
         "type": "object",
@@ -9680,7 +10636,10 @@
               "wait",
               "feedback",
               "fix_ci",
-              "address_feedback"
+              "address_feedback",
+              "incident",
+              "upkeep",
+              "retire"
             ],
             "title": "Kind"
           },
@@ -10280,6 +11239,26 @@
             ],
             "title": "Archived By"
           },
+          "availability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retirement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Retirement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "eval_run_id": {
             "anyOf": [
               {
@@ -10383,6 +11362,48 @@
           "feedback"
         ],
         "title": "ProductDetail"
+      },
+      "ProductHistory": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "retired": {
+            "type": "boolean",
+            "title": "Retired",
+            "default": false
+          },
+          "record_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "title"
+        ],
+        "title": "ProductHistory",
+        "description": "A product's full history, from its first request to its decommission (J5), built from what\nis stored: changes and their sealed evidence, the work ledger and the operation records."
       },
       "ProductOwnerInput": {
         "properties": {
@@ -11217,6 +12238,224 @@
           "title"
         ],
         "title": "RequirementView"
+      },
+      "RetireInput": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason"
+          },
+          "confirm": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Confirm"
+          },
+          "without_export": {
+            "type": "boolean",
+            "title": "Without Export",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "confirm"
+        ],
+        "title": "RetireInput",
+        "description": "Retire a product: why, and its name typed again (it can't be undone)."
+      },
+      "RetireStep": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "RetireStep"
+      },
+      "RetiredProduct": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "title": "Product Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "retired_by": {
+            "type": "string",
+            "title": "Retired By"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "retired_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Retired At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "changes": {
+            "type": "integer",
+            "title": "Changes",
+            "default": 0
+          },
+          "deliveries": {
+            "type": "integer",
+            "title": "Deliveries",
+            "default": 0
+          },
+          "record_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "title",
+          "slug",
+          "retired_by",
+          "reason",
+          "retired_at",
+          "created_at"
+        ],
+        "title": "RetiredProduct",
+        "description": "A decommissioned product on Outcomes (J5): what remains is its record."
+      },
+      "Retirement": {
+        "properties": {
+          "requested_by": {
+            "type": "string",
+            "title": "Requested By"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RetireStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "record_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_by",
+          "reason",
+          "started_at"
+        ],
+        "title": "Retirement",
+        "description": "A product's end of life (J5): asked for by a named person with a reason, done in steps that\nare each recorded, so one that fails is continued, never started over."
       },
       "ReviewFinding": {
         "properties": {

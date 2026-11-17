@@ -23,6 +23,8 @@ import SpendCard from "../components/SpendCard";
 import { useAuth } from "../auth";
 import ReadyFor from "../components/ReadyFor";
 import ReleaseStrategy from "../components/ReleaseStrategy";
+import Operations from "../components/Operations";
+import { ProductHistory, RetireButton, Retired } from "../components/Retire";
 import { ProductSource } from "../components/RepoSources";
 import { Button } from "../components/ui/button";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
@@ -93,13 +95,19 @@ export default function ProductPage() {
   if (detail.error) return <p className="error">{detail.error.message}</p>;
   const { product, changes, feedback, spend } = detail.data!;
   const changeId = selected ?? product.latest_change_id ?? changes[0]?.id;
-  // the product's creator or an admin steers it (the engine checks it too)
+  // the product's creator, its named owner or an admin steers it (the engine checks it too)
   const canSteer =
     auth.kind === "open" ||
     (auth.kind === "signed-in" &&
       (auth.me.role === "admin" ||
         !product.created_by ||
-        product.created_by === auth.me.username));
+        product.created_by === auth.me.username ||
+        product.owner === auth.me.username));
+  const retirement = product.retirement;
+  const retiring = !!retirement && !retirement.finished_at;
+  // a delivered product is retired (J5: export, undeploy, archive, sealed record); one that never
+  // delivered is simply archived
+  const retireInstead = product.target !== "repo" && (!!product.release || !!retirement);
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
@@ -120,14 +128,24 @@ export default function ProductPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {product.archived_at ? (
+          {retirement?.finished_at ? (
+            <span className="pill muted">retired</span>
+          ) : retiring ? (
+            <span className="pill bad">retiring</span>
+          ) : product.archived_at ? (
             <span className="pill muted">archived</span>
           ) : (
             product.latest_status && (
               <StatusPill status={product.latest_status} />
             )
           )}
-          {!product.archived_at && (
+          {canSteer && retireInstead && !retirement?.finished_at && (
+            <RetireButton
+              product={product}
+              disabled={product.latest_status ? ACTIVE.has(product.latest_status) : false}
+            />
+          )}
+          {!product.archived_at && !retireInstead && (
             <Button
               variant="outline"
               size="sm"
@@ -158,7 +176,8 @@ export default function ProductPage() {
           </button>
         ))}
       </div>
-      {!product.archived_at && (
+      {retirement && <Retired product={product} />}
+      {(!product.archived_at || retiring) && (
         <NeedsYou
           productId={product.id}
           selectedChange={changeId}
@@ -178,7 +197,11 @@ export default function ProductPage() {
           }}
         />
       )}
-      {product.archived_at && (
+      {!product.archived_at && product.target !== "repo" && product.release && (
+        <Operations productId={product.id} canSteer={canSteer} />
+      )}
+      {(advanced || !!retirement) && <ProductHistory productId={product.id} defaultOpen={!!retirement?.finished_at} />}
+      {product.archived_at && !retirement && (
         <p className="note m-0">
           Archived {ago(product.archived_at)}
           {product.archived_by ? ` by ${product.archived_by}` : ""}. The app was
@@ -254,9 +277,11 @@ export default function ProductPage() {
               </a>
             ) : (
               <span className="text-muted-foreground">
-                {product.host_port
-                  ? `will be served on :${product.host_port}`
-                  : "not deployed yet"}
+                {product.archived_at
+                  ? "removed from the cluster"
+                  : product.host_port
+                    ? `will be served on :${product.host_port}`
+                    : "not deployed yet"}
               </span>
             )}
           </Fact>
@@ -320,11 +345,11 @@ export default function ProductPage() {
         )}
       </Panel>}
 
-      {product.target !== "repo" && (
+      {product.target !== "repo" && !product.archived_at && (
         <ReadyFor productId={product.id} latestStatus={product.latest_status} />
       )}
 
-      {product.target !== "repo" && (
+      {product.target !== "repo" && !product.archived_at && (
         <ReleaseStrategy
           productId={product.id}
           canChange={!product.archived_at && canSteer}

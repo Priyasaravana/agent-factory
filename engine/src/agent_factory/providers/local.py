@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from agent_factory.executor import CommandResult
+from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import EventKind, Product
 from agent_factory.providers import app_network
 from agent_factory.providers.app_network import egress_steps
@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 
 def failed_detail(cmd: str, res: CommandResult) -> str:
     return f"`{cmd}` exited {res.returncode}:\n{res.output[-4000:]}"
+
+
+def repo_name(repo_url: str | None) -> str | None:
+    """`owner/repo` of a GitHub repository URL the factory published; None for anything else. Pure."""
+    m = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?", repo_url or "")
+    return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
 def off_the_factory_site(url: str) -> str:
@@ -211,6 +217,41 @@ class LocalProvider:
             f"for i in $(seq 1 30); do curl -fsS {url} && exit 0; sleep 2; done; exit 1",
             timeout=90,
         )
+
+    # ---------------------------------------------------- run and maintain --
+    async def read(self, ctx: StationContext, path: str, into: Path | None = None) -> CommandResult:
+        """One read-only request to the live product (the Operate watch, J4): no retries, bounded,
+        never recorded. `into`: a file for what it answered (a metrics page, read whole: the
+        executor keeps only an output's tail); else only whether it answered."""
+        out = f"--max-filesize 2000000 -o {shlex.quote(str(into))}" if into else "-o /dev/null"
+        return await ctx.cmd(
+            f"curl -fsS -m 8 {out} {self.internal_url(ctx)}{path}", timeout=15, retry=False, record=False
+        )
+
+    async def kube(self, ctx: StationContext, args: str, purpose: str, timeout: float = 300) -> CommandResult:
+        """`kubectl` in the product's namespace, for the pack's data commands (backup, restore:
+        J4). The output is never recorded: it can be the product's data."""
+        return await ctx.cmd(f"kubectl -n {namespace(ctx.product)} {args}", timeout=timeout, retry=False, record=False)
+
+    async def archive_repo(self, ctx: StationContext) -> StepResult:
+        """Archive the product's published repository on its host (retirement, J5): read-only from
+        then on, history kept. Nothing was published: nothing to archive, and it says so."""
+        name = repo_name(ctx.product.repo_url)
+        if not name:
+            return StepResult(True, "no published repository to archive", data={"archived": False})
+        ref = getattr(getattr(self, "auth", None), "secret_ref", None) or "env://GITHUB_TOKEN"
+        token = ctx.secret(ref, "archive the product's repository", "open-pr")
+        if not token:
+            return StepResult(False, f"repository NOT archived: no GitHub token ({ref} not available)")
+        res = await ctx.cmd(f"gh repo archive {shlex.quote(name)} --yes", env={"GH_TOKEN": token}, timeout=120)
+        if not res.ok:
+            try:
+                already = "already archived" in res.whole().lower()
+            except OutputCutOff:
+                already = False  # a cut-off answer proves nothing: it failed
+            if not already:
+                return StepResult(False, "archiving the repository failed", res.output[-1500:])
+        return StepResult(True, f"repository {name} archived (read-only)", data={"archived": True, "repo": name})
 
     async def rollback(self, ctx: StationContext, release: Release) -> StepResult:
         """Restore `release` exactly, fail closed, and verify it (ADR-0046; `HelmRelease.rollback`)."""

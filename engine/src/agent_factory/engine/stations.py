@@ -2528,7 +2528,10 @@ async def _state_ready_for(ctx: StationContext, move: dict[str, str] | None) -> 
     admin can name the owner later. Factory products only: a team repo's readiness is its team's."""
     if ctx.product.target == ProductTarget.repo or ctx.product.eval_run_id:
         return
-    r = ready_for.assess(ready_for.gather(ctx.store, ctx.ws.data_dir, ctx.product, ctx.change, delivered=True))
+    running = ready_for.production(ctx.store, ctx.product, ctx.blueprint.operate, ctx.cfg.operate)
+    r = ready_for.assess(
+        ready_for.gather(ctx.store, ctx.ws.data_dir, ctx.product, ctx.change, delivered=True, running=running)
+    )
     _write_json(ctx, "ready-for.json", {"iteration": ctx.change.iteration, **r.as_data(), "moved": move})
     await ctx.emit(EventKind.decision, r.headline(), {"ready_for": r.as_data()})
 

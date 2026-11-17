@@ -1,6 +1,6 @@
 # Agent Factory: build plan
 
-Updated 2026-11-16 (**J3 closed; the security set "close the paths around the sandbox" is now, before J4**, both decided by Saravana 2026-11-16; S-01 merged (#181); S-02 (all but builds and the internet), S-04 and S-03's refusal in review on `fix/sandbox-paths` (#182, one PR for the rest, decided by Saravana 2026-11-16); 2026-11-15: **security assessment added to the backlog**, 18 findings, placement proposed: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
+Updated 2026-11-17 (**J4 and J5 built in one PR, in review on `feat/j4-j5-run-retire`** (asked for by Saravana 2026-11-16, ahead of S-02's open part, whose placement stays his call); #182 merged 2026-11-17; 2026-11-16: **J3 closed; the security set "close the paths around the sandbox" is now, before J4**, both decided by Saravana 2026-11-16; S-01 merged (#181); S-02 (all but builds and the internet), S-04 and S-03's refusal in review on `fix/sandbox-paths` (#182, one PR for the rest, decided by Saravana 2026-11-16); 2026-11-15: **security assessment added to the backlog**, 18 findings, placement proposed: [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md); 2026-11-13: **J3 slice 3 in review**, `feat/j3-pr-feedback`: the team's feedback answered or addressed on the same PR; slice 2 merged #176; 2026-11-12: **J3 slice 2 in review**, `feat/j3-ci-fix`: red CI fixed on the same PR, rebased on repository sources (#167, merged); slice 1 merged #166; 2026-11-08: **J3 started**, PR loop poll and webhook both, decided by Saravana 2026-11-08; 2026-11-06: **J2 closed** by Saravana on Plant watering's iteration 4; J3 next; **J1 closed** 2026-11-05 on Plant watering's first delivery; "Now" done: items 1–4 merged, item 5 done by hand; J2 next; correctness set first, decided by Saravana 2026-11-04, see "Now" below; live campaign closed: J2 blue/green migration, one-per-strategy and pre-switch rollback proved, J1 repeatability not run; findings and assessment in [plans/live-test-usability.md](plans/live-test-usability.md); earlier 2026-11-02: ADR-0046 slice 4, blue/green per product, merged, #134; template nextjs-web 1.5.1,
 phone-ready controls measured by e2e, in review; order decided by Saravana 2026-11-02: 1.5.1 before the
 blue/green live run, so one new product closes J1's repeatability bar and proves blue/green).
 **This is the one page to read for "what's next".**
@@ -49,7 +49,7 @@ in the backlog entry below):
    and refuses to start in gateway mode without one (ADR-0012, updated). Tests `tests/test_identity.py`,
    `tests/test_least_privilege.py`; the live probe is `scripts/gateway-check.sh` (`make sandbox-check`,
    CI `e2e`, where it passed on the real stack).
-2. ⏳ **S-02, S-04 and S-03's refusal: in review on `fix/sandbox-paths` (#182, 2026-11-16; one PR for the three,
+2. ✅ **S-02, S-04 and S-03's refusal: merged 2026-11-17 (#182, `f580a4c`; one PR for the three,
    decided by Saravana 2026-11-16; [ADR-0048](../adr/0048-paths-around-the-sandbox.md), proposed).**
    - **S-02, three of its four fixes.** dind's entrypoint (`cluster/dind-firewall.sh`) drops every new
      connection from a container inside dind to the compose network, so a build, a start check, a scanner,
@@ -79,7 +79,12 @@ in the backlog entry below):
    own network behind the egress proxy, or `--network none` after a sandboxed dependency fetch (changes both
    templates' Dockerfiles). Proposed: with S-07 (images built from the lockfile) before J4, since both
    change how images are built. The probe reports it as KNOWN until then.
-- **Then:** J4.
+- ⏳ **J4 and J5: built, in review on `feat/j4-j5-run-retire` (2026-11-17, one PR, asked for by Saravana
+  2026-11-16; [ADR-0049](../adr/0049-run-maintain-retire.md), proposed).** Every J4 and J5 item below is built and
+  scripted in the journey test (J4.0–J4.8, J5.1–J5.3, dry-run). **Not run live yet:** the live run that closes both
+  is [plans/run-and-retire.md](plans/run-and-retire.md). Decisions for Saravana: `policies.recover.mode` default
+  (shipped `manual`), `operate.upkeep_start` (shipped `ask`), the owner may steer like the creator, and whether the
+  local target's restore drill (a scratch database, the app doesn't run on it) is enough for production.
 
 **Before that (done):**
 **Now: correctness before more live runs (decided by Saravana 2026-11-04, ~4.5 days).** The 2026-11-03/04
@@ -520,7 +525,7 @@ per-pack evaluation is in the backlog.
 - **Done when:** an assessment item becomes a PR, CI fails once and is fixed on the same PR, and the merge
   closes the change.
 
-**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)**
+**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)** · ⏳ built 2026-11-17, in review, not run live
 - **First, a named product owner** (decided 2026-10-31; master plan §3J, still "later" in `models.py`): each
   product has an owner, its creator by default, reassignable by an admin; incidents, upkeep changes and the
   retire flow name the owner, and "Needs you" routes product items to them.
@@ -541,7 +546,7 @@ per-pack evaluation is in the backlog.
   **And** (decided 2026-10-31): the product has a named owner and a declared availability target whose breach
   alerts; its data is backed up and a restore is proven; a factory restart mid-change resumes the change.
 
-**J5. End of life (~2 days)**
+**J5. End of life (~2 days)** · ⏳ built 2026-11-17, in review, not run live
 - A **retire** flow: freeze changes, final sealed evidence, data export, undeploy, archive the product repo,
   a decommission record on Outcomes.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be

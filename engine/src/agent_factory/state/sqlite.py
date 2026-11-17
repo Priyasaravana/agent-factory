@@ -18,7 +18,9 @@ from agent_factory.models import (
     Event,
     EventKind,
     Feedback,
+    HealthSample,
     LearningProposal,
+    OperationRecord,
     Product,
     Transition,
     WorkItem,
@@ -75,6 +77,16 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- repository sources admins made (ADR-0047): references to tokens, never values; kept across a fresh start
 CREATE TABLE IF NOT EXISTS repo_sources (id TEXT PRIMARY KEY, doc TEXT NOT NULL);
 -- who changed which credentials reach which repos (ADR-0047): append-only, outlives deleted sources
+-- run and maintain (J4): health readings of live products, and the append-only record of what the
+-- factory did for a product outside a change (backups, restore drills, upkeep, alerts, retirement)
+CREATE TABLE IF NOT EXISTS health_samples (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, at TEXT NOT NULL, doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS health_samples_product ON health_samples(product_id, at);
+CREATE TABLE IF NOT EXISTS operation_records (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, kind TEXT NOT NULL, doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS operation_records_product ON operation_records(product_id, kind, seq);
 CREATE TABLE IF NOT EXISTS repo_source_audit (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL, doc TEXT NOT NULL
 );
@@ -94,7 +106,15 @@ WORK_TABLES = (
     "workflow_active",
     "workflow_drafts",
     "work_items",
+    "health_samples",
+    "operation_records",
 )
+
+
+def _utc(at: datetime) -> str:
+    """A timestamp as sortable text: UTC, fixed width (a naive one is taken as UTC)."""
+    at = at.replace(tzinfo=UTC) if at.tzinfo is None else at.astimezone(UTC)
+    return at.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _now() -> datetime:
@@ -530,6 +550,42 @@ class SqliteStateStore:
 
     def delete_repo_source(self, source_id: str) -> None:
         self._exec("DELETE FROM repo_sources WHERE id=?", (source_id,))
+
+    def add_health_sample(self, sample: HealthSample) -> None:
+        self._exec(
+            "INSERT INTO health_samples(product_id, at, doc) VALUES (?,?,?)",
+            (sample.product_id, _utc(sample.at), sample.model_dump_json()),
+        )
+
+    def list_health_samples(self, product_id: str, since: datetime | None = None) -> list[HealthSample]:
+        """Oldest first."""
+        rows = self._exec(
+            "SELECT doc FROM health_samples WHERE product_id=? AND at>=? ORDER BY at, seq",
+            (product_id, _utc(since) if since else ""),
+        ).fetchall()
+        return [HealthSample.model_validate_json(r[0]) for r in rows]
+
+    def prune_health_samples(self, before: datetime) -> int:
+        return self._exec("DELETE FROM health_samples WHERE at<?", (_utc(before),)).rowcount
+
+    def add_operation(self, record: OperationRecord) -> None:
+        self._exec(
+            "INSERT INTO operation_records(product_id, kind, doc) VALUES (?,?,?)",
+            (record.product_id, record.kind, record.model_dump_json()),
+        )
+
+    def list_operations(self, product_id: str, kind: str | None = None, limit: int = 200) -> list[OperationRecord]:
+        """Newest first."""
+        if kind is None:
+            rows = self._exec(
+                "SELECT doc FROM operation_records WHERE product_id=? ORDER BY seq DESC LIMIT ?", (product_id, limit)
+            ).fetchall()
+        else:
+            rows = self._exec(
+                "SELECT doc FROM operation_records WHERE product_id=? AND kind=? ORDER BY seq DESC LIMIT ?",
+                (product_id, kind, limit),
+            ).fetchall()
+        return [OperationRecord.model_validate_json(r[0]) for r in rows]
 
     def add_repo_source_audit(self, edit: SourceEdit) -> None:
         self._exec(

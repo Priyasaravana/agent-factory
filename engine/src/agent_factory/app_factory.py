@@ -200,7 +200,9 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         await recover_evals(f.manager)  # evaluations cut short by a restart are cancelled (ADR-0025)
         if interrupted:
             app.state.interrupted = interrupted
+        f.manager.operations.start()  # watches, backs up and keeps up delivered products (J4)
         yield
+        await f.manager.operations.stop()
         await f.manager.pr_watcher.stop()
         await f.manager.preflight.stop()
         await f.manager.host_watcher.stop()

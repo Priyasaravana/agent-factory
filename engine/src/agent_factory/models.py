@@ -178,6 +178,10 @@ class Product(BaseModel):
     owner: str | None = None
     archived_at: datetime | None = None  # archived: app removed from the cluster, port freed, history kept
     archived_by: str | None = None  # signed-in user who submitted it
+    # run and maintain (J4): the product's own availability target, tightening its stack's default
+    availability: AvailabilityTarget | None = None
+    # end of life (J5): set when a person retires the product; once it is, nothing starts on it
+    retirement: Retirement | None = None
     eval_run_id: str | None = None  # an evaluation case (ADR-0025): hidden from products and Outcomes
     # org workflows assigned to this product, per change kind (ADR-0039); unassigned kinds run the
     # factory default lane for (works_on, kind)
@@ -340,6 +344,9 @@ class Change(BaseModel):
     schema_approval: SchemaApproval | None = None
     last_failure: str | None = None  # evidence handed to the repair station
     last_routed: RoutedFailure | None = None  # the last failure routed to repair (no-progress stop)
+    # times the factory resumed this change by itself after a restart, by station (J4, recover
+    # policy auto): past the policy's `max_auto` at one station it waits for a person
+    auto_resumed: dict[str, int] = Field(default_factory=dict)
     # a held change (ADR-0043): whose failure it was (work | infra | decision), and for a decision
     # the action a person must take before resuming
     hold_class: str | None = None
@@ -717,6 +724,8 @@ class OutcomesView(BaseModel):
     guardrail_denials: int = 0
     by_workflow: list[WorkflowOutcome] = Field(default_factory=list)
     weekly: list[WeekPoint] = Field(default_factory=list)
+    # end of life (J5): products retired in the window, each with its sealed decommission record
+    retired: list[RetiredProduct] = Field(default_factory=list)
 
 
 class Feedback(BaseModel):
@@ -1370,12 +1379,12 @@ class PendingAction(BaseModel):
 
     kind: Literal[
         "answer_questions", "align", "approve_risk", "accept_risk", "approve_schema", "resume", "factory_hold",
-        "wait", "feedback", "fix_ci", "address_feedback",
+        "wait", "feedback", "fix_ci", "address_feedback", "incident", "upkeep", "retire",
     ]  # fmt: skip
     title: str  # what to do, as a button would say it
     detail: str = ""  # why, in one or two sentences
     station: str | None = None
-    owner: str  # who acts: the product's creator, "an admin", or "system" (the factory's operator)
+    owner: str  # who acts: the product's owner (named, else its creator), "an admin", or "system"
     panel: str  # the panel on the change page that does it (an element id), or "work-ledger"
     blocking: bool = True  # False: the change is delivered; acting is optional
     since: datetime
@@ -1676,6 +1685,8 @@ class NextIterationView(BaseModel):
     quality: list[WorkItem]
     security: list[WorkItem]
     ui: list[WorkItem] = Field(default_factory=list)  # serious defects the UI review found
+    incidents: list[WorkItem] = Field(default_factory=list)  # the product is outside its target (J4)
+    upkeep: list[WorkItem] = Field(default_factory=list)  # dependencies that fell behind (J4)
     can_start: bool  # the latest change is delivered or stopped: the next iteration can start now
     latest_change_id: str | None = None
     latest_status: ChangeStatus | None = None
@@ -1713,6 +1724,178 @@ class ReadyForView(BaseModel):
     change_id: str | None = None  # the delivered change it is worked out from; None: nothing delivered
     iteration: int | None = None
     moved: dict[str, str] | None = None  # UX-22: that delivery changed the product's address (from, to)
+
+
+class AvailabilityTarget(BaseModel):
+    """A product's own availability target (J4): it tightens its stack pack's default."""
+
+    success: float = Field(ge=0.5, le=0.9999)
+    max_error_rate: float | None = Field(default=None, ge=0, le=1)
+    set_by: str = ""
+    at: datetime | None = None
+
+
+class AvailabilityInput(BaseModel):
+    """Tighten the product's availability target: the share of health checks that must answer,
+    and optionally the share of requests that may fail with a server error."""
+
+    success: float = Field(ge=0.5, le=0.9999)
+    max_error_rate: float | None = Field(default=None, ge=0, le=1)
+
+
+class HealthSample(BaseModel):
+    """One reading of a live product by the Operate watch (J4). Numbers only: never a response."""
+
+    product_id: str
+    at: datetime
+    ok: bool
+    detail: str = ""
+    requests: float | None = None
+    errors: float | None = None
+
+
+OperationKind = Literal["backup", "restore", "upkeep", "alert", "recovered", "retire", "owner"]
+
+
+class OperationRecord(BaseModel):
+    """Something the factory did for a product outside a change (J4, J5): a backup, a restore
+    drill, an upkeep check, an alert, a step of its retirement. Append-only: the product's
+    history after delivery."""
+
+    id: str
+    product_id: str
+    kind: OperationKind
+    at: datetime
+    ok: bool
+    summary: str
+    by: str = "factory"  # the person who asked, or the factory's schedule
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+RetireStepStatus = Literal["pending", "done", "failed", "skipped"]
+
+
+class RetireStep(BaseModel):
+    id: str  # freeze | export | undeploy | archive-repo | record
+    title: str
+    status: RetireStepStatus = "pending"
+    detail: str = ""
+    at: datetime | None = None
+
+
+class Retirement(BaseModel):
+    """A product's end of life (J5): asked for by a named person with a reason, done in steps that
+    are each recorded, so one that fails is continued, never started over."""
+
+    requested_by: str
+    reason: str
+    owner: str | None = None  # the accountable owner when it was retired
+    started_at: datetime
+    steps: list[RetireStep] = Field(default_factory=list)
+    finished_at: datetime | None = None
+    record_sha256: str | None = None  # the sealed decommission record
+
+    @property
+    def done(self) -> bool:
+        return self.finished_at is not None
+
+
+class RetireInput(BaseModel):
+    """Retire a product: why, and its name typed again (it can't be undone)."""
+
+    reason: str = Field(min_length=3, max_length=1000)
+    confirm: str = Field(min_length=1, max_length=200)
+    # retire even though the data can't be exported (the cluster is gone): the record says so
+    without_export: bool = False
+
+
+class RetiredProduct(BaseModel):
+    """A decommissioned product on Outcomes (J5): what remains is its record."""
+
+    product_id: str
+    title: str
+    slug: str
+    owner: str | None = None
+    retired_by: str
+    reason: str
+    retired_at: datetime
+    created_at: datetime
+    changes: int = 0
+    deliveries: int = 0
+    record_sha256: str | None = None
+
+
+class AvailabilityView(BaseModel):
+    target: str | None = None  # in words; None: the stack declares none
+    success: float | None = None  # the target's share of health checks
+    max_error_rate: float | None = None
+    floor: float | None = None  # the pack's default: the product may not go below it
+    chosen_by: Literal["product", "pack"] | None = None
+    state: Literal["unknown", "ok", "breached", "off"] = "off"
+    samples: int = 0
+    measured: float | None = None
+    error_rate: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+    last_at: datetime | None = None
+    watching: bool = False
+
+
+class OperationsView(BaseModel):
+    """Run and maintain, for one product (J4): its owner, availability against its target, open
+    incidents, backups and the last restore drill, upkeep, and what the factory did (`records`)."""
+
+    product_id: str
+    owner: str | None = None
+    owner_named: bool = False
+    live: bool = False  # a factory-built product that is deployed and not retired
+    why_not: str | None = None  # why nothing is watched (not deployed, retired, a team repo, ...)
+    availability: AvailabilityView = AvailabilityView()
+    incidents: list[WorkItem] = Field(default_factory=list)
+    data_declared: bool = False
+    last_backup: OperationRecord | None = None
+    last_restore: OperationRecord | None = None
+    restore_proven: bool = False
+    restore_overdue: bool = False
+    backups: int = 0
+    upkeep_declared: bool = False
+    last_upkeep: OperationRecord | None = None
+    upkeep_items: list[WorkItem] = Field(default_factory=list)
+    records: list[OperationRecord] = Field(default_factory=list)
+    retirement: Retirement | None = None
+
+
+class HistoryEntry(BaseModel):
+    at: datetime
+    kind: str  # requested | change | delivered | accepted | closed | incident | backup | restore | upkeep | retire ...
+    title: str
+    detail: str = ""
+    by: str | None = None
+    change_id: str | None = None
+    evidence: str | None = None  # the sealed manifest's sha256, where the entry has one
+
+
+class ProductHistory(BaseModel):
+    """A product's full history, from its first request to its decommission (J5), built from what
+    is stored: changes and their sealed evidence, the work ledger and the operation records."""
+
+    product_id: str
+    title: str
+    entries: list[HistoryEntry] = Field(default_factory=list)
+    retired: bool = False
+    record_sha256: str | None = None
+
+
+class DecommissionView(BaseModel):
+    """A retired product's decommission record (J5), verified now: `intact` says the sealed folder
+    still matches its manifest and the manifest the digest stored on the product."""
+
+    record: dict[str, Any] = Field(default_factory=dict)
+    sealed: bool = False
+    intact: bool = False
+    changed: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    added: list[str] = Field(default_factory=list)
+    manifest_sha256: str | None = None
 
 
 class ProductOwnerInput(BaseModel):
@@ -1981,3 +2164,6 @@ class FromGitHubInput(BaseModel):
     repo: str = Field(description="owner/name or https://github.com/owner/name")
     path: str = Field(default="", description="folder containing workflow.yaml")
     ref: str = Field(default="main", description="branch, tag or commit sha (pinned to a commit on import)")
+
+
+Product.model_rebuild()

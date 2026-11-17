@@ -4,9 +4,12 @@ One product goes through the journey the way a person drives it: through the HTT
 current Next.js pack, with the agents and commands faked and git real. Each milestone adds its
 steps here when it lands, so a step that works never silently breaks. Today: J1, launch done well
 (request → align with Design decisions set to ask → modules and sign-in → e2e before deploy →
-readiness → publish), and J3, team repo (an assessment item → a pull request → red CI fixed on the
+readiness → publish), J3, team repo (an assessment item → a pull request → red CI fixed on the
 same pull request → the merge closes the change), on a team repo with a local origin and the repo
-host's answers faked.
+host's answers faked, and J4 + J5, run and maintain, then end of life (an owner and a target → the
+watch → backup and a proven restore → an injected fault becomes an incident, a fix change that a
+factory restart interrupts and resumes, and a redeploy → upkeep → retire → the history from the
+first request to the decommission record), with the live app and its database faked.
 
 When this fails, the assertion message names the journey step that broke. The detailed rules of
 each step have their own tests (test_decisions, test_app_sign_in, test_preview_e2e, test_no_progress,
@@ -14,6 +17,7 @@ test_secret_refs); this one checks they still fit together, in order, on one pro
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from conftest import PRODUCT, wait_run
@@ -21,8 +25,11 @@ from test_access import ADMIN
 from test_api import _client
 from test_app_sign_in import PASSWORD, RecordingExecutor, _secret_json
 from test_ci_fix import SLUG, _git, _red_pr
+from test_operate import PIP_OUTDATED
+from test_operations import OpsExecutor
 
 from agent_factory.agents import FakeAgentRunner
+from agent_factory.engine import stations as stations_mod
 from agent_factory.engine.stations import ADMIN_PASSWORD_ENV
 from agent_factory.models import ChangeSource, ChangeStatus, EventKind
 
@@ -198,4 +205,152 @@ async def test_j3_team_repo(make_factory, tmp_path, monkeypatch):
         item = next(i for i in f.store.list_work_items(change.product_id) if i.id == item_id)
         assert item.status == "in_progress", "J3.4 the item awaits verification"
         assert change.id not in [x.id for x in f.manager.pr_watcher.followed()], "J3.4 the following stops"
+    await ctx.__aexit__(None, None, None)
+
+
+async def _read_health(c, pid: str, times: int = 5) -> dict:  # noqa: ANN001
+    """The Operate watch's reading, `times` in a row (the watch takes one a minute)."""
+    view: dict = {}
+    for _ in range(times):
+        r = await c.post(f"/api/products/{pid}/health-check")
+        assert r.status_code == 200, f"read the product's health: {r.text}"
+        view = r.json()
+    return view
+
+
+async def test_j4_j5_run_maintain_and_retire(make_factory, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
+    ex = OpsExecutor()  # stands for the live app and its database
+    f = make_factory(ex)
+    f.manager.cfg.policies.recover.mode = "auto"  # J4: a restart resumes changes at their station
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.post("/api/products", json={"title": PRODUCT.title, "requirements": PRODUCT.requirements})
+        assert r.status_code == 201, f"J4.0 create the product: {r.text}"
+        pid, cid = r.json()["product"]["id"], r.json()["changes"][0]["id"]
+        assert await wait_run(f, cid, 90) == ChangeStatus.awaiting_feedback, "J4.0 delivered and live"
+        # dry-run simulates publish (J1.7 proves the real path): the product's repository is where J1 put it
+        published = f.store.get_product(pid)
+        published.repo_url = f"https://github.com/{ORG}/bookmarks-service"
+        f.store.save_product(published)
+
+        # J4.1 Owner: an admin names who is accountable; from then on product items go to them.
+        r = await c.post(f"/api/products/{pid}/owner", json={"owner": "priya"})
+        assert r.status_code == 200, f"J4.1 name the owner: {r.text}"
+        ops = (await c.get(f"/api/products/{pid}/operations")).json()
+        assert (ops["owner"], ops["owner_named"], ops["live"]) == ("priya", True, True), "J4.1 the owner runs it"
+
+        # J4.2 Target: the stack's default availability target, which the product may only tighten.
+        assert ops["availability"]["target"].startswith("99% of health checks over 30 minutes"), "J4.2 pack default"
+        r = await c.post(f"/api/products/{pid}/availability", json={"success": 0.9})
+        assert r.status_code == 422, "J4.2 a product can't loosen its stack's target"
+        r = await c.post(f"/api/products/{pid}/availability", json={"success": 0.995})
+        assert r.status_code == 200 and r.json()["availability"]["chosen_by"] == "product", "J4.2 tightened"
+
+        # J4.3 The watch: readings of the live app, judged against the target; healthy files nothing.
+        ops = await _read_health(c, pid)
+        assert ops["availability"]["state"] == "ok" and ops["availability"]["watching"], "J4.3 within target"
+        assert ops["incidents"] == [], "J4.3 no incident while healthy"
+
+        # J4.4 Backup and a tested restore: a backup counts only once a drill restored it and the data matched.
+        r = await c.post(f"/api/products/{pid}/backup")
+        assert r.status_code == 200 and r.json()["ok"], f"J4.4 backup: {r.text}"
+        r = await c.post(f"/api/products/{pid}/restore-drill")
+        assert r.status_code == 200 and r.json()["ok"], f"J4.4 restore drill: {r.text}"
+        assert "restored data matches the backup" in r.json()["summary"], "J4.4 the engine compared the data"
+        ops = (await c.get(f"/api/products/{pid}/operations")).json()
+        assert ops["restore_proven"] and not ops["restore_overdue"], "J4.4 the restore is proven"
+
+        # J4.5 An injected fault: the app stops answering; the breach is the alert that opens an incident
+        # for the owner, on "Needs you" and on the Next iteration card.
+        ex.down = True
+        ops = await _read_health(c, pid)
+        assert ops["availability"]["state"] == "breached", "J4.5 the breach is seen"
+        [incident] = ops["incidents"]
+        assert incident["status"] == "open" and incident["severity"] == "high", "J4.5 one incident"
+        needs = (await c.get("/api/attention", params={"product_id": pid})).json()
+        assert [(n["kind"], n["owner"], n["blocking"]) for n in needs] == [("incident", "priya", True)], (
+            "J4.5 'Needs you' routes the incident to the owner"
+        )
+        card = (await c.get(f"/api/products/{pid}/next-iteration")).json()
+        assert [i["id"] for i in card["incidents"]] == [incident["id"]] and card["can_start"], "J4.5 on the card"
+
+        # J4.6 "Make this change": the incident becomes a bug-fix change, no terminal. The factory restarts
+        # in the middle of it, and the change goes on at its station instead of being lost.
+        reached, real = asyncio.Event(), stations_mod.STATIONS["test"]
+
+        async def cut_off(ctx):  # noqa: ANN001, ANN202
+            reached.set()
+            await asyncio.sleep(3600)
+
+        monkeypatch.setitem(stations_mod.STATIONS, "test", cut_off)
+        r = await c.post(f"/api/products/{pid}/feedback", json={"text": "Fix the incident.", "items": [incident["id"]]})
+        assert r.status_code == 201 and r.json()["kind"] == "bug", f"J4.6 the fix change starts: {r.text}"
+        fix = r.json()["id"]
+        await asyncio.wait_for(reached.wait(), 60)
+        await f.manager.shutdown()  # the factory stops mid-station
+        monkeypatch.setitem(stations_mod.STATIONS, "test", real)
+        assert f.manager.recover_on_startup() == [fix], "J4.6 the restart finds the change"
+        assert await wait_run(f, fix, 90) == ChangeStatus.awaiting_feedback, "J4.6 resumed and delivered"
+        assert any(m.startswith("resumed after the factory restarted, at test") for m in _messages(f, fix)), "J4.6"
+        assert _finished(f, fix).count("implement") == 1, "J4.6 finished stations are not run again"
+
+        # J4.7 The redeploy is healthy: the watch closes the incident, because the check really ran again.
+        ex.down = False
+        ops = await _read_health(c, pid)
+        assert ops["availability"]["state"] == "ok" and ops["incidents"] == [], "J4.7 within target again"
+        ledger_items = (await c.get(f"/api/products/{pid}/work-items")).json()
+        closed = next(i for i in ledger_items if i["id"] == incident["id"])
+        assert (closed["status"], closed["resolved_by"]) == ("fixed", fix), (
+            "J4.7 fixed by the change, verified by the watch"
+        )
+        needs = (await c.get("/api/attention", params={"product_id": pid})).json()
+        assert needs == [], "J4.7 nothing waits on the owner"
+
+        # J4.8 Upkeep: the scheduled check finds dependencies that fell behind; they wait on the card.
+        ex.scan_outputs["uv pip list --outdated"] = PIP_OUTDATED
+        r = await c.post(f"/api/products/{pid}/upkeep")
+        assert r.status_code == 200 and r.json()["data"]["dependencies"]["behind"] == 2, f"J4.8 upkeep: {r.text}"
+        card = (await c.get(f"/api/products/{pid}/next-iteration")).json()
+        assert [i["title"] for i in card["upkeep"]] == ["2 dependencies are behind (1 by a major version)"], "J4.8"
+
+        # J5.1 Retire: the owner retires the product by name; data exported, app removed, repository
+        # archived, record sealed, in that order.
+        before = len(ex.calls)
+        r = await c.post(f"/api/products/{pid}/retire", json={"reason": "replaced", "confirm": "wrong"})
+        assert r.status_code == 422, "J5.1 retiring needs the product's name"
+        r = await c.post(f"/api/products/{pid}/retire", json={"reason": "replaced by v2", "confirm": PRODUCT.title})
+        assert r.status_code == 200, f"J5.1 retire: {r.text}"
+        retirement = r.json()["retirement"]
+        assert [(s["id"], s["status"]) for s in retirement["steps"]] == [
+            ("freeze", "done"), ("export", "done"), ("undeploy", "done"), ("archive-repo", "done"), ("record", "done"),
+        ], "J5.1 every step done"  # fmt: skip
+        assert retirement["owner"] == "priya" and r.json()["archived_at"], "J5.1 names the owner; the app is gone"
+        calls = ex.calls[before:]
+        at = [next(i for i, cmd in enumerate(calls) if n in cmd) for n in ("pg_dump", "uninstall", "gh repo archive")]
+        assert at == sorted(at), "J5.1 export, then undeploy, then archive"
+        assert f"gh repo archive {ORG}/bookmarks-service --yes" in calls and TOKEN not in json.dumps(calls), "J5.1"
+
+        # J5.2 Frozen: nothing new starts on it, and nobody is asked to act on it.
+        r = await c.post(f"/api/products/{pid}/feedback", json={"text": "one more thing"})
+        assert r.status_code == 409 and "retired" in r.json()["detail"], "J5.2 frozen"
+        assert (await c.get("/api/attention", params={"product_id": pid})).json() == [], "J5.2 nothing waits"
+        assert (await c.post(f"/api/products/{pid}/health-check")).status_code == 422, "J5.2 no longer watched"
+
+        # J5.3 The full history, from the first request to the decommission, shown from the evidence.
+        history = (await c.get(f"/api/products/{pid}/history")).json()
+        kinds = [e["kind"] for e in history["entries"]]
+        assert kinds[0] == "requested" and kinds[-1] == "decommissioned" and history["retired"], "J5.3 start to end"
+        for kind in ("change", "delivered", "owner", "backup", "restore", "incident", "upkeep", "retire"):
+            assert kind in kinds, f"J5.3 the history tells of: {kind}"
+        delivered = [e for e in history["entries"] if e["kind"] == "delivered"]
+        assert len(delivered) == 2 and all(e["evidence"] for e in delivered), "J5.3 each delivery's sealed evidence"
+        record = (await c.get(f"/api/products/{pid}/decommission")).json()
+        assert record["intact"] and record["manifest_sha256"] == retirement["record_sha256"], "J5.3 sealed, intact"
+        assert record["record"]["totals"] == {"changes": 2, "deliveries": 2}, "J5.3 the record counts the changes"
+        assert all(ch["evidence"]["intact"] for ch in record["record"]["changes"]), "J5.3 every change's evidence"
+        retired = (await c.get("/api/outcomes")).json()["retired"]
+        assert [(x["product_id"], x["record_sha256"]) for x in retired] == [(pid, retirement["record_sha256"])], (
+            "J5.3 the decommission record is on Outcomes"
+        )
     await ctx.__aexit__(None, None, None)

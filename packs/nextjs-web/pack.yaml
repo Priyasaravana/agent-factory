@@ -2,7 +2,7 @@
 # blueprint in the config that names it (`pack:`) says where and how this install runs it.
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: nextjs-web
-version: 1.5.2
+version: 1.6.0
 title: Next.js web app
 stack:
   builds: web-app
@@ -26,6 +26,23 @@ stack:
   # what a product uses unless it chooses another. blue-green runs two colours on one database, so
   # a schema change must also work with the version still running
   deploy: {strategy: in-place, strategies: [in-place, blue-green]}
+  # run and maintain (roadmap J4): what "available" means for this stack's products (a product may
+  # tighten it), where the request counter is read, how the data is backed up, restored and
+  # fingerprinted (a row count per table, compared after a restore drill), and how dependencies are
+  # checked for newer releases. Data commands run inside the release's Postgres pod, never in the engine
+  operate:
+    availability: {success: 0.99, window_minutes: 30, min_samples: 5, max_error_rate: 0.05}
+    metrics: {path: /api/metrics, counter: http_requests_total, status_label: status}
+    data:
+      workload: "statefulset/{release}-postgres"
+      database: app
+      backup: pg_dump -U app -d {database} --format=custom --no-owner
+      restore: pg_restore -U app -d {database} --clean --if-exists --no-owner --exit-on-error
+      fingerprint: >-
+        psql -U app -d {database} -At -c "select table_name || '=' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by 1"
+      scratch_create: createdb -U app {database}
+      scratch_drop: dropdb -U app --if-exists {database}
+    upkeep: {outdated: "npm outdated --json || true", format: npm}
   # npm is already on the shared allowlist (registry.npmjs.org), and the browser is in the image,
   # so this pack's sandboxes need no egress of their own
   egress: []

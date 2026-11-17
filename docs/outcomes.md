@@ -124,6 +124,13 @@ Apps delivered before the Quality gate station existed have no scorecard and are
 | **Live apps at Level 3** | Apps (not archived) whose latest delivery scored agent-readiness Level 3. |
 | **Requirements verified live** | Of those apps' numbered requirements, how many were checked on the running app by hidden scenarios that all passed (ADR-0017). A requirement no hidden scenario covers is not counted as verified. |
 
+## Retired
+
+`retired` (ADR-0049, J5): products whose retirement finished inside the window, newest first. Each row: who
+retired it and why, its owner then, its changes (every change of the product, delivered or not), its deliveries
+(changes that reached delivery, the same rule as the delivery metrics above) and the SHA-256 of its sealed
+decommission record. Evaluation products are left out. A retirement that stopped half-way is not listed.
+
 ## Using it
 - **Before and after a workflow change:** compare the **By workflow** table
   across windows. The evaluation harness (ADR-0025) measures each new version

@@ -400,6 +400,186 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run and maintain (J4): the product's owner, availability against its target, open incidents, backups and the last restore drill, upkeep, and what the factory did for it
+         * @description Run and maintain (J4): the product's owner, availability against its target, open incidents, backups and the last restore drill, upkeep, and what the factory did for it
+         */
+        get: operations["get_operations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tighten the product's availability target (it may not go below its stack's default)
+         * @description Tighten the product's availability target (it may not go below its stack's default)
+         */
+        post: operations["set_availability_target"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the live product's health now and judge it against its target: a breach opens an incident, a window within target closes it (the Operate watch does this on a schedule)
+         * @description Read the live product's health now and judge it against its target: a breach opens an incident, a window within target closes it (the Operate watch does this on a schedule)
+         */
+        post: operations["check_health"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Back the product's data up now, with its stack's backup command
+         * @description Back the product's data up now, with its stack's backup command
+         */
+        post: operations["backup_product"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/restore-drill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prove the newest backup: restore it away from production and compare the data with the backup's fingerprint
+         * @description Prove the newest backup: restore it away from production and compare the data with the backup's fingerprint
+         */
+        post: operations["run_restore_drill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/upkeep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check the live product for what has aged: scan its image again and compare its dependencies with their newest releases; findings go to the work ledger
+         * @description Check the live product for what has aged: scan its image again and compare its dependencies with their newest releases; findings go to the work ledger
+         */
+        post: operations["check_upkeep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire a product (it can't be undone): nothing new starts, its data is exported one last time, its app is removed, its repository archived and a decommission record sealed; a retirement that stopped continues where it stopped
+         * @description Retire a product (it can't be undone): nothing new starts, its data is exported one last time, its app is removed, its repository archived and a decommission record sealed; a retirement that stopped continues where it stopped
+         */
+        post: operations["retire_product"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The product's full history, from its first request to its decommission: changes with their sealed evidence, incidents, upkeep, backups, restore drills and its retirement
+         * @description The product's full history, from its first request to its decommission: changes with their sealed evidence, incidents, upkeep, backups, restore drills and its retirement
+         */
+        get: operations["get_product_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/products/{product_id}/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A retired product's sealed decommission record, checked again against its manifest
+         * @description A retired product's sealed decommission record, checked again against its manifest
+         */
+        get: operations["get_decommission_record"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/work-items/decide": {
         parameters: {
             query?: never;
@@ -2265,7 +2445,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback" | "incident" | "upkeep" | "retire";
             /** Title */
             title: string;
             /**
@@ -2297,6 +2477,71 @@ export interface components {
             change_id: string;
             /** Iteration */
             iteration: number;
+        };
+        /**
+         * AvailabilityInput
+         * @description Tighten the product's availability target: the share of health checks that must answer,
+         *     and optionally the share of requests that may fail with a server error.
+         */
+        AvailabilityInput: {
+            /** Success */
+            success: number;
+            /** Max Error Rate */
+            max_error_rate?: number | null;
+        };
+        /**
+         * AvailabilityTarget
+         * @description A product's own availability target (J4): it tightens its stack pack's default.
+         */
+        AvailabilityTarget: {
+            /** Success */
+            success: number;
+            /** Max Error Rate */
+            max_error_rate?: number | null;
+            /**
+             * Set By
+             * @default
+             */
+            set_by: string;
+            /** At */
+            at?: string | null;
+        };
+        /** AvailabilityView */
+        AvailabilityView: {
+            /** Target */
+            target?: string | null;
+            /** Success */
+            success?: number | null;
+            /** Max Error Rate */
+            max_error_rate?: number | null;
+            /** Floor */
+            floor?: number | null;
+            /** Chosen By */
+            chosen_by?: ("product" | "pack") | null;
+            /**
+             * State
+             * @default off
+             * @enum {string}
+             */
+            state: "unknown" | "ok" | "breached" | "off";
+            /**
+             * Samples
+             * @default 0
+             */
+            samples: number;
+            /** Measured */
+            measured?: number | null;
+            /** Error Rate */
+            error_rate?: number | null;
+            /** Reasons */
+            reasons?: string[];
+            /** Last At */
+            last_at?: string | null;
+            /**
+             * Watching
+             * @default false
+             */
+            watching: boolean;
         };
         /**
          * BlueprintUse
@@ -2419,6 +2664,10 @@ export interface components {
             /** Last Failure */
             last_failure?: string | null;
             last_routed?: components["schemas"]["RoutedFailure"] | null;
+            /** Auto Resumed */
+            auto_resumed?: {
+                [key: string]: number;
+            };
             /** Hold Class */
             hold_class?: string | null;
             required_action?: components["schemas"]["RequiredAction"] | null;
@@ -2844,6 +3093,35 @@ export interface components {
              * @default false
              */
             discuss_pending: boolean;
+        };
+        /**
+         * DecommissionView
+         * @description A retired product's decommission record (J5), verified now: `intact` says the sealed folder
+         *     still matches its manifest and the manifest the digest stored on the product.
+         */
+        DecommissionView: {
+            /** Record */
+            record?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Sealed
+             * @default false
+             */
+            sealed: boolean;
+            /**
+             * Intact
+             * @default false
+             */
+            intact: boolean;
+            /** Changed */
+            changed?: string[];
+            /** Missing */
+            missing?: string[];
+            /** Added */
+            added?: string[];
+            /** Manifest Sha256 */
+            manifest_sha256?: string | null;
         };
         /** DeliveryBinding */
         DeliveryBinding: {
@@ -3518,6 +3796,29 @@ export interface components {
              */
             preflight: string;
         };
+        /** HistoryEntry */
+        HistoryEntry: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** By */
+            by?: string | null;
+            /** Change Id */
+            change_id?: string | null;
+            /** Evidence */
+            evidence?: string | null;
+        };
         /** HumanTouches */
         HumanTouches: {
             /**
@@ -3658,6 +3959,10 @@ export interface components {
             security: components["schemas"]["WorkItem"][];
             /** Ui */
             ui?: components["schemas"]["WorkItem"][];
+            /** Incidents */
+            incidents?: components["schemas"]["WorkItem"][];
+            /** Upkeep */
+            upkeep?: components["schemas"]["WorkItem"][];
             /** Can Start */
             can_start: boolean;
             /** Latest Change Id */
@@ -3730,6 +4035,108 @@ export interface components {
              * @default architect
              */
             decided_by: string;
+        };
+        /**
+         * OperationRecord
+         * @description Something the factory did for a product outside a change (J4, J5): a backup, a restore
+         *     drill, an upkeep check, an alert, a step of its retirement. Append-only: the product's
+         *     history after delivery.
+         */
+        OperationRecord: {
+            /** Id */
+            id: string;
+            /** Product Id */
+            product_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "backup" | "restore" | "upkeep" | "alert" | "recovered" | "retire" | "owner";
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Ok */
+            ok: boolean;
+            /** Summary */
+            summary: string;
+            /**
+             * By
+             * @default factory
+             */
+            by: string;
+            /** Data */
+            data?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * OperationsView
+         * @description Run and maintain, for one product (J4): its owner, availability against its target, open
+         *     incidents, backups and the last restore drill, upkeep, and what the factory did (`records`).
+         */
+        OperationsView: {
+            /** Product Id */
+            product_id: string;
+            /** Owner */
+            owner?: string | null;
+            /**
+             * Owner Named
+             * @default false
+             */
+            owner_named: boolean;
+            /**
+             * Live
+             * @default false
+             */
+            live: boolean;
+            /** Why Not */
+            why_not?: string | null;
+            /**
+             * @default {
+             *       "state": "off",
+             *       "samples": 0,
+             *       "reasons": [],
+             *       "watching": false
+             *     }
+             */
+            availability: components["schemas"]["AvailabilityView"];
+            /** Incidents */
+            incidents?: components["schemas"]["WorkItem"][];
+            /**
+             * Data Declared
+             * @default false
+             */
+            data_declared: boolean;
+            last_backup?: components["schemas"]["OperationRecord"] | null;
+            last_restore?: components["schemas"]["OperationRecord"] | null;
+            /**
+             * Restore Proven
+             * @default false
+             */
+            restore_proven: boolean;
+            /**
+             * Restore Overdue
+             * @default false
+             */
+            restore_overdue: boolean;
+            /**
+             * Backups
+             * @default 0
+             */
+            backups: number;
+            /**
+             * Upkeep Declared
+             * @default false
+             */
+            upkeep_declared: boolean;
+            last_upkeep?: components["schemas"]["OperationRecord"] | null;
+            /** Upkeep Items */
+            upkeep_items?: components["schemas"]["WorkItem"][];
+            /** Records */
+            records?: components["schemas"]["OperationRecord"][];
+            retirement?: components["schemas"]["Retirement"] | null;
         };
         /**
          * Outcome
@@ -3849,6 +4256,8 @@ export interface components {
             by_workflow?: components["schemas"]["WorkflowOutcome"][];
             /** Weekly */
             weekly?: components["schemas"]["WeekPoint"][];
+            /** Retired */
+            retired?: components["schemas"]["RetiredProduct"][];
         };
         /**
          * PackAdvisory
@@ -3937,7 +4346,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback";
+            kind: "answer_questions" | "align" | "approve_risk" | "accept_risk" | "approve_schema" | "resume" | "factory_hold" | "wait" | "feedback" | "fix_ci" | "address_feedback" | "incident" | "upkeep" | "retire";
             /** Title */
             title: string;
             /**
@@ -4199,6 +4608,8 @@ export interface components {
             archived_at?: string | null;
             /** Archived By */
             archived_by?: string | null;
+            availability?: components["schemas"]["AvailabilityTarget"] | null;
+            retirement?: components["schemas"]["Retirement"] | null;
             /** Eval Run Id */
             eval_run_id?: string | null;
             /** Workflows */
@@ -4221,6 +4632,26 @@ export interface components {
             /** Feedback */
             feedback: components["schemas"]["Feedback"][];
             spend?: components["schemas"]["ProductSpend"];
+        };
+        /**
+         * ProductHistory
+         * @description A product's full history, from its first request to its decommission (J5), built from what
+         *     is stored: changes and their sealed evidence, the work ledger and the operation records.
+         */
+        ProductHistory: {
+            /** Product Id */
+            product_id: string;
+            /** Title */
+            title: string;
+            /** Entries */
+            entries?: components["schemas"]["HistoryEntry"][];
+            /**
+             * Retired
+             * @default false
+             */
+            retired: boolean;
+            /** Record Sha256 */
+            record_sha256?: string | null;
         };
         /**
          * ProductOwnerInput
@@ -4588,6 +5019,105 @@ export interface components {
              * @default
              */
             detail: string;
+        };
+        /**
+         * RetireInput
+         * @description Retire a product: why, and its name typed again (it can't be undone).
+         */
+        RetireInput: {
+            /** Reason */
+            reason: string;
+            /** Confirm */
+            confirm: string;
+            /**
+             * Without Export
+             * @default false
+             */
+            without_export: boolean;
+        };
+        /** RetireStep */
+        RetireStep: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "done" | "failed" | "skipped";
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** At */
+            at?: string | null;
+        };
+        /**
+         * RetiredProduct
+         * @description A decommissioned product on Outcomes (J5): what remains is its record.
+         */
+        RetiredProduct: {
+            /** Product Id */
+            product_id: string;
+            /** Title */
+            title: string;
+            /** Slug */
+            slug: string;
+            /** Owner */
+            owner?: string | null;
+            /** Retired By */
+            retired_by: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Retired At
+             * Format: date-time
+             */
+            retired_at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Changes
+             * @default 0
+             */
+            changes: number;
+            /**
+             * Deliveries
+             * @default 0
+             */
+            deliveries: number;
+            /** Record Sha256 */
+            record_sha256?: string | null;
+        };
+        /**
+         * Retirement
+         * @description A product's end of life (J5): asked for by a named person with a reason, done in steps that
+         *     are each recorded, so one that fails is continued, never started over.
+         */
+        Retirement: {
+            /** Requested By */
+            requested_by: string;
+            /** Reason */
+            reason: string;
+            /** Owner */
+            owner?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Steps */
+            steps?: components["schemas"]["RetireStep"][];
+            /** Finished At */
+            finished_at?: string | null;
+            /** Record Sha256 */
+            record_sha256?: string | null;
         };
         /** ReviewFinding */
         ReviewFinding: {
@@ -6537,6 +7067,293 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadyForView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_operations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_availability_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvailabilityInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backup_product: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_restore_drill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_upkeep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_product: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_product_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_decommission_record: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecommissionView"];
                 };
             };
             /** @description Validation Error */

@@ -2,7 +2,8 @@
 
 The product and change pages show these at the top ("Needs you"), so nobody has to scroll to find
 what is blocking a change. Each action names who acts (the product's creator, an admin, or the
-factory's operator for its own failures, ADR-0043), the panel on the change page that does it, and
+factory's operator for its own failures, ADR-0043; the creator gives way to the product's named
+owner, J4), the panel on the change page that does it, and
 whether it blocks the change. The engine decides; the page only shows what it is given.
 """
 
@@ -10,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget
+from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget, WorkItem
 from agent_factory.pr_loop import CiFix, FeedbackFix
 
 SYSTEM = "system"
@@ -18,7 +19,75 @@ ADMIN = "an admin"
 
 
 def _creator(product: Product | None) -> str:
-    return (product.created_by if product and product.created_by else None) or ADMIN
+    """Who acts on a product: its named owner (J4), else its creator, else an admin."""
+    return ((product.owner or product.created_by) if product else None) or ADMIN
+
+
+def product_actions(
+    product: Product,
+    incidents: list[WorkItem],
+    upkeep: list[WorkItem],
+    can_start: bool,
+    now: datetime,
+) -> list[PendingAction]:
+    """What a delivered product itself is waiting for, outside any change (J4, J5): an incident to
+    fix, upkeep that is due, a retirement that stopped half-way. They go to the product's owner.
+    `incidents` and `upkeep` are its open ledger items; `can_start`: no change is running on it."""
+    if product.archived_at and not (product.retirement and not product.retirement.done):
+        return []
+    owner = _creator(product)
+    out: list[PendingAction] = []
+
+    def act(kind: str, title: str, detail: str, panel: str, since: datetime, blocking: bool) -> None:
+        out.append(
+            PendingAction.model_validate(
+                {
+                    "kind": kind,
+                    "title": title,
+                    "detail": detail,
+                    "owner": owner,
+                    "panel": panel,
+                    "blocking": blocking,
+                    "since": since,
+                }
+            )
+        )
+
+    r = product.retirement
+    if r is not None and not r.done:
+        failed = next((s for s in r.steps if s.status == "failed"), None)
+        act(
+            "retire",
+            "Retirement stopped half-way: continue it",
+            (f"{failed.title} failed: {failed.detail}. " if failed else "")
+            + "The steps already done are kept; continuing picks up at the one that failed.",
+            "operations",
+            r.started_at,
+            True,
+        )
+        return out
+    for it in incidents:
+        waiting = it.status == "open"
+        act(
+            "incident",
+            "Incident: the product is outside its availability target" + ("" if waiting else " (a fix is in progress)"),
+            it.detail.split("\n", 1)[0]
+            + (
+                " Make this change to start a fix."
+                if waiting and can_start
+                else " A fix can start when the running change stops."
+                if waiting
+                else ""
+            ),
+            "next-iteration",
+            it.updated_at,
+            waiting,
+        )
+    for it in upkeep:
+        if it.status == "open":
+            act("upkeep", f"Upkeep: {it.title}", "Tick it on the Next iteration card to start an upkeep change.",
+                "next-iteration", it.created_at, False)  # fmt: skip
+    return out
 
 
 def pending_actions(
