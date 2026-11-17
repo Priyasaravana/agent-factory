@@ -168,7 +168,7 @@ class FakeHelm:
             return None
         # the app namespace's egress checks (`providers/app_network.py`): a chart that renders nothing to
         # refuse, and a namespace holding no policy besides the engine's
-        if " get networkpolicies" in command and "-o json" in command:
+        if (" get networkpolicies" in command or " get clusterrolebindings" in command) and "-o json" in command:
             return 0, json.dumps({"items": []})
         if "helm template " in command and " --namespace " in command:
             return 0, "# [dry-run] nothing rendered\n"

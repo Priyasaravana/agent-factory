@@ -175,7 +175,7 @@ class LocalProvider:
             if not render.ok:
                 return StepResult(False, "deployment failed: the chart does not render", render.output[-2500:])
             live = getattr(ctx.settings, "factory_mode", "live") == "live"
-            if problems := app_network.widening(render.whole(), live):
+            if problems := app_network.widening(render.whole(), live, ns):
                 return StepResult(
                     False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
                 )

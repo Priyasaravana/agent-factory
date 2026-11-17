@@ -6,6 +6,7 @@
 #
 #   scripts/sandbox-paths-probe.sh           report only (exit 0)
 #   PROBE_ENFORCE=1 scripts/sandbox-paths-probe.sh   fail when a path that must be closed is open
+#   PROBE_RESTART=1 ...      CI only: also restart dind and check everything is closed again
 #   PROBE_PROVE_RULE=1 ...   CI only: also take dind's firewall rules away and show what each is worth,
 #                            that a connection opened meanwhile is cut, and that a stuck watcher is unhealthy
 set -uo pipefail
@@ -17,6 +18,7 @@ say() { printf '  %-5s %s%s\n' "$1" "$2" "${3:+  ($3)}"; }
 want_closed() { if [ "$2" = closed ]; then say PASS "$1"; else say OPEN "$1" "${3:-}"; fail=1; fi; }
 want_open() { if [ "$2" = open ]; then say PASS "$1"; else say FAIL "$1" "${3:-}"; fail=1; fi; }
 # known_open NAME RESULT: a path this probe reports but nothing closes yet (roadmap, S-02 "builds and the internet")
+check() { if [ "$2" = "$3" ]; then say PASS "$1"; else say FAIL "$1" "got '$2', want '$3'"; fail=1; fi; }
 known_open() { if [ "$2" = closed ]; then say PASS "$1"; else say KNOWN "$1" "open; not closed yet, see the roadmap"; fi; }
 dind() { docker compose exec -T dind "$@"; }
 ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q "$1")" 2>/dev/null; }
@@ -130,6 +132,39 @@ say INFO "a container on $NET reaches the engine: $(reach --network "$NET" -- "h
 say INFO "iptables in dind: $(dind sh -c 'iptables -S DOCKER-USER 2>&1 | head -3; iptables -t mangle -S FORWARD 2>&1 | head -4' | tr -d '\r' | tr '\n' ';')"
 say INFO "dind routes: $(dind sh -c 'ip -4 route' | tr -d '\r' | tr '\n' ';')"
 say INFO "dind bridges: $(dind docker network ls --format '{{.Name}}:{{.Driver}}' | tr -d '\r' | tr '\n' ' ')"
+
+echo "the image start check, run for real with the engine's own commands (base_images.start_check):"
+# an image that answers on 8000, built in dind from the sandbox image (no network needed)
+dind sh -c "printf 'FROM $IMAGE\nCMD [\"python3\", \"-m\", \"http.server\", \"8000\"]\n' | docker build -q -t probe-app:1 - >/dev/null" \
+  || { echo "probe not usable: the start-check image can't be built"; exit 2; }
+plan=$(docker compose exec -T -u factory factory python -c "
+import json; from agent_factory import base_images as b
+start, probe = b.start_check('probe-start', 'probe-app:1', 8000, '/', '$IMAGE')
+print(json.dumps({'start': ' && '.join(start), 'probe': probe}))" | tr -d '\r')
+start_cmd=$(printf '%s' "$plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["start"])')
+probe_cmd=$(printf '%s' "$plan" | python3 -c 'import json,sys; print(json.load(sys.stdin)["probe"])')
+dind docker rm -f probe-start >/dev/null 2>&1
+if dind sh -c "$start_cmd" >/dev/null 2>&1 && dind sh -c "$probe_cmd" >/dev/null 2>&1; then r=open; else r=closed; fi
+want_open "the started image answers the engine's probe, asked from a sandbox-image container" "$r"
+check "nothing is published on dind for it" "$(dind docker port probe-start 2>/dev/null | tr -d '\r' | wc -l | tr -d ' ')" 0
+inside() { if dind docker exec probe-start python3 -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)" "$@" >/dev/null 2>&1; then echo open; else echo closed; fi; }
+want_closed "from the started image: the internet (1.1.1.1:443)" "$(inside 1.1.1.1 443)"
+want_closed "from the started image: the engine ($FACTORY:8000)" "$(inside "$FACTORY" 8000)"
+want_closed "from the started image: the auth service" "$(inside "$AUTH" 8001)"
+caps=$(dind docker inspect -f '{{.HostConfig.CapDrop}} {{.HostConfig.Memory}} {{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}}' probe-start | tr -d '\r')
+check "it runs without capabilities, bounded, with no-new-privileges" "$caps" "[ALL] 1073741824 256 [no-new-privileges]"
+dind docker rm -f probe-start >/dev/null 2>&1
+
+if [ "${PROBE_RESTART:-0}" = 1 ]; then
+  echo "dind restarted (cold start of its daemon; CI only):"
+  docker compose restart dind >/dev/null 2>&1
+  for _ in $(seq 1 90); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dind)")" = healthy ] && break; sleep 2
+  done
+  check "dind is healthy again after the restart" "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dind)")" healthy
+  want_closed "after the restart: a container reaches the engine's port" "$(reach -- "http://$FACTORY:8000/api/health")"
+  want_closed "after the restart: a RUN step reaches the engine's port" "$(build "http://$FACTORY:8000/api/health")"
+fi
 dind rm -rf "$ctx" >/dev/null 2>&1; rm -f "/tmp/probe-build.$$"
 
 if [ "$fail" = 0 ]; then echo "paths around the sandbox: closed"; else echo "paths around the sandbox: OPEN (see above)"; fi

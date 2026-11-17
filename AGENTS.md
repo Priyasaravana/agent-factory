@@ -52,8 +52,9 @@
   image start check (`base_images.start_check`: no capabilities, bounded, no way out when there is a
   probe image) and app pods (`providers/app_network.py`: the engine applies a default-deny egress policy
   to the namespace before every release; a new deploy path calls `egress_steps`, refuses a rendered chart
-  that widens or sidesteps the policy (`widening`: policies add up) and reads the namespace back after the
-  release (`after_release`); a new way to widen egress gets a case in `tests/test_app_network.py`). Nothing inside dind
+  that goes beyond ordinary app objects in its own namespace (`widening`: an allowlist, `APP_KINDS`; no RBAC,
+  bindings, webhooks or cluster-wide objects, no egress rules) and reads the namespace's policies and bindings
+  back after the release (`after_release`); a new way to widen egress gets a case in `tests/test_app_network.py`). Nothing inside dind
   reaches the compose network (`cluster/dind-firewall.sh`: two rules, the first before dockerd starts; its
   `check` reads the real rules, never a marker); a new compose service that containers in
   dind must reach is a port in `DIND_COMPOSE_ALLOW_PORTS`, decided deliberately. Apps are never served

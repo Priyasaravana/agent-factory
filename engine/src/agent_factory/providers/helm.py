@@ -256,7 +256,8 @@ class HelmProvider:
             f"ingress.tls={'true' if self.tls else 'false'}",
         ]
         render = await ctx.cmd(
-            f"helm template {slug} {chart} " + " ".join(f"--set {shlex.quote(x)}" for x in sets),
+            # in the release's namespace, so `.Release.Namespace` renders as installed (the allowlist checks it)
+            f"helm template {slug} {chart} --namespace {ns} " + " ".join(f"--set {shlex.quote(x)}" for x in sets),
             timeout=120,
         )
         live = getattr(ctx.settings, "factory_mode", "live") == "live"  # dry-run renders nothing
@@ -270,7 +271,7 @@ class HelmProvider:
                 f"ClusterIP and imagePullSecrets.\n{render.output[-1500:]}",
             )
         restricted = ctx.blueprint.app_egress == "restricted"
-        if restricted and (problems := app_network.widening(render.whole(), live)):
+        if restricted and (problems := app_network.widening(render.whole(), live, ns)):
             # policies add up: the chart may not ship one that undoes the namespace's (S-02)
             return StepResult(
                 False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)

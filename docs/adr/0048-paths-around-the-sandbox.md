@@ -39,13 +39,22 @@ cover, and that the factory's own services trusted whoever reached them:
    engine's, not the chart's, so a change to the product's chart can't drop it. A blueprint whose apps must
    call something outside says `app_egress: open`, and the policy is removed.
    **The chart can't widen it either** (review of #182, 2026-11-16). Kubernetes adds policies together, so a
-   second policy that allows egress would undo the engine's with the engine's intact. Under `restricted` a
-   deploy is refused, before anything is installed, when the rendered chart (`helm template`, hooks
-   included; `app_network.widening`, pure) ships a NetworkPolicy with an egress rule, another plugin's
-   policy kind, a Role that may change NetworkPolicies, or a pod on `hostNetwork`. After the release the
-   namespace is read back (`after_release`): a policy that allows egress besides the engine's is removed
-   and the deploy fails, because a template can render differently on the cluster (`lookup`). An
-   ingress-only policy is fine. A render or an answer the engine can't read is refused, never taken as clean.
+   second policy that allows egress would undo the engine's with the engine's intact; and a chart that
+   binds its own service account to an existing role (`cluster-admin`, `edit`) lets a pod delete the policy
+   later, after every deploy-time check (re-review, 2026-11-17). So under `restricted` the rendered chart
+   (`helm template` in the release's namespace, hooks included; `app_network.widening`, pure) is held to an
+   **allowlist** (`APP_KINDS`): Service, ConfigMap, Secret, ServiceAccount, PersistentVolumeClaim, Pod,
+   Deployment, StatefulSet, Job, CronJob, Ingress, NetworkPolicy, HorizontalPodAutoscaler,
+   PodDisruptionBudget, all in the release's own namespace. Anything else is refused by kind, whatever it
+   contains: every RBAC object and binding, webhooks and admission policies, DaemonSets, CRDs, another
+   plugin's policy kinds. Within the list, a NetworkPolicy with an egress rule and a pod on `hostNetwork`
+   are refused. With no binding, a ServiceAccount the chart makes has no API rights. After the release the
+   namespace is read back (`after_release`): a policy that allows egress besides the engine's, any
+   RoleBinding in the namespace, and any ClusterRoleBinding naming a subject in it are removed and the
+   deploy fails, because a template can render differently on the cluster (`lookup`). A render or an answer
+   the engine can't read is refused, never taken as clean. Proved on a real kind cluster by
+   `scripts/cluster-security-check.py` (CI job `cluster-security`), which installs an adversarial chart for
+   real, bypassing the check, to show the threat and the read-back.
 4. **The UI and the apps are different sites.** Apps on the local cluster are served on `127.0.0.1:<port>`
    (`local.off_the_factory_site`; a configured `http://localhost` is served the same way, and products already
    delivered are shown at the new address from the next start). The gateway sends a UI opened on `127.0.0.1`

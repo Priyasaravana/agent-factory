@@ -187,6 +187,68 @@ jobs:
   # The whole stack, as a user sees it, in dry-run (no model usage, so free):
   # compose up, sandbox isolation from inside a real sandbox, then a browser
   # walks sign-in → readiness → order → delivered → feedback → archive.
+  # App pods on a real cluster (S-02, #182 security review): the engine's egress policy, its chart
+  # check and its read-back against a kind cluster, with an adversarial chart installed for real.
+  cluster-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      KIND_VERSION: v0.27.0           # the version the factory image ships (images/factory/Dockerfile)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - uses: azure/setup-helm@v5
+      - name: a kind cluster (kindnet enforces NetworkPolicy)
+        run: |
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind create cluster --wait 180s
+          kubectl version
+      - name: app pods reach DNS and their own namespace only; a chart can't widen that (scripts/cluster-security-check.py)
+        run: cd engine && uv run --python 3.12 python ../scripts/cluster-security-check.py
+
+  # Per-call model keys on a real LiteLLM gateway with its database (ADR-0036, #182 security review):
+  # test models that need no provider key; every key refused once its call is over.
+  model-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LITELLM_MASTER_KEY: sk-ci-model-gateway-check
+      MODEL_GATEWAY_DB_PASSWORD: ci-model-gateway-db
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: the gateway, with test models and a published port (CI only)
+        run: |
+          cp .env.example .env   # the compose file names it for the factory; nothing here reads it
+          mkdir -p /tmp/gw
+          cat > /tmp/gw/config.yaml <<'YAML'
+          model_list:
+            - model_name: claude-mock
+              litellm_params: {model: openai/claude-mock, api_key: not-used, mock_response: "ok"}
+            - model_name: claude-other
+              litellm_params: {model: openai/claude-other, api_key: not-used, mock_response: "ok"}
+            - model_name: claude-slow
+              litellm_params: {model: openai/claude-slow, api_key: not-used, api_base: "http://10.255.255.1:9/v1", timeout: 60}
+          general_settings:
+            master_key: os.environ/LITELLM_MASTER_KEY
+            database_url: os.environ/DATABASE_URL
+          litellm_settings:
+            turn_off_message_logging: true
+          YAML
+          cat > /tmp/gw/compose.ci.yml <<'YAML'
+          services:
+            model-gateway:
+              ports: ["127.0.0.1:4000:4000"]
+              volumes: ["/tmp/gw/config.yaml:/etc/litellm/config.yaml:ro"]
+          YAML
+          docker compose -f docker-compose.yml -f /tmp/gw/compose.ci.yml --profile gateway up -d model-gateway
+      - name: every key is refused once its call is over (scripts/model-gateway-check.py)
+        run: cd engine && uv run --python 3.12 python ../scripts/model-gateway-check.py http://127.0.0.1:4000
+      - name: gateway logs
+        if: failure()
+        run: docker compose -f docker-compose.yml -f /tmp/gw/compose.ci.yml --profile gateway logs --no-color --tail 200
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -206,7 +268,7 @@ jobs:
       - name: the engine answers only the gateway, on its own site (scripts/gateway-check.sh, S-01 and S-04)
         run: scripts/gateway-check.sh
       - name: code outside the sandbox can't reach the factory (scripts/sandbox-paths-probe.sh, S-02)
-        run: PROBE_ENFORCE=1 PROBE_PROVE_RULE=1 scripts/sandbox-paths-probe.sh
+        run: PROBE_ENFORCE=1 PROBE_PROVE_RULE=1 PROBE_RESTART=1 scripts/sandbox-paths-probe.sh
       - name: browser smoke test
         run: |
           uv run --python 3.12 --with playwright python -m playwright install --with-deps chromium

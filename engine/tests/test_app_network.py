@@ -4,6 +4,7 @@ the blueprint says its apps must call out. The policy is the engine's, applied b
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
@@ -14,13 +15,19 @@ from agent_factory.config import Blueprint
 from agent_factory.executor import FakeExecutor
 from agent_factory.models import ChangeStatus
 from agent_factory.providers.app_network import (
+    APP_KINDS,
     POLICY_NAME,
     after_release,
     egress_policy,
     egress_steps,
+    installed_grants,
     installed_widening,
     widening,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
+# what `helm template` prints for an Ingress (a real render always carries apiVersion)
+INGRESS = "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
 
 
 def test_the_policy_denies_everything_but_dns_and_the_namespace_itself():
@@ -61,9 +68,7 @@ async def test_the_local_cluster_gets_the_policy_before_the_release(make_factory
 
 async def test_a_cluster_target_gets_it_in_every_namespace_it_releases_into(make_factory, cfg):
     _use_cluster_target(cfg)
-    ex = EnvExecutor(
-        outputs={"helm template": "kind: Ingress", "docker --config": "latest: digest: sha256:abc size: 1"}
-    )
+    ex = EnvExecutor(outputs={"helm template": INGRESS, "docker --config": "latest: digest: sha256:abc size: 1"})
     f = make_factory(ex)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
@@ -123,7 +128,7 @@ spec:
 
 def test_an_ordinary_chart_is_not_refused():
     assert widening(APP) == []
-    assert widening("") == [] and widening("kind: Ingress") == []
+    assert widening("") == [] and widening(INGRESS) == []
     deny = ALLOW_ALL.replace("egress: [{}]", "egress: []")
     assert widening(APP + deny) == [], "a policy that only denies egress adds nothing to allow"
 
@@ -145,25 +150,82 @@ def test_a_chart_may_not_ship_a_policy_that_allows_egress():
 
 def test_a_chart_may_not_sidestep_the_policy_either():
     other = "apiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata: {name: c}\nspec: {egress: [{}]}\n"
-    assert "only networking.k8s.io" in widening(other)[0], "another plugin's policy kind"
-    role = (
-        "apiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata: {name: netadmin}\n"
-        "rules: [{apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [get, delete]}]\n"
-    )
-    assert "may change NetworkPolicies" in widening(role)[0], "a role that lets the app remove the policy"
-    assert widening(role.replace("[get, delete]", "[get, list]")) == [], "reading them is harmless"
-    star = "kind: ClusterRole\nmetadata: {name: all}\nrules: [{apiGroups: ['*'], resources: ['*'], verbs: ['*']}]\n"
-    assert len(widening(star)) == 1
+    assert "not an ordinary app object" in widening(other)[0], "another plugin's policy kind"
     host = APP.replace("    spec:\n      containers", "    spec:\n      hostNetwork: true\n      containers")
     assert "hostNetwork" in widening(host)[0], "a pod on the node's network is covered by no policy"
     assert "not readable YAML" in widening("kind: [unclosed")[0], "a render the engine can't read is refused"
     assert widening("[dry-run] ok: helm template x", live=False) == [], "dry-run renders nothing"
 
 
+# Re-review of #182 (2026-11-17): a binding to a role that already exists gives the app's pods the right to
+# delete the policy later, after every deploy-time check. The chart may grant no API rights at all.
+SA = "apiVersion: v1\nkind: ServiceAccount\nmetadata: {name: app}\n"
+BIND_ADMIN = """
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: app-admin}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+subjects: [{kind: ServiceAccount, name: app, namespace: app-kudos}]
+"""
+
+
+def test_a_chart_may_not_grant_its_pods_api_rights():
+    assert widening(APP + SA) == [], "a ServiceAccount alone has no rights"
+    [problem] = widening(APP + SA + BIND_ADMIN)
+    assert problem.startswith("RoleBinding app-admin") and "grants API rights" in problem
+    cluster = BIND_ADMIN.replace("kind: RoleBinding", "kind: ClusterRoleBinding")
+    assert "grants API rights" in widening(cluster)[0], "cluster-wide, the broader variant"
+    to_edit = BIND_ADMIN.replace("name: cluster-admin", "name: edit")
+    assert len(widening(to_edit)) == 1, "a binding to any existing role, not only cluster-admin"
+    harmless_role = (
+        "apiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata: {name: r}\n"
+        "rules: [{apiGroups: [''], resources: [configmaps], verbs: [get]}]\n"
+    )
+    assert len(widening(harmless_role)) == 1, "no RBAC at all: what a role grants can change with its binding"
+    aggregate = "apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  name: x\n  labels:\n"
+    aggregate += "    rbac.authorization.k8s.io/aggregate-to-edit: 'true'\n"
+    aggregate += "rules: [{apiGroups: ['*'], resources: ['*'], verbs: ['*']}]\n"
+    assert len(widening(aggregate)) == 1, "a ClusterRole that would add itself to `edit`"
+
+
+def test_only_ordinary_app_objects_in_the_releases_own_namespace():
+    for api, kind in (
+        ("admissionregistration.k8s.io/v1", "MutatingWebhookConfiguration"),
+        ("admissionregistration.k8s.io/v1", "ValidatingAdmissionPolicy"),
+        ("apps/v1", "DaemonSet"),
+        ("v1", "Namespace"),
+        ("apiextensions.k8s.io/v1", "CustomResourceDefinition"),
+        ("v1", "Endpoints"),
+    ):
+        doc = f"apiVersion: {api}\nkind: {kind}\nmetadata: {{name: x}}\n"
+        assert "not an ordinary app object" in widening(doc)[0], kind
+    elsewhere = APP.replace("metadata: {name: kudos}", "metadata: {name: kudos, namespace: kube-system}", 1)
+    assert "is for namespace kube-system" in widening(elsewhere, namespace="app-kudos")[0]
+    assert widening(APP.replace("{name: kudos}", "{name: kudos, namespace: app-kudos}", 1), namespace="app-kudos") == []
+    # the shipped packs' charts stay inside the allowlist
+    for chart in sorted(ROOT.glob("packs/*/template/deploy/chart/templates/*.yaml")):
+        kinds = {line.split(":", 1)[1].strip() for line in chart.read_text().splitlines() if line.startswith("kind:")}
+        assert kinds <= {k for _, k in APP_KINDS}, (chart, kinds)
+
+
 def test_what_the_namespace_really_holds_is_read_after_the_release():
     ours = yaml.safe_load(egress_policy("app-kudos"))
     extra = yaml.safe_load(ALLOW_ALL.strip("-\n"))
     ingress_only = {"metadata": {"name": "only-the-ingress"}, "spec": {"policyTypes": ["Ingress"]}}
+    binding = {"kind": "RoleBinding", "metadata": {"name": "app-admin"}, "roleRef": {"name": "cluster-admin"}}
+    assert installed_widening(json.dumps({"items": [ours, binding]})) == [], "a binding is not a policy"
+    crb = {"metadata": {"name": "x"}, "subjects": [{"kind": "ServiceAccount", "name": "app", "namespace": "app-kudos"}]}
+    other = {"metadata": {"name": "kube"}, "subjects": [{"kind": "ServiceAccount", "namespace": "kube-system"}]}
+    nothing = json.dumps({"items": []})
+    assert installed_grants(json.dumps({"items": [ours]}), json.dumps({"items": [other]}), "app-kudos") == ([], [])
+    assert installed_grants(
+        json.dumps({"items": [ours, binding]}), json.dumps({"items": [crb, other]}), "app-kudos"
+    ) == (
+        ["app-admin"],
+        ["x"],
+    )
+    assert installed_grants("", nothing, "app-kudos") is None and installed_grants(nothing, "nope", "a") is None
     assert installed_widening(json.dumps({"items": [ours, ingress_only]})) == []
     assert installed_widening(json.dumps({"items": [ours, extra]})) == ["allow-all"]
     assert installed_widening("") is None and installed_widening("{}") is None, "unreadable is not 'none'"
@@ -194,7 +256,7 @@ async def test_an_ordinary_chart_is_rendered_checked_and_delivered(make_factory)
 
 async def test_a_cluster_target_refuses_the_same_chart(make_factory, cfg):
     _use_cluster_target(cfg)
-    outputs = {"helm template": "kind: Ingress\n" + ALLOW_ALL, "docker --config": "latest: digest: sha256:abc size: 1"}
+    outputs = {"helm template": INGRESS + ALLOW_ALL, "docker --config": "latest: digest: sha256:abc size: 1"}
     ex = EnvExecutor(outputs=outputs)
     f = make_factory(ex)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
@@ -218,6 +280,19 @@ async def test_a_policy_found_only_on_the_cluster_is_removed_and_the_deploy_fail
     # nothing extra: no refusal; an answer that can't be read: refused, never taken as "none"
     ex.scan_outputs["get networkpolicies"] = json.dumps({"items": held[:1]})
     assert await after_release(live, "kubectl", "app-kudos", run) is None
+    # a binding that only appeared on the cluster: removed, the deploy fails (a pod could change the policy later)
+    binding = {"kind": "RoleBinding", "metadata": {"name": "app-admin"}}
+    crb = {
+        "metadata": {"name": "app-cluster-admin"},
+        "subjects": [{"kind": "ServiceAccount", "namespace": "app-kudos"}],
+    }
+    ex.scan_outputs["get networkpolicies"] = json.dumps({"items": [*held[:1], binding]})
+    ex.scan_outputs["get clusterrolebindings"] = json.dumps({"items": [crb]})
+    granted = await after_release(live, "kubectl", "app-kudos", run)
+    assert granted is not None and "app-admin" in granted.detail and "app-cluster-admin" in granted.detail
+    assert "kubectl -n app-kudos delete rolebinding app-admin --ignore-not-found" in ex.calls
+    assert "kubectl delete clusterrolebinding app-cluster-admin --ignore-not-found" in ex.calls
+    ex.scan_outputs["get clusterrolebindings"] = json.dumps({"items": []})
     ex.scan_outputs["get networkpolicies"] = "error: the server is unavailable"
     unread = await after_release(live, "kubectl", "app-kudos", run)
     assert unread is not None and "could not be read" in unread.summary

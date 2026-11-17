@@ -67,12 +67,36 @@ def egress_steps(kubectl: str, namespace: str, mode: str) -> list[str]:
 
 # ------------------------------------------------- the chart can't widen it --
 # Kubernetes adds policies together: a second NetworkPolicy that allows egress would undo the
-# engine's, even with the engine's intact (review of #182, 2026-11-16). The chart is agent-written,
-# so under `restricted` it may not ship anything that widens or sidesteps the policy. Checked twice:
-# on what the chart renders, before anything is installed, and on what the namespace really holds
-# after the release (a template can render differently on the cluster, e.g. with `lookup`).
+# engine's, even with the engine's intact (review of #182, 2026-11-16). And a chart that grants its
+# own pods rights (a RoleBinding to `cluster-admin`, say) lets a pod delete the policy later, after
+# every deploy-time check (re-review, 2026-11-17). So under `restricted` the chart is held to an
+# **allowlist**: ordinary app objects in the release's own namespace, nothing else. RBAC, bindings,
+# webhooks and anything cluster-wide are refused by kind, whatever they contain. Checked on what the
+# chart renders, before anything is installed, and on what the namespace really holds after the
+# release (a template can render differently on the cluster, e.g. with `lookup`).
 _POLICY_API = "networking.k8s.io"
-_WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet", "Pod", "ReplicationController"}
+_RBAC_API = "rbac.authorization.k8s.io"
+# (API group, kind) an app's chart may render. Pods never get API rights from the chart: with no
+# binding, a ServiceAccount here has none.
+APP_KINDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("", "Service"),
+        ("", "ConfigMap"),
+        ("", "Secret"),
+        ("", "ServiceAccount"),
+        ("", "PersistentVolumeClaim"),
+        ("", "Pod"),
+        ("apps", "Deployment"),
+        ("apps", "StatefulSet"),
+        ("batch", "Job"),
+        ("batch", "CronJob"),
+        (_POLICY_API, "Ingress"),
+        (_POLICY_API, "NetworkPolicy"),  # and then only without egress rules
+        ("autoscaling", "HorizontalPodAutoscaler"),
+        ("policy", "PodDisruptionBudget"),
+    }
+)
+_WORKLOADS = {"Deployment", "StatefulSet", "Job", "CronJob", "Pod"}
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -95,21 +119,10 @@ def _pod_spec(doc: dict[str, Any]) -> dict[str, Any]:
     return _dict(_dict(spec.get("template")).get("spec"))
 
 
-def _touches_policies(rule: dict[str, Any]) -> bool:
-    groups, resources = rule.get("apiGroups") or [], rule.get("resources") or []
-    verbs = set(rule.get("verbs") or [])
-    if not (verbs & {"create", "update", "patch", "delete", "deletecollection", "*"}):
-        return False
-    return any(g in (_POLICY_API, "*") for g in groups) and any(
-        r in ("networkpolicies", "*") or str(r).startswith("networkpolicies/") for r in resources
-    )
-
-
-def widening(rendered: str, live: bool = True) -> list[str]:
-    """What a rendered chart (`helm template`, hooks included) ships that would widen or sidestep the
-    namespace's egress policy; empty when nothing does (pure). A render that can't be read is itself
-    a problem: nothing is installed on a chart the engine couldn't check (`live=False`: dry-run renders
-    nothing, so there is nothing to read)."""
+def widening(rendered: str, live: bool = True, namespace: str | None = None) -> list[str]:
+    """What a rendered chart (`helm template`, hooks included) ships beyond an ordinary app in its own
+    namespace; empty when nothing (pure). A render that can't be read is itself a problem: nothing is
+    installed on a chart the engine couldn't check (`live=False`: dry-run renders nothing)."""
     try:
         docs = [d for d in yaml.safe_load_all(rendered) if isinstance(d, dict)]
     except yaml.YAMLError as exc:
@@ -121,18 +134,21 @@ def widening(rendered: str, live: bool = True) -> list[str]:
         kind = str(doc.get("kind") or "")
         meta = _dict(doc.get("metadata"))
         name = f"{kind} {meta.get('name') or '?'}"
-        group = str(doc.get("apiVersion") or "").split("/")[0]
+        api = str(doc.get("apiVersion") or "")
+        group = api.split("/")[0] if "/" in api else ""
         if kind == "List" and isinstance(doc.get("items"), list):
             docs.extend(i for i in doc["items"] if isinstance(i, dict))
-        elif kind.endswith("NetworkPolicy"):
-            if group != _POLICY_API:
-                problems.append(f"{name} ({group}): only networking.k8s.io NetworkPolicy may be in an app's chart")
-            elif _allows_egress(doc):
-                problems.append(f"{name} allows egress: policies add up, so it would undo the namespace's policy")
-        elif kind in ("Role", "ClusterRole"):
-            if any(_touches_policies(r) for r in doc.get("rules") or [] if isinstance(r, dict)):
-                problems.append(f"{name} may change NetworkPolicies: the app could remove or widen the policy")
-        elif kind in _WORKLOADS and _pod_spec(doc).get("hostNetwork") is True:
+            continue
+        if (group, kind) not in APP_KINDS:
+            why = "grants API rights" if group == _RBAC_API else "is not an ordinary app object"
+            problems.append(f"{name} ({api or 'no apiVersion'}) {why}: an app's chart may not ship it")
+            continue
+        theirs = meta.get("namespace")
+        if theirs and namespace and theirs != namespace:
+            problems.append(f"{name} is for namespace {theirs}: an app's chart stays in its own ({namespace})")
+        if kind == "NetworkPolicy" and _allows_egress(doc):
+            problems.append(f"{name} allows egress: policies add up, so it would undo the namespace's policy")
+        if kind in _WORKLOADS and _pod_spec(doc).get("hostNetwork") is True:
             problems.append(f"{name} uses hostNetwork: its pods would not be covered by any NetworkPolicy")
     return problems
 
@@ -144,30 +160,57 @@ def render_command(helm: str, release: str, chart: str, namespace: str, sets: li
 
 
 def list_command(kubectl: str, namespace: str) -> str:
-    return f"{kubectl} -n {namespace} get networkpolicies.{_POLICY_API} -o json"
+    return f"{kubectl} -n {namespace} get networkpolicies.{_POLICY_API},rolebindings.{_RBAC_API} -o json"
+
+
+def cluster_bindings_command(kubectl: str) -> str:
+    return f"{kubectl} get clusterrolebindings.{_RBAC_API} -o json"
+
+
+def _items(listed: str) -> list[dict[str, Any]] | None:
+    try:
+        items = json.loads(listed).get("items")
+    except (ValueError, AttributeError):
+        return None
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else None
 
 
 def installed_widening(policies_json: str) -> list[str] | None:
     """Names of the policies the namespace really holds, besides the engine's, that allow egress (pure).
     None: the answer can't be read."""
-    try:
-        items = json.loads(policies_json).get("items")
-    except (ValueError, AttributeError):
-        return None
-    if not isinstance(items, list):
+    items = _items(policies_json)
+    if items is None:
         return None
     return sorted(
         str(_dict(i.get("metadata")).get("name"))
         for i in items
-        if isinstance(i, dict) and _dict(i.get("metadata")).get("name") != POLICY_NAME and _allows_egress(i)
+        if i.get("kind", "NetworkPolicy") == "NetworkPolicy"
+        and _dict(i.get("metadata")).get("name") != POLICY_NAME
+        and _allows_egress(i)
     )
+
+
+def installed_grants(namespace_json: str, cluster_json: str, namespace: str) -> tuple[list[str], list[str]] | None:
+    """(RoleBindings in the namespace, ClusterRoleBindings with a subject in it) (pure). The factory makes
+    none, so any is the app's: a way for its pods to change the policy later. None: an answer can't be read."""
+    here, cluster = _items(namespace_json), _items(cluster_json)
+    if here is None or cluster is None:
+        return None
+    role_bindings = sorted(str(_dict(i.get("metadata")).get("name")) for i in here if i.get("kind") == "RoleBinding")
+    cluster_bindings = sorted(
+        str(_dict(b.get("metadata")).get("name"))
+        for b in cluster
+        if any(_dict(s).get("namespace") == namespace for s in b.get("subjects") or [])
+    )
+    return role_bindings, cluster_bindings
 
 
 def refused(problems: list[str]) -> str:
     """What the developer is told when the chart is refused."""
     return (
         "This blueprint's apps may reach DNS and their own namespace only (app_egress: restricted), and the "
-        "factory applies that policy itself. The chart must not widen or sidestep it:\n- "
+        "factory applies that policy itself. The chart must not widen or sidestep it, and may ship only "
+        "ordinary app objects in its own namespace (no RBAC, bindings, webhooks or cluster-wide objects):\n- "
         + "\n- ".join(problems)
         + "\nRemove these from the chart. An ingress-only NetworkPolicy is fine. If the app really must call "
         "something outside, that is a decision for the factory's owner (the blueprint's app_egress), not the chart."
@@ -175,20 +218,38 @@ def refused(problems: list[str]) -> str:
 
 
 async def after_release(ctx: Any, kubectl: str, ns: str, run: Any) -> StepResult | None:
-    """Shared by the deploy providers: None when the namespace holds no policy that widens egress."""
+    """Shared by the deploy providers: None when the namespace holds nothing that widens egress or grants
+    its pods rights. Anything found is removed and the deploy fails; an answer that can't be read fails it."""
     listed = await run(list_command(kubectl, ns), 60)
+    bindings = await run(cluster_bindings_command(kubectl), 60)
     if getattr(ctx.settings, "factory_mode", "live") != "live":
         return None  # dry-run has no cluster to ask
     extra = installed_widening(listed.whole()) if listed.ok else None
-    if extra is None:
+    grants = installed_grants(listed.whole(), bindings.whole(), ns) if listed.ok and bindings.ok else None
+    if extra is None or grants is None:
+        unread = (listed if not listed.ok or extra is None else bindings).output[-1500:]
         return StepResult(
-            False, "deployment failed: the namespace's network policies could not be read", listed.output[-1500:]
+            False, "deployment failed: the namespace's network policies and bindings could not be read", unread
         )
-    if not extra:
+    role_bindings, cluster_bindings = grants
+    if not (extra or role_bindings or cluster_bindings):
         return None
-    names = " ".join(shlex.quote(n) for n in extra)
-    await run(f"{kubectl} -n {ns} delete networkpolicy {names} --ignore-not-found", 60)
-    problems = [
-        f"NetworkPolicy {n} allows egress (found in the namespace after the release, and removed)" for n in extra
-    ]
+    problems: list[str] = []
+    if extra:
+        await run(f"{kubectl} -n {ns} delete networkpolicy {' '.join(map(shlex.quote, extra))} --ignore-not-found", 60)
+        problems += [f"NetworkPolicy {n} allows egress (found after the release, and removed)" for n in extra]
+    if role_bindings:
+        names = " ".join(map(shlex.quote, role_bindings))
+        await run(f"{kubectl} -n {ns} delete rolebinding {names} --ignore-not-found", 60)
+        problems += [
+            f"RoleBinding {n} grants the app's pods API rights (found after the release, and removed)"
+            for n in role_bindings
+        ]
+    if cluster_bindings:
+        names = " ".join(map(shlex.quote, cluster_bindings))
+        await run(f"{kubectl} delete clusterrolebinding {names} --ignore-not-found", 60)
+        problems += [
+            f"ClusterRoleBinding {n} grants the app's pods cluster rights (found after the release, and removed)"
+            for n in cluster_bindings
+        ]
     return StepResult(False, "deployment failed: the chart widens the app's egress", refused(problems))
