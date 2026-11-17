@@ -632,9 +632,9 @@ class Operations:
         if op is None or op.upkeep is None:
             gaps.append("the stack declares no dependency check")
         else:
-            rows = await self._outdated(ctx, op.upkeep.outdated, op.upkeep.format)
+            rows = await self._outdated(ctx, op.upkeep.outdated, op.upkeep.format, op.upkeep.answers)
             if rows is None:
-                gaps.append("the dependency check's output couldn't be read")
+                gaps.append("the dependency check didn't answer (it failed, or printed no list)")
             else:
                 items = self.store.list_work_items(product.id)
                 item, what = ledger.fold_watch(
@@ -655,9 +655,13 @@ class Operations:
         )
         return rec
 
-    async def _outdated(self, ctx: OpsContext, command: str, fmt: str) -> list[operate.Outdated] | None:
+    async def _outdated(
+        self, ctx: OpsContext, command: str, fmt: str, answers: list[int]
+    ) -> list[operate.Outdated] | None:
         """The pack's outdated command over the product's code. It runs the product's own package
-        manager on an agent-written repo, so it runs where agent-written code runs: the sandbox."""
+        manager on an agent-written repo, so it runs where agent-written code runs: the sandbox.
+        None: the check didn't answer (an exit status the pack doesn't list, a cut-off output, no
+        JSON), so nothing it would have said is claimed: an open item stays open."""
         sandbox = self.m.sandbox
         if sandbox is not None:
             ctx.untrusted_ex = sandbox.executor(ctx.change.id, STATION, ctx.pack_egress)
@@ -668,7 +672,7 @@ class Operations:
                 with contextlib.suppress(Exception):
                     await sandbox.remove_change(ctx.change.id)
         text = _whole(res)
-        if text is None:
+        if text is None or res.returncode not in answers:
             return None
         return operate.OUTDATED_PARSERS[fmt](operate.json_part(text))
 

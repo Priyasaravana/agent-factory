@@ -3,6 +3,7 @@ product, the sealed decommission record, the product's history and Outcomes."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -211,6 +212,47 @@ async def test_a_never_delivered_product_retires_with_nothing_to_export(make_fac
     done = await f.manager.retirer.retire(p.id, "priya", "never started", "Bookmarks service")
     assert done.retirement.done and _steps(done)["export"] == "skipped"
     assert evidence.verify(f.manager.retirer.folder(done), done.retirement.record_sha256).intact
+
+
+async def test_overlapping_retire_requests_run_one_after_the_other(make_factory, monkeypatch):
+    """Review of #185: B read A's state while A was exporting, then saved stale progress over A's."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    gate, release = asyncio.Event(), asyncio.Event()
+    archive = f.manager.archive
+
+    async def slow_undeploy(pid, by):  # noqa: ANN001, ANN202
+        gate.set()
+        await release.wait()
+        return await archive(pid, by)
+
+    monkeypatch.setattr(f.manager, "archive", slow_undeploy)
+    a = asyncio.create_task(f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service"))
+    await asyncio.wait_for(gate.wait(), 30)  # A exported and is removing the app
+    b = asyncio.create_task(f.manager.retirer.retire(p.id, "sam", "a second click", "Bookmarks service"))
+    await asyncio.sleep(0.2)
+    assert not b.done(), "B waits for A instead of acting on what A is still doing"
+    release.set()
+    done_a, done_b = await asyncio.wait_for(asyncio.gather(a, b), 60)
+    assert done_a.retirement.done and done_b.retirement.done
+    stored = f.store.get_product(p.id)
+    assert stored.retirement.requested_by == "priya" and stored.retirement.reason == REASON
+    assert all(s.status == "done" for s in stored.retirement.steps), "B didn't save stale steps over A's"
+    assert len([c for c in ex.calls if "pg_dump" in c]) == 1, "exported once"
+    assert (
+        len([c for c in ex.calls if "uninstall" in c]) == 1
+        and len([c for c in ex.calls if "gh repo archive" in c]) == 1
+    )
+    assert evidence.verify(f.manager.retirer.folder(stored), stored.retirement.record_sha256).intact
+
+
+async def test_a_retry_continues_from_the_stored_state_not_the_one_it_read_first(make_factory, monkeypatch):
+    f, ex, p = await _published(make_factory, monkeypatch)
+    ex.fail_on.append("gh repo archive")
+    stopped = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    assert _steps(stopped)["archive-repo"] == "failed"
+    stale = stopped.model_copy(deep=True)  # what a slow second request may still hold
+    done = await f.manager.retirer.retire(stale.id, "priya", REASON, "Bookmarks service")
+    assert done.retirement.done and len([c for c in ex.calls if "pg_dump" in c]) == 1, "no second export"
 
 
 # ----------------------------------------------------------------- history --

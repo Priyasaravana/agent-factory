@@ -213,10 +213,19 @@ class PackData(BaseModel):
 class PackUpkeep(BaseModel):
     """How this stack's dependencies are checked for newer releases (J4): `outdated` runs in the
     product's sandbox, in its repo, and prints what `format` reads (npm: `npm outdated --json`;
-    pip: `pip list --outdated --format json`)."""
+    pip: `pip list --outdated --format json`). `answers`: the exit statuses that mean the check ran
+    (npm exits 1 when something is behind); any other status, or no JSON, is a gap in the check,
+    never "nothing is behind". Don't mask the status in the command (`|| true`)."""
 
     outdated: Command
     format: Literal["npm", "pip"]
+    answers: list[int] = Field(default_factory=lambda: [0], min_length=1)
+
+    @model_validator(mode="after")
+    def _unmasked(self) -> PackUpkeep:
+        if re.search(r"\|\|\s*(true\b|:)|;\s*(true|exit 0)\s*$", self.outdated):
+            raise ValueError("upkeep.outdated must not mask its exit status: list the statuses in `answers`")
+        return self
 
 
 class PackOperate(BaseModel):

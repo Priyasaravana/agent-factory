@@ -67,7 +67,21 @@ def test_error_rate_claims_nothing_without_two_counted_readings_or_after_a_resta
     assert operate.error_rate([Sample(t, True, requests=10, errors=9)]) is None
     assert operate.error_rate([Sample(t, True, requests=10, errors=0), Sample(t, True, requests=10, errors=0)]) is None
     restarted = [Sample(t, True, requests=500, errors=40), Sample(t, True, requests=20, errors=1)]
-    assert operate.error_rate(restarted) is None, "a counter that went down: the app restarted"
+    assert operate.error_rate(restarted) == pytest.approx(1 / 20), "after a restart only what was counted since"
+
+
+def test_a_restart_in_the_middle_of_the_window_is_seen_between_neighbours():
+    """Review of #185: (100,0), (0,0), (110,10) read 100% errors when only the ends were compared."""
+    t = NOW
+    rows = [Sample(t, True, requests=100, errors=0), Sample(t, True, requests=0, errors=0),
+            Sample(t, True, requests=110, errors=10)]  # fmt: skip
+    assert operate.error_rate(rows) == pytest.approx(10 / 110)
+    # the counter came back higher than before the restart: still a restart, the errors are new ones
+    rows = [Sample(t, True, requests=1000, errors=1), Sample(t, True, requests=1200, errors=0),
+            Sample(t, True, requests=1300, errors=0)]  # fmt: skip
+    assert operate.error_rate(rows) == pytest.approx(0 / 1300), "an error count that went down is a restart too"
+    steady = [Sample(t, True, requests=100 * i, errors=float(i)) for i in range(1, 5)]
+    assert operate.error_rate(steady) == pytest.approx(3 / 300), "no restart: the same as end minus start"
 
 
 METRICS = """# HELP http_requests_total Requests by route and status.
@@ -159,7 +173,10 @@ def test_npm_outdated_is_read_in_its_real_format():
         operate.Outdated("next", "15.0.3", "16.0.1", True),
         operate.Outdated("zod", "3.23.8", "3.24.1", False),
     ]
-    assert operate.parse_npm_outdated("{}") == [] and operate.parse_npm_outdated("") == [], "nothing is behind"
+    assert operate.parse_npm_outdated("{}") == [], "nothing is behind"
+    assert operate.parse_npm_outdated("") is None and operate.parse_npm_outdated("  \n") is None, (
+        "no output is no answer, never 'nothing is behind'"
+    )
     assert operate.parse_npm_outdated("npm ERR! network") is None
     assert operate.parse_npm_outdated('{"error": {"code": "E404"}}') is None
 
@@ -171,6 +188,7 @@ def test_pip_outdated_is_read_in_its_real_format():
         operate.Outdated("pydantic", "1.10.2", "2.9.0", True),
     ]
     assert operate.parse_pip_outdated("[]") == [] and operate.parse_pip_outdated("{}") is None
+    assert operate.parse_pip_outdated("") is None, "no output is no answer"
 
 
 def test_the_json_is_found_inside_a_tools_other_output():

@@ -51,7 +51,15 @@ export function RetireButton({ product, disabled }: { product: Product; disabled
         }),
       ),
     onSuccess: (p) => {
-      for (const k of [["product", product.id], ["products"], ["operations", product.id], ["attention"], ["outcomes"]])
+      for (const k of [
+        ["product", product.id],
+        ["products"],
+        ["operations", product.id],
+        ["attention"],
+        ["outcomes"],
+        ["history", product.id],
+        ["decommission", product.id],
+      ])
         qc.invalidateQueries({ queryKey: k });
       if (p.retirement?.finished_at) {
         setOpen(false);

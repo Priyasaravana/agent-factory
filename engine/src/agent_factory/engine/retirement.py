@@ -9,6 +9,7 @@ sealed manifest, so the whole story, from first request to decommission, can be 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
@@ -41,6 +42,7 @@ def _now() -> datetime:
 class Retirer:
     def __init__(self, manager: ChangeManager) -> None:
         self.m = manager
+        self._locks: dict[str, asyncio.Lock] = {}  # one retirement at a time per product
 
     @property
     def store(self) -> Any:
@@ -124,7 +126,15 @@ class Retirer:
         self, product_id: str, by: str, reason: str, confirm: str, without_export: bool = False
     ) -> Product:
         """Retire a product, or continue a retirement that stopped. Refused while a change runs on
-        it. Returns the product; `retirement.done` says whether every step finished."""
+        it. Returns the product; `retirement.done` says whether every step finished. Requests for
+        the same product run one after the other, and each reads the stored state only once it
+        holds the lock, so a second request continues from where the first left the product, never
+        from what it read before (and never saves stale steps over the first's)."""
+        lock = self._locks.setdefault(product_id, asyncio.Lock())
+        async with lock:
+            return await self._retire(product_id, by, reason, confirm, without_export)
+
+    async def _retire(self, product_id: str, by: str, reason: str, confirm: str, without_export: bool) -> Product:
         from agent_factory.engine.pipeline import FEEDBACK_OPEN, FactoryError, InvalidRequestError
 
         product = self.store.get_product(product_id)

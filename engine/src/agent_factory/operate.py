@@ -106,16 +106,22 @@ class Availability:
 
 
 def error_rate(samples: list[Sample]) -> float | None:
-    """Server errors over requests between the first and last reading that carried counters. None:
-    fewer than two such readings, no requests in between, or a counter went down (the app restarted:
-    what happened before is unknown, so nothing is claimed). Pure."""
+    """Server errors over requests across the readings that carried counters, summed between
+    neighbours so an app restart anywhere in the window is seen: when either counter went down
+    between two readings the app restarted, and the new reading's counts are what happened since
+    (what was served between the earlier reading and the restart is unknown and not claimed). None:
+    fewer than two such readings, or no requests counted. Pure."""
     counted = [s for s in samples if s.requests is not None and s.errors is not None]
     if len(counted) < 2:  # noqa: PLR2004 - a rate needs two readings
         return None
-    first, last = counted[0], counted[-1]
-    requests = (last.requests or 0) - (first.requests or 0)
-    errors = (last.errors or 0) - (first.errors or 0)
-    if requests <= 0 or errors < 0:
+    requests = errors = 0.0
+    for before, after in zip(counted, counted[1:], strict=False):
+        r0, e0, r1, e1 = before.requests or 0, before.errors or 0, after.requests or 0, after.errors or 0
+        if r1 < r0 or e1 < e0:  # restarted between the two: count from zero
+            requests, errors = requests + r1, errors + e1
+        else:
+            requests, errors = requests + r1 - r0, errors + e1 - e0
+    if requests <= 0:
         return None
     return min(1.0, errors / requests)
 
@@ -303,9 +309,12 @@ def _row(name: Any, current: Any, latest: Any) -> Outdated | None:
 
 
 def parse_npm_outdated(text: str) -> list[Outdated] | None:
-    """`npm outdated --json`: {name: {current, wanted, latest}}. None: not that format. Pure."""
+    """`npm outdated --json`: {name: {current, wanted, latest}}. None: not that format, or no output
+    at all (no answer is never "nothing is behind"). Pure."""
+    if not (text or "").strip():
+        return None
     try:
-        doc = json.loads(text or "{}")
+        doc = json.loads(text)
     except ValueError:
         return None
     if not isinstance(doc, dict) or "error" in doc:
@@ -322,9 +331,11 @@ def parse_npm_outdated(text: str) -> list[Outdated] | None:
 
 def parse_pip_outdated(text: str) -> list[Outdated] | None:
     """`pip list --outdated --format json` / `uv pip list --outdated --format json`:
-    [{name, version, latest_version}]. None: not that format. Pure."""
+    [{name, version, latest_version}]. None: not that format, or no output at all. Pure."""
+    if not (text or "").strip():
+        return None
     try:
-        doc = json.loads(text or "[]")
+        doc = json.loads(text)
     except ValueError:
         return None
     if not isinstance(doc, list):

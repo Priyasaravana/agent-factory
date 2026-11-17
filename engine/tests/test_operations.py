@@ -411,11 +411,63 @@ async def test_upkeep_says_what_it_could_not_check(make_factory):
     f, ex, p = await delivered(make_factory)
     ex.scan_outputs["uv pip list --outdated"] = "error: no virtual environment"
     rec = await f.manager.operations.upkeep(p)
-    assert rec.ok and rec.data["gaps"] == ["the dependency check's output couldn't be read"]
-    assert "not checked: the dependency check's output couldn't be read" in rec.summary
+    gap = "the dependency check didn't answer (it failed, or printed no list)"
+    assert rec.ok and rec.data["gaps"] == [gap]
+    assert f"not checked: {gap}" in rec.summary
     assert [i for i in f.store.list_work_items(p.id) if i.category == ledger.UPKEEP] == [], (
         "a gap is not a clean result"
     )
+
+
+async def _open_upkeep(f, ex, p):  # noqa: ANN001, ANN202
+    ex.scan_outputs["uv pip list --outdated"] = PIP_OUTDATED
+    await f.manager.operations.upkeep(p)
+    [item] = [i for i in f.store.list_work_items(p.id) if i.category == ledger.UPKEEP]
+    assert item.status == "open"
+    return item
+
+
+@pytest.mark.parametrize(
+    ("why", "answer"),
+    [
+        ("the install failed before the list ran", CommandResult("uv sync", 1, "error: Failed to download `fastapi`")),
+        ("it answered nothing", CommandResult("uv pip list", 0, "")),
+        ("it failed after printing a list", CommandResult("uv pip list", 2, "[]")),
+    ],
+)
+async def test_a_dependency_check_that_did_not_answer_never_closes_an_open_item(make_factory, why, answer):
+    """Review of #185: a failed or empty check read as 'nothing is behind' closed real findings."""
+    f, ex, p = await delivered(make_factory)
+    item = await _open_upkeep(f, ex, p)
+    ex.scan_outputs.pop("uv pip list --outdated")
+    real = ex.run
+
+    async def answering(command, cwd=None, timeout=600, env=None):  # noqa: ANN001, ANN202
+        if "uv pip list --outdated" in command:
+            ex.calls.append(command)
+            return answer
+        return await real(command, cwd, timeout, env)
+
+    ex.run = answering  # type: ignore[method-assign]
+    rec = await f.manager.operations.upkeep(p)
+    assert "the dependency check" in " ".join(rec.data["gaps"]), why
+    still = next(i for i in f.store.list_work_items(p.id) if i.id == item.id)
+    assert still.status == "open", f"{why}: a check that didn't answer proves nothing"
+
+
+async def test_npm_says_outdated_with_exit_status_1_and_that_is_an_answer(make_factory):
+    f, ex, p = await delivered(make_factory, blueprint="nextjs-web")
+    assert f.manager.cfg.blueprints["nextjs-web"].operate.upkeep.outdated == "npm outdated --json"
+    real = ex.run
+
+    async def npm(command, cwd=None, timeout=600, env=None):  # noqa: ANN001, ANN202
+        if command.startswith("npm outdated"):
+            return CommandResult(command, 1, NPM_OUTDATED)  # npm's documented status when something is behind
+        return await real(command, cwd, timeout, env)
+
+    ex.run = npm  # type: ignore[method-assign]
+    rec = await f.manager.operations.upkeep(p)
+    assert rec.data["dependencies"]["behind"] == 2 and rec.data["gaps"] == []
 
 
 async def test_upkeep_waits_for_a_person_unless_the_factory_is_told_to_start_it(make_factory):
@@ -557,6 +609,18 @@ def test_data_commands_must_name_the_database_so_a_drill_never_acts_on_productio
         packs.PackOperate.model_validate(_operate(workload="statefulset/x; rm -rf /"))
     with pytest.raises(ValueError):
         packs.PackOperate.model_validate({"availability": {"success": 0.2}})
+
+
+MASKED = ["npm outdated --json || true", "npm outdated --json ||:", "npm outdated --json; true"]
+
+
+@pytest.mark.parametrize("masked", MASKED)
+def test_a_dependency_check_may_not_hide_its_exit_status(masked):
+    with pytest.raises(ValueError, match="must not mask its exit status"):
+        packs.PackUpkeep.model_validate({"outdated": masked, "format": "npm"})
+    ok = packs.PackUpkeep.model_validate({"outdated": "npm outdated --json", "format": "npm", "answers": [0, 1]})
+    assert ok.answers == [0, 1]
+    assert packs.PackUpkeep.model_validate({"outdated": "uv pip list --outdated", "format": "pip"}).answers == [0]
 
 
 def test_both_stack_packs_declare_how_their_products_are_run(make_factory):
