@@ -284,3 +284,27 @@ def test_an_infra_hold_waits_on_the_factory_and_a_decision_names_its_action():
         "The factory failed, not the product: check what the hold names, then resume",
     )
     assert (board["J"].owner, board["J"].action) == ("priya", "Accept the risk of the 1 …")
+
+
+def test_retired_products_in_the_window_with_their_record():
+    from agent_factory.models import Retirement
+    from agent_factory.outcomes import retired
+
+    f = _facts()
+
+    def retire(pid: str, finished: datetime | None, by: str = "priya") -> None:
+        f.products[pid].retirement = Retirement(
+            requested_by=by, reason="replaced", owner="alice", started_at=T0, finished_at=finished,
+            record_sha256="ab" * 32 if finished else None,
+        )  # fmt: skip
+
+    retire("oA", NOW - timedelta(hours=1))  # 2 changes, 2 deliveries (OLD's from before the window counts)
+    retire("oC", NOW - timedelta(days=1), by="sam")  # 1 change, failed: no delivery
+    retire("oB", None)  # stopped half-way: not listed
+    retire("oD", NOW - timedelta(days=31))  # retired before the window
+    rows = retired(f)
+    assert [(r.product_id, r.retired_by, r.owner, r.changes, r.deliveries, r.record_sha256) for r in rows] == [
+        ("oA", "priya", "alice", 2, 2, "ab" * 32),
+        ("oC", "sam", "alice", 1, 0, "ab" * 32),
+    ]
+    assert compute(f).retired == rows

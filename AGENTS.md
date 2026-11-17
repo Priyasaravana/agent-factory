@@ -326,6 +326,17 @@
   (error, warn, info, debug) from the pure `levels.level_of` (`Event.level`). Decide these in the engine,
   never in the page; a new status, hold or event shape gets its case in `tests/test_attention.py` or
   `tests/test_levels.py`.
+- Run and maintain, then retire (J4, J5, ADR-0049): what running a stack takes is the pack's `stack.operate`
+  (availability target, metrics, data commands naming `{database}`, upkeep check). The Operate watch
+  (`engine/operations.py`) reads live factory-built products read-only, never while a change deploys, and keeps
+  numbers only; verdicts are the pure `operate.py` (`evaluate`, `judge_backup`, `judge_restore`, upkeep parsers
+  on the tools' real formats). A breach is an `incident` ledger item and an upkeep finding an `upkeep` one
+  (`ledger.fold_watch`): fixed only when the check ran again after the fixing change stopped. A backup counts
+  once a restore drill, away from production, matched its fingerprint; backups and command output are never
+  logged. Retiring (`engine/retirement.py`, pure `retire.py`) goes in recorded steps and seals a decommission
+  record; nothing starts on a retired product (`start_change`). Product items go to the owner
+  (`attention.product_actions`); the owner may steer. Tests in `tests/test_operate.py`,
+  `tests/test_operations.py`, `tests/test_retire.py`.
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

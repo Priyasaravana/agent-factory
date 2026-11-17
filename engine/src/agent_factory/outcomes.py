@@ -30,6 +30,7 @@ from agent_factory.models import (
     PillarScore,
     Product,
     ProductTarget,
+    RetiredProduct,
     StationEffort,
     TimeSplit,
     Transition,
@@ -332,6 +333,7 @@ def compute(f: Facts) -> OutcomesView:
         guardrail_denials=sum(1 for _, ts, _d in f.denials if since <= ts <= now),
         by_workflow=workflows,
         weekly=weekly,
+        retired=retired(f),
     )
 
 
@@ -433,6 +435,34 @@ def gather(store: StateStore, days: int, now: datetime | None = None) -> Facts:
         if got := store.last_event_data(r.id, "traceability"):
             f.traceability[r.id] = list(got[1])
     return f
+
+
+def retired(f: Facts) -> list[RetiredProduct]:
+    """Products decommissioned in the window (J5), newest first: a product whose retirement
+    finished between `since` and `now`, with who retired it, why, how many changes it had and how
+    many were delivered, and the digest of its sealed decommission record. Pure."""
+    out = []
+    for p in f.products.values():
+        r = p.retirement
+        if r is None or r.finished_at is None or not f.since <= r.finished_at <= f.now:
+            continue
+        changes = [c for c in f.changes if c.product_id == p.id]
+        out.append(
+            RetiredProduct(
+                product_id=p.id,
+                title=p.title,
+                slug=p.slug,
+                owner=r.owner,
+                retired_by=r.requested_by,
+                reason=r.reason,
+                retired_at=r.finished_at,
+                created_at=p.created_at,
+                changes=len(changes),
+                deliveries=sum(1 for c in changes if delivered_at(c, f) is not None),
+                record_sha256=r.record_sha256,
+            )
+        )
+    return sorted(out, key=lambda x: x.retired_at, reverse=True)
 
 
 def outcomes(store: StateStore, days: int = 30, now: datetime | None = None) -> OutcomesView:

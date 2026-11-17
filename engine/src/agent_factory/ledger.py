@@ -907,6 +907,95 @@ def fold_ui_review(
     return sorted(changed.values(), key=sort_key), stats
 
 
+INCIDENT = "incident"  # an availability breach the Operate watch found (J4)
+UPKEEP = "upkeep"  # dependencies that fell behind, found by scheduled upkeep (J4)
+WATCHED = {INCIDENT: ("high", "bug", "operate watch"), UPKEEP: ("low", "upkeep", "scheduled upkeep")}
+
+
+def fold_watch(  # noqa: PLR0913 - one finding, its ledger and what is running
+    product_id: str,
+    items: list[WorkItem],
+    category: str,
+    candidate: dict[str, Any] | None,
+    *,
+    now: datetime,
+    iteration: int,
+    running: Iterable[str] = (),
+) -> tuple[WorkItem | None, str]:
+    """Fold one reading of a scheduled check into the ledger (J4): the Operate watch's verdict on a
+    product's availability (`incident`) or the upkeep check's on its dependencies (`upkeep`). There
+    is one item per product and category: `candidate` (title, detail, optional severity and at) is
+    what the check found, None that it ran and found nothing. Found: a new item, a fixed one
+    reopened, an open one brought up to date. Not found: the item is fixed, because the check really
+    ran again, unless a change that addresses it is still `running` (it hasn't been deployed yet).
+    Returns the item if it changed and what happened: new | reopened | updated | fixed | ""."""
+    default_severity, change_kind, via = WATCHED[category]
+    fp = fingerprint("issue", "", f"{category}:{product_id}")
+    it = next((i for i in items if i.category == category and i.fingerprint == fp), None)
+    if candidate is None:
+        if it is None or it.status not in OPEN:
+            return None, ""
+        if it.status == "in_progress" and set(it.claimed_by) & set(running):
+            return None, ""
+        by_change = it.claimed_by[-1] if it.status == "in_progress" and it.claimed_by else None
+        it.status, it.resolved_by = "fixed", by_change
+        note = (
+            f"the check ran again and no longer finds it, after change {by_change}"
+            if by_change
+            else "the check ran again and no longer finds it (no change addressed it)"
+        )
+        _log(it, now, "fixed", note, iteration=iteration, change_id=by_change)
+        return it, "fixed"
+    severity = str(candidate.get("severity") or default_severity)
+    what = ""
+    if it is None:
+        it = WorkItem(
+            id=item_id(product_id, fp),
+            product_id=product_id,
+            kind="issue",
+            fingerprint=fp,
+            title=candidate["title"],
+            category=category,
+            change_kind=change_kind,
+            first_iteration=iteration,
+            created_at=now,
+            updated_at=now,
+        )
+        ids = {i.id for i in items}
+        while it.id in ids:
+            it.id = it.id + "x"
+        items.append(it)
+        _log(it, now, "found", f"by the {via}", iteration=iteration)
+        what = "new"
+    elif it.status in ("fixed", "wont_do"):
+        # found again after it was fixed or decided against: a new occurrence needs a new decision
+        it.status, it.resolved_by, it.claimed_by = "open", None, []
+        it.decision_reason, it.decision_by = "", None
+        _log(it, now, "reappeared", f"found again by the {via}", iteration=iteration)
+        what = "reopened"
+    elif it.status == "accepted_risk" and it.accepted_until and it.accepted_until <= now:
+        it.status = "open"
+        _log(it, now, "reopened", "risk acceptance expired", iteration=iteration)
+        what = "reopened"
+    elif it.status == "in_progress" and not (set(it.claimed_by) & set(running)):
+        # the change that addressed it stopped, and the check still finds it: the fix didn't hold
+        it.status = "open"
+        _log(it, now, "still-present", f"still found by the {via} after change {', '.join(it.claimed_by)}")
+        what = "reopened"
+    elif (it.title, it.severity, it.detail) == (candidate["title"], severity, candidate["detail"]):
+        return None, ""
+    else:
+        what = "updated"
+    it.title, it.severity, it.detail = candidate["title"], severity, candidate["detail"]
+    it.at = [str(a) for a in (candidate.get("at") or [])][:20]
+    it.sources = [{"station": "operate", "via": via, "rule": category}]
+    it.last_iteration = iteration
+    if iteration not in it.seen_in:
+        it.seen_in.append(iteration)
+    it.updated_at = now
+    return it, what
+
+
 def has_fix(it: WorkItem) -> bool:
     """An image finding with a released fix (its detail starts "fixed in", `image_scan.ledger_detail`)."""
     return it.category == IMAGE and it.detail.startswith("fixed in")
@@ -923,6 +1012,9 @@ def next_iteration(items: list[WorkItem]) -> dict[str, list[WorkItem]]:
         "quality": [it for it in open_ if it.category == ROADMAP],
         "security": [it for it in open_ if has_fix(it)],
         "ui": [it for it in open_ if it.category == UI],
+        # run and maintain (J4): an availability breach first, then dependencies that fell behind
+        "incidents": [it for it in open_ if it.category == INCIDENT],
+        "upkeep": [it for it in open_ if it.category == UPKEEP],
     }
 
 

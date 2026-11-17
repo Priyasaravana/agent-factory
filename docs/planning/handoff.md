@@ -1,9 +1,24 @@
-# Agent Factory: handoff (updated 2026-11-16)
+# Agent Factory: handoff (updated 2026-11-17)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-16)
+## Current state (2026-11-17)
+- **J4 and J5 built in one PR** (`feat/j4-j5-run-retire`, asked for by Saravana 2026-11-16; ADR-0049, proposed).
+  Code map: pure rules in `operate.py` (target, evaluate, error rate, backup/restore judgement, upkeep parsers,
+  production proof) and `retire.py` (steps, timeline, record); acting in `engine/operations.py` (the watch,
+  backup, restore drill, upkeep, `tick`/`start` from the app lifespan in live mode only) and
+  `engine/retirement.py` (retire, history, verify). Ledger: `ledger.fold_watch` (categories `incident`,
+  `upkeep`). Packs: `stack.operate` (`packs.PackOperate`), nextjs-web 1.6.0, fastapi-service 1.2.0. Restart:
+  `ChangeManager.resume_after_restart` (policy auto, `max_auto`). Store: `health_samples`, `operation_records`.
+  UI: "Running it" (`Operations.tsx`), Retire / History / Retired (`Retire.tsx`), Next iteration groups
+  Incidents and Upkeep, Outcomes "Retired". Tests: `test_operate.py` (pure), `test_operations.py`,
+  `test_retire.py`, journey J4.0–J5.3. **Not run live:** checklist in
+  [plans/run-and-retire.md](plans/run-and-retire.md).
+- **Open on main (2026-11-17):** `tests/test_checks.py::test_snyk_answers_with_its_token_only_in_the_environment`
+  fails locally on main `f580a4c` without this branch (the Snyk fixture's finding isn't counted); see the PR.
+
+## Earlier state (2026-11-16)
 - **Decided by Saravana 2026-11-16:** J3 is closed, and the assessment's first group ("close the paths around
   the sandbox": S-01, S-02, S-04, S-03's refusal) comes now, before J4, in that order (roadmap, "Next, in order").
 - **S-01 merged 2026-11-16 (#181):** identity headers count only with the gateway's

@@ -153,11 +153,32 @@ def main() -> int:
             page.screenshot(path=f"{SHOTS}/outcomes.png", full_page=True)
             page.go_back()
 
-            step("archive")
-            page.get_by_role("button", name="Archive").click()
-            page.get_by_role("button", name="Archive product").click()
-            expect(page.get_by_text(re.compile("^Archived"))).to_be_visible(timeout=30_000)
-            page.screenshot(path=f"{SHOTS}/archived.png", full_page=True)
+            step("running it (J4): the watch, backups and upkeep panel")
+            running = page.get_by_test_id("operations")
+            expect(running).to_contain_text("Running it")
+            page.screenshot(path=f"{SHOTS}/running-it.png", full_page=True)
+
+            step("retire (J5): a delivered product is retired, not archived")
+            page.get_by_test_id("retire").click()
+            page.get_by_role("textbox", name="Why is it being retired?").fill("Replaced by the next version")
+            page.get_by_test_id("retire-confirm").fill(title)
+            page.get_by_test_id("retire-go").click()
+            # dry-run has no database to export: the retirement stops at the export, and is continued
+            # without it (a person's explicit choice, which the sealed record states)
+            record = page.get_by_test_id("decommission-record")
+            without = page.get_by_role("checkbox", name=re.compile("without the final data export"))
+            expect(record.or_(without).first).to_be_visible(timeout=60_000)
+            if without.is_visible():
+                without.check()
+                page.get_by_test_id("retire-confirm").fill(title)
+                page.get_by_test_id("retire-go").click()
+            expect(page.get_by_test_id("retired")).to_contain_text("Retired", timeout=60_000)
+            expect(record).to_contain_text("sealed and intact", timeout=30_000)
+            toggle = page.locator("#history [data-panel-toggle]")
+            if toggle.get_attribute("aria-expanded") != "true":
+                toggle.click()
+            expect(page.get_by_test_id("history")).to_contain_text("Product decommissioned")
+            page.screenshot(path=f"{SHOTS}/retired.png", full_page=True)
         except Exception:
             page.screenshot(path=f"{SHOTS}/failure.png", full_page=True)
             raise

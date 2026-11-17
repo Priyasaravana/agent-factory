@@ -94,6 +94,7 @@ export default function OutcomesPage() {
           <Quality o={o} />
           <Effort o={o} />
           <ByWorkflow o={o} />
+          <Retired o={o} />
         </>
       )}
     </div>
@@ -560,6 +561,59 @@ function ByWorkflow({ o }: { o: Outcomes }) {
                 <Num>{pct(r.autonomy_ratio)}</Num>
                 <Num>{usd(r.cost_per_delivery_usd)}</Num>
                 <Num>{duration(r.lead_time_median_s)}</Num>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Products decommissioned in the window (J5), each with the digest of its sealed decommission record. */
+function Retired({ o }: { o: Outcomes }) {
+  const rows = o.retired ?? [];
+  if (!rows.length) return null;
+  return (
+    <Card data-testid="retired">
+      <CardHeader>
+        <div>
+          <CardTitle>Retired</CardTitle>
+          <CardDescription>
+            Products decommissioned in this window. Each keeps its history and a sealed decommission record.
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <table className="wide">
+          <thead>
+            <tr>
+              <td>product</td>
+              <td>retired by</td>
+              <td>why</td>
+              <td>changes</td>
+              <td>deliveries</td>
+              <td>record</td>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.product_id}>
+                <td>
+                  <Link to={`/products/${r.product_id}`}>{r.title}</Link>
+                </td>
+                <td>
+                  {r.retired_by}
+                  {r.owner && r.owner !== r.retired_by ? ` (owner ${r.owner})` : ""}
+                </td>
+                <td className="max-w-[24rem] truncate" title={r.reason}>
+                  {r.reason}
+                </td>
+                <Num>{r.changes}</Num>
+                <Num>{r.deliveries}</Num>
+                <td>
+                  <code className="text-xs text-muted-foreground">{r.record_sha256?.slice(0, 12) ?? "–"}</code>
+                </td>
               </tr>
             ))}
           </tbody>

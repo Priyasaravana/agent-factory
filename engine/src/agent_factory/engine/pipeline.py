@@ -133,6 +133,12 @@ class ChangeManager:
         from agent_factory.engine.sources import RepoSources
 
         self.sources = RepoSources(cfg, store, self.secrets)  # how team repos are reached (ADR-0047)
+        from agent_factory.engine.operations import Operations
+
+        self.operations = Operations(self)  # runs and maintains delivered products (J4)
+        from agent_factory.engine.retirement import Retirer
+
+        self.retirer = Retirer(self)  # end of life: freeze, export, undeploy, archive, sealed record (J5)
         self._sem = asyncio.Semaphore(cfg.factory.max_concurrent_changes)
 
     # ------------------------------------------------------------ queries --
@@ -542,6 +548,12 @@ class ChangeManager:
         continues another change's pull request (`fix_ci`, J3)."""
         from agent_factory.identity import current_identity
 
+        if product.retirement is not None:
+            raise FactoryError(
+                "this product is retired: nothing new starts on it"
+                if product.retirement.done
+                else "this product is being retired: nothing new starts on it"
+            )
         if product.archived_at:
             raise FactoryError("this product is archived: create a new product instead")
         self._refuse_while_busy(product.id)
@@ -708,11 +720,50 @@ class ChangeManager:
         change.loops = 0
         change.hold_class = None
         change.last_routed = None  # a person looked: the same failure gets one more repair
+        change.auto_resumed = {}  # and the factory may resume it after a restart again
         change.status = ChangeStatus.queued
         self.store.save_change(change)
         self.store.add_event(change.id, EventKind.decision, "change resumed by human", station=change.current_station)
         self._schedule(change.id)
         return change
+
+    def resume_after_restart(self, change_id: str) -> bool:
+        """Recover policy auto (J4): a change the restart interrupted goes on at its station, with
+        the budgets it had (a person's resume gives fresh ones; a restart doesn't). State is
+        durable and stations can be run again, so nothing is lost. Not resumed: policy manual, a
+        hold a person must unblock, or `max_auto` restarts in a row at the same station (a station
+        that takes the engine down must not loop). Then it waits for a person, and says why."""
+        policy = self.cfg.policies.recover
+        change = self._get(change_id)
+        if policy.mode != "auto" or change.status != ChangeStatus.interrupted or self.is_active(change_id):
+            return False
+        station = change.current_station or ""
+        if change.required_action is not None or self.busy(change.product_id):
+            return False
+        done = change.auto_resumed.get(station, 0)
+        if done >= policy.max_auto:
+            self.store.add_event(
+                change.id,
+                EventKind.decision,
+                f"not resumed automatically: the factory restarted {done + 1} times in a row while this change "
+                f"was at {station or 'its first station'}; a person resumes it after reading why",
+                station=change.current_station,
+                data={"auto_resumed": done, "max_auto": policy.max_auto},
+            )
+            return False
+        change.auto_resumed[station] = done + 1
+        change.status = ChangeStatus.queued
+        self.store.save_change(change)
+        self.store.add_event(
+            change.id,
+            EventKind.decision,
+            f"resumed after the factory restarted, at {station or 'its first station'} "
+            f"({done + 1} of {policy.max_auto} automatic resumes there)",
+            station=change.current_station,
+            data={"auto_resumed": done + 1, "max_auto": policy.max_auto},
+        )
+        self._schedule(change.id)
+        return True
 
     # ------------------------------------------------------- spec review ---
     def _awaiting_spec(self, change_id: str) -> Change:
@@ -1018,6 +1069,8 @@ class ChangeManager:
         kind: ChangeKind | None = ChangeKind.feature,
         items: list[str] | None = None,
         provided: dict[str, dict[str, Any]] | None = None,
+        source: ChangeSource = ChangeSource.ui,
+        requested_by: str | None = None,
     ) -> Change:
         """A change to a delivered product (ADR-0030): a feature, a bug fix or upkeep; an
         existing repo is assessed again (ADR-0031). `items` are work items from the product's
@@ -1056,7 +1109,9 @@ class ChangeManager:
             chosen = [i for i in ledger_items if i.id in set(items)]
             text = ledger.request_text(text, chosen)
         self.store.add_feedback(product_id, latest.id if latest else None, text)
-        change = self.start_change(product, change_request=text, kind=kind, provided=provided)
+        change = self.start_change(
+            product, change_request=text, kind=kind, provided=provided, source=source, requested_by=requested_by
+        )
         self.store.add_event(
             change.id,
             EventKind.feedback,
@@ -1335,8 +1390,7 @@ class ChangeManager:
             product = self.store.get_product(change.product_id)
             if product and rollback.serving_unaccepted(change, product):
                 continue  # settle_interrupted restores production first, then resumes (ADR-0046)
-            if self.cfg.policies.recover.mode == "auto":
-                self.resume(change.id)
+            self.resume_after_restart(change.id)
         for change in self.store.changes_with_status({ChangeStatus.paused_limits}):
             self._wake_later(change)
         return touched
@@ -1831,6 +1885,7 @@ class ChangeManager:
                     )
                     continue
                 nxt = flow.next_in(plan, sid)
+                change.auto_resumed.pop(sid, None)  # the station finished: restarts there no longer count
                 change.current_station = nxt
                 if nxt is None:
                     change.status = ChangeStatus.awaiting_feedback
@@ -2363,8 +2418,8 @@ class ChangeManager:
                 self.store.add_event(change.id, EventKind.log, f"production check failed: {type(exc).__name__}: {exc}")
                 continue
             change = self._get(change_id)
-            if self.cfg.policies.recover.mode == "auto" and change.status == ChangeStatus.interrupted:
-                self.resume(change_id)
+            if change.status == ChangeStatus.interrupted:
+                self.resume_after_restart(change_id)
 
     def _hold_stop(self, change: Change, sid: str, stop: Stop, result: StationResult) -> None:
         self.store.add_event(

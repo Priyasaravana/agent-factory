@@ -17,7 +17,7 @@ from agent_factory.repo_sources import RepoSource
 
 if TYPE_CHECKING:
     from agent_factory.base_images import BaseImage
-    from agent_factory.packs import PackAdminSecret, PackBinding, PackPreview
+    from agent_factory.packs import PackAdminSecret, PackBinding, PackOperate, PackPreview
     from agent_factory.readiness import StackRules
 
 PolicyMode = Literal["auto", "manual", "off"]
@@ -129,6 +129,12 @@ class Blueprint(BaseModel):
         return self._pack.base_images if self._pack else ()
 
     @property
+    def operate(self) -> PackOperate | None:
+        """What running this blueprint's products takes after delivery (J4): the pack's availability
+        target, data commands and upkeep check. None: no pack, so nothing is declared."""
+        return self._pack.operate if self._pack else None
+
+    @property
     def pack_egress(self) -> tuple[str, ...]:
         """Egress this blueprint's products' sandboxes get on top of `sandbox.egress`."""
         return self._pack.egress if self._pack else ()
@@ -150,6 +156,8 @@ class Blueprint(BaseModel):
 
 class Policy(BaseModel, extra="allow"):
     mode: PolicyMode = "manual"
+    # recover only: restarts in a row the factory resumes a change after at one station (J4)
+    max_auto: int = Field(default=2, ge=1, le=20)
 
 
 class Policies(BaseModel):
@@ -157,7 +165,35 @@ class Policies(BaseModel):
     deploy: Policy = Policy(mode="auto")
     publish: Policy = Policy(mode="manual")
     merge: Policy = Policy(mode="manual")
+    # after a factory restart: manual marks each interrupted change and waits for a person's Resume;
+    # auto resumes it at its station (J4), at most `max_auto` (default 2) restarts in a row per change
+    # before it waits for a person, so a station that takes the engine down can't loop
     recover: Policy = Policy(mode="manual")
+
+
+class OperateConfig(BaseModel):
+    """Run and maintain delivered products (roadmap J4): what the factory does on a schedule for
+    every live product it built. Nothing here runs in dry-run unless a test asks."""
+
+    enabled: bool = True
+    probe_seconds: int = Field(default=60, ge=10, le=3600)  # how often a live product's health is read
+    keep_samples_hours: int = Field(default=72, ge=1, le=24 * 90)
+    backup_every_hours: float = Field(default=24, gt=0, le=24 * 30)
+    keep_backups: int = Field(default=7, ge=1, le=365)
+    # a backup that has never been restored doesn't count: a drill restores the newest one
+    restore_drill_every_days: float = Field(default=7, gt=0, le=365)
+    upkeep_every_hours: float = Field(default=24, gt=0, le=24 * 30)
+    # ask: findings wait on the product's Next iteration card for its owner; auto: the factory starts
+    # the upkeep change itself when nothing else is running on the product (it spends model budget)
+    upkeep_start: Literal["ask", "auto"] = "ask"
+
+
+class RetireConfig(BaseModel):
+    """End of life (roadmap J5)."""
+
+    # archive the product's published repository on its host when the product is retired; off: the
+    # repository is left as it is and the decommission record says so
+    archive_repo: bool = True
 
 
 class Gate(BaseModel):
@@ -575,6 +611,8 @@ class FactoryConfig(BaseModel):
     )
     use_factory_defaults: bool = False
     phases: PhasesConfig = PhasesConfig()
+    operate: OperateConfig = OperateConfig()  # run and maintain (J4)
+    retire: RetireConfig = RetireConfig()  # end of life (J5)
     # the packs an admin installed, after reviewing them (ADR-0039 §2, ADR-0041): folders with a
     # pack.yaml, relative to the factory home. `phases.packs` is read as an alias.
     packs: list[str] = Field(default_factory=list)

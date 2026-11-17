@@ -37,7 +37,7 @@ import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -160,6 +160,83 @@ class PackDeploy(BaseModel):
         return self
 
 
+Command = Annotated[str, Field(min_length=1, max_length=600)]
+
+
+class PackAvailability(BaseModel):
+    """The default availability target of this stack's products (J4): the share of liveness checks
+    that must answer over a window. A product may tighten it, never loosen it."""
+
+    success: float = Field(default=0.99, ge=0.5, le=0.9999)
+    window_minutes: int = Field(default=30, ge=2, le=24 * 60)
+    min_samples: int = Field(default=5, ge=2, le=1000)
+    # the share of requests the app may answer with a server error; None: not judged
+    max_error_rate: float | None = Field(default=0.05, ge=0, le=1)
+
+
+class PackMetrics(BaseModel):
+    """Where the app's request counter is read for the error rate (Prometheus text)."""
+
+    path: str = Field(default="/metrics", pattern=r"^/[A-Za-z0-9._/-]{0,100}$")
+    counter: str = Field(default="http_requests_total", pattern=r"^[A-Za-z_:][A-Za-z0-9_:]{0,100}$")
+    status_label: str = Field(default="status", pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,60}$")
+
+
+class PackData(BaseModel):
+    """The product's data and how it is backed up and restored (J4). Every command runs inside the
+    release's `workload` (`kubectl exec`), never in the engine: `backup` writes the backup to stdout,
+    `restore` reads one from stdin, `fingerprint` prints what the data looks like (for instance a
+    row count per table), compared after a restore. {database}: the database to act on, the
+    product's own (`database`) or the scratch one a restore drill makes with `scratch_create` and
+    removes with `scratch_drop` when the deploy target can't give the drill a release of its own.
+    {release}: the Helm release."""
+
+    workload: str = Field(pattern=r"^[a-z]+/[a-z0-9{}.-]{1,80}$")
+    database: str = Field(default="app", pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,60}$")
+    backup: Command
+    restore: Command
+    fingerprint: Command
+    scratch_create: Command | None = None
+    scratch_drop: Command | None = None
+
+    @model_validator(mode="after")
+    def _placeholders(self) -> PackData:
+        for name in ("backup", "restore", "fingerprint", "scratch_create", "scratch_drop"):
+            value = getattr(self, name)
+            if value is not None and "{database}" not in value:
+                raise ValueError(f"data.{name} must name {{database}}: a restore drill never acts on the product's own")
+        if bool(self.scratch_create) != bool(self.scratch_drop):
+            raise ValueError("data.scratch_create and data.scratch_drop come together")
+        return self
+
+
+class PackUpkeep(BaseModel):
+    """How this stack's dependencies are checked for newer releases (J4): `outdated` runs in the
+    product's sandbox, in its repo, and prints what `format` reads (npm: `npm outdated --json`;
+    pip: `pip list --outdated --format json`). `answers`: the exit statuses that mean the check ran
+    (npm exits 1 when something is behind); any other status, or no JSON, is a gap in the check,
+    never "nothing is behind". Don't mask the status in the command (`|| true`)."""
+
+    outdated: Command
+    format: Literal["npm", "pip"]
+    answers: list[int] = Field(default_factory=lambda: [0], min_length=1)
+
+    @model_validator(mode="after")
+    def _unmasked(self) -> PackUpkeep:
+        if re.search(r"\|\|\s*(true\b|:)|;\s*(true|exit 0)\s*$", self.outdated):
+            raise ValueError("upkeep.outdated must not mask its exit status: list the statuses in `answers`")
+        return self
+
+
+class PackOperate(BaseModel):
+    """What running this stack's products takes after delivery (roadmap J4)."""
+
+    availability: PackAvailability = PackAvailability()
+    metrics: PackMetrics | None = None
+    data: PackData | None = None  # None: the product keeps no data, and its evidence says so
+    upkeep: PackUpkeep | None = None
+
+
 class PackStack(BaseModel):
     """What a stack pack builds (ADR-0041 §1). Paths are inside the pack folder."""
 
@@ -186,6 +263,7 @@ class PackStack(BaseModel):
     base_images: list[BaseImage] = Field(default_factory=list, max_length=6)
     ui: PackUi | None = None  # designer, screenshots and UI review (ADR-0044 §4)
     deploy: PackDeploy = PackDeploy()  # deploy strategies the chart supports (ADR-0046 slice 4)
+    operate: PackOperate = PackOperate()  # availability target, data backup and upkeep (J4)
 
 
 class Pack(BaseModel):
@@ -397,6 +475,7 @@ class PackBinding:
     # deploy strategies the chart supports and its products' default (ADR-0046 slice 4)
     deploy_strategy: str = "in-place"
     deploy_strategies: tuple[str, ...] = ("in-place",)
+    operate: PackOperate = field(default_factory=PackOperate)  # run and maintain (J4)
 
     @property
     def source(self) -> str:
@@ -485,6 +564,7 @@ def binding_of(pack: Pack, overrides: dict[str, dict[str, Any]] | None = None) -
         ui_screenshots=stack.ui.screenshots if stack.ui else None,
         deploy_strategy=stack.deploy.strategy,
         deploy_strategies=tuple(stack.deploy.strategies),
+        operate=stack.operate,
     )
 
 

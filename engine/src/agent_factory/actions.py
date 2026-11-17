@@ -15,6 +15,7 @@ import json
 import os
 import re
 import tempfile
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,9 +28,9 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from agent_factory import contract as station_contract
-from agent_factory import evidence
+from agent_factory import evidence, ledger
 from agent_factory import station_templates as tpl
-from agent_factory.attention import pending_actions
+from agent_factory.attention import pending_actions, product_actions
 from agent_factory.engine.pipeline import FEEDBACK_OPEN, FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
@@ -46,6 +47,8 @@ from agent_factory.models import (
     AssessmentView,
     AssignWorkflowInput,
     AttentionItem,
+    AvailabilityInput,
+    AvailabilityTarget,
     BlueprintUse,
     CatalogView,
     Change,
@@ -62,6 +65,7 @@ from agent_factory.models import (
     CopyWorkflowInput,
     CreateProductInput,
     DecisionInput,
+    DecommissionView,
     DeliveryBinding,
     DeliveryView,
     DenialView,
@@ -89,6 +93,8 @@ from agent_factory.models import (
     LearningProposal,
     NextIterationView,
     OnboardRepoInput,
+    OperationRecord,
+    OperationsView,
     OutcomesView,
     PhaseInfo,
     PreflightView,
@@ -96,6 +102,7 @@ from agent_factory.models import (
     PresetInput,
     Product,
     ProductDetail,
+    ProductHistory,
     ProductOwnerInput,
     ProductSourceInput,
     ProductSpend,
@@ -109,6 +116,7 @@ from agent_factory.models import (
     RepoSourcesView,
     RepoSourceView,
     RequirementView,
+    RetireInput,
     ReviewFinding,
     ReviewRequirement,
     ReviewView,
@@ -661,6 +669,8 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
             quality=groups["quality"],
             security=groups["security"],
             ui=groups["ui"],
+            incidents=groups["incidents"],
+            upkeep=groups["upkeep"],
             can_start=True,
         )
     asked = (latest.change_request or "").strip().split("\n", 1)[0][:300]
@@ -669,6 +679,8 @@ def next_iteration(f: Factory, product_id: str) -> NextIterationView:
         quality=groups["quality"],
         security=groups["security"],
         ui=groups["ui"],
+        incidents=groups["incidents"],
+        upkeep=groups["upkeep"],
         can_start=latest.status in FEEDBACK_OPEN,
         latest_change_id=latest.id,
         latest_status=latest.status,
@@ -815,7 +827,11 @@ def _ready_for_view(f: Factory, product: Product) -> ReadyForView:
         r = ready_for.assess(ready_for.Inputs(delivered=False, level=None, trace=None, owner=owner, rollback=None))
         return ReadyForView(**r.as_data(), owner=owner, owner_set=bool(product.owner))
     last = delivered[-1]
-    r = ready_for.assess(ready_for.gather(f.store, f.manager.ws.data_dir, product, last, delivered=True))
+    bp = f.cfg.blueprints.get(product.blueprint)
+    running = ready_for.production(f.store, product, bp.operate if bp else None, f.cfg.operate)
+    r = ready_for.assess(
+        ready_for.gather(f.store, f.manager.ws.data_dir, product, last, delivered=True, running=running)
+    )
     try:
         moved = json.loads((f.manager.ws.data_dir / "artifacts" / last.id / "ready-for.json").read_text()).get("moved")
     except (OSError, ValueError, AttributeError):
@@ -858,8 +874,20 @@ def set_product_owner(f: Factory, product_id: str, body: ProductOwnerInput) -> R
     name = " ".join(body.owner.split())
     if not name:
         raise InvalidRequestError("name the owner")
+    before = product.owner or product.created_by
     product.owner = name
     f.store.save_product(product)
+    f.store.add_operation(
+        OperationRecord(
+            id=uuid.uuid4().hex[:12],
+            product_id=product.id,
+            kind="owner",
+            at=datetime.now(UTC),
+            ok=True,
+            summary=f"owner named: {name}" + (f" (was {before})" if before and before != name else ""),
+            by=current_identity().user,
+        )  # fmt: skip
+    )
     if product.latest_change_id:
         f.store.add_event(
             product.latest_change_id,
@@ -868,6 +896,166 @@ def set_product_owner(f: Factory, product_id: str, body: ProductOwnerInput) -> R
             data={"owner": {"name": name, "by": current_identity().user}},
         )
     return _ready_for_view(f, product)
+
+
+# ------------------------------------------------- run and maintain (J4) --
+def _live_product(f: Factory, product_id: str) -> Product:
+    product = f.store.get_product(product_id)
+    if not product:
+        raise FactoryError("product not found")
+    return product
+
+
+async def _operate(f: Factory, product_id: str, what: str) -> OperationRecord:
+    from agent_factory.engine.operations import OperateError
+
+    product = _live_product(f, product_id)
+    ops, by = f.manager.operations, current_identity().user
+    try:
+        if what == "backup":
+            return await ops.backup(product, by)
+        if what == "restore":
+            return await ops.restore_drill(product, by)
+        return await ops.upkeep(product, by)
+    except OperateError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+
+
+@action(
+    "get_operations",
+    "Run and maintain (J4): the product's owner, availability against its target, open incidents, "
+    "backups and the last restore drill, upkeep, and what the factory did for it",
+    "GET",
+    "/api/products/{product_id}/operations",
+)
+def get_operations(f: Factory, product_id: str) -> OperationsView:
+    return f.manager.operations.view(_live_product(f, product_id))
+
+
+@action(
+    "set_availability_target",
+    "Tighten the product's availability target (it may not go below its stack's default)",
+    "POST",
+    "/api/products/{product_id}/availability",
+)
+def set_availability_target(f: Factory, product_id: str, body: AvailabilityInput) -> OperationsView:
+    from agent_factory import operate
+
+    _may_steer(f, product_id)
+    product = _live_product(f, product_id)
+    bp = f.cfg.blueprints.get(product.blueprint)
+    if bp is None or bp.operate is None:
+        raise InvalidRequestError("this product's blueprint names no stack pack, so it has no target to tighten")
+    a = bp.operate.availability
+    default = operate.Target(a.success, a.window_minutes, a.min_samples, a.max_error_rate)
+    _, problems = operate.tighten(default, body.success, body.max_error_rate)
+    if problems:
+        raise InvalidRequestError("; ".join(problems))
+    by = current_identity().user
+    product.availability = AvailabilityTarget(
+        success=body.success, max_error_rate=body.max_error_rate, set_by=by, at=datetime.now(UTC)
+    )
+    f.store.save_product(product)
+    if product.latest_change_id:
+        f.store.add_event(
+            product.latest_change_id,
+            EventKind.decision,
+            f"availability target set to {body.success:.2%} of health checks (by {by})",
+            station="operate",
+            data={"availability_target": product.availability.model_dump(mode="json")},
+        )
+    return f.manager.operations.view(product)
+
+
+@action(
+    "check_health",
+    "Read the live product's health now and judge it against its target: a breach opens an incident, "
+    "a window within target closes it (the Operate watch does this on a schedule)",
+    "POST",
+    "/api/products/{product_id}/health-check",
+)
+async def check_health(f: Factory, product_id: str) -> OperationsView:
+    _may_steer(f, product_id)
+    product = _live_product(f, product_id)
+    ops = f.manager.operations
+    if (why := ops.why_not(product)) is not None:
+        raise InvalidRequestError(why)
+    await ops.watch(product)
+    return ops.view(f.store.get_product(product_id) or product)
+
+
+@action(
+    "backup_product",
+    "Back the product's data up now, with its stack's backup command",
+    "POST",
+    "/api/products/{product_id}/backup",
+)
+async def backup_product(f: Factory, product_id: str) -> OperationRecord:
+    _may_steer(f, product_id)
+    return await _operate(f, product_id, "backup")
+
+
+@action(
+    "run_restore_drill",
+    "Prove the newest backup: restore it away from production and compare the data with the backup's fingerprint",
+    "POST",
+    "/api/products/{product_id}/restore-drill",
+)
+async def run_restore_drill(f: Factory, product_id: str) -> OperationRecord:
+    _may_steer(f, product_id)
+    return await _operate(f, product_id, "restore")
+
+
+@action(
+    "check_upkeep",
+    "Check the live product for what has aged: scan its image again and compare its dependencies with "
+    "their newest releases; findings go to the work ledger",
+    "POST",
+    "/api/products/{product_id}/upkeep",
+)
+async def check_upkeep(f: Factory, product_id: str) -> OperationRecord:
+    _may_steer(f, product_id)
+    return await _operate(f, product_id, "upkeep")
+
+
+# ------------------------------------------------------ end of life (J5) --
+@action(
+    "retire_product",
+    "Retire a product (it can't be undone): nothing new starts, its data is exported one last time, its "
+    "app is removed, its repository archived and a decommission record sealed; a retirement that "
+    "stopped continues where it stopped",
+    "POST",
+    "/api/products/{product_id}/retire",
+)
+async def retire_product(f: Factory, product_id: str, body: RetireInput) -> Product:
+    _may_steer(f, product_id)
+    return await f.manager.retirer.retire(
+        product_id, current_identity().user, body.reason, body.confirm, body.without_export
+    )
+
+
+@action(
+    "get_product_history",
+    "The product's full history, from its first request to its decommission: changes with their sealed "
+    "evidence, incidents, upkeep, backups, restore drills and its retirement",
+    "GET",
+    "/api/products/{product_id}/history",
+)
+def get_product_history(f: Factory, product_id: str) -> ProductHistory:
+    return f.manager.retirer.history(_live_product(f, product_id))
+
+
+@action(
+    "get_decommission_record",
+    "A retired product's sealed decommission record, checked again against its manifest",
+    "GET",
+    "/api/products/{product_id}/decommission",
+)
+def get_decommission_record(f: Factory, product_id: str) -> DecommissionView:
+    product = _live_product(f, product_id)
+    if product.retirement is None or not product.retirement.done:
+        raise InvalidRequestError("this product is not retired: it has no decommission record")
+    return DecommissionView.model_validate(f.manager.retirer.verify(product))
 
 
 @action(
@@ -1076,7 +1264,9 @@ def list_attention(f: Factory, product_id: str | None = None, include_optional: 
     products = [
         o
         for o in f.store.list_products()
-        if not o.archived_at and not o.eval_run_id and (product_id is None or o.id == product_id)
+        if (not o.archived_at or (o.retirement is not None and not o.retirement.done))
+        and not o.eval_run_id
+        and (product_id is None or o.id == product_id)
     ]
     items: list[AttentionItem] = []
     for product in products:
@@ -1103,7 +1293,23 @@ def list_attention(f: Factory, product_id: str | None = None, include_optional: 
                             iteration=change.iteration,
                         )
                     )
-    items.sort(key=lambda i: (not i.blocking, i.owner == "system", i.since))
+        # what the product itself waits for, outside any change (J4, J5): incidents, upkeep, retirement
+        groups = ledger.next_iteration(f.store.list_work_items(product.id))
+        mine = [
+            i for i in f.store.list_work_items(product.id) if i.category == ledger.INCIDENT and i.status in ledger.OPEN
+        ]
+        for a in product_actions(product, mine, groups["upkeep"], latest.status in FEEDBACK_OPEN, datetime.now(UTC)):
+            if a.blocking or include_optional:
+                items.append(
+                    AttentionItem(
+                        **a.model_dump(),
+                        product_id=product.id,
+                        product_title=product.title,
+                        change_id=latest.id,
+                        iteration=latest.iteration,
+                    )
+                )
+    items.sort(key=lambda i: (not i.blocking, i.owner == "system", i.kind != "incident", i.since))
     return items
 
 
@@ -1267,12 +1473,15 @@ def _may_steer_change(f: Factory, change_id: str) -> None:
 
 
 def _may_steer(f: Factory, product_id: str) -> None:
-    """Steering a product (feedback, answers, resume, cancel, spec decisions,
-    archive, transcripts): the product's creator or an admin."""
+    """Steering a product (feedback, answers, resume, cancel, spec decisions, archive, transcripts,
+    running and retiring it): the product's creator, its named owner (J4: accountable for its
+    incidents, upkeep and retirement; named by their sign-in name) or an admin."""
     who = current_identity()
     product = f.store.get_product(product_id)
-    if product and not who.is_admin and product.created_by and product.created_by != who.user:
-        raise PermissionError("only the product's creator or an admin can do this")
+    if not product or who.is_admin or not product.created_by:
+        return
+    if who.user not in (product.created_by, product.owner):
+        raise PermissionError("only the product's creator, its owner or an admin can do this")
 
 
 @action(

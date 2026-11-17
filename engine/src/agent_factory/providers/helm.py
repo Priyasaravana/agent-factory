@@ -38,6 +38,8 @@ from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, 
 from agent_factory.providers.helm_release import HelmRelease
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agent_factory.engine.stations import StationContext
     from agent_factory.models import Release
 
@@ -335,6 +337,27 @@ class HelmProvider:
             f"for i in $(seq 1 30); do {self._curl(url)} && exit 0; sleep 2; done; exit 1",
             timeout=90,
         )
+
+    # ---------------------------------------------------- run and maintain --
+    async def read(self, ctx: StationContext, path: str, into: Path | None = None) -> Any:
+        """One read-only request to the live product (the Operate watch, J4): no retries, bounded,
+        never recorded. `into`: a file for what it answered (a metrics page, read whole: the
+        executor keeps only an output's tail); else only whether it answered."""
+        out = f"--max-filesize 2000000 -o {shlex.quote(str(into))}" if into else "-o /dev/null"
+        curl = self._curl(self._origin(self.host(ctx)) + path).replace("curl -fsS", f"curl -fsS -m 8 {out}", 1)
+        return await ctx.cmd(curl, timeout=15, retry=False, record=False)
+
+    async def kube(self, ctx: StationContext, args: str, purpose: str, timeout: float = 300) -> Any:
+        """`kubectl` in the release's namespace, for the pack's data commands (backup, restore:
+        J4). The output is never recorded: it can be the product's data."""
+        env = self._env(ctx, purpose)
+        if env is None:
+            from agent_factory.executor import CommandResult
+
+            return CommandResult("kubectl", 1, f"kubeconfig ({self._kube_ref}) not available")
+        kenv, kfile = env
+        body = f"kubectl{self._flags('kubectl')} -n {self.namespace(ctx)} {args}"
+        return await ctx.cmd(self._kube(body, kfile), env=kenv, timeout=timeout, retry=False, record=False)
 
     def identity(self, ctx: StationContext) -> dict[str, str]:
         """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a
