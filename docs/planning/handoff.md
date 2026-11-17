@@ -38,23 +38,31 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
     (`scripts/sandbox-paths-probe.sh`, `PROBE_PROVE_RULE=1` in CI only); the UI on 127.0.0.1 redirects to
     localhost and cross-site writes get 403 (`scripts/gateway-check.sh`); sandbox check and the browser smoke
     test still pass.
-  - **Not proved, needs a live run on the Mac:** (1) the start check's isolated path (internal network,
-    asked from a sandbox-image container) on a real Next.js build with a fallback base image; (2) the
-    NetworkPolicy on the real kind cluster: that a deploy still passes its smoke check and e2e, and that a pod
-    really can't reach the internet (`kubectl -n app-<slug> exec` a pod, or run a `curlimages/curl` pod there);
-    (3) the dind entrypoint on Docker Desktop (it tries dockerd's iptables backend, nft then legacy; if dind
-    stays unhealthy after `make upgrade`, `docker compose logs dind | grep dind-firewall` says why);
-    (4) live model calls through the model gateway still work (port 4000 is the one exception in the rule).
-  - **Evidence the reviewer asks for before sign-off, still missing (all need the Mac or a real cluster):**
-    cluster negative tests from a pod (internet, another namespace, the factory's services) with DNS and
-    same-namespace working, repeated with an adversarial chart and a hook; Docker Desktop cold start,
-    restart and rule loss; the isolated start check with a fallback image; model-gateway calls with the
-    per-call key revoked after success, failure and timeout; cross-site writes through his own reverse
-    proxy if one is used.
+  - **Re-review 2026-11-17 [P1], fixed:** a chart could bind its account to an existing role (`cluster-admin`)
+    and a pod delete the policy later. App charts are now held to an allowlist (`app_network.APP_KINDS`: no
+    RBAC, bindings, webhooks or cluster-wide objects), and the read-back also removes bindings.
+  - **Live evidence now run in CI on every PR (2026-11-17):**
+    - `cluster-security` (a real kind cluster, `scripts/cluster-security-check.py`): from a pod with the
+      engine's policy no internet (by address and name), no other namespace, no service on the host, each
+      with a control that reaches it without the policy; DNS and its own namespace work. An adversarial chart
+      (allow-all policy, `cluster-admin` binding, hook) is refused by the check; installed anyway it really
+      opens the internet and grants the delete, and the read-back removes both. RBAC refuses the namespace's
+      own account (403). **Found:** app pods still reach the Kubernetes API server (kindnet lets node traffic
+      through); RBAC is the control there, a residual in ADR-0048.
+    - `model-gateway` (LiteLLM with its database, `scripts/model-gateway-check.py`): the engine's
+      `LiteLLMGateway` mints a key per call; after a call that succeeds, fails or times out the gateway refuses
+      the key; a key is limited to its models, budget and expiry.
+    - `e2e` probe: the image start check run with the engine's own commands (answers its probe, nothing
+      published, no internet or factory from inside, no capabilities, bounded), and dind restarted with
+      everything closed again.
+  - **Still not proved (needs the Mac):** Docker Desktop cold start, restart and rule loss (CI is Linux
+    Docker); a real Next.js build where the start check falls back to the next base image (needs live mode
+    and a model); a deploy of a real generated app passing its smoke check and e2e under the policy;
+    cross-site writes through a reverse proxy, if one is used.
   - **After merging, on the Mac:** `make upgrade`, then `make sandbox-check` (now also runs both probe
     scripts). App links move to `http://127.0.0.1:<port>`.
 - **Open, placement not decided (Saravana):** S-02's last part, builds and the open internet (roadmap item 3).
-- **Next:** the live run above; then J4, unless Saravana places the builds item first.
+- **Next:** the Mac run above; then J4, unless Saravana places the builds item first.
 
 ## Earlier state (2026-11-15, J3 live follow-up)
 - Core J3 proved live on sarvap37/sample-app PRs #8 and #9: assessment item to PR, deliberate red CI fixed on the same branch, merge recorded merged outcomes for the original and all CI/feedback continuations. Inline-thread replies, decline, self-reply filtering, question-only response and read-only-token hold/Resume also exercised. PR #9 closed iterations 9–14. Follow-up PR #10 proved autonomous feedback once per comment (iteration 16), automatic CI repair before queued feedback (17 then 18), one reply summary each, and merge closure of iterations 15–18. Trial settings published as repo-change v3, restored to manual as v4.

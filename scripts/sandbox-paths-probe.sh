@@ -51,7 +51,7 @@ if [ "${PROBE_PROVE_RULE:-0}" = 1 ]; then
   # CI only (never on a factory in use): take the rules away and show what each is worth.
   SUBNET=$(dind sh -c "ip -4 route show dev eth0 scope link" | awk '{print $1; exit}')
   RULE="-d $SUBNET -m conntrack --ctdir ORIGINAL -j DROP"
-  check() { dind /usr/local/bin/dind-firewall.sh check >/dev/null 2>&1 && echo open || echo closed; }
+  fw_check() { dind /usr/local/bin/dind-firewall.sh check >/dev/null 2>&1 && echo open || echo closed; }
   # a connection held open: connect, send half a request, wait, send the rest, say what came back
   LONG='import socket,sys,time
 s=socket.create_connection((sys.argv[1],8000),5); s.sendall(b"GET /api/health HTTP/1.0\r\n"); print("connected",flush=True)
@@ -63,7 +63,7 @@ except OSError as exc:
   WATCHER=$(dind cat /run/dind-firewall.pid | tr -d '\r')
   dind kill -STOP "$WATCHER"   # hold the watcher still, so the rules stay away while we look
   dind sh -c "iptables -t filter -D DOCKER-USER $RULE" || { say FAIL "the DOCKER-USER rule could not be lifted"; fail=1; }
-  want_closed "one rule gone: dind's check fails (it reads the rules, not a marker)" "$(check)"
+  want_closed "one rule gone: dind's check fails (it reads the rules, not a marker)" "$(fw_check)"
   want_closed "one rule gone: the engine's port is still closed (the other rule holds)" "$(reach -- "http://$FACTORY:8000/api/health")"
   dind sh -c "iptables -t mangle -D FORWARD $RULE" || { say FAIL "the mangle rule could not be lifted"; fail=1; }
   want_open "both rules gone: the same container reaches the engine (the rules are what closes it)" \
@@ -74,8 +74,8 @@ except OSError as exc:
   dind docker run -d --name probe-long "$IMAGE" python3 -c "$LONG" "$FACTORY" 8 >/dev/null
   for _ in $(seq 1 10); do dind docker logs probe-long 2>&1 | grep -q connected && break; sleep 1; done
   dind kill -CONT "$WATCHER"   # the watcher runs again: both rules must be back within seconds
-  for _ in $(seq 1 10); do [ "$(check)" = open ] && break; sleep 1; done
-  want_open "the watcher put both rules back by itself" "$(check)"
+  for _ in $(seq 1 10); do [ "$(fw_check)" = open ] && break; sleep 1; done
+  want_open "the watcher put both rules back by itself" "$(fw_check)"
   want_closed "with the rules back, the engine's port is closed again" "$(reach -- "http://$FACTORY:8000/api/health")"
   dind docker wait probe-long >/dev/null 2>&1
   long=$(dind docker logs probe-long 2>&1 | tr -d '\r' | tail -1); dind docker rm -f probe-long >/dev/null 2>&1
@@ -83,9 +83,9 @@ except OSError as exc:
     "$(case "$long" in cut:*) echo closed;; *) echo open;; esac)" "$long"
   # a watcher that is alive but not watching must not look healthy
   dind kill -STOP "$WATCHER"; sleep 12
-  want_closed "a stuck watcher: dind's check fails though the rules are in place" "$(check)"
+  want_closed "a stuck watcher: dind's check fails though the rules are in place" "$(fw_check)"
   dind kill -CONT "$WATCHER"; sleep 2
-  want_open "the watcher running again: dind's check passes" "$(check)"
+  want_open "the watcher running again: dind's check passes" "$(fw_check)"
 fi
 
 echo "a Dockerfile RUN step (default build network):"
@@ -148,6 +148,7 @@ if dind sh -c "$start_cmd" >/dev/null 2>&1 && dind sh -c "$probe_cmd" >/dev/null
 want_open "the started image answers the engine's probe, asked from a sandbox-image container" "$r"
 check "nothing is published on dind for it" "$(dind docker port probe-start 2>/dev/null | tr -d '\r' | wc -l | tr -d ' ')" 0
 inside() { if dind docker exec probe-start python3 -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)" "$@" >/dev/null 2>&1; then echo open; else echo closed; fi; }
+want_open "from the started image (control): its own port answers" "$(inside 127.0.0.1 8000)"
 want_closed "from the started image: the internet (1.1.1.1:443)" "$(inside 1.1.1.1 443)"
 want_closed "from the started image: the engine ($FACTORY:8000)" "$(inside "$FACTORY" 8000)"
 want_closed "from the started image: the auth service" "$(inside "$AUTH" 8001)"
@@ -162,6 +163,11 @@ if [ "${PROBE_RESTART:-0}" = 1 ]; then
     [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dind)")" = healthy ] && break; sleep 2
   done
   check "dind is healthy again after the restart" "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dind)")" healthy
+  ctx=$(dind mktemp -d | tr -d '\r')   # dind's /tmp went with the restart
+  # controls first: a "closed" below must mean blocked, not a probe that no longer works
+  want_open "after the restart (control): a container can still be run" \
+    "$(dind docker run --rm --network none "$IMAGE" true >/dev/null 2>&1 && echo open || echo closed)"
+  want_open "after the restart (control): a plain build still works" "$(build "file:///etc/hostname")"
   want_closed "after the restart: a container reaches the engine's port" "$(reach -- "http://$FACTORY:8000/api/health")"
   want_closed "after the restart: a RUN step reaches the engine's port" "$(build "http://$FACTORY:8000/api/health")"
 fi

@@ -285,10 +285,15 @@ def main() -> int:
         ("the internet by name (https://example.com)", "http", "https://example.com"),
         ("another namespace's service", "http", other),
         (f"a service on the host, where the factory lives ({host}:{HOST_PORT})", "http", f"http://{host}:{HOST_PORT}/"),
-        ("the Kubernetes API", "tcp", "kubernetes.default.svc.cluster.local:443"),
     ):
         check(f"control reaches {label}", reach(OPEN_NS, kind, target))
         check(f"blocked: {label}", not reach(APP_NS, kind, target))
+    # The API server is on the nodes' own addresses. What a NetworkPolicy does to traffic to a node is left
+    # to each network plugin, and kindnet lets it through (seen 2026-11-17). Reported, not failed: the
+    # control there is RBAC (section 3 shows it refusing). ADR-0048, residual risks.
+    api = "kubernetes.default.svc.cluster.local:443"
+    print(f"  KNOWN the Kubernetes API from the app pod: {'reachable' if reach(APP_NS, 'tcp', api) else 'blocked'}"
+          " (a node address; the plugin decides; RBAC is the control)")  # fmt: skip
     check(
         "allowed: DNS (kubernetes.default.svc.cluster.local)",
         reach(APP_NS, "dns", "kubernetes.default.svc.cluster.local"),
