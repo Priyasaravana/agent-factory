@@ -29,7 +29,12 @@ class FactorySection(BaseModel):
         default=1, validation_alias=AliasChoices("max_concurrent_changes", "max_concurrent_runs")
     )
     data_dir: str = "/data"
-    public_app_base_url: str = "http://localhost"
+    # never the UI's own host (S-04): `localhost` here is served as 127.0.0.1 (`local.off_the_factory_site`)
+    public_app_base_url: str = "http://127.0.0.1"
+    # more than one person uses this instance (assessment 2026-11-15, S-03): a shared factory runs
+    # live only with the model gateway in api_key mode, so no sandbox holds a person's own model
+    # credential (`gateway.shared_refusal`). A single-user laptop leaves it false.
+    shared: bool = False
 
 
 class Models(BaseModel):
@@ -57,6 +62,9 @@ class Blueprint(BaseModel):
     scan_command: str | None = None
     scan_fail_on: Literal["critical", "high"] = "critical"  # lower severities are recorded, never block
     chart_path: str = "deploy/chart"
+    # what its apps' pods may reach (S-02, `providers/app_network.py`): restricted = DNS and their own
+    # namespace only; open = whatever the cluster allows, for apps that must call something outside
+    app_egress: Literal["restricted", "open"] = "restricted"
     environment: str = "local"  # where its delivery steps run (see `environments`)
     # Quality gate station: the generated repo must reach this agent-readiness level (1-3)
     min_readiness_level: int = Field(default=3, ge=0, le=3)

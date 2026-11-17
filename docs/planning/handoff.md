@@ -6,22 +6,63 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 ## Current state (2026-11-16)
 - **Decided by Saravana 2026-11-16:** J3 is closed, and the assessment's first group ("close the paths around
   the sandbox": S-01, S-02, S-04, S-03's refusal) comes now, before J4, in that order (roadmap, "Next, in order").
-- **S-01 in review on `fix/s01-gateway-proof` (2026-11-16):** identity headers count only with the gateway's
+- **S-01 merged 2026-11-16 (#181):** identity headers count only with the gateway's
   proof (ADR-0012, updated). `cluster/init.sh` makes the secret once, in two volumes (engine's copy for uid
   10001, nginx's config line for uid 101); `web/nginx.conf` includes it and sets `X-Gateway-Proof` on both
   locations that pass to the engine; the engine reads `GATEWAY_PROOF_FILE` at start (refusing gateway mode
   without it) and answers only `/api/health` without the proof. Tests: `tests/test_identity.py` (forged admin
   headers, wrong proofs, the webhook, start refusal), `tests/test_least_privilege.py` (who holds the proof,
   every engine location sets it). In tests the client from `test_api._client` stands for the gateway and sends
-  the proof. **Not run live:** the cloud session has no Docker and no nginx, so the nginx include, the init
-  step inside the real container and `scripts/gateway-check.sh` first run in CI `e2e` (the init step's
-  commands were exercised in a scratch folder: stable across restarts, a malformed secret is remade, modes
-  0400). If `e2e` is red on this PR, look there first. After merging, on the Mac: `make upgrade` (rebuilds
-  factory and web, makes the volumes), then `make sandbox-check`.
+  the proof. Proved on the real stack by CI `e2e` (`scripts/gateway-check.sh`); not yet run on the Mac:
+  `make upgrade` (rebuilds factory and web, makes the volumes), then `make sandbox-check`.
 - **J3's steps are in the journey test** (`test_j3_team_repo`, J3.0 to J3.4, same branch): assessment item →
   PR → red CI read → fix on the same PR → green → merge closes the change and its fix.
-- **Next:** S-02. Start with the probe the finding names (a container on dind's default bridge reaching the
-  compose network and the internet), on Saravana's Mac, before changing anything.
+- **In review on `fix/sandbox-paths` (#182, 2026-11-16):** S-02 (three of
+  four fixes), S-04 and S-03's refusal, one PR as Saravana decided 2026-11-16. ADR-0048 (proposed) has the
+  decisions; the roadmap's "Next, in order" has what each does.
+  - **#182 review fix (2026-11-16):** [P1] an agent-written chart could undo the namespace's egress policy
+    with a second, allow-all NetworkPolicy (policies are additive). Under `restricted` the deploy now refuses
+    a rendered chart that widens or sidesteps the policy (`app_network.widening`) and reads the namespace
+    back after the release (`after_release`, removing what it finds). Tests in `tests/test_app_network.py`.
+    Not a cluster-side ceiling: that is an admission policy, proposed with S-05 (ADR-0048, "Not decided").
+  - **#182 second review (2026-11-16, sarvap37's assessment of `e3bdbe0`):** [P2] the firewall did not fail
+    closed (one NEW-only rule, a 15 s poll, a marker file). Now two rules in two tables, the first before
+    dockerd starts, both cutting established connections; a 1 s watcher; a health check that reads the real
+    rules and the watcher. Apps already running on the local cluster get the policy at start
+    (`ChangeManager.secure_app_namespaces`). The browser smoke test checks that a signed-in browser sends
+    no factory cookie to a listener on 127.0.0.1 (and does to one on localhost, as a control). Residual
+    risks are a table in ADR-0048; **none is accepted: that needs Saravana (owner, reason, scope, expiry).**
+  - **Proved on the real stack (CI `e2e`):** dind starts behind `cluster/dind-firewall.sh` and the stack comes
+    up healthy; from a container on dind's default bridge and from a Dockerfile `RUN` step the engine, auth
+    and the gateway are unreachable, and with the rule lifted for a moment the engine is reachable again
+    (`scripts/sandbox-paths-probe.sh`, `PROBE_PROVE_RULE=1` in CI only); the UI on 127.0.0.1 redirects to
+    localhost and cross-site writes get 403 (`scripts/gateway-check.sh`); sandbox check and the browser smoke
+    test still pass.
+  - **Re-review 2026-11-17 [P1], fixed:** a chart could bind its account to an existing role (`cluster-admin`)
+    and a pod delete the policy later. App charts are now held to an allowlist (`app_network.APP_KINDS`: no
+    RBAC, bindings, webhooks or cluster-wide objects), and the read-back also removes bindings.
+  - **Live evidence now run in CI on every PR (2026-11-17):**
+    - `cluster-security` (a real kind cluster, `scripts/cluster-security-check.py`): from a pod with the
+      engine's policy no internet (by address and name), no other namespace, no service on the host, each
+      with a control that reaches it without the policy; DNS and its own namespace work. An adversarial chart
+      (allow-all policy, `cluster-admin` binding, hook) is refused by the check; installed anyway it really
+      opens the internet and grants the delete, and the read-back removes both. RBAC refuses the namespace's
+      own account (403). **Found:** app pods still reach the Kubernetes API server (kindnet lets node traffic
+      through); RBAC is the control there, a residual in ADR-0048.
+    - `model-gateway` (LiteLLM with its database, `scripts/model-gateway-check.py`): the engine's
+      `LiteLLMGateway` mints a key per call; after a call that succeeds, fails or times out the gateway refuses
+      the key; a key is limited to its models, budget and expiry.
+    - `e2e` probe: the image start check run with the engine's own commands (answers its probe, nothing
+      published, no internet or factory from inside, no capabilities, bounded), and dind restarted with
+      everything closed again.
+  - **Still not proved (needs the Mac):** Docker Desktop cold start, restart and rule loss (CI is Linux
+    Docker); a real Next.js build where the start check falls back to the next base image (needs live mode
+    and a model); a deploy of a real generated app passing its smoke check and e2e under the policy;
+    cross-site writes through a reverse proxy, if one is used.
+  - **After merging, on the Mac:** `make upgrade`, then `make sandbox-check` (now also runs both probe
+    scripts). App links move to `http://127.0.0.1:<port>`.
+- **Open, placement not decided (Saravana):** S-02's last part, builds and the open internet (roadmap item 3).
+- **Next:** the Mac run above; then J4, unless Saravana places the builds item first.
 
 ## Earlier state (2026-11-15, J3 live follow-up)
 - Core J3 proved live on sarvap37/sample-app PRs #8 and #9: assessment item to PR, deliberate red CI fixed on the same branch, merge recorded merged outcomes for the original and all CI/feedback continuations. Inline-thread replies, decline, self-reply filtering, question-only response and read-only-token hold/Resume also exercised. PR #9 closed iterations 9–14. Follow-up PR #10 proved autonomous feedback once per comment (iteration 16), automatic CI repair before queued feedback (17 then 18), one reply summary each, and merge closure of iterations 15–18. Trial settings published as repo-change v3, restored to manual as v4.

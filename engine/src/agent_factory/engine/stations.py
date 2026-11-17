@@ -1342,10 +1342,20 @@ async def _runtime_check(ctx: StationContext, image: str) -> str:
     name = f"af-start-{uuid.uuid4().hex[:8]}"
     port = ctx.blueprint.service_port
     live = ctx.blueprint.health_path
-    run = await ctx.cmd(f"docker run -d --rm --name {name} -p {port} {image}", timeout=120)
+    # an image the agent's Dockerfile built: no capabilities, bounded, and with a sandbox image to probe
+    # from, on a network with no way out (S-02; `base_images.start_check`)
+    probe_image = getattr(getattr(ctx.untrusted_ex, "mgr", None), "image", None)
+    start, isolated_probe = base_images.start_check(name, image, port, live, probe_image)
+    run = await ctx.cmd(" && ".join(start), timeout=120)
     try:
         if not run.ok:
             return f"`docker run` exited {run.returncode}"
+        if isolated_probe is not None:
+            probe = await ctx.cmd(isolated_probe, timeout=120)
+            if probe.ok:
+                return ""
+            logs = await ctx.cmd(f"docker logs --tail 20 {name}", timeout=30)
+            return f"{live} did not answer; last log lines: {logs.output[-600:]}"
         mapped = await ctx.cmd(f"docker port {name} {port}", timeout=30)
         host_port = base_images.published_port(mapped.whole())
         if host_port is None:

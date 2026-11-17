@@ -15,7 +15,12 @@ factory:
   name: agent-factory
   max_concurrent_changes: 1       # a laptop works on one change at a time
   data_dir: /data                 # state db, product repos, run worktrees, holdout
-  public_app_base_url: http://localhost   # apps are reachable at <base>:<host_port>
+  # apps are reachable at <base>:<host_port>. Not the UI's host (localhost): an app there would be sent
+  # the factory's session cookie. `http://localhost` from an older config is served as 127.0.0.1.
+  public_app_base_url: http://127.0.0.1
+  # shared: true                  # more than one person uses this instance: live mode then starts only with
+  #                               # model_gateway.provider: litellm and credential: api_key, so no agent
+  #                               # sandbox holds a person's own model credential
 
 models:
   # Aliases resolve to the latest model of each tier (see docs/adr/0005).

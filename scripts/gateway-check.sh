@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The engine answers only the gateway (assessment 2026-11-15, S-01). Run by `make sandbox-check`
+# The engine answers only the gateway (assessment 2026-11-15, S-01), and the gateway keeps the UI
+# and the apps on different sites (S-04). Run by `make sandbox-check`
 # and CI e2e against the running stack. The probe is a container on the engine's own network
 # (web, without nginx's proof) claiming to be an admin: the engine must refuse it.
 set -uo pipefail
@@ -24,6 +25,18 @@ check "the engine's copy of the proof is readable only by its user" \
   "$(docker compose exec -T -u factory factory stat -c '%a %u' /run/gateway-proof/secret | tr -d '\r')" "400 10001"
 check "the gateway can't read the engine's copy, only its own config line" \
   "$(docker compose exec -T web sh -c 'ls /etc/nginx/gateway-proof' | tr -d '\r' | xargs)" "proof.conf"
+
+# S-04: the UI and the apps are different sites, and another site's page can't write with a session
+UI=${UI_URL:-http://localhost:8080}
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+check "the UI opened on the apps' host (127.0.0.1) is sent to localhost" \
+  "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "${UI/localhost/127.0.0.1}/products")" "308 $UI/products"
+check "a write to the API from an app's page is refused" \
+  "$(code -X POST -H 'Origin: http://127.0.0.1:8081' -d '{}' "$UI/api/products")" 403
+check "a sign-in posted from another site is refused" \
+  "$(code -X POST -H 'Origin: https://elsewhere.example' -H 'Content-Type: application/json' -d '{}' "$UI/auth/login")" 403
+check "the same request from the UI's own page reaches the gateway's sign-in check" \
+  "$(code -X POST -H "Origin: $UI" -d '{}' "$UI/api/products")" 401
 
 if [ "$fail" = 0 ]; then echo "gateway proof: OK"; else echo "gateway proof: FAILED"; fi
 exit "$fail"

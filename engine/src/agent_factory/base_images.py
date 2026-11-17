@@ -15,6 +15,7 @@ Nothing here does IO; the station and the actions read and write the store.
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
@@ -197,3 +198,30 @@ def published_port(docker_port_output: str) -> int | None:
         if m:
             return int(m.group(1))
     return None
+
+
+# ------------------------------------------------------------ start check --
+# The start check runs an image the agent's Dockerfile built: untrusted code (assessment 2026-11-15,
+# S-02). It gets no capabilities, bounded memory and processes, and where the factory has a sandbox
+# image to probe with, a network with no way out at all.
+START_CHECK_NETWORK = "factory-startcheck"
+START_CHECK_LIMITS = "--cap-drop ALL --security-opt no-new-privileges --memory 1g --pids-limit 256"
+
+
+def start_check(name: str, image: str, port: int, path: str, probe_image: str | None) -> tuple[list[str], str | None]:
+    """(`docker` commands that start the image, the command that probes it or None) (pure).
+
+    With `probe_image` (the sandbox image: it has curl), the app runs on an `--internal` network and
+    is asked from a second throw-away container on it: no internet, no route to anything else, no
+    published port. Without one (dry-run, sandbox off) it is published on a port the engine asks,
+    as before, with the same limits; the caller reads the port and probes."""
+    if probe_image is None:
+        return [f"docker run -d --rm --name {name} {START_CHECK_LIMITS} -p {port} {image}"], None
+    net = START_CHECK_NETWORK
+    start = [
+        f"docker network inspect {net} >/dev/null 2>&1 || docker network create --internal {net}",
+        f"docker run -d --rm --name {name} --network {net} {START_CHECK_LIMITS} {image}",
+    ]
+    ask = f"for i in $(seq 1 20); do curl -fsS http://{name}:{port}{path} && exit 0; sleep 2; done; exit 1"
+    probe = f"docker run --rm --network {net} {START_CHECK_LIMITS} {probe_image} sh -c {shlex.quote(ask)}"
+    return start, probe

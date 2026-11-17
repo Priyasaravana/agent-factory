@@ -13,9 +13,12 @@ import shlex
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from agent_factory.executor import CommandResult
 from agent_factory.models import EventKind, Product
+from agent_factory.providers import app_network
+from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
 
@@ -26,6 +29,20 @@ if TYPE_CHECKING:
 
 def failed_detail(cmd: str, res: CommandResult) -> str:
     return f"`{cmd}` exited {res.returncode}:\n{res.output[-4000:]}"
+
+
+def off_the_factory_site(url: str) -> str:
+    """An app's address on another site than the factory UI (assessment 2026-11-15, S-04; pure).
+
+    The UI is `http://localhost:8080`. Cookies are scoped by host, not port, so an app served on
+    `localhost:<port>` would be sent the factory's session cookie with every request and would count
+    as the same site for SameSite. `127.0.0.1` is the same machine and another site: an app there
+    gets no factory cookie. (The gateway sends anyone who opens the UI on 127.0.0.1 to localhost,
+    so the two never meet.) Any other host is left alone."""
+    parts = urlsplit(url)
+    if parts.hostname != "localhost":
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.replace("localhost", "127.0.0.1", 1)))
 
 
 def namespace(product: Product) -> str:
@@ -119,7 +136,7 @@ class LocalProvider:
         return f"http://{ctx.settings.dind_host}:{ctx.product.host_port}"
 
     def public_url(self, ctx: StationContext) -> str:
-        return f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}"
+        return off_the_factory_site(f"{ctx.cfg.factory.public_app_base_url}:{ctx.product.host_port}")
 
     def identity(self, ctx: StationContext) -> dict[str, str]:
         """Where a release of this product runs (ADR-0046), recorded at deploy and checked before a
@@ -140,14 +157,37 @@ class LocalProvider:
 
     async def deploy(self, ctx: StationContext, image: ImageRef) -> StepResult:
         ns, slug = namespace(ctx.product), ctx.product.slug
+        sets = [
+            f"image.repository={image.repository}",
+            f"image.tag={image.tag}",
+            f"service.nodePort={ctx.product.node_port}",
+        ]
         helm = (
             f"helm upgrade --install {slug} {ctx.blueprint.chart_path} --namespace {ns} --create-namespace "
-            f"--set image.repository={image.repository} --set image.tag={image.tag} "
-            f"--set service.nodePort={ctx.product.node_port} --wait --timeout 5m"
+            + " ".join(f"--set {x}" for x in sets)
+            + " --wait --timeout 5m"
         )
+        restricted = ctx.blueprint.app_egress == "restricted"
+        if restricted:  # policies add up: the chart may not ship one that undoes the namespace's (S-02)
+            render = await ctx.cmd(
+                app_network.render_command("helm", slug, ctx.blueprint.chart_path, ns, sets), timeout=120
+            )
+            if not render.ok:
+                return StepResult(False, "deployment failed: the chart does not render", render.output[-2500:])
+            live = getattr(ctx.settings, "factory_mode", "live") == "live"
+            if problems := app_network.widening(render.whole(), live, ns):
+                return StepResult(
+                    False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
+                )
+        # the namespace's egress policy first, so the app's pods never run without it (S-02)
+        net = await ctx.cmd("set -e; " + "; ".join(egress_steps("kubectl", ns, ctx.blueprint.app_egress)), timeout=120)
+        if not net.ok:
+            return StepResult(False, "deployment failed: the namespace's egress policy", net.output[-2500:])
         res = await ctx.cmd(helm, timeout=420)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
+        if restricted and (refusal := await self._installed_egress(ctx, ns)):
+            return refusal
         smoke = await self._probe(ctx, ctx.blueprint.health_path)
         if not smoke.ok:
             return StepResult(False, "deployment failed", smoke.output[-2500:])
@@ -159,6 +199,11 @@ class LocalProvider:
             f"deployed {image} to {ns} (revision {revision}, {digest}); {ctx.blueprint.health_path.lstrip('/')} ok",
             data={"revision": revision, "digest": digest, "unidentified": why},
         )
+
+    async def _installed_egress(self, ctx: StationContext, ns: str) -> StepResult | None:
+        """After the release: what the namespace really holds (a template can render differently on the
+        cluster). A policy that allows egress besides the engine's is removed and the deploy fails."""
+        return await app_network.after_release(ctx, "kubectl", ns, lambda cmd, timeout: ctx.cmd(cmd, timeout=timeout))
 
     async def _probe(self, ctx: StationContext, path: str) -> CommandResult:
         url = f"{self.internal_url(ctx)}{path}"

@@ -109,6 +109,24 @@ def withheld_env(credential: str) -> list[str]:
     return ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 
 
+def shared_refusal(shared: bool, provider: str, credential: str) -> str | None:
+    """Why a shared instance may not run live with this model access, or None (S-03, pure).
+
+    Directly or in the gateway's subscription mode, the engine's own model credential (a person's
+    Claude login or the provider key) is in the environment of every agent sandbox, beside code and
+    packages the agent installs. On one person's laptop that is their own risk to take; on an
+    instance others use it is not, so only the gateway's api_key mode starts: a sandbox then holds a
+    virtual key for one call."""
+    if not shared or (provider == "litellm" and credential == "api_key"):
+        return None
+    how = "directly" if provider == "direct" else "through the gateway in subscription mode"
+    return (
+        f"a shared instance (factory.shared: true) can't run agents with model access {how}: the model "
+        "credential would be readable in every agent sandbox. Set model_gateway.provider: litellm with "
+        "credential: api_key (runbook, model gateway), or factory.shared: false on a single-user laptop"
+    )
+
+
 def gateway_target(url: str) -> tuple[str, int]:
     u = urlparse(url)
     if u.scheme not in ("http", "https") or not u.hostname:

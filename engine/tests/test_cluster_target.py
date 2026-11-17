@@ -16,6 +16,9 @@ from agent_factory.providers import HelmProvider, OciRegistryProvider, ProviderE
 from agent_factory.providers.base import CheckContext
 from agent_factory.sandbox.egress import Allowlist, handle
 
+# what `helm template` prints for an Ingress (a real render always carries apiVersion)
+INGRESS = "apiVersion: networking.k8s.io/v1\nkind: Ingress\n"
+
 
 @dataclass
 class EnvExecutor(FakeExecutor):
@@ -64,9 +67,7 @@ def test_settings_are_validated():
 # ------------------------------------------------------------- a whole run --
 async def test_a_run_pushes_to_the_registry_and_deploys_behind_an_ingress(make_factory, cfg):
     _use_cluster_target(cfg)
-    ex = EnvExecutor(
-        outputs={"helm template": "kind: Ingress", "docker --config": "latest: digest: sha256:abc size: 1"}
-    )
+    ex = EnvExecutor(outputs={"helm template": INGRESS, "docker --config": "latest: digest: sha256:abc size: 1"})
     runner = FakeAgentRunner()
     f = make_factory(ex, runner)
     product = f.manager.create_product(PRODUCT)
@@ -129,7 +130,7 @@ async def test_credentials_go_through_the_environment_never_the_command_line(mak
     cfg.integrations["kind-registry"].settings.update({"username": "bot"})
     cfg.integrations["kind-registry"].auth = IntegrationAuth(secret_ref="env://REG_TOKEN")
     cfg.integrations["kind-ingress"].auth = IntegrationAuth(secret_ref="env://KUBECONFIG_CONTENT")
-    ex = EnvExecutor(outputs={"helm template": "kind: Ingress"})
+    ex = EnvExecutor(outputs={"helm template": INGRESS})
     f = make_factory(ex)
     change = f.manager.start_change(f.manager.create_product(PRODUCT))
     status = await wait_run(f, change.id)

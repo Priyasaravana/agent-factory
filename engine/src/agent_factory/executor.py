@@ -166,6 +166,12 @@ class FakeHelm:
     def answer(self, command: str) -> tuple[int, str] | None:
         if "helm" not in command and "kubectl" not in command:
             return None
+        # the app namespace's egress checks (`providers/app_network.py`): a chart that renders nothing to
+        # refuse, and a namespace holding no policy besides the engine's
+        if (" get networkpolicies" in command or " get clusterrolebindings" in command) and "-o json" in command:
+            return 0, json.dumps({"items": []})
+        if "helm template " in command and " --namespace " in command:
+            return 0, "# [dry-run] nothing rendered\n"
         if m := _UPGRADE.search(command):
             name = m.group(1)
             self._add(name, _values(command), "Upgrade complete" if name in self.releases else "Install complete")

@@ -24,7 +24,7 @@ from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
 from agent_factory.engine.workspace import Workspace
 from agent_factory.executor import Executor, FakeExecutor, LocalExecutor
-from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, resolve_address
+from agent_factory.gateway import DirectGateway, build_gateway, gateway_egress, resolve_address, shared_refusal
 from agent_factory.github import fetch_dir
 from agent_factory.identity import IdentityMiddleware, read_proof
 from agent_factory.models import TERMINAL, ChangeStatus
@@ -32,6 +32,7 @@ from agent_factory.packs import Pack
 from agent_factory.packs import install as install_packs
 from agent_factory.phases import load_phases
 from agent_factory.providers import Providers
+from agent_factory.providers.local import off_the_factory_site
 from agent_factory.sandbox import SandboxManager, toolchain
 from agent_factory.secret_refs import SecretResolver
 from agent_factory.settings import Settings
@@ -141,6 +142,8 @@ def build_factory(
                 exc.problems + skill_problems,
             ) from exc
         raise  # first start: template -> workflow v1 per blueprint (never overwrites)
+    if live and (why := shared_refusal(cfg.factory.shared, cfg.model_gateway.provider, cfg.model_gateway.credential)):
+        raise RuntimeError(why)  # S-03: refused at start, before any sandbox gets the credential
     factory = Factory(cfg, settings, store, manager=None, workflows=workflows)  # type: ignore[arg-type]
     sandbox = sandbox_for(cfg, settings, home, data_dir, installed) if live else None
     factory.sandbox = sandbox
@@ -155,6 +158,12 @@ def build_factory(
     factory.manager = ChangeManager(
         cfg, settings, store, ws, executor, agents, workflows, Providers(cfg), secrets, sandbox=sandbox, gateway=gateway
     )
+    # S-04: a product delivered before apps moved off the UI's host is shown at its new address at once,
+    # not at its next deploy (the same app, the same port; evidence already sealed is left as recorded)
+    for product in store.list_products():
+        if product.app_url and (moved := off_the_factory_site(product.app_url)) != product.app_url:
+            product.app_url = moved
+            store.save_product(product)
     return factory
 
 
@@ -176,6 +185,16 @@ def create_app(factory: Factory | None = None) -> FastAPI:
         await f.manager.settle_interrupted(interrupted)
         # temporary validation environments left behind by a crash or a failed removal (ADR-0046)
         await f.manager.sweep_validation()
+        # apps delivered before the egress policy existed get it now, not at their next deploy (ADR-0048)
+        secured, unsecured = await f.manager.secure_app_namespaces()
+        if secured:
+            log.info("egress policy applied to %d app namespace(s): %s", len(secured), ", ".join(secured))
+        if unsecured:
+            log.error(
+                "the egress policy could NOT be applied to: %s. Their pods may still reach the internet; "
+                "it is applied again at their next deploy and at the next start",
+                ", ".join(unsecured),
+            )
         from agent_factory.evals import recover_on_startup as recover_evals
 
         await recover_evals(f.manager)  # evaluations cut short by a restart are cancelled (ADR-0025)

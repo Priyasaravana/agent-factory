@@ -32,6 +32,8 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from agent_factory import blue_green
+from agent_factory.providers import app_network
+from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import CheckContext, ImageRef, ProviderError, Readiness, StepResult, secret_data
 from agent_factory.providers.helm_release import HelmRelease
 
@@ -254,7 +256,8 @@ class HelmProvider:
             f"ingress.tls={'true' if self.tls else 'false'}",
         ]
         render = await ctx.cmd(
-            f"helm template {slug} {chart} " + " ".join(f"--set {shlex.quote(x)}" for x in sets),
+            # in the release's namespace, so `.Release.Namespace` renders as installed (the allowlist checks it)
+            f"helm template {slug} {chart} --namespace {ns} " + " ".join(f"--set {shlex.quote(x)}" for x in sets),
             timeout=120,
         )
         live = getattr(ctx.settings, "factory_mode", "live") == "live"  # dry-run renders nothing
@@ -267,7 +270,14 @@ class HelmProvider:
                 "ingress.host, ingress.className, ingress.tls, ingress.annotations) and support service.type="
                 f"ClusterIP and imagePullSecrets.\n{render.output[-1500:]}",
             )
-        steps: list[str] = [f"{k} create namespace {ns} --dry-run=client -o yaml | {k} apply -f -"]
+        restricted = ctx.blueprint.app_egress == "restricted"
+        if restricted and (problems := app_network.widening(render.whole(), live, ns)):
+            # policies add up: the chart may not ship one that undoes the namespace's (S-02)
+            return StepResult(
+                False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
+            )
+        # the namespace, then its egress policy before the release, so no pod runs without it (S-02)
+        steps: list[str] = egress_steps(k, ns, ctx.blueprint.app_egress)
         if ctx.slot:  # a temporary validation environment: findable by a person and by the sweep
             steps.append(
                 f"{k} label namespace {ns} --overwrite agent-factory.io/validation={shlex.quote(ctx.change.id)} "
@@ -294,6 +304,13 @@ class HelmProvider:
         res = await ctx.cmd(self._kube("; ".join(["set -e", *steps]), kfile), timeout=420, env=kenv)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
+        if restricted:  # what the namespace really holds, after the release (`local.app_network_after`)
+
+            async def run(cmd: str, timeout: float) -> Any:
+                return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv)
+
+            if refusal := await app_network.after_release(ctx, k, ns, run):
+                return refusal
         url = self._origin(probe_host)
         smoke = await self._probe(ctx, ctx.blueprint.health_path, probe_host)
         if not smoke.ok:
