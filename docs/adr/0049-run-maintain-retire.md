@@ -82,9 +82,6 @@ archive its repository, and keep a record from which its whole history can be sh
 - `policies.recover.mode` stays `manual` by default: making `auto` the default is Saravana's call.
 - Whether the drill on a target without separate releases (the local target) is enough for production.
   Today it proves the data restores and matches, not that the app runs on it.
-- How long a retired product's final export (`data/backups/<product>/`) is kept: today, until a person
-  deletes it. Deleting product data can't be undone, so the retention period is Saravana's call (proposed in the
-  end-to-end audit, 2026-11-17: a `retire.keep_export_days`, default 90, with the record keeping its digest).
 - Alerts outside the factory (email, chat, a pager): the alert is the incident and "Needs you" for now.
 - How the error rate behaves on a quiet product: both templates already export `http_requests_total` with a
   `status` label, and a window with no requests claims nothing, but the 5% default has not met real traffic.
@@ -92,7 +89,10 @@ archive its repository, and keep a record from which its whole history can be sh
 ## Consequences
 - The engine now runs a background task in live mode (never in dry-run) and keeps product data backups on
   its volume: `make backup` of the factory includes them; their size is bounded by `operate.keep_backups` × `operate.max_backup_mb`. A retired product's final
-  export is kept with no expiry (see "Not decided here").
+  export is kept `retire.keep_export_days` (90; none: until a person deletes it) after the retirement: the sealed
+  record states the date (`data_export.kept_until`), the watch then deletes it and appends a `retire` record
+  naming each deleted file with its size and sha256, the digest the sealed record holds (decided 2026-11-19 from
+  the PR #186 review; `Retirer.purge_expired_exports`).
 - Two tables (`health_samples`, pruned after `keep_samples_hours`, and the append-only `operation_records`)
   and fields on products (`availability`, `retirement`) and changes (`auto_resumed`). New data: no migration.
 - The archive button stays only for products never delivered; a delivered one is retired.

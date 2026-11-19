@@ -26,17 +26,28 @@ log = logging.getLogger("factory_auth")
 COOKIE = "factory_session"
 MAX_FAILURES = 5
 LOCKOUT_SECONDS = 60
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 
 
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("AUTH_DATA_DIR", "/data")))
     session_hours: int = field(default_factory=lambda: int(os.environ.get("AUTH_SESSION_HOURS", "12")))
+    # minutes a session may go unused before it ends (S-14); the session still ends after session_hours
+    idle_minutes: int = field(default_factory=lambda: int(os.environ.get("AUTH_IDLE_MINUTES", "60")))
     cookie_secure: bool = field(default_factory=lambda: os.environ.get("AUTH_COOKIE_SECURE", "false") == "true")
     admin_user: str = field(default_factory=lambda: os.environ.get("FACTORY_ADMIN_USER", "admin"))
     admin_password_ref: str = field(
         default_factory=lambda: os.environ.get("FACTORY_ADMIN_PASSWORD_REF", "env://FACTORY_ADMIN_PASSWORD")
     )
+
+
+def host_name(header: str) -> str:
+    """The host of a Host header, without its port: `localhost:8080` -> `localhost`, `[::1]:8080` -> `::1`."""
+    h = header.strip().lower()
+    if h.startswith("["):
+        return h[1:].split("]")[0]
+    return h.split(":")[0] if h.count(":") == 1 else h
 
 
 def resolve_ref(ref: str) -> str | None:
@@ -156,12 +167,27 @@ def create_app(store: Store | None = None, settings: Settings | None = None) -> 
                 return user, "token"
             raise HTTPException(401, "invalid API token")
         sid = request.cookies.get(COOKIE)
-        user = st.session_user(sid) if sid else None
+        user = st.session_user(sid, timedelta(minutes=s.idle_minutes)) if sid else None
         if user:
             return user, "session"
         raise HTTPException(401, "sign in required")
 
     Current = Annotated[tuple[User, str], Depends(current)]
+
+    def plain_http_refused(request: Request) -> None:
+        """S-14: a session cookie without `Secure` crosses the network in clear. That is only acceptable
+        when the factory is reached on this machine (the compose file binds it to 127.0.0.1); anywhere
+        else, sign-in is refused until it is served over HTTPS with AUTH_COOKIE_SECURE=true."""
+        if s.cookie_secure:
+            return
+        host = host_name(request.headers.get("host") or "")
+        if host in LOOPBACK or host.endswith(".localhost"):
+            return
+        raise HTTPException(
+            403,
+            f"sign-in refused: this factory is served over plain HTTP on '{host}', where the session cookie "
+            "would cross the network in clear. Serve it over HTTPS and set AUTH_COOKIE_SECURE=true.",
+        )
 
     def admin(cur: Current) -> User:
         user, _ = cur
@@ -190,6 +216,7 @@ def create_app(store: Store | None = None, settings: Settings | None = None) -> 
 
     @app.post("/auth/login")
     def login(body: LoginInput, request: Request, response: Response) -> UserView:
+        plain_http_refused(request)
         key = body.username.lower()
         if throttle.locked(key):
             raise HTTPException(429, f"too many attempts; try again in {LOCKOUT_SECONDS} seconds")

@@ -13,6 +13,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `Operations.tick` (readings side by side, `PROBES_AT_ONCE`), `packs.SCRATCH_DATABASE`. ADR-0049 updated.
   Tests: `test_retire.py` (waiting changes, a change on a retiring product), `test_operations.py` (one automatic
   upkeep try, backup limit, side-by-side readings, scratch name), `test_operate.py`.
+- **From the PR's review (2026-11-19, same branch):** export retention (`retire.keep_export_days`,
+  `Retirer.purge_expired_exports`, run by the watch; tests in `test_retire.py`); auth idle timeout and the
+  plain-HTTP sign-in refusal (`auth/`: `Store.session_user(idle=)`, `plain_http_refused`; tests in
+  `auth/tests/test_auth.py`); `scripts/backup.sh` / `restore.sh` encrypt with age. **On the Mac after merging:**
+  `brew install age`, `age-keygen -o ~/.agent-factory-backup.key`, then `BACKUP_AGE_RECIPIENT` and
+  `BACKUP_AGE_IDENTITY` in `.env`, or `make backup` / `make upgrade` refuse (assessment "Progress").
 - **Not run here:** the containerised stack (Docker Hub is outside the cloud session's network policy), so CI
   `e2e`, `images`, `cluster-security` and `model-gateway` are the stack evidence; the live J4/J5 run on the Mac
   ([plans/run-and-retire.md](plans/run-and-retire.md)) is still what closes J4 and J5.

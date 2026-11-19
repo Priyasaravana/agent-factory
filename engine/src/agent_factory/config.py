@@ -197,6 +197,10 @@ class RetireConfig(BaseModel):
     # archive the product's published repository on its host when the product is retired; off: the
     # repository is left as it is and the decommission record says so
     archive_repo: bool = True
+    # how long a retired product's final data export is kept, in days after the retirement finished; then
+    # the factory deletes it and records what it deleted (file, size, sha256). None: kept until a person
+    # deletes it. The decommission record states the date when it is sealed.
+    keep_export_days: int | None = Field(default=90, ge=1, le=3650)
 
 
 class Gate(BaseModel):

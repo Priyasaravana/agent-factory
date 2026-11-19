@@ -97,9 +97,13 @@ in the backlog entry below):
     (5 GB, `ulimit -f`). (4) **[medium, reliability]** the watch read products one after another, so a few
     unresponsive apps delayed every other product's alert: readings are side by side (8 at once). (5) **[low,
     safety]** a pack database named `restore_drill` would make the drill drop production's: refused at load.
-    (6) **[delivery]** this entry said "in review" after #185 merged. **For Saravana:** a retired product's
-    export is kept with no expiry (proposal in ADR-0049, "Not decided"); `model_gateway.change_budget_usd` has
-    no default, so only attempts, loops and the time budget bound a change's spend.
+    (6) **[delivery]** this entry said "in review" after #185 merged. **From the PR's review (2026-11-19):**
+    a retired product's export is deleted after `retire.keep_export_days` (90) with a deletion record; security
+    S-14 in part (idle timeout `AUTH_IDLE_MINUTES` 60, sign-in refused when the cookie would cross the network
+    in clear) and S-17 in part (`make backup` encrypts with age, plaintext only with `BACKUP_PLAINTEXT=1`).
+    Still open: MFA/SSO, scrypt cost, signed evidence manifests. **For Saravana:**
+    `model_gateway.change_budget_usd` has no default, so only attempts, loops and the time budget bound a
+    change's spend.
 
 **Before that (done):**
 **Now: correctness before more live runs (decided by Saravana 2026-11-04, ~4.5 days).** The 2026-11-03/04

@@ -801,6 +801,10 @@ class Operations:
             except Exception:  # noqa: BLE001 - one product never stops the others' upkeep
                 log.warning("operate: product %s could not be maintained", product.id, exc_info=True)
         self.store.prune_health_samples(now - timedelta(hours=self.cfg.keep_samples_hours))
+        try:
+            self.m.retirer.purge_expired_exports(now)  # retired products' exports past their retention
+        except Exception:  # noqa: BLE001 - the watch goes on; the next pass tries again
+            log.warning("operate: expired exports could not be deleted", exc_info=True)
 
     async def run(self) -> None:
         await self.sweep_drills()

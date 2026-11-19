@@ -107,6 +107,7 @@ services:
       FACTORY_ADMIN_USER: ${FACTORY_ADMIN_USER:-admin}
       FACTORY_ADMIN_PASSWORD: ${FACTORY_ADMIN_PASSWORD:-}   # first start only; else a one-time password is generated
       AUTH_SESSION_HOURS: ${AUTH_SESSION_HOURS:-12}
+      AUTH_IDLE_MINUTES: ${AUTH_IDLE_MINUTES:-60}          # a session unused this long ends (S-14)
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}      # true behind HTTPS
     cap_drop: [ALL]                      # runs as uid 10002 (image USER), needs no capabilities
     security_opt: ["no-new-privileges:true"]

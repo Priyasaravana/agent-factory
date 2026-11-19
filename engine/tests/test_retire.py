@@ -376,3 +376,45 @@ async def test_retiring_over_the_api_is_for_the_owner_the_creator_or_an_admin(ma
         assert r.status_code == 409 and "retired" in r.json()["detail"]
         assert (await c.get("/api/attention", params={"product_id": pid}, headers=MEMBER)).json() == []
     await ctx.__aexit__(None, None, None)
+
+
+async def test_a_retired_products_export_is_deleted_when_its_retention_runs_out(make_factory, monkeypatch):
+    """PR #186 review: a retired product's final export was kept with no expiry. It is kept
+    `retire.keep_export_days` after the retirement (stated in the sealed record), then deleted, and
+    the deletion is recorded in the product's history with what was deleted."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    keep = f.manager.cfg.retire.keep_export_days
+    assert keep == 90, "the default retention"
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    record = json.loads((f.manager.retirer.folder(done) / "record.json").read_text())
+    finished = done.retirement.finished_at
+    assert record["data_export"]["keep_export_days"] == keep
+    assert datetime.fromisoformat(record["data_export"]["kept_until"]) - finished < timedelta(days=keep, seconds=5)
+    [export] = list(f.manager.operations.backup_dir(done).glob("*.backup"))
+    sha = record["data_export"]["sha256"]
+
+    retirer = f.manager.retirer
+    assert retirer.purge_expired_exports(finished + timedelta(days=keep - 1)) == [], "kept until the date"
+    assert export.is_file()
+    [rec] = retirer.purge_expired_exports(finished + timedelta(days=keep, minutes=1))
+    assert not export.exists()
+    assert rec.kind == "retire" and rec.data["deleted"] == [
+        {"file": export.name, "size": record["data_export"]["size"], "sha256": sha}
+    ], "the deletion names what it deleted, with the digest the sealed record holds"
+    assert retirer.purge_expired_exports(finished + timedelta(days=keep + 1)) == [], "deleted once"
+    assert any(
+        "export deleted" in e.title or "export deleted" in (e.detail or "")
+        for e in retirer.history(f.store.get_product(p.id)).entries
+    ), "the deletion is in the product's history"
+    assert retirer.verify(f.store.get_product(p.id))["intact"], "the sealed record is untouched"
+
+
+async def test_without_a_retention_the_export_is_kept_until_a_person_deletes_it(make_factory, monkeypatch):
+    f, ex, p = await _published(make_factory, monkeypatch)
+    f.manager.cfg.retire.keep_export_days = None
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    record = json.loads((f.manager.retirer.folder(done) / "record.json").read_text())
+    assert record["data_export"]["kept_until"] is None
+    later = done.retirement.finished_at + timedelta(days=3650)
+    assert f.manager.retirer.purge_expired_exports(later) == []
+    assert list(f.manager.operations.backup_dir(done).glob("*.backup"))

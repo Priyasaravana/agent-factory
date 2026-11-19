@@ -10,6 +10,7 @@ sealed manifest, so the whole story, from first request to decommission, can be 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -101,9 +102,10 @@ class Retirer:
         }
 
     # --------------------------------------------------------------- retire --
-    def _log(self, product: Product, ok: bool, summary: str, by: str, data: dict[str, Any] | None = None) -> None:
-        self.store.add_operation(
-            OperationRecord(
+    def _log(
+        self, product: Product, ok: bool, summary: str, by: str, data: dict[str, Any] | None = None
+    ) -> OperationRecord:
+        rec = OperationRecord(
                 id=uuid.uuid4().hex[:12],
                 product_id=product.id,
                 kind="retire",
@@ -112,8 +114,9 @@ class Retirer:
                 summary=summary,
                 by=by,
                 data=data or {},
-            )  # fmt: skip
-        )
+        )  # fmt: skip
+        self.store.add_operation(rec)
+        return rec
 
     def _save(self, product: Product, r: Retirement) -> Product:
         """The product as it is stored now, with the retirement's state (other steps save it too)."""
@@ -198,6 +201,28 @@ class Retirer:
                 data={"retired_by": by, "done": r.done, "record_sha256": r.record_sha256},
             )
         return product
+
+    def purge_expired_exports(self, now: datetime | None = None) -> list[OperationRecord]:
+        """Delete the final exports of retired products whose retention (`retire.keep_export_days`) has
+        run out, and record what was deleted (file, size, sha256) in each product's history: the
+        deletion evidence. Run by the Operate watch; a product with no export left is a no-op."""
+        now = now or _now()
+        keep = self.m.cfg.retire.keep_export_days
+        done: list[OperationRecord] = []
+        for product in self.store.list_products():
+            r = product.retirement
+            if r is None or not retire.export_expired(r.finished_at, keep, now):
+                continue
+            files = sorted(self.m.operations.backup_dir(product).glob("*.backup"))
+            if not files:
+                continue
+            deleted = []
+            for f in files:
+                deleted.append({"file": f.name, "size": f.stat().st_size, "sha256": _sha256(f)})
+                f.unlink(missing_ok=True)
+            summary = f"final data export deleted: kept {keep} days after the retirement (retire.keep_export_days)"
+            done.append(self._log(product, True, summary, "factory", {"deleted": deleted, "keep_export_days": keep}))
+        return done
 
     async def _stop_waiting(self, product: Product, by: str) -> list[str]:
         """Cancel every change of the product that hasn't stopped (held, paused, interrupted, waiting on a
@@ -292,6 +317,11 @@ class Retirer:
             else None
         )
         now = _now()
+        if export is not None:  # the retention is part of the record: deleting it later is no surprise
+            keep = self.m.cfg.retire.keep_export_days
+            until = retire.export_kept_until(now, keep)
+            export["kept_until"] = until.isoformat() if until else None
+            export["keep_export_days"] = keep
         # the record step is the one being finished: the record states it as done
         steps_done = r.model_copy(deep=True)
         retire.mark(steps_done, "record", "done", "sealed", now)
@@ -320,3 +350,11 @@ class Retirer:
             f"decommission record sealed (sha256 {r.record_sha256[:12]}…): {len(changes)} change(s), "
             f"{intact} with intact sealed evidence"
         )
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()

@@ -28,9 +28,16 @@ If anything looks wrong, roll back (below).
 
 ## Backup and rollback
 ```bash
-make backup                                      # safe while running; → backups/agent-factory-<timestamp>/
-make restore BACKUP=backups/agent-factory-<ts>   # stops the factory, keeps your current data aside
+make backup                                              # safe while running; → backups/agent-factory-<timestamp>.tar.age
+make restore BACKUP=backups/agent-factory-<ts>.tar.age   # stops the factory, keeps your current data aside
 ```
+- **Backups are encrypted (S-17, 2026-11-19).** They hold the auth database, product repos and hidden
+  scenarios, so `make backup` (and `make upgrade`, which takes one first) refuses to write one in clear.
+  Once: `age-keygen -o ~/.agent-factory-backup.key` (macOS: `brew install age`), then set
+  `BACKUP_AGE_RECIPIENT=<the public key, age1…>` and, for restores, `BACKUP_AGE_IDENTITY=~/.agent-factory-backup.key`
+  in `.env`. Keep the key file somewhere other than this machine's `backups/` (a password manager); without
+  it a backup can't be restored. `BACKUP_PLAINTEXT=1` writes an unencrypted folder, owner-readable only, if you
+  knowingly want one. `make restore` also takes an older plaintext folder.
 - **What a backup holds:**
   - a consistent SQLite snapshot of the factory database (products, changes, events, workflows, skills);
   - the auth database (users, token hashes, audit);
