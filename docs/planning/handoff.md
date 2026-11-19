@@ -3,7 +3,13 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-17, end-to-end audit)
+## Current state (2026-11-19)
+- **#186 merged** (`eaf3404`): main has J4 and J5 and the lifecycle audit. **Next (Saravana, 2026-11-19):** the
+  J4/J5 live run on the Mac ([plans/run-and-retire.md](plans/run-and-retire.md)); before it, `make up` and the
+  backup key (`age`, `BACKUP_AGE_RECIPIENT`, `BACKUP_AGE_IDENTITY` in `.env`). After it: the security groups
+  that slipped (S-05, S-06, S-07, S-08, S-10, S-11) and one Dependabot roll-up, then phase T or I.
+
+## Earlier state (2026-11-17, end-to-end audit)
 - **In review on `test/e2e-lifecycle-audit`:** an end-to-end audit of the product lifecycle (J1→J5) on main
   `702548e` for security, reliability, cost and delivery, with every decision taken autonomously as Saravana
   asked. Findings and fixes are in roadmap "Next, in order" under J4/J5. Code: `engine/retirement.py`

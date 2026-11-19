@@ -571,6 +571,11 @@ per-pack evaluation is in the backlog.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be
   shown from the evidence.
 
+**Next (decided by Saravana 2026-11-19):** the J4/J5 live run on the Mac
+([plans/run-and-retire.md](plans/run-and-retire.md)), which closes the golden journey. Then, before phase T:
+the security groups that slipped (S-05, S-06, S-07, S-08, S-10, S-11; backlog entry "Security assessment",
+~4 days) and one roll-up of the open Dependabot updates.
+
 ## ⏸ After J5
 Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
 
@@ -670,6 +675,9 @@ Two named phases follow the journey (decided 2026-10-31); their order and "Done 
     a request came from the gateway; S-02 builds, the start check and app pods get no open network and no
     route to the engine; S-04 the factory's session cookie never reaches generated apps on `localhost`; and
     S-03's refusal (a shared instance won't start with the subscription token in sandboxes).
+  - **Decided by Saravana 2026-11-19:** the two groups below ("Inside J3" and "Before J4", ~4 days) slipped
+    past J3 and J4's build; they come **after the J4/J5 live run**, before phase T. Dependabot updates open
+    then are rolled up after the run too, not under a live acceptance run.
   - **Inside J3 (~1.5 days):** S-11 external text marked as untrusted in every prompt (the item under
     "Security and models" below, widened to team repo contents, PR comments and CI logs); S-06's
     short-lived GitHub App tokens.
