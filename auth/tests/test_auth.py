@@ -7,6 +7,7 @@ from factory_auth.app import COOKIE, MAX_FAILURES, Settings, create_app
 from factory_auth.store import Store, verify_password
 
 ADMIN_PW = "correct-horse-battery"
+LOCAL = "http://localhost:8080"  # how the factory is reached: compose binds it to 127.0.0.1
 
 
 @pytest.fixture
@@ -14,7 +15,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("FACTORY_ADMIN_PASSWORD", ADMIN_PW)
     store = Store(tmp_path / "auth.db")
     app = create_app(store, Settings(data_dir=tmp_path))
-    return TestClient(app), store
+    return TestClient(app, base_url=LOCAL), store
 
 
 def login(c: TestClient, user="admin", pw=ADMIN_PW):
@@ -36,7 +37,7 @@ def test_bootstrap_admin_from_secret_reference(env):
 def test_generated_password_when_no_reference(tmp_path, monkeypatch):
     monkeypatch.delenv("FACTORY_ADMIN_PASSWORD", raising=False)
     store = Store(tmp_path / "auth.db")
-    c = TestClient(create_app(store, Settings(data_dir=tmp_path)))
+    c = TestClient(create_app(store, Settings(data_dir=tmp_path)), base_url=LOCAL)
     pwfile = tmp_path / "initial-admin-password"
     assert pwfile.exists() and oct(pwfile.stat().st_mode)[-3:] == "600"
     pw = pwfile.read_text().strip()
@@ -66,7 +67,7 @@ def test_admin_manages_users_members_cannot(env):
     assert c.post("/auth/users", json={"username": "priya", "password": "temporary-pass-1"}).status_code == 409
     assert c.post("/auth/users", json={"username": "shorty", "password": "short"}).status_code == 409
 
-    m = TestClient(c.app)
+    m = TestClient(c.app, base_url=LOCAL)
     assert login(m, "priya", "temporary-pass-1").status_code == 200
     assert m.get("/auth/check").status_code == 403
     m.post("/auth/me/password", json={"current_password": "temporary-pass-1", "new_password": "priya-long-password"})
@@ -97,7 +98,7 @@ def test_api_tokens(env):
     assert raw.startswith("afk_")
     stored = [r[0] for r in store._db.execute("SELECT token_hash FROM tokens").fetchall()]
     assert raw not in stored and len(stored) == 1, "only the hash is stored"
-    bare = TestClient(c.app)
+    bare = TestClient(c.app, base_url=LOCAL)
     chk = bare.get("/auth/check", headers={"Authorization": f"Bearer {raw}"})
     assert chk.status_code == 200 and chk.headers["x-auth-method"] == "token"
     assert (
@@ -111,7 +112,7 @@ def test_api_tokens(env):
 def test_logout_and_session_revocation_on_password_change(env):
     c, _ = env
     login(c)
-    other = TestClient(c.app)
+    other = TestClient(c.app, base_url=LOCAL)
     login(other)
     c.post("/auth/me/password", json={"current_password": ADMIN_PW, "new_password": "rotated-password-9"})
     assert other.get("/auth/check").status_code == 401, "other sessions are signed out"
@@ -155,3 +156,64 @@ def test_concurrent_checks_share_the_connection_safely(tmp_path):
     for t in threads:
         t.join()
     assert not errors, f"{len(errors)} failures, e.g. {sorted(set(errors))[:3]}"
+
+
+@pytest.mark.parametrize("host", ["localhost:8080", "127.0.0.1:8080", "[::1]:8080", "factory.localhost"])
+def test_plain_http_sign_in_works_on_this_machine(env, host):
+    c, _ = env
+    assert (
+        c.post("/auth/login", json={"username": "admin", "password": ADMIN_PW}, headers={"host": host}).status_code
+        == 200
+    )
+
+
+def test_plain_http_sign_in_is_refused_off_this_machine(tmp_path, monkeypatch):
+    """S-14 (PR #186 review): without AUTH_COOKIE_SECURE the session cookie crosses the network in clear,
+    so sign-in is refused on any host but this machine; with it, the cookie is Secure."""
+    monkeypatch.setenv("FACTORY_ADMIN_PASSWORD", ADMIN_PW)
+    c = TestClient(
+        create_app(Store(tmp_path / "auth.db"), Settings(data_dir=tmp_path)), base_url="http://factory.example.com"
+    )
+    r = login(c)
+    assert r.status_code == 403 and "AUTH_COOKIE_SECURE=true" in r.json()["detail"] and "set-cookie" not in r.headers
+    secure = Settings(data_dir=tmp_path / "s", cookie_secure=True)
+    c2 = TestClient(create_app(Store(tmp_path / "s.db"), secure), base_url="https://factory.example.com")
+    r = login(c2)
+    assert r.status_code == 200 and "Secure" in r.headers["set-cookie"]
+
+
+def test_a_session_unused_past_the_idle_timeout_ends(tmp_path, monkeypatch):
+    """S-14: a session left open ends after AUTH_IDLE_MINUTES without use, before its 12 hours."""
+    from datetime import timedelta
+
+    from factory_auth import store as store_mod
+
+    monkeypatch.setenv("FACTORY_ADMIN_PASSWORD", ADMIN_PW)
+    st = Store(tmp_path / "auth.db")
+    c = TestClient(create_app(st, Settings(data_dir=tmp_path, idle_minutes=30)), base_url=LOCAL)
+    assert login(c).status_code == 200
+    real = store_mod._now
+    monkeypatch.setattr(store_mod, "_now", lambda: real() + timedelta(minutes=20))
+    assert c.get("/auth/check").status_code == 200, "used within the idle timeout: still signed in"
+    monkeypatch.setattr(store_mod, "_now", lambda: real() + timedelta(minutes=45))
+    assert c.get("/auth/check").status_code == 200, "20 minutes since the last use, not 45"
+    monkeypatch.setattr(store_mod, "_now", lambda: real() + timedelta(minutes=80))
+    assert c.get("/auth/check").status_code == 401, "35 minutes unused: the session ended"
+
+
+def test_sessions_from_before_the_idle_timeout_still_load(tmp_path):
+    import sqlite3
+    from datetime import timedelta
+
+    db = tmp_path / "auth.db"
+    old = sqlite3.connect(db)
+    old.execute(
+        "CREATE TABLE sessions (id_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires_at TEXT NOT NULL,"
+        " created_at TEXT NOT NULL)"
+    )
+    old.commit()
+    old.close()
+    st = Store(db)
+    st.create_user("ana", "a-long-password", "member")
+    sid = st.create_session("ana", timedelta(hours=1))
+    assert st.session_user(sid) is not None

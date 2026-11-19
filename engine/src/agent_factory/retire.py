@@ -12,7 +12,7 @@ stops the retirement there; asking again continues at that step, never from the 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from agent_factory.models import (
@@ -35,6 +35,28 @@ STEPS: tuple[tuple[str, str], ...] = (
 )
 # ledger categories whose history is the product's own story after delivery
 OPERATED = ("incident", "upkeep")
+
+
+def export_kept_until(finished_at: datetime | None, keep_days: int | None) -> datetime | None:
+    """When a retired product's final export is deleted (`retire.keep_export_days`); None: kept until
+    a person deletes it, or the retirement hasn't finished. Pure."""
+    if finished_at is None or not keep_days:
+        return None
+    return finished_at + timedelta(days=keep_days)
+
+
+def export_deadline(record: Mapping[str, Any] | None) -> datetime | None:
+    """The deletion date a sealed decommission record promised for its export (`data_export.kept_until`).
+    None (keep) when the record names none: retained until a person deletes it, sealed before retention
+    existed, or no export. The setting at purge time never decides: the record does. Pure."""
+    export = (record or {}).get("data_export") or {}
+    until = export.get("kept_until") if isinstance(export, Mapping) else None
+    if not isinstance(until, str):
+        return None
+    try:
+        return datetime.fromisoformat(until)
+    except ValueError:
+        return None
 
 
 def confirm_problem(product: Product, typed: str) -> str | None:

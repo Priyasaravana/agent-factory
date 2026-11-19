@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
   disabled INTEGER NOT NULL DEFAULT 0, must_change INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (
-  id_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
+  id_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL,
+  last_seen_at TEXT);
 CREATE TABLE IF NOT EXISTS tokens (
   id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, username TEXT NOT NULL, name TEXT NOT NULL,
   created_at TEXT NOT NULL, last_used_at TEXT);
@@ -109,6 +110,9 @@ class Store:
         self._db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._lock = threading.Lock()
         self._db.executescript(_SCHEMA)
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "last_seen_at" not in cols:  # databases from before the idle timeout (S-14)
+            self._db.execute("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT")
         # a dummy hash so login timing does not reveal whether a user exists
         self._dummy = hash_password(secrets.token_hex(8))
 
@@ -197,18 +201,26 @@ class Store:
         sid = secrets.token_urlsafe(32)
         now = _now()
         self._q(
-            "INSERT INTO sessions(id_hash, username, expires_at, created_at) VALUES (?,?,?,?)",
-            (_sha(sid), username, (now + ttl).isoformat(), now.isoformat()),
+            "INSERT INTO sessions(id_hash, username, expires_at, created_at, last_seen_at) VALUES (?,?,?,?,?)",
+            (_sha(sid), username, (now + ttl).isoformat(), now.isoformat(), now.isoformat()),
         )
         return sid
 
-    def session_user(self, sid: str) -> User | None:
-        row = self._q("SELECT username, expires_at FROM sessions WHERE id_hash=?", (_sha(sid),)).fetchone()
+    def session_user(self, sid: str, idle: timedelta | None = None) -> User | None:
+        """The session's user, or None when it is unknown, expired, or unused for longer than `idle`
+        (S-14: a session left open on a shared screen ends on its own). Use is recorded at most once
+        a minute, so a busy page doesn't write on every request."""
+        key = _sha(sid)
+        row = self._q("SELECT username, expires_at, last_seen_at FROM sessions WHERE id_hash=?", (key,)).fetchone()
         if not row:
             return None
-        if datetime.fromisoformat(row[1]) < _now():
-            self._q("DELETE FROM sessions WHERE id_hash=?", (_sha(sid),))
+        now = _now()
+        seen = datetime.fromisoformat(row[2]) if row[2] else None
+        if datetime.fromisoformat(row[1]) < now or (idle is not None and seen is not None and now - seen > idle):
+            self._q("DELETE FROM sessions WHERE id_hash=?", (key,))
             return None
+        if seen is None or now - seen > timedelta(minutes=1):
+            self._q("UPDATE sessions SET last_seen_at=? WHERE id_hash=?", (now.isoformat(), key))
         user = self.get_user(row[0])
         return user if user and not user.disabled else None
 

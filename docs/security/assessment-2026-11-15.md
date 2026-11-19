@@ -216,3 +216,12 @@ needs a new ADR or a new control surface except where noted.
 
 Also update `docs/security/threat-model.md`: add the build, start-check and app-pod boundary to "Trust
 boundaries", correct row 5, and add the browser boundary between the factory UI and generated apps.
+
+## Progress since the assessment
+- **2026-11-19 (PR #186, from its review):** S-14 in part: sessions end after `AUTH_IDLE_MINUTES` (60) unused,
+  and sign-in is refused when the session cookie would cross the network in clear (`AUTH_COOKIE_SECURE=false`
+  on a host other than this machine; the compose file binds the UI to 127.0.0.1). Still open: scrypt cost,
+  MFA or SSO. S-17 in part: `make backup` encrypts with age and refuses a plaintext backup unless
+  `BACKUP_PLAINTEXT=1`; backups are owner-readable only. Still open: signing evidence manifests with a key
+  outside `/data`. Also from the review: a retired product's final export is deleted after
+  `retire.keep_export_days` (90), with the deletion recorded (ADR-0049).

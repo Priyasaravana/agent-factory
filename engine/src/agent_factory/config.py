@@ -180,6 +180,9 @@ class OperateConfig(BaseModel):
     keep_samples_hours: int = Field(default=72, ge=1, le=24 * 90)
     backup_every_hours: float = Field(default=24, gt=0, le=24 * 30)
     keep_backups: int = Field(default=7, ge=1, le=365)
+    # the largest backup (and final export) kept: a bigger one fails instead of filling the factory's
+    # own data volume (the dump comes from the app's container, which agent-written code controls)
+    max_backup_mb: int = Field(default=5120, ge=1, le=1024 * 1024)
     # a backup that has never been restored doesn't count: a drill restores the newest one
     restore_drill_every_days: float = Field(default=7, gt=0, le=365)
     upkeep_every_hours: float = Field(default=24, gt=0, le=24 * 30)
@@ -194,6 +197,10 @@ class RetireConfig(BaseModel):
     # archive the product's published repository on its host when the product is retired; off: the
     # repository is left as it is and the decommission record says so
     archive_repo: bool = True
+    # how long a retired product's final data export is kept, in days after the retirement finished; then
+    # the factory deletes it and records what it deleted (file, size, sha256). None: kept until a person
+    # deletes it. The decommission record states the date when it is sealed.
+    keep_export_days: int | None = Field(default=90, ge=1, le=3650)
 
 
 class Gate(BaseModel):

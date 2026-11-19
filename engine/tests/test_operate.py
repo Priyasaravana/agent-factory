@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -313,3 +314,12 @@ def test_upkeep_is_folded_the_same_way_and_listed_for_the_next_iteration():
     assert [i.category for i in groups["incidents"]] == ["incident"] and groups["upkeep"] == [it]
     assert ledger.pick_kind(groups["upkeep"]) == "upkeep"
     assert _fold(items, None, category=ledger.UPKEEP)[1] == "fixed"
+
+
+def test_auto_upkeep_picks_only_items_no_scheduled_change_has_tried():
+    def it(i: str, claimed: list[str]) -> SimpleNamespace:
+        return SimpleNamespace(id=i, claimed_by=claimed)
+
+    fresh, tried, by_person = it("a", []), it("b", ["sched1"]), it("c", ["ui1"])
+    picked, left = operate.auto_upkeep_pick([fresh, tried, by_person], {"sched1"})
+    assert [i.id for i in picked] == ["a", "c"] and [i.id for i in left] == ["b"]

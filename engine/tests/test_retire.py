@@ -136,6 +136,49 @@ async def test_retiring_is_refused_without_the_name_or_while_a_change_runs(make_
     assert await wait_run(f, running.id, 90) == ChangeStatus.awaiting_feedback
 
 
+async def _waiting_change(f, p, status: ChangeStatus):  # noqa: ANN001, ANN202
+    """A second iteration that stopped short and waits on a person (held, needs answers, ...)."""
+    change = f.manager.feedback(p.id, "Add full-text search over notes.")
+    assert await wait_run(f, change.id, 90) == ChangeStatus.awaiting_feedback
+    await asyncio.sleep(0.05)  # its post-run work (retro, seal) finishes
+    change = f.store.get_change(change.id)
+    change.status = status
+    f.store.save_change(change)
+    return change
+
+
+@pytest.mark.parametrize(
+    "status", [ChangeStatus.held, ChangeStatus.interrupted, ChangeStatus.awaiting_approval, ChangeStatus.needs_input]
+)
+async def test_retiring_stops_the_changes_still_waiting_on_the_product(make_factory, monkeypatch, status):
+    """E2E audit 2026-11-17: retirement refused only *running* changes, so a held one survived it and a
+    later Resume would deploy to, and publish, a retired product."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    waiting = await _waiting_change(f, p, status)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    assert done.retirement.done
+    freeze = next(s for s in done.retirement.steps if s.id == "freeze")
+    assert waiting.id in freeze.detail, "the freeze says which changes it stopped"
+    assert f.store.get_change(waiting.id).status == ChangeStatus.cancelled
+    with pytest.raises(FactoryError, match="cannot be resumed"):
+        f.manager.resume(waiting.id)
+
+
+async def test_a_change_never_runs_on_a_product_being_retired(make_factory, monkeypatch):
+    """Defence in depth: whatever schedules a change (a resume, a wake after a pause, a restart), it is
+    cancelled before its first station once the product's retirement has begun."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    waiting = await _waiting_change(f, p, ChangeStatus.held)
+    frozen = f.store.get_product(p.id)
+    frozen.retirement = retire.begin("priya", REASON, "priya", datetime.now(UTC))
+    f.store.save_product(frozen)
+    before = len(ex.calls)
+    f.manager.resume(waiting.id)
+    assert await wait_run(f, waiting.id, 30) == ChangeStatus.cancelled
+    assert f.store.get_change(waiting.id).summary == "not run: the product is being retired"
+    assert not [c for c in ex.calls[before:] if "helm" in c or "docker build" in c], "nothing reached the cluster"
+
+
 async def test_a_step_that_fails_holds_the_retirement_and_the_next_call_continues_it(make_factory, monkeypatch):
     f, ex, p = await _published(make_factory, monkeypatch)
     ex.fail_on.append("pg_dump")
@@ -333,3 +376,78 @@ async def test_retiring_over_the_api_is_for_the_owner_the_creator_or_an_admin(ma
         assert r.status_code == 409 and "retired" in r.json()["detail"]
         assert (await c.get("/api/attention", params={"product_id": pid}, headers=MEMBER)).json() == []
     await ctx.__aexit__(None, None, None)
+
+
+async def test_a_retired_products_export_is_deleted_when_its_retention_runs_out(make_factory, monkeypatch):
+    """PR #186 review: a retired product's final export was kept with no expiry. It is kept
+    `retire.keep_export_days` after the retirement (stated in the sealed record), then deleted, and
+    the deletion is recorded in the product's history with what was deleted."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    keep = f.manager.cfg.retire.keep_export_days
+    assert keep == 90, "the default retention"
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    record = json.loads((f.manager.retirer.folder(done) / "record.json").read_text())
+    finished = done.retirement.finished_at
+    assert record["data_export"]["keep_export_days"] == keep
+    assert datetime.fromisoformat(record["data_export"]["kept_until"]) - finished < timedelta(days=keep, seconds=5)
+    [export] = list(f.manager.operations.backup_dir(done).glob("*.backup"))
+    sha = record["data_export"]["sha256"]
+
+    retirer = f.manager.retirer
+    assert retirer.purge_expired_exports(finished + timedelta(days=keep - 1)) == [], "kept until the date"
+    assert export.is_file()
+    [rec] = retirer.purge_expired_exports(finished + timedelta(days=keep, minutes=1))
+    assert not export.exists()
+    assert rec.kind == "retire" and rec.data["deleted"] == [
+        {"file": export.name, "size": record["data_export"]["size"], "sha256": sha}
+    ], "the deletion names what it deleted, with the digest the sealed record holds"
+    assert retirer.purge_expired_exports(finished + timedelta(days=keep + 1)) == [], "deleted once"
+    assert any(
+        "export deleted" in e.title or "export deleted" in (e.detail or "")
+        for e in retirer.history(f.store.get_product(p.id)).entries
+    ), "the deletion is in the product's history"
+    assert retirer.verify(f.store.get_product(p.id))["intact"], "the sealed record is untouched"
+
+
+async def test_without_a_retention_the_export_is_kept_until_a_person_deletes_it(make_factory, monkeypatch):
+    f, ex, p = await _published(make_factory, monkeypatch)
+    f.manager.cfg.retire.keep_export_days = None
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    record = json.loads((f.manager.retirer.folder(done) / "record.json").read_text())
+    assert record["data_export"]["kept_until"] is None
+    later = done.retirement.finished_at + timedelta(days=3650)
+    assert f.manager.retirer.purge_expired_exports(later) == []
+    assert list(f.manager.operations.backup_dir(done).glob("*.backup"))
+
+
+@pytest.mark.parametrize("later", [1, None])
+async def test_the_sealed_record_sets_the_deletion_date_not_todays_setting(make_factory, monkeypatch, later):
+    """PR #186 re-review: the purge recomputed the date from the current `retire.keep_export_days`, so
+    shortening it deleted exports the sealed record promised to keep, and clearing it kept dated ones
+    forever. The date the record promised decides."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    finished = done.retirement.finished_at
+    f.manager.cfg.retire.keep_export_days = later  # changed after the record was sealed
+    retirer = f.manager.retirer
+    assert retirer.purge_expired_exports(finished + timedelta(days=2)) == [], "the record promised 90 days"
+    [rec] = retirer.purge_expired_exports(finished + timedelta(days=90, minutes=1))
+    assert rec.data["keep_export_days"] == 90 and rec.data["kept_until"].startswith(
+        (finished + timedelta(days=90)).date().isoformat()
+    )
+
+
+async def test_an_export_whose_record_names_no_date_or_no_longer_verifies_is_kept(make_factory, monkeypatch):
+    f, ex, p = await _published(make_factory, monkeypatch)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    folder, retirer = f.manager.retirer.folder(done), f.manager.retirer
+    far = done.retirement.finished_at + timedelta(days=3650)
+    record = json.loads((folder / "record.json").read_text())
+
+    record["data_export"]["kept_until"] = (done.retirement.finished_at - timedelta(days=1)).isoformat()
+    (folder / "record.json").write_text(json.dumps(record))  # an altered record, now "expired"
+    assert retirer.purge_expired_exports(far) == [], "a record that no longer verifies deletes nothing"
+
+    assert retire.export_deadline({"data_export": {"file": "x", "sha256": "y"}}) is None, "sealed before retention"
+    assert retire.export_deadline({"data_export": None}) is None and retire.export_deadline(None) is None
+    assert list(f.manager.operations.backup_dir(done).glob("*.backup")), "kept"

@@ -25,7 +25,9 @@ archive its repository, and keep a record from which its whole history can be sh
    upkeep, a retirement that stopped) to the owner (`attention.product_actions`, pure).
 3. **The Operate watch** (`engine/operations.py`) reads every live, factory-built product once per
    `operate.probe_seconds`: its liveness path and its metrics, one bounded read-only request each, never
-   recorded in a change's event log, never while a change is deploying to it. Readings are numbers only
+   recorded in a change's event log, never while a change is deploying to it. Readings of different products
+   are taken side by side (at most `PROBES_AT_ONCE`, 8), so one app waiting out its timeout never delays the
+   others' readings or alerts (added 2026-11-17, end-to-end audit). Readings are numbers only
    (`health_samples`). The pure `operate.evaluate` judges the window since the live release was delivered:
    too few readings is `unknown`, never a breach and never proof; a counter that went down claims nothing.
    A product may tighten its pack's target, never loosen it (`operate.tighten`).
@@ -37,7 +39,9 @@ archive its repository, and keep a record from which its whole history can be sh
    present"). The engine judges; no agent is asked whether a product is healthy.
 5. **Backup and a tested restore.** A backup is the pack's command's output, kept under
    `<data>/backups/<product>/` (0700/0600), counted only when the data's fingerprint was the same before and
-   after it was taken. A **restore drill** restores the newest backup away from production (on a target that
+   after it was taken, and never larger than `operate.max_backup_mb` (5 GB; the shell caps the file with
+   `ulimit -f`, so a dump the app's container makes, which agent-written code controls, can't fill the
+   factory's own volume: added 2026-11-17). A **restore drill** restores the newest backup away from production (on a target that
    validates separately, a scratch release of the live image, `<slug>-cdrill`, which must also report ready;
    otherwise a scratch database beside production's, which the app doesn't read: the record says which) and
    compares the restored fingerprint with the backup's (`operate.judge_restore`). A backup that has never been
@@ -47,7 +51,10 @@ archive its repository, and keep a record from which its whole history can be sh
    command in the product's sandbox (agent-written code: its package manager runs where agent-written code
    runs); dependencies behind are one `upkeep` ledger item. `operate.upkeep_start`: `ask` (default) leaves them
    on the Next iteration card for the owner; `auto` starts the upkeep change itself when nothing else runs on
-   the product and it is in no incident (it spends model budget).
+   the product and it is in no incident (it spends model budget). It tries an item **once**: an item a
+   scheduled change addressed and the check still finds is left for the owner (`operate.auto_upkeep_pick`,
+   said once in the change's events), so a fix that doesn't hold never restarts on every cycle (added
+   2026-11-17). A pack's database may not be named like the drill's scratch database (`restore_drill`).
 7. **A change survives a factory restart** when `policies.recover.mode` is `auto`: an interrupted change is
    queued again at its station with the budgets it had. At most `max_auto` (2) restarts in a row at one station
    are resumed by the factory; the next waits for a person, with the reason in the change's events, so a
@@ -55,7 +62,11 @@ archive its repository, and keep a record from which its whole history can be sh
 8. **Ready for production** (`ready_for`, J2) is now proved from what was measured: a target, the watch
    reading the product now, and a passed restore drill (a stack that declares no data says so instead).
 9. **Retire** (`engine/retirement.py`, `retire.py` pure): asked for by a person with the product's name typed
-   again and a reason; refused while a change runs. Fixed steps, each saved on the product as it finishes:
+   again and a reason; refused while a change runs. Freezing it cancels every change still waiting on the
+   product (held, paused, interrupted, waiting for answers or approval), each settling production first, and
+   no change runs on a product being retired, whatever schedules it (`_execute`); production is never
+   restored onto a product whose app was removed (added 2026-11-17: a held change used to survive retirement
+   and a Resume would deploy to it). Fixed steps, each saved on the product as it finishes:
    freeze, a final data export (the only backup kept), undeploy, archive the repository (`gh repo archive`,
    token through the environment; a team's repo is never touched), and the **decommission record**:
    `record.json` (facts, every change's sealed manifest digest and whether its folder is still intact),
@@ -77,7 +88,14 @@ archive its repository, and keep a record from which its whole history can be sh
 
 ## Consequences
 - The engine now runs a background task in live mode (never in dry-run) and keeps product data backups on
-  its volume: `make backup` of the factory includes them; their size is bounded by `operate.keep_backups`.
+  its volume: `make backup` of the factory includes them; their size is bounded by `operate.keep_backups` × `operate.max_backup_mb`. A retired product's final
+  export is kept `retire.keep_export_days` (90; none: until a person deletes it) after the retirement: the sealed
+  record states the date (`data_export.kept_until`), the watch then deletes it and appends a `retire` record
+  naming each deleted file with its size and sha256, the digest the sealed record holds (decided 2026-11-19 from
+  the PR #186 review; `Retirer.purge_expired_exports`). The date in the sealed record decides, never the setting
+  at purge time (a later change to `keep_export_days` applies to later retirements only); a record that names no
+  date (sealed before retention existed, or kept until deleted) or no longer verifies keeps the export
+  (`retire.export_deadline`, re-review).
 - Two tables (`health_samples`, pruned after `keep_samples_hours`, and the append-only `operation_records`)
   and fields on products (`availability`, `retirement`) and changes (`auto_resumed`). New data: no migration.
 - The archive button stays only for products never delivered; a delivered one is retired.

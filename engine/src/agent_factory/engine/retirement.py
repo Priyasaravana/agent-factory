@@ -10,7 +10,9 @@ sealed manifest, so the whole story, from first request to decommission, can be 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +33,7 @@ from agent_factory.models import (
 if TYPE_CHECKING:
     from agent_factory.engine.pipeline import ChangeManager
 
+log = logging.getLogger("agent_factory.retire")
 STATION = "retire"
 RECORD = "record.json"
 
@@ -101,9 +104,10 @@ class Retirer:
         }
 
     # --------------------------------------------------------------- retire --
-    def _log(self, product: Product, ok: bool, summary: str, by: str, data: dict[str, Any] | None = None) -> None:
-        self.store.add_operation(
-            OperationRecord(
+    def _log(
+        self, product: Product, ok: bool, summary: str, by: str, data: dict[str, Any] | None = None
+    ) -> OperationRecord:
+        rec = OperationRecord(
                 id=uuid.uuid4().hex[:12],
                 product_id=product.id,
                 kind="retire",
@@ -112,8 +116,9 @@ class Retirer:
                 summary=summary,
                 by=by,
                 data=data or {},
-            )  # fmt: skip
-        )
+        )  # fmt: skip
+        self.store.add_operation(rec)
+        return rec
 
     def _save(self, product: Product, r: Retirement) -> Product:
         """The product as it is stored now, with the retirement's state (other steps save it too)."""
@@ -154,12 +159,17 @@ class Retirer:
             )
         owner = product.owner or product.created_by or None
         r = product.retirement or retire.begin(by, reason, owner, _now())
+        product = self._save(product, r)  # frozen from here: `start_change` and `_execute` refuse it
         latest = max(changes, key=lambda c: c.iteration) if changes else None
         detail = ""
 
         async def step(step_id: str) -> tuple[str, str]:
             if step_id == "freeze":
-                return "done", "no change can start on this product any more"
+                stopped = await self._stop_waiting(product, by)
+                note = "no change can start on this product any more"
+                if stopped:
+                    note += f"; stopped {len(stopped)} change(s) still waiting on it: {', '.join(stopped)}"
+                return "done", note
             if step_id == "export":
                 return await self._export(product, by, without_export)
             if step_id == "undeploy":
@@ -193,6 +203,58 @@ class Retirer:
                 data={"retired_by": by, "done": r.done, "record_sha256": r.record_sha256},
             )
         return product
+
+    def purge_expired_exports(self, now: datetime | None = None) -> list[OperationRecord]:
+        """Delete the final exports of retired products once the date their sealed decommission record
+        promised (`data_export.kept_until`) has passed, and record what was deleted (file, size, sha256)
+        in each product's history: the deletion evidence. The record decides, never today's
+        `retire.keep_export_days`; a record that names no date, or no longer verifies, keeps the export
+        (deleting data can't be undone). Run by the Operate watch; nothing left to delete is a no-op."""
+        now = now or _now()
+        done: list[OperationRecord] = []
+        for product in self.store.list_products():
+            r = product.retirement
+            if r is None or not r.done:
+                continue
+            files = sorted(self.m.operations.backup_dir(product).glob("*.backup"))
+            if not files:
+                continue
+            sealed = self.verify(product)
+            until = retire.export_deadline(sealed["record"])
+            if until is None or now < until:
+                continue
+            if not sealed["intact"]:
+                log.warning("retire: %s's record no longer verifies: its export is kept", product.id)
+                continue
+            keep = (sealed["record"].get("data_export") or {}).get("keep_export_days")
+            deleted = []
+            for f in files:
+                deleted.append({"file": f.name, "size": f.stat().st_size, "sha256": _sha256(f)})
+                f.unlink(missing_ok=True)
+            summary = f"final data export deleted on the date its decommission record set ({until.date().isoformat()})"
+            data = {"deleted": deleted, "kept_until": until.isoformat(), "keep_export_days": keep}
+            done.append(self._log(product, True, summary, "factory", data))
+        return done
+
+    async def _stop_waiting(self, product: Product, by: str) -> list[str]:
+        """Cancel every change of the product that hasn't stopped (held, paused, interrupted, waiting on a
+        person): left as they are, a resume would deploy to, or publish, a retired product. Each one's
+        cancellation settles production first (ADR-0046), so this waits for them before the app goes."""
+        from agent_factory.models import TERMINAL
+
+        # the product is frozen before this runs (its retirement is saved): nothing new starts meanwhile
+        waiting = [c for c in self.store.list_changes(product.id) if c.status not in TERMINAL]
+        tasks = []
+        for c in waiting:
+            self.m.cancel(c.id)
+            self.store.add_event(
+                c.id, EventKind.decision, f"cancelled: the product is being retired (by {by})", station=STATION
+            )
+            if (t := self.m._tasks.get(c.id)) is not None:
+                tasks.append(t)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return [c.id for c in waiting]
 
     async def _export(self, product: Product, by: str, without: bool) -> tuple[str, str]:
         ops = self.m.operations
@@ -267,6 +329,11 @@ class Retirer:
             else None
         )
         now = _now()
+        if export is not None:  # the retention is part of the record: deleting it later is no surprise
+            keep = self.m.cfg.retire.keep_export_days
+            until = retire.export_kept_until(now, keep)
+            export["kept_until"] = until.isoformat() if until else None
+            export["keep_export_days"] = keep
         # the record step is the one being finished: the record states it as done
         steps_done = r.model_copy(deep=True)
         retire.mark(steps_done, "record", "done", "sealed", now)
@@ -295,3 +362,11 @@ class Retirer:
             f"decommission record sealed (sha256 {r.record_sha256[:12]}…): {len(changes)} change(s), "
             f"{intact} with intact sealed evidence"
         )
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()

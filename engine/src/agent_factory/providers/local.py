@@ -19,7 +19,15 @@ from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import EventKind, Product
 from agent_factory.providers import app_network
 from agent_factory.providers.app_network import egress_steps
-from agent_factory.providers.base import CAPABILITIES, CheckContext, ImageRef, Readiness, StepResult, secret_data
+from agent_factory.providers.base import (
+    CAPABILITIES,
+    CheckContext,
+    ImageRef,
+    Readiness,
+    StepResult,
+    file_limit,
+    secret_data,
+)
 from agent_factory.providers.helm_release import HelmRelease
 
 if TYPE_CHECKING:
@@ -228,10 +236,19 @@ class LocalProvider:
             f"curl -fsS -m 8 {out} {self.internal_url(ctx)}{path}", timeout=15, retry=False, record=False
         )
 
-    async def kube(self, ctx: StationContext, args: str, purpose: str, timeout: float = 300) -> CommandResult:
+    async def kube(
+        self, ctx: StationContext, args: str, purpose: str, timeout: float = 300, max_bytes: int | None = None
+    ) -> CommandResult:
         """`kubectl` in the product's namespace, for the pack's data commands (backup, restore:
-        J4). The output is never recorded: it can be the product's data."""
-        return await ctx.cmd(f"kubectl -n {namespace(ctx.product)} {args}", timeout=timeout, retry=False, record=False)
+        J4). The output is never recorded: it can be the product's data. `max_bytes`: no file the
+        command writes may grow past it (`ulimit -f`, in 512-byte blocks): a backup's redirect fails
+        instead of filling the factory's disk."""
+        return await ctx.cmd(
+            f"{file_limit(max_bytes)}kubectl -n {namespace(ctx.product)} {args}",
+            timeout=timeout,
+            retry=False,
+            record=False,
+        )
 
     async def archive_repo(self, ctx: StationContext) -> StepResult:
         """Archive the product's published repository on its host (retirement, J5): read-only from

@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import base_images, image_scan, ledger, operate, validation
+from agent_factory import base_images, image_scan, ledger, operate, packs, validation
 from agent_factory.engine.stations import StationContext, _lockfiles
 from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import (
@@ -60,8 +60,10 @@ STOPPED = {ChangeStatus.awaiting_feedback, ChangeStatus.failed, ChangeStatus.can
 DEPLOYING = {"deploy", "deploy-repair", "promote"}
 RETRY_FAILED_HOURS = 1.0  # a scheduled step that failed is tried again after this, not a full interval
 DRILLS_OPEN = "restore_drills_open"  # meta: scratch releases a drill deployed and hasn't removed yet
-SCRATCH_DATABASE = "restore_drill"
+SCRATCH_DATABASE = packs.SCRATCH_DATABASE
 READY_TRIES = 20
+PROBES_AT_ONCE = 8  # health readings taken side by side in one pass of the watch
+SIGXFSZ_EXIT = 128 + 25  # the shell's status for a command killed for writing past `ulimit -f`
 
 
 class OperateError(Exception):
@@ -381,13 +383,23 @@ class Operations:
         bid = _now().strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
         path = folder / f"{bid}.backup"
         ok, note, fp, size = False, "", "", 0
+        cap = self.cfg.max_backup_mb * 1024 * 1024
         for _attempt in range(3):
             before = await self._fingerprint(data, ctx, data.database)
             res = await kube(
                 ctx, self._exec(data, ctx, data.backup, data.database, f"> {shlex.quote(str(path))}"),
-                "back the product's data up", 900,
+                "back the product's data up", 900, max_bytes=cap,
             )  # fmt: skip
             size = path.stat().st_size if path.is_file() else 0
+            if size >= cap or res.returncode == SIGXFSZ_EXIT:
+                ok, note = (
+                    False,
+                    (
+                        f"the backup reached operate.max_backup_mb ({self.cfg.max_backup_mb} MB) and was stopped, "
+                        "so the factory's disk isn't filled; raise the limit if the product's data really is that large"
+                    ),
+                )
+                break
             after = await self._fingerprint(data, ctx, data.database) if res.ok else ""
             fp = before if before == after else ""
             ok, note = operate.judge_backup(res.returncode, size, fp or (None if before != after else before))
@@ -687,11 +699,25 @@ class Operations:
         groups = ledger.next_iteration(self.store.list_work_items(product.id))
         if groups["incidents"]:
             return None
-        picked = [*groups["security"], *groups["upkeep"]]
-        if not picked:
-            return None
         from agent_factory.engine.pipeline import FactoryError
         from agent_factory.models import ChangeSource
+
+        scheduled = {c.id for c in self.store.list_changes(product.id) if c.source == ChangeSource.schedule}
+        picked, left = operate.auto_upkeep_pick([*groups["security"], *groups["upkeep"]], scheduled)
+        key = f"upkeep_left_for_owner:{product.id}"
+        ids = ",".join(sorted(i.id for i in left))
+        if left and self.store.get_meta(key) != ids:  # said once, not on every cycle
+            self.store.set_meta(key, ids)
+            self.store.add_event(
+                latest.id,
+                EventKind.decision,
+                f"upkeep: {len(left)} item(s) a scheduled change didn't fix are left for the owner "
+                f"({ids}); the factory doesn't start the same fix again by itself",
+                station=STATION,
+                data={"left_for_owner": sorted(i.id for i in left)},
+            )
+        if not picked:
+            return None
 
         try:
             await self.m.preflight.gate(product.blueprint, "scheduled upkeep")
@@ -749,21 +775,36 @@ class Operations:
         """One pass over every live product: read its health when a reading is due, and start what
         maintenance is due (in the background, unless `wait`)."""
         now = now or _now()
-        for product in self.store.list_products():
-            if self.why_not(product) is not None:
-                continue
-            try:
-                last = self._probed.get(product.id)
-                if last is None or (now - last).total_seconds() >= self.cfg.probe_seconds - 1:
+        live = [p for p in self.store.list_products() if self.why_not(p) is None]
+        # readings are taken side by side (bounded): one product that doesn't answer waits out its
+        # own timeout, never every other product's reading, and the pass stays within its interval
+        gate = asyncio.Semaphore(PROBES_AT_ONCE)
+
+        async def read(product: Product) -> None:
+            last = self._probed.get(product.id)
+            if last is not None and (now - last).total_seconds() < self.cfg.probe_seconds - 1:
+                return
+            async with gate:
+                try:
                     await self.watch(product, now)
+                except Exception:  # noqa: BLE001 - one product never stops the watch of the others
+                    log.warning("operate: product %s could not be watched", product.id, exc_info=True)
+
+        await asyncio.gather(*(read(p) for p in live))
+        for product in live:
+            try:
                 if product.id not in self._busy and not self._deploying(product):
                     if wait:
                         await self._maintain(product, now)
                     else:
                         self._spawn(self._maintain(product, now))
-            except Exception:  # noqa: BLE001 - one product never stops the watch of the others
-                log.warning("operate: product %s could not be watched", product.id, exc_info=True)
+            except Exception:  # noqa: BLE001 - one product never stops the others' upkeep
+                log.warning("operate: product %s could not be maintained", product.id, exc_info=True)
         self.store.prune_health_samples(now - timedelta(hours=self.cfg.keep_samples_hours))
+        try:
+            self.m.retirer.purge_expired_exports(now)  # retired products' exports past their retention
+        except Exception:  # noqa: BLE001 - the watch goes on; the next pass tries again
+            log.warning("operate: expired exports could not be deleted", exc_info=True)
 
     async def run(self) -> None:
         await self.sweep_drills()
