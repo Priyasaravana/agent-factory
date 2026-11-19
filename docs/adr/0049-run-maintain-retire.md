@@ -92,7 +92,10 @@ archive its repository, and keep a record from which its whole history can be sh
   export is kept `retire.keep_export_days` (90; none: until a person deletes it) after the retirement: the sealed
   record states the date (`data_export.kept_until`), the watch then deletes it and appends a `retire` record
   naming each deleted file with its size and sha256, the digest the sealed record holds (decided 2026-11-19 from
-  the PR #186 review; `Retirer.purge_expired_exports`).
+  the PR #186 review; `Retirer.purge_expired_exports`). The date in the sealed record decides, never the setting
+  at purge time (a later change to `keep_export_days` applies to later retirements only); a record that names no
+  date (sealed before retention existed, or kept until deleted) or no longer verifies keeps the export
+  (`retire.export_deadline`, re-review).
 - Two tables (`health_samples`, pruned after `keep_samples_hours`, and the append-only `operation_records`)
   and fields on products (`availability`, `retirement`) and changes (`auto_resumed`). New data: no migration.
 - The archive button stays only for products never delivered; a delivered one is retired.

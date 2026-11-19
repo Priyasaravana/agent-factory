@@ -17,6 +17,7 @@ if [ -f "$src" ] && [ "${src%.age}" != "$src" ]; then
   key="${key/#\~/$HOME}"
   [ -n "$key" ] || { echo "set BACKUP_AGE_IDENTITY to the age key file the backup was encrypted for"; exit 2; }
   command -v age >/dev/null || { echo "'age' is not installed (macOS: brew install age)"; exit 2; }
+  mkdir -p backups && chmod 700 backups  # a fresh recovery checkout has none yet
   plain=$(mktemp -d backups/.restore-XXXXXX)
   trap 'rm -rf "$plain"' EXIT
   age -d -i "$key" "$src" | tar -xf - -C "$plain"

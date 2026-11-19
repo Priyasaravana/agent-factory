@@ -16,7 +16,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **From the PR's review (2026-11-19, same branch):** export retention (`retire.keep_export_days`,
   `Retirer.purge_expired_exports`, run by the watch; tests in `test_retire.py`); auth idle timeout and the
   plain-HTTP sign-in refusal (`auth/`: `Store.session_user(idle=)`, `plain_http_refused`; tests in
-  `auth/tests/test_auth.py`); `scripts/backup.sh` / `restore.sh` encrypt with age. **On the Mac after merging:**
+  `auth/tests/test_auth.py`); `scripts/backup.sh` / `restore.sh` encrypt with age. Re-review fixes: the purge goes by the date in the
+  sealed record (`retire.export_deadline`), and restore creates its private `backups/` on a fresh recovery
+  checkout (`tests/test_backup_scripts.py`, stub docker, real or stub age). **On the Mac after merging:**
   `brew install age`, `age-keygen -o ~/.agent-factory-backup.key`, then `BACKUP_AGE_RECIPIENT` and
   `BACKUP_AGE_IDENTITY` in `.env`, or `make backup` / `make upgrade` refuse (assessment "Progress").
 - **Not run here:** the containerised stack (Docker Hub is outside the cloud session's network policy), so CI

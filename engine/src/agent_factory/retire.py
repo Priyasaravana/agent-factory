@@ -45,10 +45,18 @@ def export_kept_until(finished_at: datetime | None, keep_days: int | None) -> da
     return finished_at + timedelta(days=keep_days)
 
 
-def export_expired(finished_at: datetime | None, keep_days: int | None, now: datetime) -> bool:
-    """True once the export's retention has run out. Pure."""
-    until = export_kept_until(finished_at, keep_days)
-    return until is not None and now >= until
+def export_deadline(record: Mapping[str, Any] | None) -> datetime | None:
+    """The deletion date a sealed decommission record promised for its export (`data_export.kept_until`).
+    None (keep) when the record names none: retained until a person deletes it, sealed before retention
+    existed, or no export. The setting at purge time never decides: the record does. Pure."""
+    export = (record or {}).get("data_export") or {}
+    until = export.get("kept_until") if isinstance(export, Mapping) else None
+    if not isinstance(until, str):
+        return None
+    try:
+        return datetime.fromisoformat(until)
+    except ValueError:
+        return None
 
 
 def confirm_problem(product: Product, typed: str) -> str | None:

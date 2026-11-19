@@ -418,3 +418,36 @@ async def test_without_a_retention_the_export_is_kept_until_a_person_deletes_it(
     later = done.retirement.finished_at + timedelta(days=3650)
     assert f.manager.retirer.purge_expired_exports(later) == []
     assert list(f.manager.operations.backup_dir(done).glob("*.backup"))
+
+
+@pytest.mark.parametrize("later", [1, None])
+async def test_the_sealed_record_sets_the_deletion_date_not_todays_setting(make_factory, monkeypatch, later):
+    """PR #186 re-review: the purge recomputed the date from the current `retire.keep_export_days`, so
+    shortening it deleted exports the sealed record promised to keep, and clearing it kept dated ones
+    forever. The date the record promised decides."""
+    f, ex, p = await _published(make_factory, monkeypatch)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    finished = done.retirement.finished_at
+    f.manager.cfg.retire.keep_export_days = later  # changed after the record was sealed
+    retirer = f.manager.retirer
+    assert retirer.purge_expired_exports(finished + timedelta(days=2)) == [], "the record promised 90 days"
+    [rec] = retirer.purge_expired_exports(finished + timedelta(days=90, minutes=1))
+    assert rec.data["keep_export_days"] == 90 and rec.data["kept_until"].startswith(
+        (finished + timedelta(days=90)).date().isoformat()
+    )
+
+
+async def test_an_export_whose_record_names_no_date_or_no_longer_verifies_is_kept(make_factory, monkeypatch):
+    f, ex, p = await _published(make_factory, monkeypatch)
+    done = await f.manager.retirer.retire(p.id, "priya", REASON, "Bookmarks service")
+    folder, retirer = f.manager.retirer.folder(done), f.manager.retirer
+    far = done.retirement.finished_at + timedelta(days=3650)
+    record = json.loads((folder / "record.json").read_text())
+
+    record["data_export"]["kept_until"] = (done.retirement.finished_at - timedelta(days=1)).isoformat()
+    (folder / "record.json").write_text(json.dumps(record))  # an altered record, now "expired"
+    assert retirer.purge_expired_exports(far) == [], "a record that no longer verifies deletes nothing"
+
+    assert retire.export_deadline({"data_export": {"file": "x", "sha256": "y"}}) is None, "sealed before retention"
+    assert retire.export_deadline({"data_export": None}) is None and retire.export_deadline(None) is None
+    assert list(f.manager.operations.backup_dir(done).glob("*.backup")), "kept"

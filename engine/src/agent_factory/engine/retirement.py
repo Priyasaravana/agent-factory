@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ from agent_factory.models import (
 if TYPE_CHECKING:
     from agent_factory.engine.pipeline import ChangeManager
 
+log = logging.getLogger("agent_factory.retire")
 STATION = "retire"
 RECORD = "record.json"
 
@@ -203,25 +205,35 @@ class Retirer:
         return product
 
     def purge_expired_exports(self, now: datetime | None = None) -> list[OperationRecord]:
-        """Delete the final exports of retired products whose retention (`retire.keep_export_days`) has
-        run out, and record what was deleted (file, size, sha256) in each product's history: the
-        deletion evidence. Run by the Operate watch; a product with no export left is a no-op."""
+        """Delete the final exports of retired products once the date their sealed decommission record
+        promised (`data_export.kept_until`) has passed, and record what was deleted (file, size, sha256)
+        in each product's history: the deletion evidence. The record decides, never today's
+        `retire.keep_export_days`; a record that names no date, or no longer verifies, keeps the export
+        (deleting data can't be undone). Run by the Operate watch; nothing left to delete is a no-op."""
         now = now or _now()
-        keep = self.m.cfg.retire.keep_export_days
         done: list[OperationRecord] = []
         for product in self.store.list_products():
             r = product.retirement
-            if r is None or not retire.export_expired(r.finished_at, keep, now):
+            if r is None or not r.done:
                 continue
             files = sorted(self.m.operations.backup_dir(product).glob("*.backup"))
             if not files:
                 continue
+            sealed = self.verify(product)
+            until = retire.export_deadline(sealed["record"])
+            if until is None or now < until:
+                continue
+            if not sealed["intact"]:
+                log.warning("retire: %s's record no longer verifies: its export is kept", product.id)
+                continue
+            keep = (sealed["record"].get("data_export") or {}).get("keep_export_days")
             deleted = []
             for f in files:
                 deleted.append({"file": f.name, "size": f.stat().st_size, "sha256": _sha256(f)})
                 f.unlink(missing_ok=True)
-            summary = f"final data export deleted: kept {keep} days after the retirement (retire.keep_export_days)"
-            done.append(self._log(product, True, summary, "factory", {"deleted": deleted, "keep_export_days": keep}))
+            summary = f"final data export deleted on the date its decommission record set ({until.date().isoformat()})"
+            data = {"deleted": deleted, "kept_until": until.isoformat(), "keep_export_days": keep}
+            done.append(self._log(product, True, summary, "factory", data))
         return done
 
     async def _stop_waiting(self, product: Product, by: str) -> list[str]:
