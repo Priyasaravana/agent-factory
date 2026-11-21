@@ -3,11 +3,15 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-19)
-- **#186 merged** (`eaf3404`): main has J4 and J5 and the lifecycle audit. **Next (Saravana, 2026-11-19):** the
-  J4/J5 live run on the Mac ([plans/run-and-retire.md](plans/run-and-retire.md)); before it, `make up` and the
-  backup key (`age`, `BACKUP_AGE_RECIPIENT`, `BACKUP_AGE_IDENTITY` in `.env`). After it: the security groups
-  that slipped (S-05, S-06, S-07, S-08, S-10, S-11) and one Dependabot roll-up, then phase T or I.
+## Current state (2026-11-21)
+- **J4 and J5 ran live** (Saravana, 2026-11-21): the golden journey is complete and the freeze lifts. Its evidence and
+  findings are still to be written down (phase A item 1).
+- **Decided 2026-11-21** (#188, #189): the vision in [vision.md](vision.md) is adopted (master plan §1 replaced;
+  principle 7 now team-owned); v0.1.0 public by 2026-12-31; the work runs as phases **A–E** at AI build speed (roadmap
+  "Next, in order"); incident slice 0 in phase A with `operate.respond: auto` and automatic rollback when the change
+  is additive; first pilot a UK or EU scale-up on the full package. The one repo + `licensed/` split is recommended
+  and waits for Saravana's confirmation before phase C.
+- **Next:** phase A, starting with recording the J4/J5 run and the baselines.
 
 ## Earlier state (2026-11-17, end-to-end audit)
 - **In review on `test/e2e-lifecycle-audit`:** an end-to-end audit of the product lifecycle (J1→J5) on main

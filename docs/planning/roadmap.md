@@ -571,17 +571,63 @@ per-pack evaluation is in the backlog.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be
   shown from the evidence.
 
-**Next (decided by Saravana 2026-11-19):** the J4/J5 live run on the Mac
-([plans/run-and-retire.md](plans/run-and-retire.md)), which closes the golden journey. Then, before phase T:
-the security groups that slipped (S-05, S-06, S-07, S-08, S-10, S-11; backlog entry "Security assessment",
-~4 days) and one roll-up of the open Dependabot updates.
+**Next, in order (decided by Saravana 2026-11-21): the golden journey is complete** (J4 and J5 ran live
+2026-11-21), so the freeze lifts. The work is planned as **complete phases at AI build speed**, not by Saravana's
+hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a "Done when" that Saravana validates
+(live where it touches a running product). Dates are targets with buffer before the release.
+
+**Phase A. Close out the journey and harden (by 2026-11-26)**
+1. Record the J4/J5 live run: its evidence and findings ([plans/run-and-retire.md](plans/run-and-retire.md),
+   "What to write down"), in handoff and the plan.
+2. **Baselines** (vision G0): autonomy, change failure rate, lead time p50/p90, cost per delivered change (failures
+   included, both meters), requirements verified live and share at Level 3, from the live runs so far, in
+   [../outcomes.md](../outcomes.md).
+3. **Incident response, slice 0** ([plans/stations-and-teams.md](plans/stations-and-teams.md)): snapshot first,
+   re-apply, restart once, rollback when additive, the restored window, the states, DORA timings, the incident ↔
+   change link; `operate.respond: auto`. An ADR-0049 §4 amendment.
+4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
+5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
+- **Done when:** an injected drift and a crash each restore in under 5 minutes with no development cycle, live;
+  the six security findings are closed; the baselines are recorded.
+
+**Phase B. Evidence anyone can verify (by 2026-11-29)**
+- Evidence manifests **signed**, not only hashed; a **verifier** anyone can run on a downloaded evidence bundle.
+- `.agent-factory/config.yaml` split into the tracked default and a gitignored local override.
+- **Done when:** a sealed live run's bundle verifies on another machine, and a tampered copy fails.
+
+**Phase C. Open core seam (by 2026-12-04)** · code split recommended in
+[plans/open-source-release.md](plans/open-source-release.md), to be confirmed by Saravana before this phase starts
+- `LICENSE` (Apache-2.0 with a directory map), the `licensed/` folder with its own licence, the CI guard, the
+  extension entry points, the offline licence key, two signed images (core, enterprise) with SBOMs from one tag.
+- **Done when:** the core image builds and passes CI without `licensed/`; the enterprise image loads an extension
+  with a valid key and refuses it with an invalid one.
+
+**Phase D. First paid features (by 2026-12-14)**
+- SSO (OIDC first, then SAML), audit export to a SIEM, evidence signed with the customer's KMS, the compliance
+  report pack ("aligned with", never "compliant"; the first to slip to January).
+- **Done when:** each works on the enterprise image and is absent from core; safety features stay in core.
+
+**Phase E. Release v0.1.0 (rehearsal by 2026-12-20, public by 2026-12-31)**
+- Licence audit (the Claude Agent SDK and CLI terms, every bundled image, template and skill → `THIRD_PARTY.md`),
+  name and trademark, DCO, SECURITY.md, CONTRIBUTING, CODE_OF_CONDUCT, install by compose and Helm, the README
+  rewritten to [vision.md](vision.md).
+- A release rehearsal: a fresh install from the public images takes one product through the whole journey, sealed
+  and checked with the verifier. Then v0.1.0 tagged and signed. The SaaS design doc (design only).
+- **Done when:** v0.1.0 is public and the rehearsal's bundle verifies.
+
+**After v0.1.0 (2027):** phase **T** is the stations-and-teams slices 1–6 (secret store; teams, rota, RACI and
+modes; the provider framework with Snyk, SonarQube / SonarCloud and Grafana Cloud; station workspaces and discuss
+mode; operability artifacts and the readiness veto; start anywhere and the design pack), with concurrent changes.
+Phase **I** (improvement loop) starts after slice 2, alongside slice 3, once teams and the G0 baselines exist. The
+first external pilot is a **UK or EU scale-up** through consulting, on the **full package** (decided 2026-11-21).
 
 ## ⏸ After J5
-Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
+Two named phases follow the journey (decided 2026-10-31). Their place is set (2026-11-21): after the v0.1.0 release,
+T as the stations-and-teams slices 1–6 and I from slice 2 ("Next, in order" above).
 
-**First open-source release, v0.1.0, public by 2026-12-31 (decided by Saravana 2026-11-21):** comes first after
-J5, ahead of the stations-and-teams slices 1–6 below. It covers the signed evidence and verifier, the high security
-findings, one repo with an Apache-2.0 core and a licensed folder (split proposed), the first paid features (SSO, SIEM
+**First open-source release, v0.1.0, public by 2026-12-31 (decided by Saravana 2026-11-21):** phases A–E in
+"Next, in order", ahead of the stations-and-teams slices 1–6 below. It covers the signed evidence and verifier, the security
+groups that slipped (the highs are closed), one repo with an Apache-2.0 core and a licensed folder (split proposed), the first paid features (SSO, SIEM
 export, customer KMS signing, compliance pack), the release blockers and the SaaS design (design only). Week by week:
 [plans/open-source-release.md](plans/open-source-release.md); goals in [vision.md](vision.md).
 
@@ -589,10 +635,10 @@ export, customer KMS signing, compliance pack), the release blockers and the Saa
 [plans/stations-and-teams.md](plans/stations-and-teams.md). Stations hand off through typed, versioned artifacts
 and structured requests in the ledger; production is watched externally first (the factory responds and keeps the
 record); first integrations Snyk (secure), SonarQube / SonarCloud (verify), Grafana Cloud (operate). Order:
-0 J4 incident response slice and the J4/J5 live run → 1 secret store → 2 teams, rota, RACI and modes on every station
+0 incident response slice (phase A; the J4/J5 live run ✅ 2026-11-21) → 1 secret store → 2 teams, rota, RACI and modes on every station
 (T's ownership part) → 3 provider framework and the three integrations → 4 station workspaces and discuss mode →
 5 operability artifacts and the readiness veto → 6 start anywhere, station-as-a-service and the design pack.
-Slice 0's three open decisions are in that page.
+Slice 0's three decisions are recorded in that page (2026-11-21).
 
 **T. Team delivery:** ownership, review responsibilities, concurrent work.
 - Composable-SDLC step 2 (human modes, owners, separation of duty) and step 3 (start anywhere).

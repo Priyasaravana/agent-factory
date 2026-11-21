@@ -3,7 +3,8 @@
 Status: release date **decided by Saravana 2026-11-21**: v0.1.0 public by **2026-12-31**. Built by AI, reviewed by
 AI; Saravana validates the outcome of each step. SaaS is **design only** in December (decided 2026-11-21). First
 paid features in December: SSO (OIDC/SAML), audit export to a SIEM, evidence signed with the customer's KMS, and a
-compliance report pack (decided 2026-11-21). How the code is split is **proposed** below, for his decision.
+compliance report pack (decided 2026-11-21). How the code is split is **recommended** below (Saravana asked for a suggestion 2026-11-21); he confirms it before
+phase C starts. The phases and their "Done when" are in the roadmap's "Next, in order" (A–E).
 Vision and goals: [../vision.md](../vision.md).
 
 ## How to split the code (proposed 2026-11-21)
@@ -85,18 +86,16 @@ engine/  web/  packs/   Apache-2.0 core
    Helm, and the README rewritten to the vision.
 
 ## December plan
-| Week | Done when (Saravana validates each) |
-|---|---|
-| 23–29 Nov | Baselines recorded (vision G0); secrets scan of history; incident slice 0; J4 and J5 run live; the freeze lifts |
-| 30 Nov–6 Dec | High security findings closed; manifests signed; the verifier; LICENSE and the `licensed/` folder with the CI guard |
-| 7–13 Dec | Extension seam; licence key; SSO (OIDC first, SAML after) |
-| 14–20 Dec | Audit export to a SIEM; customer KMS signing; compliance report pack ("aligned with", never "compliant"); licence audit, name, DCO, docs |
-| 21–27 Dec | Release rehearsal: a fresh install from the public images takes one product through the whole journey, sealed and checked with the verifier |
-| 28–31 Dec | **v0.1.0 public**; SaaS design doc |
+Planned as complete phases at AI build speed (decided 2026-11-21); the roadmap's "Next, in order" holds each phase's
+"Done when", and is the one to follow if the two disagree.
 
-**After v0.1.0 (2027):** teams beyond one, the Snyk / SonarQube / Grafana Cloud integrations
-([stations-and-teams.md](stations-and-teams.md)), the first external pilot, single-tenant hosting, then
-multi-tenant SaaS.
+| Phase | Target | Done when (Saravana validates each) |
+|---|---|---|
+| A. Close out the journey and harden | 26 Nov | J4/J5 evidence recorded; baselines; incident slice 0 restores drift and crash in < 5 min, live; S-05, S-06, S-07, S-08, S-10, S-11 closed; Dependabot roll-up; history secrets scan |
+| B. Evidence anyone can verify | 29 Nov | Manifests signed; the verifier passes a real bundle and fails a tampered one; config split |
+| C. Open core seam | 4 Dec | LICENSE, `licensed/` with the CI guard, extension seam, licence key, core and enterprise images from one tag |
+| D. First paid features | 14 Dec | SSO, SIEM export, customer KMS signing, compliance pack on the enterprise image only |
+| E. Release | rehearsal 20 Dec, public 31 Dec | Licence audit, name, DCO, docs; rehearsal from public images verified; **v0.1.0 public**; SaaS design doc |
 
 ## Risks
 - **Four paid features in 3 weeks.** SSO and KMS signing build on core work (sign-in, signing); SIEM export builds on
