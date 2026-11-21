@@ -579,6 +579,15 @@ the security groups that slipped (S-05, S-06, S-07, S-08, S-10, S-11; backlog en
 ## ⏸ After J5
 Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
 
+**Stations as team members, owned by teams (direction and order decided by Saravana 2026-11-21):**
+[plans/stations-and-teams.md](plans/stations-and-teams.md). Stations hand off through typed, versioned artifacts
+and structured requests in the ledger; production is watched externally first (the factory responds and keeps the
+record); first integrations Snyk (secure), SonarQube / SonarCloud (verify), Grafana Cloud (operate). Order:
+0 J4 incident response slice and the J4/J5 live run → 1 secret store → 2 teams, rota, RACI and modes on every station
+(T's ownership part) → 3 provider framework and the three integrations → 4 station workspaces and discuss mode →
+5 operability artifacts and the readiness veto → 6 start anywhere, station-as-a-service and the design pack.
+Slice 0's three open decisions are in that page.
+
 **T. Team delivery:** ownership, review responsibilities, concurrent work.
 - Composable-SDLC step 2 (human modes, owners, separation of duty) and step 3 (start anywhere).
 - Team permissions per product: members, reviewers and approvers by role; approval responsibilities recorded

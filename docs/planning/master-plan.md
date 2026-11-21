@@ -6,6 +6,9 @@ Status: agreed direction · updated 2026-10-02 after the trust and business revi
 is the long-term shape, not the schedule.
 
 ## 1. Vision
+> Proposed replacement (2026-11-21, for Saravana's decision): [vision.md](vision.md): vision, positioning, goals and
+> the change to principle 7 (owned by a team). Until he decides, this section stands.
+
 A software factory that **builds, runs and improves software**:
 - new apps on any stack, **agentic apps** first-class, plus data pipelines;
 - teams' **existing repos**: maintain, assess and uplift (migrating to agentic comes later);

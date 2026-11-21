@@ -7,7 +7,8 @@ account, any tool) can pick up development from a clone of this repo and nothing
 1. [roadmap.md](roadmap.md): what's next, in order, and what's done. The one page for "what do I do now".
 2. [handoff.md](handoff.md): the current working state (what's live, what's open) and how we work:
    environment, checks, commits, lessons learned.
-3. [master-plan.md](master-plan.md): the long-term vision, principles and vocabulary.
+3. [master-plan.md](master-plan.md): the long-term vision, principles and vocabulary. A replacement vision,
+   positioning and goals is proposed in [vision.md](vision.md) (2026-11-21, for Saravana's decision).
 4. [critique-2026-10-21.md](critique-2026-10-21.md): why the roadmap follows the golden journey.
 5. As needed: [plans/](plans/) (designs agreed but not built yet) and the ADRs in [../adr/](../adr/).
    [archive/](archive/) is history only: never act on it.
