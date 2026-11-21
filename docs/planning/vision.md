@@ -81,42 +81,44 @@ the factory exists for (work that is done and shown to be done), not activity. I
 [../outcomes.md](../outcomes.md) and ADR-0049's incidents.
 
 ## Goals
-Dates are proposals for a part-time effort; Saravana sets them. Each goal ends the way the journey milestones do,
-with a live run and sealed evidence. The order follows [plans/stations-and-teams.md](plans/stations-and-teams.md)
-(decided 2026-11-21).
+**The first open-source release, v0.1.0, is public by 2026-12-31** (decided by Saravana 2026-11-21). AI builds and
+reviews; Saravana validates the outcome of each goal. More integrations follow after the release. The week-by-week
+plan, the open core / licensed / SaaS split and the release blockers are in
+[plans/open-source-release.md](plans/open-source-release.md).
 
-**G0. Baselines first (by 2026-11-30).** Nothing in [../outcomes.md](../outcomes.md) has a recorded baseline.
-Write down autonomy, change failure rate, lead time p50/p90, cost per delivered change (failures included),
-requirements verified live and share at Level 3, from the live runs so far. Every later goal is measured against
-these numbers.
+**By 2026-12-31: v0.1.0**
+- **G0. Baselines (by 2026-11-29).** Nothing in [../outcomes.md](../outcomes.md) has a recorded baseline. Record
+  autonomy, change failure rate, lead time p50/p90, cost per delivered change (failures included), requirements
+  verified live and share at Level 3 from the live runs so far.
+- **G1. Prove the whole life (by 2026-11-29).**
+  - J4 and J5 run live; the golden journey is complete and the freeze lifts.
+  - One product reaches the **production** tier, with an alerting availability target and a passed restore drill.
+  - An incident is restored without a development cycle, in **under 5 minutes** for drift and crash classes (slice 0
+    in [plans/stations-and-teams.md](plans/stations-and-teams.md)).
+  - A retired product leaves a sealed decommission record.
+- **G2. Make "sealed" verifiable by someone else (by 2026-12-06).**
+  - The security assessment's high findings are closed, and its open mediums are scheduled.
+  - Evidence manifests are **signed**, not only hashed.
+  - A **verifier** anyone can run against a downloaded evidence bundle.
+- **G3. Open core and licensed edition from one repo (by 2026-12-20).**
+  - The LICENSE and the licensed folder, with the CI guard.
+  - The extension seam and the licence key.
+  - The first paid features: SSO, audit export to a SIEM, customer KMS signing, a compliance report pack.
+- **G4. Release (by 2026-12-31).**
+  - Licence audit, name and trademark, DCO, docs.
+  - A release rehearsal from the public images.
+  - v0.1.0 tagged and signed.
+  - The SaaS design written.
 
-**G1. Prove the whole life (by 2027-01-31).**
-- J4 and J5 run live; the golden journey is complete and the freeze lifts.
-- One product reaches the **production** tier, with an alerting availability target and a passed restore drill.
-- An incident is restored without a development cycle: time to restore **under 5 minutes** for drift and crash
-  classes (slice 0 in the stations-and-teams plan).
-- A retired product leaves a sealed decommission record.
-
-**G2. Make "sealed" verifiable by someone else (by 2027-02-28).**
-- The security assessment's high findings are closed, and its open mediums are scheduled.
-- Evidence manifests are **signed**, not only hashed.
-- A **verifier** anyone can run against a downloaded evidence bundle is published.
-- The Apache-2.0 LICENSE is in the repo, the name is chosen, and the trademark check is done.
-
-**G3. One external pilot (by 2027-06-30).**
-- One client, ideally UK regulated or public sector, through the consulting practice.
-- One station preset (Test + Security), with team ownership and at least one partner tool (SonarQube or Snyk).
-- Production watched externally (Grafana Cloud).
-- The pilot reports baseline and after values for change failure rate and cost per change.
-- Prerequisites: secret store, teams with rota and RACI, the provider framework (slices 1–3).
-
-**G4. Adoptable by teams (by 2027-12-31).**
-- More than one person works at once: concurrent changes and Postgres for the factory's state.
-- Station workspaces and discuss mode.
-- Operability artifacts with the readiness veto.
-- Any model, qualified station by station by the evaluation.
-- Three engagements delivered with the factory.
-- First station or stack pack contributed from outside the project.
+**After v0.1.0 (2027, dates set then)**
+- One external pilot: UK regulated or public sector through consulting, one station preset (Test + Security) with
+  SonarQube or Snyk, production watched by Grafana Cloud, change failure rate and cost per change reported before
+  and after.
+- Teams with rota and RACI beyond one team, the secret store and the provider framework.
+- Concurrent changes and Postgres; station workspaces and discuss mode.
+- Any model, qualified per station.
+- Single-tenant hosting through consulting, then multi-tenant SaaS.
+- The first outside contribution.
 
 Targets to hold across the goals (proposed; set against the G0 baselines):
 
@@ -136,9 +138,9 @@ Targets to hold across the goals (proposed; set against the G0 baselines):
 - **OpenHands or GitLab moves into the same quadrant.** OpenHands already owns "self-hosted open-source agent".
   The factory must not compete on that; it competes on the lifecycle and the evidence.
 - **The name.** "Agent Software Factory" collides with Factory.ai, Tessl ("build your software factory"), Port's
-  "AI Software Factory Summit" and Warp. Choose before any public release (G2).
-- **Trust gaps in a trust product.** One incident defines a brand (Replit, July 2025). Nothing public before G2.
-- **Capacity.** A part-time effort against companies valued in billions. The goals stay narrow: one quadrant, one
+  "AI Software Factory Summit" and Warp. Choose before the first public tag (G4).
+- **Trust gaps in a trust product.** One incident defines a brand (Replit, July 2025). Nothing is tagged before G2.
+- **Capacity.** One person validating AI-built work, against companies valued in billions. The goals stay narrow: one quadrant, one
   pilot, evidence first.
 
 ## Challenges to the current direction (for Saravana)
@@ -155,5 +157,5 @@ Targets to hold across the goals (proposed; set against the G0 baselines):
 1. Adopt this vision, mission and tagline (or amend), replacing master plan §1.
 2. Principle 7: owned by a team, with one accountable person per decision.
 3. The first customer profile: UK regulated or public sector through consulting, or another?
-4. The goals' dates and the target values.
+4. The target values (the release date is decided: 2026-12-31).
 5. Land with a preset for pilots (challenge 2), keeping the full package as the demo.

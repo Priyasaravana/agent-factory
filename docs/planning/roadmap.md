@@ -579,6 +579,12 @@ the security groups that slipped (S-05, S-06, S-07, S-08, S-10, S-11; backlog en
 ## ⏸ After J5
 Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
 
+**First open-source release, v0.1.0, public by 2026-12-31 (decided by Saravana 2026-11-21):** comes first after
+J5, ahead of the stations-and-teams slices 1–6 below. It covers the signed evidence and verifier, the high security
+findings, one repo with an Apache-2.0 core and a licensed folder (split proposed), the first paid features (SSO, SIEM
+export, customer KMS signing, compliance pack), the release blockers and the SaaS design (design only). Week by week:
+[plans/open-source-release.md](plans/open-source-release.md); goals in [vision.md](vision.md).
+
 **Stations as team members, owned by teams (direction and order decided by Saravana 2026-11-21):**
 [plans/stations-and-teams.md](plans/stations-and-teams.md). Stations hand off through typed, versioned artifacts
 and structured requests in the ledger; production is watched externally first (the factory responds and keeps the
