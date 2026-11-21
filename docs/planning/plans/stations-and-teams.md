@@ -1,7 +1,8 @@
 # Plan: stations as team members, owned by teams, integrated with their tools
 
-Status: direction and order decided by Saravana 2026-11-21 (architect session). Nothing here is built; it starts
-after J5 has run live (the freeze holds until then). It refines phase **T. Team delivery** and composable-SDLC steps
+Status: direction and order decided by Saravana 2026-11-21 (architect session). Nothing here is built. J4 and J5
+ran live on 2026-11-21, so the freeze has lifted; slice 0 comes first, slices 1–6 after the v0.1.0 release
+(roadmap "Next, in order"). It refines phase **T. Team delivery** and composable-SDLC steps
 2–4 ([composable-sdlc.md](composable-sdlc.md)) and builds on the station contract
 ([ADR-0037](../../adr/0037-station-contract.md)), check providers ([ADR-0035](../../adr/0035-check-providers.md))
 and J4's Operate watch ([ADR-0049](../../adr/0049-run-maintain-retire.md)). Where this page and an ADR disagree,
@@ -91,7 +92,7 @@ Each slice ends with a live run and sealed evidence, like the J-milestones.
 
 | # | Slice | Why here |
 |---|---|---|
-| 0 | J4 incident response slice, then the J4/J5 live run | Closes the journey and lifts the freeze; Respond is the first Operate station (below) |
+| 0 | Incident response slice (the J4/J5 live run itself ✅ 2026-11-21) | Restores service without a development cycle; Respond is the first Operate station (below) |
 | 1 | Secret store (ADR-0038) | Every SaaS integration needs it |
 | 2 | Teams, rota, RACI and modes on every station (composable step 2) | Ownership before tools |
 | 3 | Provider framework for every station; Snyk (secure), SonarQube / SonarCloud (verify), Grafana Cloud (operate: SLOs and alerts pushed, alerts back by webhook) | Proves the pattern three times, normalised |
@@ -99,7 +100,7 @@ Each slice ends with a live run and sealed evidence, like the J-milestones.
 | 5 | Operability artifacts and the readiness veto | The build / operate balance, enforced |
 | 6 | Start anywhere and station-as-a-service; design pack with knowledge sources (repo, wiki) and the bounded critique loop; stories exported to Jira / GitHub Issues | "Design only" for product owners (composable steps 3–4) |
 
-## Slice 0: incident response (proposed 2026-11-21, awaiting three decisions)
+## Slice 0: incident response (decided by Saravana 2026-11-21)
 J4.6 today fixes an incident with a full change (design → … → deploy). Restoring service and fixing the root cause
 are separated instead:
 - **Respond** is an Operate operation the engine runs (like backup and drill, `operations.py`), not a station in a
@@ -130,11 +131,13 @@ are separated instead:
 - **To verify live:** Helm's three-way merge puts replicas back on a rollback to the same revision; if an HPA owns
   replicas, "scale to the release's replicas" is needed instead.
 
-**Open (Saravana's call):**
-1. Land the minimal slice before J4 closes (proposed), or close J4 on today's path and build it next?
-2. `operate.respond` default: `auto` for re-apply and restart (proposed), or `ask`?
-3. Roll back to the previous release automatically when `schema_compat` says the data is compatible (proposed), or
-   always ask the owner?
+**Decided (Saravana, 2026-11-21):**
+1. **When:** J4 and J5 had already run live on today's path, so slice 0 is the first item after the journey
+   (roadmap "Next, in order", phase A), not a gate on J4.
+2. **`operate.respond` default `auto`** for re-apply and restart, within the ladder's limits (each step once per
+   incident, at most 3 actions per product per hour, fail-closed checks). An org may set `ask`.
+3. **Automatic rollback to the previous healthy release when `schema_compat` says the change is additive.** A
+   verdict of `unsure` or breaking always asks the owner, as data restore always does.
 
 ## Open questions (later slices)
 - Team model: one Team per role, or teams with several roles (a platform team owning operate and deliver)?
