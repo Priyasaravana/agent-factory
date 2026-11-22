@@ -122,7 +122,7 @@ Each slice ends with a live run and sealed evidence, like the J-milestones.
 | 3 | Provider framework for every station; Snyk (secure), SonarQube / SonarCloud (verify), Grafana Cloud (operate: SLOs and alerts pushed, alerts back by webhook) | Proves the pattern three times, normalised |
 | 4 | Station workspaces and discuss mode, security posture first; the product record and its role views | A team needs a home once it owns something; every role needs one place to see a product |
 | 5 | Operability artifacts (`recovery@1` included) and the readiness veto | The build / operate balance, enforced |
-| 6 | Start anywhere and station-as-a-service; design pack with knowledge sources (repo, wiki) and the bounded critique loop; stories exported to Jira / GitHub Issues | "Design only" for product owners (composable steps 3–4) |
+| 6 | Start anywhere and station-as-a-service; design pack with knowledge sources (repo, wiki) and the bounded critique loop; **inception discovery** (research, stakeholder input, a business case and a build / don't-build decision, added 2026-11-22); stories exported to Jira / GitHub Issues | "Design only" for product owners (composable steps 3–4) |
 
 ## Slice 0: incident response (decided by Saravana 2026-11-21)
 J4.6 today fixes an incident with a full change (design → … → deploy). Restoring service and fixing the root cause

@@ -10,8 +10,8 @@ sources dated) and the repo itself (what is proven).
 that it worked.**
 
 ## Mission
-A self-hosted factory in which every stage of a product's life (design, develop, test, secure, deliver, operate,
-recover, improve, retire) is a **station owned by a team**, worked by agents and by the tools that team already
+A self-hosted factory that manages a product's whole life, **from inception to retirement**: every stage (inception,
+design, develop, test, secure, deliver, operate, recover, improve, retire) is a **station owned by a team**, worked by agents and by the tools that team already
 uses, and **judged by an engine that seals the evidence**. Every role reads the same **product record**: what is
 owned, by whom, in what state, how it recovers and what needs attention. The record stays with the team that owns
 the product.
@@ -74,6 +74,8 @@ The seven principles in [master-plan.md](master-plan.md) §2 stand, with one cha
 
 ## What it is not (non-goals)
 - **Not a better coding agent.** It drives coding agents; it doesn't compete with Cursor or Devin on writing code.
+  "AIDLC" here means **agents doing the SDLC** under the engine's judgement (decided by Saravana 2026-11-22). The
+  lifecycle of the AI apps it builds (evals, model drift, prompt versions) stays a later pack, not the headline.
 - **Not an app host or a vibe-coding builder.** Products run on the client's clusters, not on ours.
 - **Not an observability or root-cause engine.** Grafana, Datadog and the AI SRE tools detect and investigate. The
   factory restores service from recorded releases, raises fixes and keeps the record.
@@ -176,6 +178,13 @@ Targets to hold across the goals (proposed; set against the G0 baselines):
    prefer predictable setups. The full package stays the demo; a pilot should start with one preset.
 3. **Proof before breadth.** Every public claim should point to a sealed live run. Today "runs and retires
    software" is dry-run only, and "for teams" is a plan.
+
+## Decisions (Saravana, 2026-11-22)
+- **Mission: "from inception to retirement"**, with inception named as the first stage. Inception today is intake,
+  the spec with numbered requirements, open questions, spec review and the decision sheet. Discovery beyond that
+  (research, stakeholder input, a business case, whether to build at all) comes with the design pack in
+  stations-and-teams slice 6, after v0.1.0.
+- **AIDLC means agents doing the SDLC**; the lifecycle of AI apps the factory builds is a later pack.
 
 ## Decisions (Saravana, 2026-11-21)
 1. **Vision, mission and tagline adopted as written**, replacing master plan §1.
