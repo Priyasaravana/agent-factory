@@ -6,6 +6,9 @@ Status: agreed direction · updated 2026-10-02 after the trust and business revi
 is the long-term shape, not the schedule.
 
 ## 1. Vision
+> **Replaced 2026-11-21** (adopted by Saravana): the vision, mission, positioning and goals are in
+> [vision.md](vision.md). The text below is kept as history of the earlier direction.
+
 A software factory that **builds, runs and improves software**:
 - new apps on any stack, **agentic apps** first-class, plus data pipelines;
 - teams' **existing repos**: maintain, assess and uplift (migrating to agentic comes later);
@@ -23,8 +26,9 @@ It runs on its own where policy allows: intake from tickets, scheduled upkeep, f
 7. **Ready for, proven, owned** (decided 2026-10-31). Every delivered product states what it is ready for,
    proves that readiness, and has an owner responsible for what happens after delivery. Readiness is a tier
    (demo, pilot, production) the engine works out from the sealed evidence, never an agent's claim, and the
-   product shows what the next tier still needs. The owner is a named person (§3J), accountable for incidents,
-   upkeep and retirement.
+   product shows what the next tier still needs. The product is **owned by a team** (changed 2026-11-21,
+   [vision.md](vision.md)): the team is responsible, and one person from its rota is accountable for each decision
+   (incidents, upkeep, retirement), with a deadline that escalates.
 
 ## Vocabulary (decided, ADR-0028)
 - **Stations** follow the DevOps loop: Plan (requirements, design) → Code (implement) → Test (test, quality-gate, code-review, change-risk) → Release (build) → Deploy (deploy, deploy-repair) → Validate (acceptance) → Handover; Operate/Monitor come with the operate loop. Shipped in `feat/station-phases`.
