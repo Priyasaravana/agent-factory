@@ -1152,6 +1152,49 @@
         }
       }
     },
+    "/api/products/{product_id}/respond": {
+      "post": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own",
+        "description": "Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own",
+        "operationId": "respond_to_incident",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{product_id}/backup": {
       "post": {
         "tags": [
@@ -9551,6 +9594,157 @@
         "type": "object",
         "title": "HumanTouches"
       },
+      "IncidentResponse": {
+        "properties": {
+          "incident": {
+            "type": "string",
+            "title": "Incident"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "mitigating",
+              "restored",
+              "resolved",
+              "reopened"
+            ],
+            "title": "State",
+            "default": "open"
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
+          },
+          "first_bad_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Bad At"
+          },
+          "tried": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tried"
+          },
+          "last_action_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Action At"
+          },
+          "restored_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restored At"
+          },
+          "restored_by": {
+            "type": "string",
+            "title": "Restored By",
+            "default": ""
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "held": {
+            "type": "string",
+            "title": "Held",
+            "default": ""
+          },
+          "proposed": {
+            "type": "string",
+            "title": "Proposed",
+            "default": ""
+          },
+          "caused_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caused By"
+          },
+          "reopened": {
+            "type": "integer",
+            "title": "Reopened",
+            "default": 0
+          },
+          "classification": {
+            "type": "string",
+            "title": "Classification",
+            "default": ""
+          },
+          "time_to_detect_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time To Detect S"
+          },
+          "time_to_restore_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time To Restore S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "incident"
+        ],
+        "title": "IncidentResponse",
+        "description": "Incident response for one open incident (ADR-0049 \u00a74, slice 0): where it is on the ladder, what was\ntried, and the DORA timings, all derived from the product's operation records (`respond.episode`)."
+      },
       "InstallSkillInput": {
         "properties": {
           "repo": {
@@ -10048,7 +10242,10 @@
               "alert",
               "recovered",
               "retire",
-              "owner"
+              "owner",
+              "respond",
+              "restored",
+              "resolved"
             ],
             "title": "Kind"
           },
@@ -10220,6 +10417,21 @@
                 "type": "null"
               }
             ]
+          },
+          "respond": {
+            "$ref": "#/components/schemas/ResponseMode",
+            "default": {
+              "configured": "auto",
+              "mode": "ask",
+              "why": ""
+            }
+          },
+          "responses": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentResponse"
+            },
+            "type": "array",
+            "title": "Responses"
           }
         },
         "type": "object",
@@ -12238,6 +12450,38 @@
           "title"
         ],
         "title": "RequirementView"
+      },
+      "ResponseMode": {
+        "properties": {
+          "configured": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ask",
+              "off"
+            ],
+            "title": "Configured",
+            "default": "auto"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "ask",
+              "off"
+            ],
+            "title": "Mode",
+            "default": "ask"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ResponseMode",
+        "description": "How the factory responds to this product's incidents now, and why it isn't the configured mode."
       },
       "RetireInput": {
         "properties": {

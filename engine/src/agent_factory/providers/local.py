@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_factory import respond
 from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import EventKind, Product
 from agent_factory.providers import app_network
@@ -278,6 +279,19 @@ class LocalProvider:
 
         paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
         return await self._release(ctx).rollback(release, self.identity(ctx), probe, paths)
+
+    async def live_state(self, ctx: StationContext, release: Release) -> respond.Live:
+        """What the product's release runs now, read-only and never recorded (incident response)."""
+        return await self._release(ctx).state(release.image, release.color)
+
+    async def restart(self, ctx: StationContext, release: Release) -> StepResult:
+        """Restart the release's Deployments and verify the health paths (incident response)."""
+
+        async def probe(path: str) -> CommandResult:
+            return await self._probe(ctx, path)
+
+        paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
+        return await self._release(ctx).restart(release.color, probe, paths)
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

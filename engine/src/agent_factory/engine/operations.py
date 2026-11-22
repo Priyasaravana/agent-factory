@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_factory import base_images, image_scan, ledger, operate, packs, validation
+from agent_factory import respond as rules
 from agent_factory.engine.stations import StationContext, _lockfiles
 from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import (
@@ -40,12 +41,16 @@ from agent_factory.models import (
     ChangeStatus,
     EventKind,
     HealthSample,
+    IncidentResponse,
     OperationRecord,
     OperationsView,
     Product,
     ProductTarget,
+    ResponseMode,
+    WorkItem,
 )
-from agent_factory.providers.base import ImageRef
+from agent_factory.providers.base import ImageRef, StepResult
+from agent_factory.secret_refs import REDACTOR
 
 if TYPE_CHECKING:
     from agent_factory.engine.pipeline import ChangeManager
@@ -64,6 +69,11 @@ SCRATCH_DATABASE = packs.SCRATCH_DATABASE
 READY_TRIES = 20
 PROBES_AT_ONCE = 8  # health readings taken side by side in one pass of the watch
 SIGXFSZ_EXIT = 128 + 25  # the shell's status for a command killed for writing past `ulimit -f`
+# incident response (ADR-0049 §4, slice 0)
+SETTLE_SECONDS = 120  # after a ladder step, how long its effect is given before the next step is taken
+DRILL_PASSED = "factory_restore_drill"  # meta: the install's factory restore drill (JSON: passed, at, by, note)
+RECONCILE = "respond_reconcile"  # meta: products whose release record a reading must match after a restore
+RESTORED_MARKER = "factory-restored"  # a file scripts/restore.sh leaves in the data folder
 
 
 class OperateError(Exception):
@@ -130,6 +140,8 @@ class Operations:
         self._busy: set[str] = set()  # products with a backup, drill or upkeep in flight
         self._jobs: set[asyncio.Task[Any]] = set()
         self._probed: dict[str, datetime] = {}
+        self._responding: set[str] = set()  # products with a response step in flight
+        self._urgent: set[str] = set()  # products with an incident being responded to: read more often
 
     # ------------------------------------------------------------- who/what --
     @property
@@ -200,14 +212,21 @@ class Operations:
         return ctx
 
     def _record(  # noqa: PLR0913 - one record's fields
-        self, product: Product, kind: str, ok: bool, summary: str, by: str, data: dict[str, Any] | None = None
+        self,
+        product: Product,
+        kind: str,
+        ok: bool,
+        summary: str,
+        by: str,
+        data: dict[str, Any] | None = None,
+        at: datetime | None = None,
     ) -> OperationRecord:
         rec = OperationRecord.model_validate(
             {
                 "id": uuid.uuid4().hex[:12],
                 "product_id": product.id,
                 "kind": kind,
-                "at": _now(),
+                "at": at or _now(),
                 "ok": ok,
                 "summary": summary,
                 "by": by,
@@ -270,18 +289,26 @@ class Operations:
         samples = [operate.Sample(r.at, r.ok, r.detail, r.requests, r.errors) for r in rows]
         return operate.evaluate(samples, target, now)
 
-    async def watch(self, product: Product, now: datetime | None = None) -> operate.Availability | None:
+    async def watch(
+        self, product: Product, now: datetime | None = None, *, act: bool = True
+    ) -> operate.Availability | None:
         """Read the product once, judge the window, and keep the ledger in step: a breach opens (or
-        reopens) the product's incident, a window within target closes it. None: not read (the
-        factory doesn't run it, or a change is deploying to it right now)."""
+        reopens) the product's incident, a window within target closes it. Then respond to an open
+        incident (`respond`; `act=False`: the caller schedules it). None: not read (the factory
+        doesn't run it, or a change is deploying to it right now)."""
         now = now or _now()
         if self.why_not(product) is not None or self._deploying(product):
             return None
         sample = await self.probe(product, now)
         self.store.add_health_sample(sample)
         self._probed[product.id] = now
+        if not sample.ok and self.cfg.respond != "off":
+            self._urgent.add(product.id)  # a failed reading: read every few seconds, so a breach is confirmed fast
         a = self.availability(product, now)
         self._fold_incident(product, a, now)
+        await self._reconcile(product)
+        if act:
+            await self.respond(product, now)
         return a
 
     def _fold_incident(self, product: Product, a: operate.Availability, now: datetime) -> None:
@@ -291,6 +318,10 @@ class Operations:
         items = self.store.list_work_items(product.id)
         change = self._release_change(product)
         candidate = operate.incident_candidate(a, target, product.app_url)
+        if candidate is None and (open_ := self._open_incident(product, items)) is not None:
+            ep = self.episode(product, open_)
+            if ep is not None and ep.tried and open_.status == "open":
+                return  # the response restored it: it is resolved after the quiet period (`respond`)
         item, what = ledger.fold_watch(
             product.id,
             items,
@@ -306,8 +337,11 @@ class Operations:
         owner = product.owner or product.created_by or "an admin"
         if what in ("new", "reopened"):
             why = "; ".join(a.reasons)
+            first_bad = a.since or now
+            cause = rules.caused_by(product.release, first_bad, self.cfg.incident_change_hours)
             self._record(product, "alert", False, f"outside its availability target: {why}", "factory",
-                         {"incident": item.id, "owner": owner, **a.as_data()})  # fmt: skip
+                         {"incident": item.id, "owner": owner, **a.as_data(), "first_bad_at": first_bad.isoformat(),
+                          "caused_by": cause}, at=now)  # fmt: skip
             self.store.add_event(
                 change.id,
                 EventKind.decision,
@@ -318,7 +352,7 @@ class Operations:
             )
         elif what == "fixed":
             self._record(product, "recovered", True, "within its availability target again; incident closed",
-                         "factory", {"incident": item.id, **a.as_data()})  # fmt: skip
+                         "factory", {"incident": item.id, **a.as_data()}, at=now)  # fmt: skip
             self.store.add_event(
                 change.id,
                 EventKind.decision,
@@ -326,6 +360,292 @@ class Operations:
                 station=STATION,
                 data={"incident": item.id, "availability": a.as_data()},
             )
+
+    # ---------------------------------------------------- incident response --
+    def response_mode(self, product: Product) -> tuple[rules.Mode, str]:
+        """The mode this product's incidents are responded to in now, and why it isn't the configured one."""
+        return rules.effective_mode(self.cfg.respond, self.drill_passed(), product.id not in self._pending())
+
+    def drill_passed(self) -> bool:
+        try:
+            got = json.loads(self.store.get_meta(DRILL_PASSED) or "{}")
+        except ValueError:
+            return False
+        return isinstance(got, dict) and got.get("passed") is True
+
+    def _pending(self) -> set[str]:
+        try:
+            got = json.loads(self.store.get_meta(RECONCILE) or "[]")
+        except ValueError:
+            return set()
+        return {str(x) for x in got} if isinstance(got, list) else set()
+
+    def note_restore(self) -> bool:
+        """The factory was restored from a backup (`scripts/restore.sh` leaves a marker): until a reading has
+        matched each product's recorded release with the live one, its incidents are responded to in ask mode."""
+        marker = Path(self.m.ws.data_dir) / RESTORED_MARKER
+        if not marker.is_file():
+            return False
+        ids = [p.id for p in self.store.list_products() if p.release is not None]
+        self.store.set_meta(RECONCILE, json.dumps(sorted(set(ids) | self._pending())))
+        marker.unlink(missing_ok=True)
+        log.info("operate: the factory was restored; %d product(s) respond in ask mode until reconciled", len(ids))
+        return True
+
+    async def _reconcile(self, product: Product) -> None:
+        pending = self._pending()
+        if product.id not in pending or product.release is None:
+            return
+        live = await self._live(product)
+        if live.error or rules.stale_record(product.release, live):
+            return  # still unknown or stale: stays in ask mode, and an incident is held as stale record
+        pending.discard(product.id)
+        self.store.set_meta(RECONCILE, json.dumps(sorted(pending)))
+        self.store.add_event(
+            self._release_change(product).id,
+            EventKind.decision,
+            f"after the factory restore, the recorded release (revision {product.release.revision}) matches the "
+            "live one: incident response may run as configured again",
+            station=STATION,
+            data={"reconciled": product.release.revision},
+        )
+
+    def _last_ok(self, product: Product) -> bool:
+        rows = self.store.list_health_samples(product.id, _now() - timedelta(minutes=10))
+        return not rows or rows[-1].ok
+
+    def _open_incident(self, product: Product, items: list[WorkItem] | None = None) -> WorkItem | None:
+        items = items if items is not None else self.store.list_work_items(product.id)
+        return next((i for i in items if i.category == ledger.INCIDENT and i.status in ledger.OPEN), None)
+
+    def episode(self, product: Product, item: WorkItem) -> rules.Episode | None:
+        records = [r for r in self.store.list_operations(product.id, None, 500) if r.data.get("incident") == item.id]
+        return rules.episode(records, item.id)
+
+    async def _live(self, product: Product) -> rules.Live:
+        ctx = self.ctx(product, quiet=True)
+        reader = getattr(ctx.providers.deploy, "live_state", None)
+        if product.release is None or not callable(reader):
+            return rules.Live(error="the deploy target gives no way to read the live release")
+        try:
+            return await reader(ctx, product.release)
+        except Exception as exc:  # noqa: BLE001 - an unreadable state decides nothing
+            return rules.Live(error=f"reading it raised {type(exc).__name__}")
+
+    async def respond(self, product: Product, now: datetime | None = None) -> IncidentResponse | None:
+        """Respond to the product's open incident (ADR-0049 §4, slice 0): verify a step already taken, resolve
+        what stayed healthy, notice a recurrence, or take the ladder's next step (snapshot first). In ask mode
+        the step is proposed to the owner (`respond_now`). None: there is nothing to respond to."""
+        now = now or _now()
+        if self.cfg.respond == "off" or self.why_not(product) is not None or self._deploying(product):
+            self._urgent.discard(product.id)
+            return None
+        item = self._open_incident(product)
+        if item is None or product.id in self._responding:
+            if item is None and self._last_ok(product):
+                self._urgent.discard(product.id)
+            return None
+        self._responding.add(product.id)
+        try:
+            ep = await self._respond(product, item, now, by="factory", forced=False)
+        finally:
+            self._responding.discard(product.id)
+        if ep is None or ep.state == "resolved":
+            self._urgent.discard(product.id)
+            return None if ep is None else IncidentResponse.model_validate(rules.view(ep))
+        self._urgent.add(product.id)
+        return IncidentResponse.model_validate(rules.view(ep))
+
+    async def respond_now(self, product: Product, by: str) -> IncidentResponse:
+        """The owner runs the step the ladder proposes (ask mode, or a step the factory held for them): the
+        same checks and limits as the factory's own, run now."""
+        if (why := self.why_not(product)) is not None:
+            raise OperateError(why)
+        if self._deploying(product):
+            raise OperateError("a change is deploying to the product: its result decides first")
+        item = self._open_incident(product)
+        if item is None:
+            raise OperateError("the product has no open incident")
+        if product.id in self._responding:
+            raise OperateError("a response step for this product is already running")
+        self._responding.add(product.id)
+        try:
+            ep = await self._respond(product, item, _now(), by=by, forced=True)
+        finally:
+            self._responding.discard(product.id)
+        if ep is None:
+            raise OperateError("the incident has no alert to respond to")
+        return IncidentResponse.model_validate(rules.view(ep))
+
+    async def _respond(  # noqa: PLR0911 - one outcome per branch
+        self, product: Product, item: WorkItem, now: datetime, *, by: str, forced: bool
+    ) -> rules.Episode | None:
+        ep = self.episode(product, item)
+        if ep is None:
+            return None
+        k = self.cfg.restored_after
+        if ep.state == "mitigating" and ep.last_action_at is not None:
+            samples = self.store.list_health_samples(product.id, ep.last_action_at)
+            if (at := rules.restored_at(samples, ep.last_action_at, k)) is not None:
+                self._restored(product, item, ep, at)
+                return self.episode(product, item)
+            if not forced and (now - ep.last_action_at).total_seconds() < SETTLE_SECONDS:
+                return ep  # the step is still taking effect
+            after = [r for r in samples if r.at > ep.last_action_at]
+            if not forced and after and after[-1].ok:
+                return ep  # answering again, not yet `restored_after` times in a row: no next step
+        if ep.state == "restored" and ep.restored_at is not None:
+            target = self.target(product)
+            rows = self.store.list_health_samples(product.id, ep.restored_at)
+            since = [operate.Sample(r.at, r.ok, r.detail, r.requests, r.errors) for r in rows if r.at > ep.restored_at]
+            again = operate.evaluate(since, target, now) if target is not None else operate.Availability("unknown")
+            if again.state == "breached":
+                why = "; ".join(again.reasons)
+                self._record(product, "alert", False, f"the incident came back after it was restored: {why}",
+                             "factory", {"incident": item.id, "reopened": True, **again.as_data(),
+                                         "first_bad_at": (again.since or now).isoformat()}, at=now)  # fmt: skip
+                ep = self.episode(product, item) or ep
+            elif rules.resolve_due(ep, now, self.cfg.resolve_after_hours):
+                self._resolve(product, item, ep, now)
+                return self.episode(product, item)
+            else:
+                return ep
+        mode, _why = self.response_mode(product)
+        if forced:
+            mode = "auto"  # a person runs it: the drill gate is for the factory acting alone
+        records = self.store.list_operations(product.id, "respond", 200)
+        live = await self._live(product)
+        step = rules.next_step(
+            product.release,
+            live,
+            ep.tried,
+            rules.actions_since(records, now - timedelta(hours=1)),
+            self.cfg.max_actions_per_hour,
+            mode,
+        )
+        if step.action is None:
+            if step.hold and step.reason != ep.held:
+                data: dict[str, Any] = {"hold": step.hold, "reason": step.reason, "live": live.as_data()}
+                summary = f"held for the owner: {step.reason}"
+                self._respond_record(product, item, now, by, ok=False, summary=summary, data=data)
+            return self.episode(product, item)
+        if step.ask:
+            if step.action != ep.proposed:
+                data = {"ask": True, "step": step.action, "reason": step.reason, "live": live.as_data()}
+                summary = f"proposed to the owner: {rules.ACTION_TEXT[step.action]} ({step.reason})"
+                self._respond_record(product, item, now, by, ok=True, summary=summary, data=data)
+            return self.episode(product, item)
+        await self._act(product, item, step, live, now, by)
+        return self.episode(product, item)
+
+    def _respond_record(  # noqa: PLR0913 - one record's fields
+        self, product: Product, item: WorkItem, now: datetime, by: str, *, ok: bool, summary: str,
+        data: dict[str, Any],
+    ) -> OperationRecord:  # fmt: skip
+        rec = self._record(product, "respond", ok, summary, by, {"incident": item.id, **data}, at=now)
+        self.store.add_event(
+            self._release_change(product).id, EventKind.decision, f"incident {item.id}: {summary}",
+            station=STATION, data={"incident": item.id, "respond": {k: v for k, v in data.items() if k != "live"}},
+        )  # fmt: skip
+        return rec
+
+    def incidents_dir(self, product: Product) -> Path:
+        return Path(self.m.ws.data_dir) / "incidents" / product.id
+
+    async def _snapshot(self, ctx: OpsContext, product: Product, item: WorkItem, live: rules.Live) -> dict[str, Any]:
+        """Snapshot first: what production looked like before anything was applied (pods, events, failing pods'
+        log tails, the release history, live against recorded), redacted, kept under the factory's data folder
+        for the owner and a later diagnosis, never in an event. Returns where it is and its sha256."""
+        assert product.release is not None  # noqa: S101 - only a product with a release is responded to
+        rec = product.release
+        parts = [
+            f"incident {item.id} · product {product.slug} · {_now().isoformat()}",
+            f"recorded release: revision {rec.revision}, {rec.image}, {rec.digest}, delivered {rec.at.isoformat()}",
+            "live: " + json.dumps(live.as_data(), sort_keys=True),
+            "differs: " + ("; ".join(rules.drift(rec, live)) or "nothing"),
+            "unhealthy: " + ("; ".join(rules.unhealthy(live)) or "nothing"),
+        ]
+        try:
+            parts.append("--- diagnostics ---\n" + await ctx.providers.deploy.diagnostics(ctx))
+        except Exception as exc:  # noqa: BLE001 - a snapshot that is partial still comes first
+            parts.append(f"--- diagnostics ---\ncould not be read ({type(exc).__name__})")
+        folder = self.incidents_dir(product)
+        folder.mkdir(parents=True, exist_ok=True)
+        folder.chmod(0o700)
+        path = folder / f"{item.id}-{_now().strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:4]}.txt"
+        path.write_text(REDACTOR.text("\n".join(parts)) + "\n")
+        path.chmod(0o600)
+        return {"file": path.name, "sha256": _sha256(path)}
+
+    async def _act(  # noqa: PLR0913 - the step and what it was decided from
+        self, product: Product, item: WorkItem, step: rules.Step, live: rules.Live, now: datetime, by: str
+    ) -> OperationRecord:
+        """Take one ladder step: snapshot first, then re-apply or restart through the deploy target's
+        fail-closed checks, under the engine's own `rollback:<environment>` capability."""
+        assert step.action is not None and product.release is not None  # noqa: S101 - decided by next_step
+        ctx = self.ctx(product)
+        ctx.grant = frozenset({f"rollback:{ctx.providers.environment}"})
+        snapshot = await self._snapshot(self.ctx(product, quiet=True), product, item, live)
+        deploy = ctx.providers.deploy
+        try:
+            if step.action == "reapply":
+                res = await deploy.rollback(ctx, product.release)  # type: ignore[attr-defined]
+            else:
+                restart = getattr(deploy, "restart", None)
+                res = (
+                    await restart(ctx, product.release)
+                    if callable(restart)
+                    else StepResult(False, "the deploy target can't restart the app")
+                )
+        except Exception as exc:  # noqa: BLE001 - a step that raised is recorded as failed, never retried here
+            res = StepResult(False, f"the step raised {type(exc).__name__}: {exc}")
+        verb = rules.ACTION_TEXT[step.action]
+        summary = f"{verb}: {res.summary}" if res.ok else f"{verb} failed: {res.summary}"
+        return self._respond_record(
+            product, item, now, by, ok=res.ok, summary=summary + f" (because {step.reason})",
+            data={"step": step.action, "ran": True, "reason": step.reason, "snapshot": snapshot,
+                  "refused": res.data.get("refused", []), "verify": res.data.get("verify", []),
+                  "live": live.as_data()},
+        )  # fmt: skip
+
+    def _restored(self, product: Product, item: WorkItem, ep: rules.Episode, at: datetime) -> None:
+        ep.state, ep.restored_at = "restored", at
+        ep.restored_by = ep.tried[-1] if ep.tried else ""
+        timings = ep.timings()
+        mins = (timings["time_to_restore_s"] or 0) / 60
+        summary = (
+            f"service restored ({self.cfg.restored_after} healthy readings in a row) after "
+            f"{', '.join(rules.ACTION_TEXT[t] for t in ep.tried)}; {mins:.1f} minutes from the first bad reading"
+        )
+        self._record(product, "restored", True, summary, "factory",
+                     {"incident": item.id, "by_step": ep.restored_by, **timings,
+                      "classification": rules.classify(ep), "caused_by": ep.caused_by}, at=at)  # fmt: skip
+        self.store.add_event(
+            self._release_change(product).id, EventKind.decision, f"incident {item.id}: {summary}", station=STATION,
+            data={"incident": item.id, "restored": timings},
+        )  # fmt: skip
+
+    def _resolve(self, product: Product, item: WorkItem, ep: rules.Episode, now: datetime) -> None:
+        note = f"{rules.classify(ep)}; no recurrence for {self.cfg.resolve_after_hours:g} hours"
+        fixed = ledger.resolve_watch(item, now, note, iteration=self._release_change(product).iteration)
+        if fixed is not None:
+            self.store.save_work_items([fixed])
+        self._record(product, "resolved", True, f"incident resolved: {note}", "factory",
+                     {"incident": item.id, "classification": rules.classify(ep), **ep.timings(),
+                      "caused_by": ep.caused_by}, at=now)  # fmt: skip
+        self.store.add_event(
+            self._release_change(product).id, EventKind.decision, f"incident {item.id} resolved: {note}",
+            station=STATION, data={"incident": item.id, "resolved": ep.timings()},
+        )  # fmt: skip
+
+    def responses(self, product: Product, items: list[WorkItem]) -> list[IncidentResponse]:
+        out = []
+        for it in items:
+            if it.category == ledger.INCIDENT and it.status in ledger.OPEN:
+                ep = self.episode(product, it)
+                if ep is not None:
+                    out.append(IncidentResponse.model_validate(rules.view(ep)))
+        return out
 
     # --------------------------------------------------------------- backup --
     def backup_dir(self, product: Product) -> Path:
@@ -782,13 +1102,20 @@ class Operations:
 
         async def read(product: Product) -> None:
             last = self._probed.get(product.id)
-            if last is not None and (now - last).total_seconds() < self.cfg.probe_seconds - 1:
+            every = self.cfg.respond_probe_seconds if product.id in self._urgent else self.cfg.probe_seconds
+            if last is not None and (now - last).total_seconds() < every - 1:
                 return
             async with gate:
                 try:
-                    await self.watch(product, now)
+                    await self.watch(product, now, act=False)
                 except Exception:  # noqa: BLE001 - one product never stops the watch of the others
                     log.warning("operate: product %s could not be watched", product.id, exc_info=True)
+                    return
+            if product.id not in self._responding:
+                if wait:
+                    await self.respond(product, now)
+                else:
+                    self._spawn(self.respond(product, now))
 
         await asyncio.gather(*(read(p) for p in live))
         for product in live:
@@ -808,9 +1135,11 @@ class Operations:
 
     async def run(self) -> None:
         await self.sweep_drills()
+        self.note_restore()
         while True:
             await self.tick()
-            await asyncio.sleep(self.cfg.probe_seconds)
+            # an incident being responded to is read every few seconds, so restored service is seen quickly
+            await asyncio.sleep(self.cfg.respond_probe_seconds if self._urgent else self.cfg.probe_seconds)
 
     def start(self) -> None:
         """The watch runs in a live factory only: dry-run has nothing to read."""
@@ -862,6 +1191,7 @@ class Operations:
                 av.watching = self.cfg.enabled and operate.fresh(newest, self.cfg.probe_seconds, now)
         good_restore = last("restore", ok_only=True)
         good_backup = last("backup", ok_only=True)
+        mode, mode_why = self.response_mode(product)
         return OperationsView(
             product_id=product.id,
             owner=product.owner or product.created_by or None,
@@ -886,4 +1216,6 @@ class Operations:
             upkeep_items=[i for i in items if i.category == ledger.UPKEEP and i.status in ledger.OPEN],
             records=records,
             retirement=product.retirement,
+            respond=ResponseMode(configured=self.cfg.respond, mode=mode, why=mode_why),
+            responses=self.responses(product, items),
         )

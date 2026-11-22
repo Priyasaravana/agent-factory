@@ -585,6 +585,12 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 3. **Incident response, slice 0** ([plans/stations-and-teams.md](plans/stations-and-teams.md)): snapshot first,
    re-apply, restart once, rollback when additive, the restored window, the states, DORA timings, the incident ↔
    change link; `operate.respond: auto`. An ADR-0049 §4 amendment.
+   🟡 **Minimal slice in review (2026-11-22, `operate/incident-response-slice-0`):** snapshot first, re-apply,
+   restart once, never over a newer release, the restored window (3 readings since the step, read every 10 s), the
+   states, DORA timings and the incident ↔ change link; `auto` by default, acting alone only once a factory restore
+   drill is recorded (`agent-factory factory-drill`) and, after a factory restore, once each record matches the live
+   release; until then the owner runs the proposed step. **Next:** rollback when additive, the diagnosis agent,
+   proven-defect bug changes. **Not run live yet** (the "Done when").
 4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
 - **Done when:** an injected drift and a crash each restore in under 5 minutes with no development cycle, live;

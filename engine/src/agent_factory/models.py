@@ -1754,7 +1754,9 @@ class HealthSample(BaseModel):
     errors: float | None = None
 
 
-OperationKind = Literal["backup", "restore", "upkeep", "alert", "recovered", "retire", "owner"]
+OperationKind = Literal[
+    "backup", "restore", "upkeep", "alert", "recovered", "retire", "owner", "respond", "restored", "resolved"
+]
 
 
 class OperationRecord(BaseModel):
@@ -1840,6 +1842,36 @@ class AvailabilityView(BaseModel):
     watching: bool = False
 
 
+class IncidentResponse(BaseModel):
+    """Incident response for one open incident (ADR-0049 §4, slice 0): where it is on the ladder, what was
+    tried, and the DORA timings, all derived from the product's operation records (`respond.episode`)."""
+
+    incident: str
+    state: Literal["open", "mitigating", "restored", "resolved", "reopened"] = "open"
+    opened_at: datetime | None = None
+    first_bad_at: datetime | None = None
+    tried: list[str] = Field(default_factory=list)  # ladder steps run: reapply | restart
+    last_action_at: datetime | None = None
+    restored_at: datetime | None = None
+    restored_by: str = ""
+    resolved_at: datetime | None = None
+    held: str = ""  # why nothing more is applied automatically; the owner decides
+    proposed: str = ""  # the step the owner is asked to run (ask mode)
+    caused_by: str | None = None  # the change the incident counts against
+    reopened: int = 0
+    classification: str = ""
+    time_to_detect_s: float | None = None
+    time_to_restore_s: float | None = None
+
+
+class ResponseMode(BaseModel):
+    """How the factory responds to this product's incidents now, and why it isn't the configured mode."""
+
+    configured: Literal["auto", "ask", "off"] = "auto"
+    mode: Literal["auto", "ask", "off"] = "ask"
+    why: str = ""
+
+
 class OperationsView(BaseModel):
     """Run and maintain, for one product (J4): its owner, availability against its target, open
     incidents, backups and the last restore drill, upkeep, and what the factory did (`records`)."""
@@ -1862,6 +1894,8 @@ class OperationsView(BaseModel):
     upkeep_items: list[WorkItem] = Field(default_factory=list)
     records: list[OperationRecord] = Field(default_factory=list)
     retirement: Retirement | None = None
+    respond: ResponseMode = ResponseMode()
+    responses: list[IncidentResponse] = Field(default_factory=list)  # one per open incident
 
 
 class HistoryEntry(BaseModel):

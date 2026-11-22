@@ -189,6 +189,17 @@ class OperateConfig(BaseModel):
     # ask: findings wait on the product's Next iteration card for its owner; auto: the factory starts
     # the upkeep change itself when nothing else is running on the product (it spends model budget)
     upkeep_start: Literal["ask", "auto"] = "ask"
+    # incident response (ADR-0049 §4, slice 0): restore service before any fix. auto: the engine re-applies
+    # the recorded release or restarts the app by itself (it takes effect only once a factory restore drill
+    # has passed on this install); ask: it proposes the step and the owner runs it; off: incidents wait for a
+    # fix change, as before
+    respond: Literal["auto", "ask", "off"] = "auto"
+    respond_probe_seconds: int = Field(default=10, ge=5, le=300)  # readings while an incident is open
+    restored_after: int = Field(default=3, ge=1, le=60)  # healthy readings in a row since the action
+    max_actions_per_hour: int = Field(default=3, ge=1, le=20)  # ladder steps per product, every incident
+    resolve_after_hours: float = Field(default=24, gt=0, le=24 * 30)  # restored, no recurrence: resolved
+    # an incident that began within this long after a release was delivered counts against its change
+    incident_change_hours: float = Field(default=24, gt=0, le=24 * 30)
 
 
 class RetireConfig(BaseModel):

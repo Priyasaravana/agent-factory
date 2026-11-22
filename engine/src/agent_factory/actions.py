@@ -985,6 +985,26 @@ async def check_health(f: Factory, product_id: str) -> OperationsView:
 
 
 @action(
+    "respond_to_incident",
+    "Restore service now: run the step incident response proposes for the product's open incident (re-apply "
+    "the recorded release or restart the app), with the same checks and limits as the factory's own",
+    "POST",
+    "/api/products/{product_id}/respond",
+)
+async def respond_to_incident(f: Factory, product_id: str) -> OperationsView:
+    from agent_factory.engine.operations import OperateError
+
+    _may_steer(f, product_id)
+    product = _live_product(f, product_id)
+    ops = f.manager.operations
+    try:
+        await ops.respond_now(product, current_identity().user)
+    except OperateError as exc:
+        raise InvalidRequestError(str(exc)) from exc
+    return ops.view(f.store.get_product(product_id) or product)
+
+
+@action(
     "backup_product",
     "Back the product's data up now, with its stack's backup command",
     "POST",
@@ -1298,7 +1318,10 @@ def list_attention(f: Factory, product_id: str | None = None, include_optional: 
         mine = [
             i for i in f.store.list_work_items(product.id) if i.category == ledger.INCIDENT and i.status in ledger.OPEN
         ]
-        for a in product_actions(product, mine, groups["upkeep"], latest.status in FEEDBACK_OPEN, datetime.now(UTC)):
+        responses = {r.incident: r for r in f.manager.operations.responses(product, mine)} if mine else {}
+        for a in product_actions(
+            product, mine, groups["upkeep"], latest.status in FEEDBACK_OPEN, datetime.now(UTC), responses
+        ):
             if a.blocking or include_optional:
                 items.append(
                     AttentionItem(

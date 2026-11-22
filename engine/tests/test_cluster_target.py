@@ -152,6 +152,33 @@ async def test_credentials_go_through_the_environment_never_the_command_line(mak
             "used secret env://PULL_JSON for image pull secret"} <= set(used)  # fmt: skip
 
 
+async def test_incident_response_reads_and_restarts_with_the_kubeconfig_in_the_environment(
+    make_factory, cfg, monkeypatch
+):
+    """Incident response (ADR-0049 §4) on a cluster target: the live state is read and the app restarted under
+    the engine's own rollback capability, the kubeconfig through the environment, never the command line."""
+    monkeypatch.setenv("KUBECONFIG_CONTENT", "apiVersion: v1\nkind: Config\n# s3cret-kube")
+    _use_cluster_target(cfg)
+    cfg.integrations["kind-ingress"].auth = IntegrationAuth(secret_ref="env://KUBECONFIG_CONTENT")
+    ex = EnvExecutor(outputs={"helm template": INGRESS})
+    f = make_factory(ex)
+    product = f.manager.create_product(PRODUCT)
+    change = f.manager.start_change(product)
+    assert await wait_run(f, change.id) == ChangeStatus.awaiting_feedback
+    product = f.store.get_product(product.id)
+    ops = f.manager.operations
+    live = await ops._live(product)
+    assert live.error == "" and live.revision == product.release.revision and live.image == product.release.image
+    ctx = ops.ctx(product)
+    ctx.grant = frozenset({f"rollback:{ctx.providers.environment}"})
+    res = await ctx.providers.deploy.restart(ctx, product.release)
+    assert res.ok, res.summary
+    restart = next(i for i, c in enumerate(ex.calls) if "rollout restart deployment" in c)
+    assert "app.kubernetes.io/instance=bookmarks-service" in ex.calls[restart] and "rm -f" in ex.calls[restart]
+    assert ex.envs[restart]["AF_KUBECONFIG"].endswith("# s3cret-kube")
+    assert not any("s3cret" in c for c in ex.calls), "no credential on a command line"
+
+
 # --------------------------------------------------------------- readiness --
 async def test_readiness_checks_api_ingress_class_and_the_egress_allowlist(cfg, monkeypatch):
     import shutil

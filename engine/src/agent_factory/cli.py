@@ -81,6 +81,15 @@ def main() -> None:
     ap.add_argument("slug", nargs="?", help="one app (as `apps` lists it): its address and admin")
     ap.add_argument("--password", action="store_true", help="also show the admin's password")
     ap.add_argument("--password-only", action="store_true", help="print only the password (for a clipboard)")
+    fd = sub.add_parser(
+        "factory-drill",
+        help="record this install's factory restore drill (incident response runs automatically only once one passed)",
+    )
+    fd.add_argument("result", choices=["passed", "failed", "show"])
+    fd.add_argument("--by", default="", help="who ran the drill")
+    fd.add_argument(
+        "--note", default="", help="where it was restored to and what was verified (at least 20 characters)"
+    )
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
@@ -110,10 +119,37 @@ def main() -> None:
         _apps(args.slug, args.password, args.password_only)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
+    elif args.cmd == "factory-drill":
+        _factory_drill(args.result, args.by, args.note)
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
         _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
         _sandbox_check()
+
+
+def _factory_drill(result: str, by: str, note: str) -> None:
+    """Record the factory restore drill (stations-and-teams plan, "Factory continuity"): the factory restored
+    to a separate host or folder, its evidence manifests verified and its records matched with the live
+    releases. `operate.respond: auto` takes effect only once one has passed; re-run it after an upgrade that
+    changes the data format."""
+    from datetime import UTC, datetime
+
+    from agent_factory.config import load_config
+    from agent_factory.engine.operations import DRILL_PASSED
+    from agent_factory.settings import Settings
+    from agent_factory.state import SqliteStateStore
+
+    s = Settings()
+    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    store = SqliteStateStore(data_dir / "factory.db")
+    if result == "show":
+        print(store.get_meta(DRILL_PASSED) or "no factory restore drill recorded: incident response runs in ask mode")
+        return
+    if not by.strip() or len(note.strip()) < 20:  # noqa: PLR2004 - a note a reader can check
+        sys.exit("say who ran it (--by) and what was restored and verified (--note, at least 20 characters)")
+    entry = {"passed": result == "passed", "at": datetime.now(UTC).isoformat(), "by": by.strip(), "note": note.strip()}
+    store.set_meta(DRILL_PASSED, json.dumps(entry))
+    print(json.dumps(entry))
 
 
 def _apps(slug: str | None, password: bool, password_only: bool) -> None:

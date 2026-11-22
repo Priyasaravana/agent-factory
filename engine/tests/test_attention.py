@@ -140,3 +140,51 @@ async def test_attention_over_http(make_factory) -> None:
         events = (await c.get(f"/api/changes/{change.id}/events")).json()
         assert all(e["level"] in ("error", "warn", "info", "debug") for e in events)
     await ctx.__aexit__(None, None, None)
+
+
+# ------------------------------------------------- incident response (ADR-0049 §4) --
+def _incident():
+    from agent_factory.models import WorkItem
+
+    return WorkItem(
+        id="wi1", product_id="p1", kind="issue", fingerprint="f", title="Incident", category="incident",
+        detail="The product is outside its availability target.", created_at=NOW, updated_at=NOW,
+    )  # fmt: skip
+
+
+def _response(**kw: object):
+    from agent_factory.models import IncidentResponse
+
+    return IncidentResponse.model_validate({"incident": "wi1", "opened_at": NOW, **kw})
+
+
+def test_an_incident_the_factory_is_responding_to_says_where_it_stands():
+    from agent_factory.attention import product_actions
+
+    p, it = _product(), _incident()
+
+    def one(**kw: object):
+        [a] = product_actions(p, [it], [], True, NOW, {"wi1": _response(**kw)})
+        return a.title, a.panel, a.blocking
+
+    assert one(proposed="restart") == ("Incident: restore service (restart the app)", "operations", True)
+    assert one(held="re-apply and restart were tried") == (
+        "Incident: the factory's response is held for you",
+        "operations",
+        True,
+    )
+    assert one(state="mitigating", tried=["reapply"]) == (
+        "Incident: the factory is restoring service",
+        "operations",
+        False,
+    )
+    assert one(state="restored", tried=["reapply"]) == (
+        "Incident: service restored, watching for a recurrence",
+        "operations",
+        False,
+    )
+    # nothing tried yet, or no response at all: the J4 action (start a fix change)
+    [plain] = product_actions(p, [it], [], True, NOW, {"wi1": _response()})
+    assert (plain.panel, plain.blocking) == ("next-iteration", True)
+    [plain] = product_actions(p, [it], [], True, NOW)
+    assert plain.panel == "next-iteration"

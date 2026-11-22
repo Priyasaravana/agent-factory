@@ -1,9 +1,30 @@
-# Agent Factory: handoff (updated 2026-11-17)
+# Agent Factory: handoff (updated 2026-11-22)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-21)
+## Current state (2026-11-22)
+- **In review on `operate/incident-response-slice-0`:** phase A item 3, incident response slice 0 (ADR-0049 §4
+  amended; minimal slice as the plan scoped it). Code map: pure rules in `respond.py` (mode, live state parsers,
+  `stale_record`, `drift`, the ladder `next_step`, `episode` from operation records, `restored_at`, `resolve_due`,
+  `classify`, `caused_by`); acting in `engine/operations.py` (`respond`, `respond_now`, `_act` with the snapshot
+  first, `_restored`, `_resolve`, `note_restore` / `_reconcile` after a factory restore, faster readings while a
+  reading fails or an incident is open). Live state and restart: `HelmRelease.state` / `.restart`, through
+  `live_state` / `restart` on both deploy providers; re-apply is the ADR-0046 rollback to the recorded revision.
+  Ledger: `ledger.resolve_watch`. API `POST /products/{id}/respond` (steering). CLI `agent-factory factory-drill
+  passed|failed|show`. `scripts/restore.sh` leaves `factory-restored`. UI: the incident card in "Running it"
+  (state, tried, held/proposed, timings, the step button). Dry-run Helm simulates drift and crashes
+  (`FakeHelm.drift`). Tests: `test_respond.py` (pure), `test_operations.py` (drift → re-apply → restored →
+  resolved; crash → restart once → held; newer release held; ask mode and the owner's step; recurrence goes up
+  the ladder; rate limit; after a factory restore; off), `test_attention.py`, `test_cluster_target.py`
+  (kubeconfig through the environment).
+  **Not run live:** the "Done when" (an injected drift and a crash each restore in under 5 minutes, live) needs the
+  Mac: `agent-factory factory-drill passed --by … --note …` after a factory restore drill (or leave it in ask mode and
+  press the button), then `kubectl -n app-<slug> set image deployment/<slug> …=<other>` for drift and a crash
+  (`kubectl -n app-<slug> exec deploy/<slug> -- kill 1` repeatedly, or a bad env var) for the restart.
+  **Left in phase A:** items 1, 2, 4 and 5; rollback / diagnosis / bug change are slice 0's next part.
+
+## Earlier state (2026-11-21)
 - **J4 and J5 ran live** (Saravana, 2026-11-21): the golden journey is complete and the freeze lifts. Its evidence and
   findings are still to be written down (phase A item 1).
 - **Decided 2026-11-21** (#188, #189): the vision in [vision.md](vision.md) is adopted (master plan §1 replaced;

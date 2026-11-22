@@ -460,6 +460,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/products/{product_id}/respond": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own
+         * @description Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own
+         */
+        post: operations["respond_to_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/products/{product_id}/backup": {
         parameters: {
             query?: never;
@@ -3847,6 +3867,64 @@ export interface components {
              */
             risk_approvals: number;
         };
+        /**
+         * IncidentResponse
+         * @description Incident response for one open incident (ADR-0049 §4, slice 0): where it is on the ladder, what was
+         *     tried, and the DORA timings, all derived from the product's operation records (`respond.episode`).
+         */
+        IncidentResponse: {
+            /** Incident */
+            incident: string;
+            /**
+             * State
+             * @default open
+             * @enum {string}
+             */
+            state: "open" | "mitigating" | "restored" | "resolved" | "reopened";
+            /** Opened At */
+            opened_at?: string | null;
+            /** First Bad At */
+            first_bad_at?: string | null;
+            /** Tried */
+            tried?: string[];
+            /** Last Action At */
+            last_action_at?: string | null;
+            /** Restored At */
+            restored_at?: string | null;
+            /**
+             * Restored By
+             * @default
+             */
+            restored_by: string;
+            /** Resolved At */
+            resolved_at?: string | null;
+            /**
+             * Held
+             * @default
+             */
+            held: string;
+            /**
+             * Proposed
+             * @default
+             */
+            proposed: string;
+            /** Caused By */
+            caused_by?: string | null;
+            /**
+             * Reopened
+             * @default 0
+             */
+            reopened: number;
+            /**
+             * Classification
+             * @default
+             */
+            classification: string;
+            /** Time To Detect S */
+            time_to_detect_s?: number | null;
+            /** Time To Restore S */
+            time_to_restore_s?: number | null;
+        };
         /** InstallSkillInput */
         InstallSkillInput: {
             /** Repo */
@@ -4051,7 +4129,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "backup" | "restore" | "upkeep" | "alert" | "recovered" | "retire" | "owner";
+            kind: "backup" | "restore" | "upkeep" | "alert" | "recovered" | "retire" | "owner" | "respond" | "restored" | "resolved";
             /**
              * At
              * Format: date-time
@@ -4137,6 +4215,16 @@ export interface components {
             /** Records */
             records?: components["schemas"]["OperationRecord"][];
             retirement?: components["schemas"]["Retirement"] | null;
+            /**
+             * @default {
+             *       "configured": "auto",
+             *       "mode": "ask",
+             *       "why": ""
+             *     }
+             */
+            respond: components["schemas"]["ResponseMode"];
+            /** Responses */
+            responses?: components["schemas"]["IncidentResponse"][];
         };
         /**
          * Outcome
@@ -5019,6 +5107,29 @@ export interface components {
              * @default
              */
             detail: string;
+        };
+        /**
+         * ResponseMode
+         * @description How the factory responds to this product's incidents now, and why it isn't the configured mode.
+         */
+        ResponseMode: {
+            /**
+             * Configured
+             * @default auto
+             * @enum {string}
+             */
+            configured: "auto" | "ask" | "off";
+            /**
+             * Mode
+             * @default ask
+             * @enum {string}
+             */
+            mode: "auto" | "ask" | "off";
+            /**
+             * Why
+             * @default
+             */
+            why: string;
         };
         /**
          * RetireInput
@@ -7147,6 +7258,37 @@ export interface operations {
         };
     };
     check_health: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    respond_to_incident: {
         parameters: {
             query?: never;
             header?: never;
