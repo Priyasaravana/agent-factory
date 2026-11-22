@@ -544,7 +544,7 @@ per-pack evaluation is in the backlog.
 - **Done when:** an assessment item becomes a PR, CI fails once and is fixed on the same PR, and the merge
   closes the change.
 
-**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)** · ⏳ built and merged 2026-11-17 (#185), audited end to end the same day, not run live
+**J4. Run and maintain (~4 days; ~6.5 with the 2026-10-31 additions)** · ✅ built and merged 2026-11-17 (#185), audited the same day, **run live by Saravana 2026-11-21** (the golden journey is complete; the freeze lifts)
 - **First, a named product owner** (decided 2026-10-31; master plan §3J, still "later" in `models.py`): each
   product has an owner, its creator by default, reassignable by an admin; incidents, upkeep changes and the
   retire flow name the owner, and "Needs you" routes product items to them.
@@ -565,7 +565,7 @@ per-pack evaluation is in the backlog.
   **And** (decided 2026-10-31): the product has a named owner and a declared availability target whose breach
   alerts; its data is backed up and a restore is proven; a factory restart mid-change resumes the change.
 
-**J5. End of life (~2 days)** · ⏳ built and merged 2026-11-17 (#185), audited end to end the same day, not run live
+**J5. End of life (~2 days)** · ✅ built and merged 2026-11-17 (#185), audited the same day, **run live by Saravana 2026-11-21** (the golden journey is complete; the freeze lifts)
 - A **retire** flow: freeze changes, final sealed evidence, data export, undeploy, archive the product repo,
   a decommission record on Outcomes.
 - **Done when:** the J1 product is retired and its full history, from first request to decommission, can be
@@ -578,6 +578,15 @@ the security groups that slipped (S-05, S-06, S-07, S-08, S-10, S-11; backlog en
 
 ## ⏸ After J5
 Two named phases follow the journey (decided 2026-10-31); their order and "Done when" are set when J5 has run.
+
+**Stations as team members, owned by teams (direction and order decided by Saravana 2026-11-21):**
+[plans/stations-and-teams.md](plans/stations-and-teams.md). Stations hand off through typed, versioned artifacts
+and structured requests in the ledger; production is watched externally first (the factory responds and keeps the
+record); first integrations Snyk (secure), SonarQube / SonarCloud (verify), Grafana Cloud (operate). Order:
+0 J4 incident response slice and the J4/J5 live run → 1 secret store → 2 teams, rota, RACI and modes on every station
+(T's ownership part) → 3 provider framework and the three integrations → 4 station workspaces and discuss mode →
+5 operability artifacts and the readiness veto → 6 start anywhere, station-as-a-service and the design pack.
+Slice 0's three open decisions are in that page.
 
 **T. Team delivery:** ownership, review responsibilities, concurrent work.
 - Composable-SDLC step 2 (human modes, owners, separation of duty) and step 3 (start anywhere).
