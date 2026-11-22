@@ -79,6 +79,16 @@ archive its repository, and keep a record from which its whole history can be sh
      restore drill has passed (`agent-factory factory-drill passed`, recorded in the factory's meta), and after
      a factory restore (`scripts/restore.sh` leaves a marker) only for a product whose recorded release a
      reading has matched with the live one since; until then the step is proposed.
+   - **Decided 2026-11-22 (PR #190 review):** the factory restore drill gate stays (automatic recovery changes
+     live workloads, so it waits until an operator has shown this install restores safely; before that the
+     owner triggers the step), and the 120 s settle period stays until live timings of the action and its
+     verification, with a bounded retry per action, say otherwise.
+   - **What a step reports:** a step that fails keeps its command's own output (redacted, the last 1,500
+     characters) in its record and on the incident card; service that comes back after a failed step is
+     recorded as restored, but not credited to the factory. The owner's step runs in the background
+     (`start_respond`), so a dropped request can't cut a re-apply off half-way; the page reads until it ends.
+     The availability card shows the newest reading apart from the 30-minute window, and when the window's
+     last failed reading ages out, so "answering now" and "outside target" can't be read as contradicting.
    - Not in slice 0, next: rollback to the previous healthy release when `schema_compat` says the change was
      additive (unsure or breaking asks the owner), the diagnosis agent (ops pack, `report.incident-diagnosis@1`,
      reading the snapshot file only), and a bug change raised when the engine proves a code defect.

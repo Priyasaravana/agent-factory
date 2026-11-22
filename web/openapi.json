@@ -1157,8 +1157,8 @@
         "tags": [
           "factory"
         ],
-        "summary": "Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own",
-        "description": "Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own",
+        "summary": "Restore service now: start the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own; it runs in the background and the returned view says `responding` until it ends",
+        "description": "Restore service now: start the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own; it runs in the background and the returned view says `responding` until it ends",
         "operationId": "respond_to_incident",
         "parameters": [
           {
@@ -6410,6 +6410,34 @@
             "type": "boolean",
             "title": "Watching",
             "default": false
+          },
+          "last_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok"
+          },
+          "last_detail": {
+            "type": "string",
+            "title": "Last Detail",
+            "default": ""
+          },
+          "clears_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clears At"
           }
         },
         "type": "object",
@@ -9643,6 +9671,28 @@
             "type": "array",
             "title": "Tried"
           },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failed"
+          },
+          "last_result": {
+            "type": "string",
+            "title": "Last Result",
+            "default": ""
+          },
+          "last_ok": {
+            "type": "boolean",
+            "title": "Last Ok",
+            "default": true
+          },
+          "last_detail": {
+            "type": "string",
+            "title": "Last Detail",
+            "default": ""
+          },
           "last_action_at": {
             "anyOf": [
               {
@@ -10329,7 +10379,8 @@
               "state": "off",
               "samples": 0,
               "reasons": [],
-              "watching": false
+              "watching": false,
+              "last_detail": ""
             }
           },
           "incidents": {
@@ -10432,6 +10483,11 @@
             },
             "type": "array",
             "title": "Responses"
+          },
+          "responding": {
+            "type": "boolean",
+            "title": "Responding",
+            "default": false
           }
         },
         "type": "object",

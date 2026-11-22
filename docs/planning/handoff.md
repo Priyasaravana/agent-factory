@@ -23,6 +23,16 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   press the button), then `kubectl -n app-<slug> set image deployment/<slug> …=<other>` for drift and a crash
   (`kubectl -n app-<slug> exec deploy/<slug> -- kill 1` repeatedly, or a bad env var) for the restart.
   **Left in phase A:** items 1, 2, 4 and 5; rollback / diagnosis / bug change are slice 0's next part.
+  **Live check 2026-11-22 (Kudos, local, factory at `7931666`; PR #190 comment):** web pod deleted → Kubernetes
+  replaced it, health and ready answered in about 32 s (passes the 5 minutes). **Drift did not pass:** image set
+  from `575ed0a` to `a26a161`, the factory proposed the re-apply, the step did not restore the release, and a
+  manual `helm rollback kudos 9 -n app-kudos --wait --timeout 90s` did. The cause is not known yet: the step's
+  record kept only "helm rollback failed" without Helm's output. Follow-up commit: a failed step now keeps its
+  command's output (redacted) on the record and the card, isn't credited with a restore it didn't make, and the
+  owner's step runs in the background. **Next live check:** repeat the drift with the follow-up and read the
+  "Last step" output on the card. The availability card also looked unreconciled (open incident, 93.5 %, a 503,
+  while health answered 200): the 503 was the window's last failure, which stays in the 30-minute window; the card
+  now shows the newest reading and when the window clears. Decisions: the drill gate and the 120 s settle stay.
 
 ## Earlier state (2026-11-21)
 - **J4 and J5 ran live** (Saravana, 2026-11-21): the golden journey is complete and the freeze lifts. Its evidence and

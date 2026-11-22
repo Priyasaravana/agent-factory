@@ -265,3 +265,16 @@ def test_actions_are_counted_across_incidents_in_the_last_hour():
         Rec("respond", T0 - timedelta(minutes=5), data={"ask": True}),  # proposed, not run
     ]
     assert respond.actions_since(recs, T0 - timedelta(hours=1)) == 2
+
+
+def test_a_step_that_failed_is_not_credited_with_the_restore():
+    ok = [_alert(T0), Rec("respond", T0, True, {"incident": "i1", "step": "reapply", "ran": True})]
+    ep = respond.episode(ok, "i1")
+    assert ep is not None and respond.credited(ep) == "reapply"
+    failed = [_alert(T0), Rec("respond", T0, False, {"incident": "i1", "step": "reapply", "ran": True,
+                                                     "detail": "Error: timed out"})]  # fmt: skip
+    ep = respond.episode(failed, "i1")
+    assert ep is not None and (respond.credited(ep), ep.failed, ep.last_detail) == ("", ["reapply"], "Error: timed out")
+    failed.append(Rec("restored", T0 + timedelta(minutes=2), data={"incident": "i1", "by_step": ""}))
+    ep = respond.episode(failed, "i1")
+    assert ep is not None and ep.restored_by == "" and "outside the factory" in respond.classify(ep)

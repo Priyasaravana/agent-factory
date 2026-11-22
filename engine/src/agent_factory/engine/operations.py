@@ -456,9 +456,22 @@ class Operations:
         self._urgent.add(product.id)
         return IncidentResponse.model_validate(rules.view(ep))
 
-    async def respond_now(self, product: Product, by: str) -> IncidentResponse:
-        """The owner runs the step the ladder proposes (ask mode, or a step the factory held for them): the
-        same checks and limits as the factory's own, run now."""
+    def start_respond(self, product: Product, by: str) -> None:
+        """The owner runs the proposed step: checked now, run in the background (a re-apply waits for Helm and
+        the rollout, minutes), so a closed page or a dropped request never cuts it off half-way. The page reads
+        `OperationsView.responding` until it ends."""
+        self._check_respond(product)
+        self._responding.add(product.id)  # taken now, so a second press is refused at once
+
+        async def run() -> None:
+            try:
+                await self.respond_now(product, by, claimed=True)
+            finally:
+                self._responding.discard(product.id)
+
+        self._spawn(run())
+
+    def _check_respond(self, product: Product) -> WorkItem:
         if (why := self.why_not(product)) is not None:
             raise OperateError(why)
         if self._deploying(product):
@@ -468,11 +481,24 @@ class Operations:
             raise OperateError("the product has no open incident")
         if product.id in self._responding:
             raise OperateError("a response step for this product is already running")
-        self._responding.add(product.id)
+        return item
+
+    async def respond_now(self, product: Product, by: str, *, claimed: bool = False) -> IncidentResponse:
+        """The owner runs the step the ladder proposes (ask mode, or a step the factory held for them): the
+        same checks and limits as the factory's own, run now. `claimed`: the caller already holds the
+        product's response slot (`start_respond`)."""
+        if claimed:
+            item = self._open_incident(product)
+            if item is None:
+                raise OperateError("the product has no open incident")
+        else:
+            item = self._check_respond(product)
+            self._responding.add(product.id)
         try:
             ep = await self._respond(product, item, _now(), by=by, forced=True)
         finally:
-            self._responding.discard(product.id)
+            if not claimed:
+                self._responding.discard(product.id)
         if ep is None:
             raise OperateError("the incident has no alert to respond to")
         return IncidentResponse.model_validate(rules.view(ep))
@@ -601,21 +627,28 @@ class Operations:
             res = StepResult(False, f"the step raised {type(exc).__name__}: {exc}")
         verb = rules.ACTION_TEXT[step.action]
         summary = f"{verb}: {res.summary}" if res.ok else f"{verb} failed: {res.summary}"
+        # what the command said when it failed (Helm's or kubectl's own words), redacted: the owner needs it
+        detail = REDACTOR.text((res.detail or "").strip())[-1500:] if not res.ok else ""
         return self._respond_record(
             product, item, now, by, ok=res.ok, summary=summary + f" (because {step.reason})",
-            data={"step": step.action, "ran": True, "reason": step.reason, "snapshot": snapshot,
+            data={"step": step.action, "ran": True, "reason": step.reason, "snapshot": snapshot, "detail": detail,
                   "refused": res.data.get("refused", []), "verify": res.data.get("verify", []),
                   "live": live.as_data()},
         )  # fmt: skip
 
     def _restored(self, product: Product, item: WorkItem, ep: rules.Episode, at: datetime) -> None:
         ep.state, ep.restored_at = "restored", at
-        ep.restored_by = ep.tried[-1] if ep.tried else ""
+        ep.restored_by = rules.credited(ep)
         timings = ep.timings()
         mins = (timings["time_to_restore_s"] or 0) / 60
+        how = (
+            f"after {rules.ACTION_TEXT[ep.restored_by]}"
+            if ep.restored_by
+            else f"after the factory's step ({rules.ACTION_TEXT[ep.tried[-1]]}) failed: not by the factory"
+        )
         summary = (
-            f"service restored ({self.cfg.restored_after} healthy readings in a row) after "
-            f"{', '.join(rules.ACTION_TEXT[t] for t in ep.tried)}; {mins:.1f} minutes from the first bad reading"
+            f"service restored ({self.cfg.restored_after} healthy readings in a row) {how}; "
+            f"{mins:.1f} minutes from the first bad reading"
         )
         self._record(product, "restored", True, summary, "factory",
                      {"incident": item.id, "by_step": ep.restored_by, **timings,
@@ -1189,6 +1222,12 @@ class Operations:
                 av.samples, av.measured, av.error_rate, av.reasons = a.samples, a.success, a.error_rate, a.reasons
                 av.last_at = newest
                 av.watching = self.cfg.enabled and operate.fresh(newest, self.cfg.probe_seconds, now)
+                if rows:
+                    av.last_ok, av.last_detail = rows[-1].ok, "" if rows[-1].ok else rows[-1].detail
+                    since = now - timedelta(minutes=target.window_minutes)
+                    bad = [r.at for r in rows if not r.ok and r.at >= since]
+                    if rows[-1].ok and bad and a.state == "breached":
+                        av.clears_at = max(bad) + timedelta(minutes=target.window_minutes)
         good_restore = last("restore", ok_only=True)
         good_backup = last("backup", ok_only=True)
         mode, mode_why = self.response_mode(product)
@@ -1217,5 +1256,6 @@ class Operations:
             records=records,
             retirement=product.retirement,
             respond=ResponseMode(configured=self.cfg.respond, mode=mode, why=mode_why),
+            responding=product.id in self._responding,
             responses=self.responses(product, items),
         )

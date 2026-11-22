@@ -986,8 +986,9 @@ async def check_health(f: Factory, product_id: str) -> OperationsView:
 
 @action(
     "respond_to_incident",
-    "Restore service now: run the step incident response proposes for the product's open incident (re-apply "
-    "the recorded release or restart the app), with the same checks and limits as the factory's own",
+    "Restore service now: start the step incident response proposes for the product's open incident (re-apply "
+    "the recorded release or restart the app), with the same checks and limits as the factory's own; it runs "
+    "in the background and the returned view says `responding` until it ends",
     "POST",
     "/api/products/{product_id}/respond",
 )
@@ -998,7 +999,7 @@ async def respond_to_incident(f: Factory, product_id: str) -> OperationsView:
     product = _live_product(f, product_id)
     ops = f.manager.operations
     try:
-        await ops.respond_now(product, current_identity().user)
+        ops.start_respond(product, current_identity().user)
     except OperateError as exc:
         raise InvalidRequestError(str(exc)) from exc
     return ops.view(f.store.get_product(product_id) or product)

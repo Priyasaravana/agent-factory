@@ -470,8 +470,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own
-         * @description Restore service now: run the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own
+         * Restore service now: start the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own; it runs in the background and the returned view says `responding` until it ends
+         * @description Restore service now: start the step incident response proposes for the product's open incident (re-apply the recorded release or restart the app), with the same checks and limits as the factory's own; it runs in the background and the returned view says `responding` until it ends
          */
         post: operations["respond_to_incident"];
         delete?: never;
@@ -2562,6 +2562,15 @@ export interface components {
              * @default false
              */
             watching: boolean;
+            /** Last Ok */
+            last_ok?: boolean | null;
+            /**
+             * Last Detail
+             * @default
+             */
+            last_detail: string;
+            /** Clears At */
+            clears_at?: string | null;
         };
         /**
          * BlueprintUse
@@ -3887,6 +3896,23 @@ export interface components {
             first_bad_at?: string | null;
             /** Tried */
             tried?: string[];
+            /** Failed */
+            failed?: string[];
+            /**
+             * Last Result
+             * @default
+             */
+            last_result: string;
+            /**
+             * Last Ok
+             * @default true
+             */
+            last_ok: boolean;
+            /**
+             * Last Detail
+             * @default
+             */
+            last_detail: string;
             /** Last Action At */
             last_action_at?: string | null;
             /** Restored At */
@@ -4176,7 +4202,8 @@ export interface components {
              *       "state": "off",
              *       "samples": 0,
              *       "reasons": [],
-             *       "watching": false
+             *       "watching": false,
+             *       "last_detail": ""
              *     }
              */
             availability: components["schemas"]["AvailabilityView"];
@@ -4225,6 +4252,11 @@ export interface components {
             respond: components["schemas"]["ResponseMode"];
             /** Responses */
             responses?: components["schemas"]["IncidentResponse"][];
+            /**
+             * Responding
+             * @default false
+             */
+            responding: boolean;
         };
         /**
          * Outcome

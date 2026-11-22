@@ -1840,6 +1840,9 @@ class AvailabilityView(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     last_at: datetime | None = None
     watching: bool = False
+    last_ok: bool | None = None  # the newest reading answered (the window can still hold an outage)
+    last_detail: str = ""  # what the newest reading said when it failed
+    clears_at: datetime | None = None  # answering now: when the window's last failed reading ages out
 
 
 class IncidentResponse(BaseModel):
@@ -1851,6 +1854,10 @@ class IncidentResponse(BaseModel):
     opened_at: datetime | None = None
     first_bad_at: datetime | None = None
     tried: list[str] = Field(default_factory=list)  # ladder steps run: reapply | restart
+    failed: list[str] = Field(default_factory=list)  # of those, the steps that reported failure
+    last_result: str = ""  # what the newest step reported
+    last_ok: bool = True
+    last_detail: str = ""  # what its command said when it failed (Helm's, kubectl's words; redacted)
     last_action_at: datetime | None = None
     restored_at: datetime | None = None
     restored_by: str = ""
@@ -1896,6 +1903,7 @@ class OperationsView(BaseModel):
     retirement: Retirement | None = None
     respond: ResponseMode = ResponseMode()
     responses: list[IncidentResponse] = Field(default_factory=list)  # one per open incident
+    responding: bool = False  # a response step is running now (the page reads again until it ends)
 
 
 class HistoryEntry(BaseModel):

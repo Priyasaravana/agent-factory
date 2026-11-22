@@ -590,7 +590,9 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
    states, DORA timings and the incident ↔ change link; `auto` by default, acting alone only once a factory restore
    drill is recorded (`agent-factory factory-drill`) and, after a factory restore, once each record matches the live
    release; until then the owner runs the proposed step. **Next:** rollback when additive, the diagnosis agent,
-   proven-defect bug changes. **Not run live yet** (the "Done when").
+   proven-defect bug changes. **Live 2026-11-22:** a deleted web pod recovered in about 32 s; the drift re-apply
+   did not restore the release (cause being traced: failed steps now keep their command's output); not done.
+   Drill gate and 120 s settle kept (decided 2026-11-22).
 4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
 - **Done when:** an injected drift and a crash each restore in under 5 minutes with no development cycle, live;

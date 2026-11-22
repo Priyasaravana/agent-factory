@@ -78,7 +78,8 @@ export default function Operations({ productId, canSteer }: { productId: string;
   const q = useQuery({
     queryKey: key,
     queryFn: () => unwrap(api.GET("/api/products/{product_id}/operations", path)),
-    refetchInterval: 15_000,
+    // a response step runs in the background: read every few seconds until it ends
+    refetchInterval: (query) => ((query.state.data as View | undefined)?.responding ? 3_000 : 15_000),
   });
   const refresh = () => {
     for (const k of [key, ["ready-for"], ["next-iteration", productId], ["work-items", productId], ["attention"]])
@@ -121,8 +122,7 @@ export default function Operations({ productId, canSteer }: { productId: string;
     onSuccess: (view) => {
       qc.setQueryData(key, view);
       refresh();
-      const r = view.responses?.[0];
-      toast.success(r?.tried?.length ? `${STEP[r.tried[r.tried.length - 1]] ?? "Step"}: done` : "Response step run");
+      toast.success("Started: the result shows on the incident when it ends");
     },
   });
 
@@ -194,6 +194,23 @@ export default function Operations({ productId, canSteer }: { productId: string;
                     <span className="text-muted-foreground">no readings yet</span>
                   )}
                 </Line>
+                {a.last_at && (
+                  <Line label="Latest">
+                    {a.last_ok ? (
+                      <span className="text-ok">answering ({ago(a.last_at)})</span>
+                    ) : (
+                      <span className="text-bad">
+                        failing ({ago(a.last_at)}){a.last_detail ? `: ${a.last_detail}` : ""}
+                      </span>
+                    )}
+                    {a.clears_at && (
+                      <span className="block text-xs text-muted-foreground">
+                        The window still holds the outage until {new Date(a.clears_at).toLocaleTimeString()}; the
+                        measure above recovers then.
+                      </span>
+                    )}
+                  </Line>
+                )}
                 <Line label="Watch">
                   {a.watching ? (
                     <span className="text-ok">running{a.last_at ? `, read ${ago(a.last_at)}` : ""}</span>
@@ -347,7 +364,7 @@ export default function Operations({ productId, canSteer }: { productId: string;
             response={(v.responses ?? []).find((r) => r.incident === i.id)}
             mode={v.respond}
             canSteer={canSteer && v.live}
-            busy={respondNow.isPending}
+            busy={respondNow.isPending || !!v.responding}
             onRespond={() => respondNow.mutate()}
           />
         ))}
@@ -411,7 +428,14 @@ function IncidentCard({
       <span className="flex flex-wrap items-center gap-2 font-medium">
         <Siren className="size-4 text-bad" aria-hidden />
         {item.title}
-        <span className="pill muted">{item.status === "in_progress" ? "fix in progress" : "open"}</span>
+        <span className={cn("pill", r?.state === "restored" ? "ok" : "muted")}>
+          {item.status === "in_progress"
+            ? "fix in progress"
+            : r?.state === "restored"
+              ? "service restored · watching for a recurrence"
+              : "open"}
+        </span>
+        {busy && <span className="pill warn">step running…</span>}
         {r && r.reopened > 0 && <span className="pill warn">came back {r.reopened}×</span>}
       </span>
       {r && mode.mode !== "off" && (
@@ -438,11 +462,27 @@ function IncidentCard({
         <div className="grid gap-1 rounded-md border bg-background/60 p-2">
           <Line label="Tried">
             {r.tried?.length ? (
-              r.tried.map((t) => STEP[t] ?? t).join(" → ")
+              r.tried.map((t, n) => (
+                <span key={`${t}-${n}`}>
+                  {n > 0 && " → "}
+                  {STEP[t] ?? t}
+                  {r.failed?.includes(t) && <span className="text-bad"> (failed)</span>}
+                </span>
+              ))
             ) : (
               <span className="text-muted-foreground">nothing yet</span>
             )}
           </Line>
+          {r.last_result && !r.last_ok && (
+            <Line label="Last step">
+              <span className="text-bad">{r.last_result}</span>
+              {r.last_detail && (
+                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">
+                  {r.last_detail}
+                </pre>
+              )}
+            </Line>
+          )}
           {r.held && (
             <Line label="Held">
               <span className="text-warn">{r.held}</span>

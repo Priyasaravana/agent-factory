@@ -307,6 +307,10 @@ class Episode:
     opened_at: datetime | None = None  # the first alert of the episode
     first_bad_at: datetime | None = None
     tried: list[str] = field(default_factory=list)  # ladder steps run, in order
+    failed: list[str] = field(default_factory=list)  # steps that ran and reported failure
+    last_result: str = ""  # the newest step's summary
+    last_ok: bool = True  # the newest step reported success
+    last_detail: str = ""  # what its command said when it failed (redacted)
     last_action_at: datetime | None = None
     restored_at: datetime | None = None
     restored_by: str = ""  # the step whose effect restored it
@@ -352,7 +356,10 @@ def episode(records: Iterable[Any], incident: str) -> Episode | None:
             step = str(data.get("step") or "")
             if data.get("ran") and step:
                 current.tried.append(step)
-                current.last_action_at = r.at
+                if not r.ok:
+                    current.failed.append(step)
+                current.last_action_at, current.last_result = r.at, str(getattr(r, "summary", "") or "")
+                current.last_ok, current.last_detail = bool(r.ok), str(data.get("detail") or "")
                 current.state, current.held, current.proposed = "mitigating", "", ""
             elif data.get("hold"):
                 current.held, current.proposed = str(data.get("reason") or data["hold"]), ""
@@ -360,7 +367,7 @@ def episode(records: Iterable[Any], incident: str) -> Episode | None:
                 current.proposed = step
         elif r.kind == RESTORED:
             current.state, current.restored_at = "restored", r.at
-            current.restored_by = str(data.get("by_step") or (current.tried[-1] if current.tried else ""))
+            current.restored_by = str(data["by_step"]) if "by_step" in data else credited(current)
         elif r.kind in (RESOLVED, RECOVERED):
             current.state, current.resolved_at = "resolved", r.at
     return current
@@ -375,6 +382,14 @@ def _when(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
+
+
+def credited(ep: Episode) -> str:
+    """The step that restored service: the newest one, if it reported success. A failed step that service
+    came back after is not credited (a person, or Kubernetes, may have restored it). Pure."""
+    if ep.tried and ep.last_ok:
+        return ep.tried[-1]
+    return ""
 
 
 def restored_at(samples: Iterable[Any], since: datetime, k: int) -> datetime | None:
@@ -405,6 +420,11 @@ def classify(ep: Episode) -> str:
         return "operational: the live state had drifted from the recorded release; re-applying it restored service"
     if ep.restored_by == "restart":
         return "operational: the release was unchanged and a restart restored service"
+    if ep.tried:
+        return (
+            "service came back after the factory's last step failed: something outside the factory restored it "
+            "(a person, or Kubernetes); check the snapshot and the step's output"
+        )
     return "recovered without an action"
 
 
@@ -433,6 +453,10 @@ def view(ep: Episode | None) -> Mapping[str, Any]:
         "opened_at": ep.opened_at,
         "first_bad_at": ep.first_bad_at,
         "tried": list(ep.tried),
+        "failed": list(ep.failed),
+        "last_result": ep.last_result,
+        "last_ok": ep.last_ok,
+        "last_detail": ep.last_detail,
         "last_action_at": ep.last_action_at,
         "restored_at": ep.restored_at,
         "restored_by": ep.restored_by,

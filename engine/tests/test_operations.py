@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from conftest import PRODUCT, wait_run
@@ -21,6 +22,7 @@ from agent_factory.engine import stations as stations_mod
 from agent_factory.engine.operations import OperateError
 from agent_factory.executor import CommandResult, FakeExecutor
 from agent_factory.models import ChangeSource, ChangeStatus, EventKind
+from agent_factory.secret_refs import REDACTOR
 
 _OUT = re.compile(r"> '?([^' ]+\.backup)'?$")
 _IN = re.compile(r"< '?([^' ]+\.backup)'?$")
@@ -41,9 +43,14 @@ class OpsExecutor(FakeExecutor):
     data: dict[str, str] = field(default_factory=lambda: {"app": "bookmarks=12\nusers=3"})
     corrupt_restore: bool = False  # a restore that silently loses rows
     heal_on: tuple[str, ...] = ()  # a command that brings the app back (incident response: rollback, restart)
+    refuse: dict[str, str] = field(default_factory=dict)  # a command (needle) that fails, with its output
     moving: bool = False  # the data changes with every read (a backup can't be fingerprinted)
 
     async def run(self, command, cwd=None, timeout=600, env=None) -> CommandResult:  # noqa: ANN001
+        for needle, output in self.refuse.items():
+            if needle in command:
+                self.calls.append(command)
+                return CommandResult(command, 1, output)
         if any(needle in command for needle in self.heal_on):
             self.down = False
         if "curl -fsS -m 8" in command:
@@ -363,15 +370,65 @@ async def test_ask_mode_proposes_and_the_owner_runs_it(make_factory):
     assert proposal.data == {**proposal.data, "ask": True, "step": "restart"}
     view = f.manager.operations.view(f.store.get_product(p.id))
     assert (view.respond.configured, view.respond.mode) == ("auto", "ask") and "restore drill" in view.respond.why
+    ops = f.manager.operations
     app, ctx, c = await _client(f)
     async with c:
         r = await c.post(f"/api/products/{p.id}/respond")
         assert r.status_code == 200, r.text
-        [resp] = r.json()["responses"]
-        assert (resp["state"], resp["tried"]) == ("mitigating", ["restart"])
+        assert r.json()["responding"], "the step runs in the background: a dropped request can't cut it off"
+        again = await c.post(f"/api/products/{p.id}/respond")
+        assert again.status_code == 422 and "already running" in again.text
+        await asyncio.gather(*list(ops._jobs))
+        view = (await c.get(f"/api/products/{p.id}/operations")).json()
+        [resp] = view["responses"]
+        assert (view["responding"], resp["state"], resp["tried"]) == (False, "mitigating", ["restart"])
     await ctx.__aexit__(None, None, None)
     [act] = [r for r in _respond_records(f, p) if r.data.get("ran")]
     assert act.ok and act.by != "factory"
+
+
+async def test_a_failed_step_says_why_and_is_not_credited_when_service_comes_back(make_factory):
+    """Live check 2026-11-22: a re-apply that didn't restore the release, then a person rolled back by hand.
+    The record must carry Helm's own words, and the restore must not be credited to the failed step."""
+    helm_says = "Error: timed out waiting for the condition (token=s3cr3t-value)"
+    ex = OpsExecutor(refuse={"helm rollback ": helm_says})
+    f, ex, p = await delivered(make_factory, ex)
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=20)
+    with patch.object(REDACTOR, "text", lambda t: t.replace("s3cr3t-value", "***")):
+        await readings(f, p, n=5, start=start, every=FAST)
+    [act] = [r for r in _respond_records(f, p) if r.data.get("ran")]
+    assert not act.ok and act.summary.startswith("re-apply the recorded release failed: helm rollback failed")
+    assert "timed out waiting for the condition" in act.data["detail"] and "s3cr3t" not in act.data["detail"]
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert (r.failed, r.last_ok) == (["reapply"], False) and "timed out" in r.last_detail
+    ex.down = False  # someone ran `helm rollback` by hand
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    [restored] = _records(f, p, "restored")
+    assert restored.data["by_step"] == "" and "not by the factory" in restored.summary
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert r.state == "restored" and r.classification.startswith(
+        "service came back after the factory's last step failed"
+    )
+
+
+async def test_the_page_says_the_app_answers_while_the_window_still_holds_the_outage(make_factory):
+    f, ex, p = await delivered(make_factory)
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=10)
+    await readings(f, p, n=6, start=start)
+    ex.down = False
+    await readings(f, p, n=2, start=start + timedelta(minutes=6))
+    now = start + timedelta(minutes=8, seconds=30)
+    av = f.manager.operations.view(f.store.get_product(p.id), now).availability
+    assert av.state == "breached" and av.last_ok is True and av.last_detail == ""
+    assert av.clears_at == start + timedelta(minutes=6) + timedelta(minutes=30), "the last failed reading ages out"
+    ex.down = True
+    await readings(f, p, n=1, start=start + timedelta(minutes=8))
+    av = f.manager.operations.view(f.store.get_product(p.id), now).availability
+    assert av.last_ok is False and "Connection refused" in av.last_detail and av.clears_at is None
 
 
 async def test_a_recurrence_reopens_the_incident_and_goes_up_the_ladder(make_factory):
