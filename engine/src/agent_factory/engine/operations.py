@@ -318,10 +318,8 @@ class Operations:
         items = self.store.list_work_items(product.id)
         change = self._release_change(product)
         candidate = operate.incident_candidate(a, target, product.app_url)
-        if candidate is None and (open_ := self._open_incident(product, items)) is not None:
-            ep = self.episode(product, open_)
-            if ep is not None and ep.tried and open_.status == "open":
-                return  # the response restored it: it is resolved after the quiet period (`respond`)
+        open_ = self._open_incident(product, items)
+        ep = self.episode(product, open_) if open_ is not None else None
         item, what = ledger.fold_watch(
             product.id,
             items,
@@ -350,6 +348,14 @@ class Operations:
                 station=STATION,
                 data={"incident": item.id, "availability": a.as_data(), "owner": owner},
             )
+        elif what == "fixed" and ep is not None and ep.tried:
+            # the response was under way: the incident is resolved now, with its timings (live check 2026-11-22:
+            # an incident kept open after the window recovered showed a stale failure next to 100 %)
+            if ep.state != "restored":
+                samples = self.store.list_health_samples(product.id, ep.last_action_at or ep.opened_at or now)
+                since = ep.last_action_at or ep.opened_at or now
+                self._restored(product, item, ep, rules.restored_at(samples, since, 1) or now)
+            self._resolve(product, item, ep, now, why="the window is back within its target", close=False)
         elif what == "fixed":
             self._record(product, "recovered", True, "within its availability target again; incident closed",
                          "factory", {"incident": item.id, **a.as_data()}, at=now)  # fmt: skip
@@ -420,7 +426,7 @@ class Operations:
 
     def episode(self, product: Product, item: WorkItem) -> rules.Episode | None:
         records = [r for r in self.store.list_operations(product.id, None, 500) if r.data.get("incident") == item.id]
-        return rules.episode(records, item.id)
+        return rules.episode(records, item.id, carry_hours=self.cfg.resolve_after_hours)
 
     async def _live(self, product: Product) -> rules.Live:
         ctx = self.ctx(product, quiet=True)
@@ -658,11 +664,14 @@ class Operations:
             data={"incident": item.id, "restored": timings},
         )  # fmt: skip
 
-    def _resolve(self, product: Product, item: WorkItem, ep: rules.Episode, now: datetime) -> None:
-        note = f"{rules.classify(ep)}; no recurrence for {self.cfg.resolve_after_hours:g} hours"
-        fixed = ledger.resolve_watch(item, now, note, iteration=self._release_change(product).iteration)
-        if fixed is not None:
-            self.store.save_work_items([fixed])
+    def _resolve(  # noqa: PLR0913 - the incident, and how it ended
+        self, product: Product, item: WorkItem, ep: rules.Episode, now: datetime, *, why: str = "", close: bool = True
+    ) -> None:
+        note = f"{rules.classify(ep)}; {why or f'no recurrence for {self.cfg.resolve_after_hours:g} hours'}"
+        if close:
+            fixed = ledger.resolve_watch(item, now, note, iteration=self._release_change(product).iteration)
+            if fixed is not None:
+                self.store.save_work_items([fixed])
         self._record(product, "resolved", True, f"incident resolved: {note}", "factory",
                      {"incident": item.id, "classification": rules.classify(ep), **ep.timings(),
                       "caused_by": ep.caused_by}, at=now)  # fmt: skip

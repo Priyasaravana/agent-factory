@@ -332,9 +332,11 @@ def _incident_of(rec: Any) -> str:
     return str((rec.data or {}).get("incident") or "")
 
 
-def episode(records: Iterable[Any], incident: str) -> Episode | None:
+def episode(records: Iterable[Any], incident: str, carry_hours: float | None = None) -> Episode | None:
     """The current episode of `incident` from operation records (any order; each has kind, at, ok, data), or
-    None when no alert opened it. A `resolved` record ends an episode; the next alert starts a new one. Pure."""
+    None when no alert opened it. A `resolved` record ends an episode; the next alert starts a new one, unless it
+    comes within `carry_hours` of the resolution: then the same breach is back, the episode is `reopened` and the
+    ladder goes on from the step it reached. Pure."""
     # records written in one pass share a time: the alert comes before the step it led to
     order = {ALERT: 0, RESPOND: 1, RESTORED: 2, RESOLVED: 3, RECOVERED: 3}
     mine = sorted((r for r in records if _incident_of(r) == incident), key=lambda r: (r.at, order.get(r.kind, 1)))
@@ -342,7 +344,18 @@ def episode(records: Iterable[Any], incident: str) -> Episode | None:
     for r in mine:
         data = r.data or {}
         if r.kind == ALERT:
-            if current is None or current.state == "resolved":
+            back = (
+                current is not None
+                and current.state == "resolved"
+                and carry_hours is not None
+                and current.resolved_at is not None
+                and r.at - current.resolved_at <= timedelta(hours=carry_hours)
+            )
+            if back and current is not None:
+                current.state, current.reopened = "reopened", current.reopened + 1
+                current.restored_at, current.resolved_at, current.restored_by = None, None, ""
+                current.held, current.proposed = "", ""
+            elif current is None or current.state == "resolved":
                 current = Episode(incident, opened_at=r.at)
                 current.first_bad_at = _when(data.get("first_bad_at")) or r.at
                 current.caused_by = data.get("caused_by") or None

@@ -197,7 +197,10 @@ class OperateConfig(BaseModel):
     respond_probe_seconds: int = Field(default=10, ge=5, le=300)  # readings while an incident is open
     restored_after: int = Field(default=3, ge=1, le=60)  # healthy readings in a row since the action
     max_actions_per_hour: int = Field(default=3, ge=1, le=20)  # ladder steps per product, every incident
-    resolve_after_hours: float = Field(default=24, gt=0, le=24 * 30)  # restored, no recurrence: resolved
+    # restored and no recurrence for this long: resolved (if the window hasn't already come back within target,
+    # which resolves it at once); the same breach within this long after resolution reopens the incident and the
+    # ladder goes on from the step it reached
+    resolve_after_hours: float = Field(default=24, gt=0, le=24 * 30)
     # an incident that began within this long after a release was delivered counts against its change
     incident_change_hours: float = Field(default=24, gt=0, le=24 * 30)
 

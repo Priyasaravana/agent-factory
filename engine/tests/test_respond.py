@@ -278,3 +278,16 @@ def test_a_step_that_failed_is_not_credited_with_the_restore():
     failed.append(Rec("restored", T0 + timedelta(minutes=2), data={"incident": "i1", "by_step": ""}))
     ep = respond.episode(failed, "i1")
     assert ep is not None and ep.restored_by == "" and "outside the factory" in respond.classify(ep)
+
+
+def test_the_same_breach_within_the_carry_period_reopens_the_resolved_episode():
+    recs = [
+        _alert(T0),
+        Rec("respond", T0, data={"incident": "i1", "step": "reapply", "ran": True}),
+        Rec("resolved", T0 + timedelta(hours=1), data={"incident": "i1"}),
+        _alert(T0 + timedelta(hours=5)),
+    ]
+    ep = respond.episode(recs, "i1", carry_hours=24)
+    assert ep is not None and (ep.state, ep.tried, ep.reopened) == ("reopened", ["reapply"], 1)
+    ep = respond.episode(recs, "i1", carry_hours=2)
+    assert ep is not None and (ep.state, ep.tried) == ("open", []), "long after: a new episode"

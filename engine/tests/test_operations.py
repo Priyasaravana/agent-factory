@@ -308,15 +308,40 @@ async def test_drift_is_snapshotted_then_reapplied_and_restored_without_a_change
     [r] = view.responses
     assert (r.state, r.tried, r.restored_by, r.held) == ("restored", ["reapply"], "reapply", "")
     assert r.time_to_restore_s is not None and r.time_to_restore_s < 5 * 60, "under five minutes"
-    # the window still holds the outage, and later the window is fine: it stays open until the quiet period
-    await readings(f, p, n=6, start=start + timedelta(minutes=50))
+    # while the window still holds the outage the incident stays open, restored
+    await readings(f, p, n=3, start=start + timedelta(minutes=10))
     assert _incidents(f, p)[0].status == "open"
-    await f.manager.operations.respond(f.store.get_product(p.id), start + timedelta(hours=26))
+    # once the window is back within its target it is resolved at once, with its timings (live check
+    # 2026-11-22: kept open after the window recovered, the card showed a stale failure next to 100 %)
+    await readings(f, p, n=6, start=start + timedelta(minutes=50))
     [closed] = _incidents(f, p)
-    assert closed.status == "fixed" and "no recurrence for 24 hours" in closed.history[-1].note
-    assert [r.kind for r in f.store.list_operations(p.id)][0] == "resolved"
+    assert closed.status == "fixed" and incident.id == closed.id
+    [resolved] = _records(f, p, "resolved")
+    assert "window is back within its target" in resolved.summary and resolved.data["time_to_restore_s"] > 0
+    assert resolved.data["classification"].startswith("operational: the live state had drifted")
+    assert _records(f, p, "recovered") == [], "one record says how it ended"
     assert f.manager.operations.view(f.store.get_product(p.id)).responses == []
-    assert incident.id == closed.id
+
+
+async def test_the_same_breach_soon_after_it_was_resolved_goes_on_up_the_ladder(make_factory):
+    f, ex, p = await delivered(make_factory, OpsExecutor(heal_on=("helm rollback ",)))
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(hours=3)
+    p.release.at = start - timedelta(minutes=5)
+    f.store.save_product(p)
+    await readings(f, p, n=5, start=start, every=FAST)
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    await readings(f, p, n=6, start=start + timedelta(minutes=40))
+    [item] = _incidents(f, p)
+    assert item.status == "fixed"
+    ex.down = True  # back an hour later: within a day of the resolution
+    await readings(f, p, n=5, start=start + timedelta(hours=1), every=FAST)
+    [item] = _incidents(f, p)
+    assert item.status == "open" and _ran(f, p) == ["reapply", "restart"], "re-apply was tried: the next step"
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert (r.state, r.reopened) in {("mitigating", 1), ("reopened", 1)}
 
 
 async def test_a_crash_with_the_recorded_release_is_restarted_once_then_held_for_the_owner(make_factory):

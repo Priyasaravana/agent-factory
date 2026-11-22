@@ -33,6 +33,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   "Last step" output on the card. The availability card also looked unreconciled (open incident, 93.5 %, a 503,
   while health answered 200): the 503 was the window's last failure, which stays in the 30-minute window; the card
   now shows the newest reading and when the window clears. Decisions: the drill gate and the 120 s settle stay.
+  **Retest attempt (evening, PR head `8f5bab9`):** blocked: the UI showed "engine unreachable" after swapping the
+  factory and web containers, and kept showing it after swapping back to the old images, so it doesn't point at the
+  PR; on the restored build the incident stayed open with a stale "curl (28) timed out" detail next to 100 % of 173
+  checks. Cause: incidents with a response under way were kept open for the 24 h quiet period even after the window
+  recovered, and the ledger item's detail was no longer refreshed. Fixed in the next commit: the window back within
+  target resolves it at once, with its timings, and the same breach within 24 h reopens it and continues the ladder.
 
 ## Earlier state (2026-11-21)
 - **J4 and J5 ran live** (Saravana, 2026-11-21): the golden journey is complete and the freeze lifts. Its evidence and

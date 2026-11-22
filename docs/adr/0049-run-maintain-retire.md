@@ -65,10 +65,13 @@ archive its repository, and keep a record from which its whole history can be sh
      ladder goes on from the step it reached). Restored: `operate.restored_after` (3) healthy readings in a
      row since the last step. A failed reading or an incident being responded to is read every
      `operate.respond_probe_seconds` (10), so a breach is confirmed and a restore seen within a minute.
-     Resolved: restored and no recurrence for `operate.resolve_after_hours` (24), recorded as operational
-     (re-apply: the live state had drifted; restart: the release was unchanged); while the response is under
-     way the window's return to target doesn't close the item, since the window still holds the outage. An
-     incident nobody responded to closes as before (recovered by itself, or the fix change delivered).
+     Resolved: the window is back within its target (as in J4), or restored and no recurrence for
+     `operate.resolve_after_hours` (24), whichever comes first, recorded with how it ended (re-apply: the live
+     state had drifted; restart: the release was unchanged; a failed step: not by the factory) and its timings.
+     The same breach within `resolve_after_hours` of the resolution reopens the incident and the ladder goes on
+     from the step it reached. (Amended after the live check of 2026-11-22: an incident kept open for the quiet
+     period after the window had recovered showed a stale failure next to 100 %.) An incident nobody responded
+     to closes as before (recovered by itself, or the fix change delivered).
    - **DORA:** time to detect (first failed reading → alert) and time to restore (first failed reading →
      restored) are in the `restored` and `resolved` records. An incident counts against the change whose
      release was live when it began, if that release was delivered at most `operate.incident_change_hours`
