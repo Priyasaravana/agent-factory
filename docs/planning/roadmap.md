@@ -726,6 +726,12 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
+- **User experience and journeys** (added 2026-11-22, review only, nothing run): the four people in the vision
+  (open-source adopter, engineering leader, product owner, station teams) walked step by step through main
+  `70d3282`, in [plans/user-journeys.md](plans/user-journeys.md). Biggest gaps: nothing tells a person when the
+  factory needs them (no notifier), saved settings that aren't what runs, one person standing in for every team,
+  and a README and licence that don't yet match the vision. Proposed fixes sit inside phases A–E except a minimal
+  notifier (new control surface); **placement is Saravana's call** (four questions at the end of the page).
 - **Security assessment 2026-11-15** (added 2026-11-15; code review and scanners on main `43b36d3`, nothing run
   live): 18 findings, 4 high, in [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md),
   each with evidence, a fix and a size. The main class: agent-written code also runs outside the sandbox
