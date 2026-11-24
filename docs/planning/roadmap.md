@@ -587,6 +587,10 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
    change link; `operate.respond: auto`. An ADR-0049 §4 amendment.
 4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
+   ✅ **In review on `deps/rollup-2026-11-24` (2026-11-24):** the eleven open Dependabot PRs in one (engine and auth
+   lockfiles, the web group, `ossf/scorecard-action` 2.6.0; engine pydantic taken to 2.14.4 to match auth). History
+   scan ([../security/history-scan-2026-11-24.md](../security/history-scan-2026-11-24.md)): 421 commits on every
+   branch, 7 findings, all test values or comments; nothing to rotate. A secret scan on every push is left to S-08.
 - **Done when:** an injected drift and a crash each restore in under 5 minutes with no development cycle, live;
   the six security findings are closed; the baselines are recorded.
 

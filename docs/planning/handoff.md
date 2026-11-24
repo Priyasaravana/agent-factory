@@ -3,7 +3,14 @@
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-21)
+## Current state (2026-11-24)
+- **PR #190 (incident response, slice 0) waits on Saravana's live drift and crash check on the Mac.** Meanwhile,
+  work that doesn't touch its files (`engine/operations.py`, `respond.py`, the helm providers, `Operations.tsx`)
+  goes ahead on separate branches, decided by Saravana 2026-11-24, in this order: phase A item 5 (Dependabot
+  roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07
+  (rebased on #190 if its helm code overlaps).
+
+## Earlier state (2026-11-21)
 - **J4 and J5 ran live** (Saravana, 2026-11-21): the golden journey is complete and the freeze lifts. Its evidence and
   findings are still to be written down (phase A item 1).
 - **Decided 2026-11-21** (#188, #189): the vision in [vision.md](vision.md) is adopted (master plan §1 replaced;
