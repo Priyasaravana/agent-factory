@@ -138,16 +138,32 @@ credential keys and drop `gen_ai` content attributes, in case an instrumentation
   `otlp-gateway.grafana.net` resolves to changing IPs, so a plain NetworkPolicy can't express "only this host". The
   chart supports these mechanisms:
 
+  The mechanism is an adapter: each one renders its own policy, and all share the same render-time check and the
+  same deploy-time probe (below). Supported, in order of how widely they are deployed:
+
   | Mechanism | How | When |
   |---|---|---|
-  | `fqdn-cilium` | A `CiliumNetworkPolicy` with `toFQDNs` (`matchName` for the backend host) and a DNS rule for kube-dns, beside the standard policy that denies all other egress | Clusters running Cilium. The chart checks that the `cilium.io/v2` API is present |
-  | `cidr` | A standard NetworkPolicy `ipBlock` list the team supplies (a backend's published ranges, or a private endpoint / PrivateLink address) | Backends with stable addresses |
-  | `egress-proxy` | The collector's only egress is the organisation's egress proxy (selector or CIDR). Exporters use it through the standard `HTTPS_PROXY` / `NO_PROXY` settings, and the proxy holds the hostname allow-list | Organisations that already run an egress proxy |
+  | `fqdn-cilium` | `CiliumNetworkPolicy` with `toFQDNs` (`matchName` for the backend host) and a DNS rule for kube-dns, beside the standard policy that denies all other egress | Clusters running Cilium, including AKS with Azure CNI powered by Cilium (FQDN filtering needs the paid Advanced Container Networking Services). The chart checks for the `cilium.io/v2` API |
+  | `fqdn-gke` | `FQDNNetworkPolicy` (`networking.gke.io/v1alpha1`) | GKE with Dataplane V2. The chart checks for the API; at most 50 addresses per policy |
+  | `fqdn-openshift` | `EgressFirewall` (`k8s.ovn.org/v1`, one named `default` per namespace) with `dnsName` rules | OpenShift / OVN-Kubernetes. Red Hat recommends DNS names only for hosts whose addresses change rarely (re-polled by TTL, default 30 min), so the probe re-runs on the watch |
+  | `fqdn-calico` | `NetworkPolicy` with `destination.domains` | Calico editions that offer DNS policy (documented for Calico Cloud and Enterprise). The chart checks the field is accepted |
+  | `fqdn-antrea` | Antrea `ClusterNetworkPolicy` with an `fqdn` egress peer | Clusters running Antrea |
+  | `mesh-istio` | `outboundTrafficPolicy: REGISTRY_ONLY`, a `ServiceEntry` for the backend host, optionally through an egress gateway | Clusters already running Istio |
+  | `egress-proxy` | The collector's only egress is the organisation's egress proxy (selector or CIDR). Exporters use it through the standard `HTTPS_PROXY` / `NO_PROXY` settings, and the proxy holds the hostname allow-list | Organisations that already run an egress proxy; works on any cluster |
+  | `cidr` | A standard NetworkPolicy `ipBlock` list the team supplies (a backend's published ranges, or a private endpoint / PrivateLink address) | Backends with stable addresses; works on any plugin that enforces NetworkPolicy |
+  | `external` | Enforcement outside the cluster: a cloud firewall (AWS Network Firewall, Azure Firewall FQDN rules, Google Cloud NGFW) or a corporate firewall. The chart renders deny-other-egress plus port 443; the team declares the firewall | Common on EKS, whose VPC CNI network policies have no hostname rules, and in regulated estates. Accepted only once the deploy probe passes |
   | `unenforced` | No egress restriction beyond DNS and port 443 | Only with `telemetry.egress.acknowledgeUnenforced: true` |
 
+  - **The portable future:** the Kubernetes network-policy working group's FQDN egress selector (NPEP-133,
+    `DomainNames` in `ClusterNetworkPolicy`) is still experimental. When it reaches the standard channel and the
+    main plugins implement it, it becomes the default, and the plugin-specific adapters remain for older clusters.
+  - **Setup only offers what applies:** the factory detects which APIs the cluster serves and lists only those
+    mechanisms, plus the universal ones (`egress-proxy`, `cidr`, `external`).
+
 - **Fails closed:**
-  - With no mechanism set, the chart **refuses to render**, with a message naming the four choices.
-  - `fqdn-cilium` without the Cilium API also refuses, and says so.
+  - With no mechanism set, the chart **refuses to render**, with a message listing the mechanisms this cluster
+    supports.
+  - A plugin-specific mechanism whose API the cluster doesn't serve also refuses, and says which API is missing.
   - `unenforced` renders, but the factory records it in the product's evidence and shows it on the product page
     as "telemetry egress not enforced". It blocks the **production** readiness tier (pilot is allowed), and it can
     be changed in one step.
@@ -259,12 +275,12 @@ end.
 | T1 | Log contract (JSON schema); both packs on it, with trace context; OTLP logs bridge; the `logs.ingest` switch (one ingestion path) | ~2.5 h | ~45 min (pack unit and e2e tests) | A schema test passes on log lines from both packs; a line written inside a request span carries its `trace_id`; with `ingest: otlp` each line reaches a fake OTLP receiver exactly once; with `ingest: cluster-agent` none does and stdout lines still carry trace ids |
 | T2 | Factory JSON logs on the contract + `/metrics` | ~1 h | ~15 min | The engine's log lines pass the schema test; `/metrics` passes `promtool check metrics` |
 | T3 | Factory traces (`gen_ai.*`); trace id in the evidence manifest; **redaction boundary** (§2) in the factory and both packs | ~3.5 h | ~45 min | Serialized OTLP payloads captured at the exporter boundary (a fake OTLP server), plus stdout log lines, contain none of the planted values: a resolved secret, a virtual key, a bearer token, prompt text, tool-result text, an exception whose message holds a secret, baggage holding a secret, and an environment value in a resource attribute. A forced redactor failure drops the record and increments `telemetry_redaction_failures_total`. Undeclared attribute keys are absent |
-| T4 | Both collector modes (`existing`, `bundled`) for products and the factory; bundled profile (security settings, ingress NetworkPolicy, Secret by reference, TLS, minimal pinned image); the four egress mechanisms with fail-closed rendering; the deploy-time egress probe | ~4.5 h | ~1 h (`otelcol validate`; chart tests on the rendered YAML for each mode and mechanism) | `otelcol validate` passes on every shipped config. `existing` renders no collector, points the pods at the given endpoint and limits their egress to it. `bundled` chart tests fail on a relaxed security setting, a `hostPath`, a mounted token, missing limits, a missing ingress policy, `insecure: true`, or a literal credential. The chart refuses to render with no egress mechanism, and with `fqdn-cilium` when the Cilium API is absent; `unenforced` renders only when acknowledged and blocks the production tier. The egress probe's pass and fail cases are both tested |
+| T4 | Both collector modes (`existing`, `bundled`) for products and the factory; bundled profile (security settings, ingress NetworkPolicy, Secret by reference, TLS, minimal pinned image); the egress adapters with API detection and fail-closed rendering; the deploy-time egress probe | ~6 h | ~1.25 h (`otelcol validate`; chart tests on the rendered YAML for each mode and mechanism) | `otelcol validate` passes on every shipped config. `existing` renders no collector, points the pods at the given endpoint and limits their egress to it. `bundled` chart tests fail on a relaxed security setting, a `hostPath`, a mounted token, missing limits, a missing ingress policy, `insecure: true`, or a literal credential. The chart refuses to render with no egress mechanism, and with a plugin-specific mechanism whose API is absent; `unenforced` renders only when acknowledged and blocks the production tier. The egress probe's pass and fail cases are both tested |
 | T5 | `http.server.request.duration` alongside the old counter in pack version N+1; the watch reads `_count`; readiness and `assess.py` updated; retirement check | ~1.5 h | ~45 min | The watch gives the same availability from the old counter and from the new `_count` on the same traffic; the cardinality test (§4) passes; readiness passes on N and N+1 products; the factory lists products still on the old counter |
 | T6 | Setup card, guided questions, Test connection, status line, per-backend docs (§6) | ~2.5 h | ~45 min (UI tests, an accessibility check, a screenshot review of the card at phone and desktop widths) | A new user can choose each mode and run Test connection without leaving the product page; a failed test names the failing step; the status line shows the last data time or one amber fix |
 | T7 | Live validation (Saravana) | — | ~40 min of a live run | Set up one product in `bundled` mode and the factory in `existing` mode (pointed at the bundled collector) from the UI. Test connection passes for both. A log line's trace id matches the evidence manifest. The egress probe passes (allowed host reached, other hosts blocked), and a pod in another namespace can't reach the product's collector |
 
-Total: about 15.5 h of AI build and about 4.25 h of automated checks, plus the one live validation.
+Total: about 17 h of AI build and about 4.5 h of automated checks, plus the one live validation.
 
 ## Not in scope
 - Running an observability backend for clients. They bring their own; the factory only ships collector configs.
@@ -283,5 +299,10 @@ Total: about 15.5 h of AI build and about 4.25 h of automated checks, plus the o
   destinations by pod or namespace selector or IP block; the cluster's network plugin must enforce them.
 - [Cilium DNS-based policies](https://docs.cilium.io/en/stable/security/dns/) (`toFQDNs` with `matchName` /
   `matchPattern`, enforced through Cilium's DNS proxy).
+- [GKE FQDN network policies](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/fqdn-network-policies),
+  [AKS FQDN filtering](https://learn.microsoft.com/en-us/azure/aks/container-network-security-fqdn-filtering-concepts),
+  [OpenShift EgressFirewall](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/network_security/egress-firewall),
+  [Calico DNS policy](https://docs.tigera.io/calico-cloud/network-policy/domain-based-policy),
+  [NPEP-133 FQDN egress selector](https://network-policy-api.sigs.k8s.io/npeps/npep-133-fqdn-egress-selector/).
 - [Collector configuration best practices](https://opentelemetry.io/docs/security/config-best-practices/):
   encryption and authentication, secrets kept out of config via environment variables, minimal components.
