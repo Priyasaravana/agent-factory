@@ -26,7 +26,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 
 **Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
 🟡 model tiers per agent (no provider fallback) · ✅ lanes per kind of work: new product, product change, repo assessment, repo change as a PR (ADR-0031/0033/0039) · ⬜ intake from issues/Jira ·
-⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · ⬜ incident response.
+⬜ staged rollout and rollback · ⬜ parallel / DAG decomposition · 🟡 incident response: service restored before any fix (re-apply the recorded release, restart once), snapshot first, states and DORA timings per incident (ADR-0049 §4) · ⬜ rollback to an earlier release, diagnosis agent, proven-defect bug changes.
 
 **Headline metric:** share of delivered apps at Level 3+. ✅ The Quality gate station scores every change (21 signals + secret scan, each tagged with a quality pillar, §7) and fails the change below Level 3. ✅ The Outcomes page aggregates it (live apps at Level 3, requirements verified live).
 
@@ -34,7 +34,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 - **Measure outcomes, not activity:**
   - lead time (change requested → delivered);
   - change failure rate (changes HELD or failed after deploy);
-  - time to restore;
+  - time to restore (🟡 recorded per incident with time to detect, ADR-0049 §4; ⬜ on the Outcomes page);
   - deploy frequency.
   - Add **autonomy ratio** (delivered with no *unplanned* human touch; fix loops are agents fixing their own work and are reported as effort) and **cost per delivered change** (failed changes' spend included).
   - ✅ → Outcomes page, from a status transition log (ADR-0019, [definitions](outcomes.md)).

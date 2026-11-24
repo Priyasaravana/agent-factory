@@ -585,6 +585,14 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 3. **Incident response, slice 0** ([plans/stations-and-teams.md](plans/stations-and-teams.md)): snapshot first,
    re-apply, restart once, rollback when additive, the restored window, the states, DORA timings, the incident ↔
    change link; `operate.respond: auto`. An ADR-0049 §4 amendment.
+   🟡 **Minimal slice in review (2026-11-22, `operate/incident-response-slice-0`):** snapshot first, re-apply,
+   restart once, never over a newer release, the restored window (3 readings since the step, read every 10 s), the
+   states, DORA timings and the incident ↔ change link; `auto` by default, acting alone only once a factory restore
+   drill is recorded (`agent-factory factory-drill`) and, after a factory restore, once each record matches the live
+   release; until then the owner runs the proposed step. **Next:** rollback when additive, the diagnosis agent,
+   proven-defect bug changes. **Live 2026-11-22:** a deleted web pod recovered in about 32 s; the drift re-apply
+   did not restore the release (cause being traced: failed steps now keep their command's output); not done.
+   Drill gate and 120 s settle kept (decided 2026-11-22).
 4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
    ✅ **In review on `deps/rollup-2026-11-24` (2026-11-24):** the eleven open Dependabot PRs in one (engine and auth
@@ -825,7 +833,8 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
 - Evaluation: repeated runs per case; side-by-side models; scheduled re-evaluation for drift.
 - Hidden-scenario verifier for web apps with a browser (today it uses curl; the pack's Playwright suite covers the browser side). Kudos board iteration 2 (2026-10-29): it judged a phone layout from the CSS, estimating widths, because it had no browser.
 - Security and models:
-  - OpenTelemetry GenAI export;
+  - OpenTelemetry GenAI export: now part of [plans/telemetry-standards.md](plans/telemetry-standards.md) (logs,
+    metrics and traces on open standards for the factory and both packs; proposed for v0.1.0 phase C, 2026-11-24);
   - model profiles and fallback;
   - requirements, feedback and align-flow text ("Other…" answers, comments) marked as untrusted data inside prompts (considered for J1 on 2026-10-25, left for later);
   - Actions pinned to SHAs.

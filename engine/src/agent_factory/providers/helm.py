@@ -31,7 +31,7 @@ from __future__ import annotations
 import shlex
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import blue_green
+from agent_factory import blue_green, respond
 from agent_factory.providers import app_network
 from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import (
@@ -405,6 +405,34 @@ class HelmProvider:
 
         paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
         return await self._release(ctx, kenv, kfile).rollback(release, self.identity(ctx), probe, paths)
+
+    async def live_state(self, ctx: StationContext, release: Release) -> respond.Live:
+        """What the product's release runs now, read-only and never recorded (incident response)."""
+        env = self._env(ctx, "read the live release", "rollback")
+        if env is None:
+            return respond.Live(error=f"kubeconfig {self._kube_ref} not available")
+        kenv, kfile = env
+
+        async def run(cmd: str, timeout: float) -> Any:
+            return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv, retry=False, record=False)
+
+        rel = HelmRelease(
+            run, f"helm{self._flags('helm')}", f"kubectl{self._flags('kubectl')}", ctx.release_name, self.namespace(ctx)
+        )
+        return await rel.state(release.image, release.color)
+
+    async def restart(self, ctx: StationContext, release: Release) -> StepResult:
+        """Restart the release's Deployments and verify the health paths through the ingress (incident response)."""
+        env = self._env(ctx, "restart the app", "rollback")  # the engine's restore, under its own capability
+        if env is None:
+            return StepResult(False, f"restart refused: kubeconfig {self._kube_ref} not available")
+        kenv, kfile = env
+
+        async def probe(path: str) -> Any:
+            return await self._probe(ctx, path)
+
+        paths = [ctx.blueprint.health_path, ctx.blueprint.ready_path]
+        return await self._release(ctx, kenv, kfile).restart(release.color, probe, paths)
 
     async def read_secret(self, ctx: StationContext, name: str) -> dict[str, str] | None:
         """One of the app's Secrets, decoded and redacted (ADR-0044 §3); never recorded."""

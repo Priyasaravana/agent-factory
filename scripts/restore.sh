@@ -31,6 +31,9 @@ if [ -d .factory-data ]; then mv .factory-data ".factory-data.before-restore-$ts
 mkdir -p .factory-data
 tar -xzf "$src/factory-data.tgz" -C .factory-data
 cp "$src/factory.db" .factory-data/factory.db
+# the engine reads this at start: until a reading matches each product's recorded release with the live one,
+# incident response asks the owner instead of acting (ADR-0049 §4)
+date -u +%Y-%m-%dT%H:%M:%SZ > .factory-data/factory-restored
 # auth.db goes in on stdin: no bind mount, so the folder can stay readable by its owner only
 docker compose run --rm --no-deps -T --entrypoint sh auth \
   -c 'cat > /data/auth.db && rm -f /data/auth.db-wal /data/auth.db-shm' < "$src/auth.db"

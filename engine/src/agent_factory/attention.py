@@ -9,9 +9,18 @@ whether it blocks the change. The engine decides; the page only shows what it is
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 
-from agent_factory.models import Change, ChangeStatus, PendingAction, Product, ProductTarget, WorkItem
+from agent_factory.models import (
+    Change,
+    ChangeStatus,
+    IncidentResponse,
+    PendingAction,
+    Product,
+    ProductTarget,
+    WorkItem,
+)
 from agent_factory.pr_loop import CiFix, FeedbackFix
 
 SYSTEM = "system"
@@ -29,10 +38,12 @@ def product_actions(
     upkeep: list[WorkItem],
     can_start: bool,
     now: datetime,
+    responses: Mapping[str, IncidentResponse] | None = None,
 ) -> list[PendingAction]:
     """What a delivered product itself is waiting for, outside any change (J4, J5): an incident to
     fix, upkeep that is due, a retirement that stopped half-way. They go to the product's owner.
-    `incidents` and `upkeep` are its open ledger items; `can_start`: no change is running on it."""
+    `incidents` and `upkeep` are its open ledger items; `can_start`: no change is running on it;
+    `responses`: the engine's response to each incident, by item id (ADR-0049 §4, slice 0)."""
     if product.archived_at and not (product.retirement and not product.retirement.done):
         return []
     owner = _creator(product)
@@ -67,6 +78,9 @@ def product_actions(
         )
         return out
     for it in incidents:
+        resp = (responses or {}).get(it.id)
+        if resp is not None and _response_action(resp, it, act):
+            continue
         waiting = it.status == "open"
         act(
             "incident",
@@ -88,6 +102,37 @@ def product_actions(
             act("upkeep", f"Upkeep: {it.title}", "Tick it on the Next iteration card to start an upkeep change.",
                 "next-iteration", it.created_at, False)  # fmt: skip
     return out
+
+
+STEP_TEXT = {"reapply": "re-apply the recorded release", "restart": "restart the app"}
+
+
+def _response_action(r: IncidentResponse, it: WorkItem, act: object) -> bool:
+    """The action for an incident the engine is responding to, or False: none, show the plain incident.
+    Proposed or held: the owner acts on the Operations panel. Mitigating or restored: optional, the factory
+    is on it."""
+    if r.state == "resolved":
+        return False
+    since = r.last_action_at or r.opened_at or it.updated_at
+    if r.proposed:
+        act("incident", f"Incident: restore service ({STEP_TEXT.get(r.proposed, r.proposed)})",  # type: ignore[operator]
+            "The factory proposes this step and waits for you to run it (incident response is in ask mode).",
+            "operations", since, True)  # fmt: skip
+        return True
+    if r.held:
+        act("incident", "Incident: the factory's response is held for you", r.held,  # type: ignore[operator]
+            "operations", since, True)  # fmt: skip
+        return True
+    if r.state in ("mitigating", "reopened") and r.tried:
+        act("incident", "Incident: the factory is restoring service",  # type: ignore[operator]
+            "Tried: " + ", ".join(STEP_TEXT.get(t, t) for t in r.tried) + ". Nothing to do unless it is held.",
+            "operations", since, False)  # fmt: skip
+        return True
+    if r.state == "restored":
+        act("incident", "Incident: service restored, watching for a recurrence",  # type: ignore[operator]
+            r.classification or "Restored without a change.", "operations", r.restored_at or since, False)  # fmt: skip
+        return True
+    return False
 
 
 def pending_actions(

@@ -45,6 +45,9 @@ make restore BACKUP=backups/agent-factory-<ts>.tar.age   # stops the factory, ke
 
   Not included: the kind cluster and images inside dind; they are rebuilt or re-delivered.
 - **Rolling back code:** `git checkout <previous commit>`, then `make up`. If that version's data format differs, restore the backup taken before the upgrade. `backups/<…>/factory-version.txt` records which commit a backup came from.
+- **After a restore, incident response asks first.** `make restore` leaves a marker; until a reading has matched each
+  product's recorded release with the live one, the factory proposes incident steps instead of taking them, and it
+  never applies a release over a newer live one (ADR-0049 §4).
 - **Changes are safe across upgrades.** Each change is pinned to a workflow version and its pinned skills. Interrupted changes are marked on restart and resumed by a person.
 
 ## Version notes

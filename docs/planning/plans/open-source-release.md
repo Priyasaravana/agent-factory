@@ -93,7 +93,7 @@ Planned as complete phases at AI build speed (decided 2026-11-21); the roadmap's
 |---|---|---|
 | A. Close out the journey and harden | 26 Nov | J4/J5 evidence recorded; baselines; incident slice 0 restores drift and crash in < 5 min, live; S-05, S-06, S-07, S-08, S-10, S-11 closed; Dependabot roll-up; history secrets scan |
 | B. Evidence anyone can verify | 29 Nov | Manifests signed; the verifier passes a real bundle and fails a tampered one; config split |
-| C. Open core seam | 4 Dec | LICENSE, `licensed/` with the CI guard, extension seam, licence key, core and enterprise images from one tag |
+| C. Open core seam | 4 Dec | LICENSE, `licensed/` with the CI guard, extension seam, licence key, core and enterprise images from one tag. Proposed 2026-11-24 (Saravana's call): logs, metrics and traces on open standards for the factory and both packs, slices T1–T6 of [telemetry-standards.md](telemetry-standards.md) (about 17 h AI build, 4.5 h checks: redaction boundary, both collector modes, enforced egress on every common cluster type, the setup card and Test connection), with T7 validated live |
 | D. First paid features | 14 Dec | SSO, SIEM export, customer KMS signing, compliance pack on the enterprise image only |
 | E. Release | rehearsal 20 Dec, public 31 Dec | Licence audit, name, DCO, docs; rehearsal from public images verified; **v0.1.0 public**; SaaS design doc |
 
