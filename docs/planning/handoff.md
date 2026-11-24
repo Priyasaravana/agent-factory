@@ -1,10 +1,16 @@
-# Agent Factory: handoff (updated 2026-11-22)
+# Agent Factory: handoff (updated 2026-11-24)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-22)
-- **In review on `operate/incident-response-slice-0`:** phase A item 3, incident response slice 0 (ADR-0049 §4
+## Current state (2026-11-24)
+- **PR #190 (incident response, slice 0) merged 2026-11-24**; its live checks are recorded under 2026-11-22 below.
+  Work goes ahead on separate branches, decided by Saravana 2026-11-24, in this order: phase A item 5 (Dependabot
+  roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07
+  (on top of #190's helm code).
+
+## Earlier state (2026-11-22)
+- **Merged in #190 (`operate/incident-response-slice-0`):** phase A item 3, incident response slice 0 (ADR-0049 §4
   amended; minimal slice as the plan scoped it). Code map: pure rules in `respond.py` (mode, live state parsers,
   `stale_record`, `drift`, the ladder `next_step`, `episode` from operation records, `restored_at`, `resolve_due`,
   `classify`, `caused_by`); acting in `engine/operations.py` (`respond`, `respond_now`, `_act` with the snapshot
