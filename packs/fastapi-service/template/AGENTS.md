@@ -34,6 +34,9 @@ Verify, Package and Deploy stations depend on them.
 - Create tables on startup with `Base.metadata.create_all` (no migration tool in v0).
 - Config only from environment variables. No secrets in code or the chart values.
 - Keep the container non-root and the port at 8000.
+- Keep every pod in the chart within Pod Security `restricted` (the cluster enforces it): non-root,
+  `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`, and
+  only configMap, secret, emptyDir or PVC volumes. Never host paths, host ports or host namespaces.
 - Do not change the chart's `image.*`, `service.*`, `ingress.*` or `imagePullSecrets`
   values names — the Deploy station sets them (NodePort locally, ClusterIP + Ingress on a cluster).
 - Never run `git push`; the Deliver station publishes.

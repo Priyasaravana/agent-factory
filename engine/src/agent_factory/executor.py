@@ -174,6 +174,9 @@ class FakeHelm:
         # refuse, and a namespace holding no policy besides the engine's
         if (" get networkpolicies" in command or " get clusterrolebindings" in command) and "-o json" in command:
             return 0, json.dumps({"items": []})
+        # the namespaces' Pod Security level (`providers/pod_security.py`): none exists yet
+        if " get namespace " in command and " --ignore-not-found -o json" in command:
+            return 0, ""
         if "helm template " in command and " --namespace " in command:
             return 0, "# [dry-run] nothing rendered\n"
         if (live := self._live(command)) is not None:

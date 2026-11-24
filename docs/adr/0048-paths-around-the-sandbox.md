@@ -81,7 +81,15 @@ cover, and that the factory's own services trusted whoever reached them:
   app namespaces. It needs the cluster bootstrap and a live kind run, so it goes with S-05 (Pod Security
   `restricted`), before J4. A `helm rollback` restores a revision that passed these checks when it was
   deployed; revisions from before this ADR were not checked.
-- Pod Security `restricted` on app namespaces is S-05, placed before J4.
+- **Pod Security on app namespaces (S-05): decided 2026-11-24, in review on `security/s05-pod-security`.** Every
+  deploy labels the namespace for Kubernetes' Pod Security admission at the level its rendered chart meets
+  (`providers/pod_security.py`, pure apart from `prepare`): `restricted` for the packs' charts (fastapi-service 1.2.1,
+  nextjs-web 1.6.1), `baseline` for charts made before them, refused below baseline before the release; `warn` and
+  `audit` at `restricted`. The level only goes up by itself: a chart never lowers a namespace at `restricted` (a
+  person can, on the cluster), and a change's temporary namespace counts production's level, so validation never
+  passes a chart production refuses. Admission is the cluster's own control, so a value templated through
+  `values.yaml`, a hook or a `lookup` can't get past it; the engine's check exists to refuse early with a reason.
+  The admission policy for egress policies (the bullet above) is still open.
 
 ## Residual risks (stated, not accepted)
 None of these is accepted by this ADR. An acceptance needs an owner, a reason, the workloads and data it
@@ -95,6 +103,7 @@ covers and an expiry, recorded here by Saravana; until then they are open findin
 | The firewall can be missing for up to about a second | Both rules would have to be removed at once (by root inside dind); connections opened meanwhile are cut when the rules return. Proved in CI by the probe. | Nothing planned; the window is the watcher's interval. |
 | A policy that appears only on the cluster | In force between the release and the read-back (seconds). | The admission policy above. |
 | `factory.shared` is a declaration | An instance that is shared without saying so still runs with the engine's own model credential in its sandboxes. | Auth and roles for shared instances (after J5): the engine then knows it is shared. Until then the runbook requires the setting for any instance more than one person uses. |
+| Products delivered before S-05 run at `baseline` | Their pods may run as root and keep default capabilities inside the container; privileged pods, host namespaces, host paths and added capabilities are refused. | An upkeep change that adopts the template's security settings; the deploy then raises the namespace to `restricted` by itself. |
 | Existing apps on a cluster target | Their namespaces get the policy at their next deploy, not at upgrade (the local cluster's get it at start, `secure_app_namespaces`). | Redeploy each, or apply the policy by hand; listed in `docs/upgrading.md`. |
 
 ## Consequences

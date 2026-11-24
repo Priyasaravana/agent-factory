@@ -317,10 +317,14 @@ async def test_apps_already_running_get_the_policy_at_start_not_at_their_next_de
     assert "kind: NetworkPolicy" in cmd and "namespace: app-bookmarks-service" in cmd
     assert f"app-{not_yet.slug}" not in cmd, "nothing to secure before a first deploy (the deploy does it)"
 
-    # a blueprint that opens egress on purpose is left alone; a cluster that refuses is reported
+    # a cluster that refuses is reported; a blueprint that opens egress on purpose keeps it open
     ex.calls.clear()
     ex.fail_on.append("kubectl create namespace")
     assert await f.manager.secure_app_namespaces() == ([], ["app-bookmarks-service"])
     cfg.blueprints[running.blueprint].app_egress = "open"
     ex.calls.clear()
-    assert await f.manager.secure_app_namespaces() == ([], []) and ex.calls == []
+    ex.fail_on.clear()
+    assert await f.manager.secure_app_namespaces() == (["app-bookmarks-service"], [])
+    [cmd] = ex.calls
+    assert "kind: NetworkPolicy" not in cmd, "its egress is left alone"
+    assert "pod-security.kubernetes.io/enforce=baseline" in cmd, "but it gets the Pod Security floor (S-05)"

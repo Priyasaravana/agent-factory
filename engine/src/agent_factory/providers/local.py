@@ -18,7 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 from agent_factory import respond
 from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import EventKind, Product
-from agent_factory.providers import app_network
+from agent_factory.providers import app_network, pod_security
 from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import (
     CAPABILITIES,
@@ -183,21 +183,33 @@ class LocalProvider:
             + " --wait --timeout 5m"
         )
         restricted = ctx.blueprint.app_egress == "restricted"
-        if restricted:  # policies add up: the chart may not ship one that undoes the namespace's (S-02)
-            render = await ctx.cmd(
-                app_network.render_command("helm", slug, ctx.blueprint.chart_path, ns, sets), timeout=120
+        # what the chart really renders, hooks included: checked before anything is installed
+        render = await ctx.cmd(
+            app_network.render_command("helm", slug, ctx.blueprint.chart_path, ns, sets), timeout=120
+        )
+        if not render.ok:
+            return StepResult(False, "deployment failed: the chart does not render", render.output[-2500:])
+        live = getattr(ctx.settings, "factory_mode", "live") == "live"
+        # policies add up: the chart may not ship one that undoes the namespace's (S-02)
+        if restricted and (problems := app_network.widening(render.whole(), live, ns)):
+            return StepResult(
+                False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
             )
-            if not render.ok:
-                return StepResult(False, "deployment failed: the chart does not render", render.output[-2500:])
-            live = getattr(ctx.settings, "factory_mode", "live") == "live"
-            if problems := app_network.widening(render.whole(), live, ns):
-                return StepResult(
-                    False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
-                )
-        # the namespace's egress policy first, so the app's pods never run without it (S-02)
-        net = await ctx.cmd("set -e; " + "; ".join(egress_steps("kubectl", ns, ctx.blueprint.app_egress)), timeout=120)
+        # the cluster refuses pods the namespace's Pod Security level doesn't allow (S-05)
+        label, why, note = await pod_security.prepare(
+            ctx, "kubectl", ns, render.whole(), lambda cmd, timeout: ctx.cmd(cmd, timeout=timeout)
+        )
+        if label is None:
+            return StepResult(False, "deployment failed: the chart's pods need more than Pod Security allows", why)
+        if note:
+            await ctx.emit(EventKind.log, note, data={"pod_security": "baseline"})
+        # the namespace's egress policy and Pod Security level first, so no pod runs without them (S-02, S-05)
+        steps = [*egress_steps("kubectl", ns, ctx.blueprint.app_egress), label]
+        net = await ctx.cmd("set -e; " + "; ".join(steps), timeout=120)
         if not net.ok:
-            return StepResult(False, "deployment failed: the namespace's egress policy", net.output[-2500:])
+            return StepResult(
+                False, "deployment failed: the namespace's egress policy and Pod Security level", net.output[-2500:]
+            )
         res = await ctx.cmd(helm, timeout=420)
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
