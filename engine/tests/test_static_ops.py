@@ -59,9 +59,33 @@ def test_the_csp_refuses_inline_scripts_and_framing():
 
 
 def test_the_ui_page_has_no_inline_script():
-    page = (REPO / "web" / "index.html").read_text()
-    for tag in re.findall(r"<script[^>]*>", page):
-        assert "src=" in tag, f"inline script refused by the CSP: {tag}"
+    from html.parser import HTMLParser
+
+    class Scripts(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found: list[tuple[dict[str, str | None], str]] = []
+            self._open: dict[str, str | None] | None = None
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            if tag == "script":
+                self._open = dict(attrs)
+                self.found.append((self._open, ""))
+
+        def handle_data(self, data: str) -> None:
+            if self._open is not None:
+                attrs, text = self.found[-1]
+                self.found[-1] = (attrs, text + data)
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "script":
+                self._open = None
+
+    parser = Scripts()
+    parser.feed((REPO / "web" / "index.html").read_text())
+    assert parser.found, "the page loads its scripts"
+    for attrs, text in parser.found:
+        assert attrs.get("src") and not text.strip(), f"inline script refused by the CSP: {attrs} {text[:60]!r}"
     assert (REPO / "web" / "public" / "theme.js").is_file()
 
 
