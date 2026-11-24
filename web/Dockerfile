@@ -10,5 +10,6 @@ RUN npm run build
 # container needs no root and no capabilities.
 FROM nginxinc/nginx-unprivileged:1.31-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /web/dist /usr/share/nginx/html
 EXPOSE 8080
