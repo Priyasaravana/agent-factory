@@ -996,6 +996,18 @@ def fold_watch(  # noqa: PLR0913 - one finding, its ledger and what is running
     return it, what
 
 
+def resolve_watch(it: WorkItem, now: datetime, note: str, *, iteration: int) -> WorkItem | None:
+    """Close an incident the engine's response restored and that didn't come back (ADR-0049 §4, slice 0):
+    service was restored without a change, and readings since have stayed healthy for the quiet period. The
+    note says how (re-apply, restart). An item a person already decided, or a fix change claimed, is left
+    alone: that change's delivery closes it. Returns the item if it changed."""
+    if it.category != INCIDENT or it.status != "open":
+        return None
+    it.status, it.resolved_by = "fixed", None
+    _log(it, now, "fixed", note, iteration=iteration)
+    return it
+
+
 def has_fix(it: WorkItem) -> bool:
     """An image finding with a released fix (its detail starts "fixed in", `image_scan.ledger_detail`)."""
     return it.category == IMAGE and it.detail.startswith("fixed in")

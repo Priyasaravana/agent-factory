@@ -4,10 +4,12 @@ drill, upkeep and resuming after a restart, on a dry-run factory."""
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from conftest import PRODUCT, wait_run
@@ -20,6 +22,7 @@ from agent_factory.engine import stations as stations_mod
 from agent_factory.engine.operations import OperateError
 from agent_factory.executor import CommandResult, FakeExecutor
 from agent_factory.models import ChangeSource, ChangeStatus, EventKind
+from agent_factory.secret_refs import REDACTOR
 
 _OUT = re.compile(r"> '?([^' ]+\.backup)'?$")
 _IN = re.compile(r"< '?([^' ]+\.backup)'?$")
@@ -39,9 +42,17 @@ class OpsExecutor(FakeExecutor):
     errors: float = 0.0
     data: dict[str, str] = field(default_factory=lambda: {"app": "bookmarks=12\nusers=3"})
     corrupt_restore: bool = False  # a restore that silently loses rows
+    heal_on: tuple[str, ...] = ()  # a command that brings the app back (incident response: rollback, restart)
+    refuse: dict[str, str] = field(default_factory=dict)  # a command (needle) that fails, with its output
     moving: bool = False  # the data changes with every read (a backup can't be fingerprinted)
 
     async def run(self, command, cwd=None, timeout=600, env=None) -> CommandResult:  # noqa: ANN001
+        for needle, output in self.refuse.items():
+            if needle in command:
+                self.calls.append(command)
+                return CommandResult(command, 1, output)
+        if any(needle in command for needle in self.heal_on):
+            self.down = False
         if "curl -fsS -m 8" in command:
             self.calls.append(command)
             if self.down:
@@ -98,13 +109,16 @@ async def delivered(make_factory, ex: OpsExecutor | None = None, **product):
     return f, ex, p
 
 
-async def readings(f, product, n: int = 6, start: datetime | None = None):
-    """`n` readings a minute apart (by default starting 20 minutes ago); returns the last verdict."""
+async def readings(f, product, n: int = 6, start: datetime | None = None, every: timedelta = timedelta(minutes=1)):
+    """`n` readings `every` apart (a minute; by default starting 20 minutes ago); returns the last verdict."""
     start = start or datetime.now(UTC) - timedelta(minutes=20)
     a = None
     for i in range(n):
-        a = await f.manager.operations.watch(f.store.get_product(product.id), start + timedelta(minutes=i + 1))
+        a = await f.manager.operations.watch(f.store.get_product(product.id), start + every * (i + 1))
     return a
+
+
+FAST = timedelta(seconds=10)  # how often a product is read while a reading fails or an incident is open
 
 
 def _incidents(f, product) -> list:
@@ -148,17 +162,19 @@ async def test_a_breach_is_the_alert_that_opens_an_incident_for_the_owner(make_f
     assert "0.0% of 6 health checks answered" in incident.detail and "Connection refused" in incident.detail
     [alert] = _records(f, p, "alert")
     assert not alert.ok and alert.data["incident"] == incident.id and alert.data["owner"] == "priya"
-    assert f"incident {incident.id} opened for priya" in f.store.list_events(p.latest_change_id)[-1].message
+    assert any(f"incident {incident.id} opened for priya" in e.message for e in f.store.list_events(p.latest_change_id))
     await readings(f, p, start=datetime.now(UTC) - timedelta(minutes=14))
     assert len(_incidents(f, p)) == 1 and len(_records(f, p, "alert")) == 1, "one incident, one alert, while it lasts"
     app, ctx, c = await _client(f)
     async with c:
         [need] = (await c.get("/api/attention", params={"product_id": p.id})).json()
-        assert (need["kind"], need["owner"], need["blocking"], need["panel"]) == (
+        # no factory restore drill has passed on this install: the response is proposed to the owner
+        assert (need["kind"], need["owner"], need["blocking"], need["panel"], need["title"]) == (
             "incident",
             "priya",
             True,
-            "next-iteration",
+            "operations",
+            "Incident: restore service (restart the app)",
         )
         card = (await c.get(f"/api/products/{p.id}/next-iteration")).json()
         assert [i["id"] for i in card["incidents"]] == [incident.id]
@@ -248,6 +264,248 @@ async def test_the_factory_runs_only_what_it_built_and_deployed(make_factory):
     assert await ops.watch(f.store.get_product(p.id)) is None
     with pytest.raises(OperateError, match="archived"):
         await ops.backup(f.store.get_product(p.id))
+
+
+# ------------------------------------------------- incident response (slice 0) --
+def _drill_passed(f) -> None:
+    from agent_factory.engine.operations import DRILL_PASSED
+
+    f.store.set_meta(DRILL_PASSED, json.dumps({"passed": True, "by": "saravana", "note": "restored to /tmp/x"}))
+
+
+def _respond_records(f, product) -> list:
+    return list(reversed(f.store.list_operations(product.id, "respond")))
+
+
+def _ran(f, product) -> list[str]:
+    return [r.data["step"] for r in _respond_records(f, product) if r.data.get("ran")]
+
+
+async def test_drift_is_snapshotted_then_reapplied_and_restored_without_a_change(make_factory):
+    f, ex, p = await delivered(make_factory, OpsExecutor(heal_on=("helm rollback ",)))
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}  # someone set another image behind Helm's back
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=20)
+    await readings(f, p, n=5, start=start, every=FAST)
+    [incident] = _incidents(f, p)
+    assert _ran(f, p) == ["reapply"], "the live state differs from the recorded release: re-apply it"
+    [act] = [r for r in _respond_records(f, p) if r.data.get("ran")]
+    assert act.ok and "rolled back to revision 1" in act.summary and "not the recorded" in act.data["reason"]
+    snap = f.manager.operations.incidents_dir(p) / act.data["snapshot"]["file"]
+    assert snap.is_file() and snap.stat().st_mode & 0o777 == 0o600, "the snapshot comes first, private"
+    assert "recorded release: revision 1" in snap.read_text() and "differs: running containers" in snap.read_text()
+    assert ex.helm.drift[p.slug] == {}, "Helm put the recorded release back"
+    changes = f.store.list_changes(p.id)
+    assert len(changes) == 1, "no development cycle: restoring service is not a change"
+    # three healthy readings in a row after the action: restored, with the DORA timings
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    [restored] = _records(f, p, "restored")
+    assert restored.data["by_step"] == "reapply" and restored.data["time_to_restore_s"] > 0
+    assert restored.data["caused_by"] == p.latest_change_id, "it began within a day of that change's release"
+    assert restored.data["classification"].startswith("operational: the live state had drifted")
+    view = f.manager.operations.view(f.store.get_product(p.id))
+    [r] = view.responses
+    assert (r.state, r.tried, r.restored_by, r.held) == ("restored", ["reapply"], "reapply", "")
+    assert r.time_to_restore_s is not None and r.time_to_restore_s < 5 * 60, "under five minutes"
+    # while the window still holds the outage the incident stays open, restored
+    await readings(f, p, n=3, start=start + timedelta(minutes=10))
+    assert _incidents(f, p)[0].status == "open"
+    # once the window is back within its target it is resolved at once, with its timings (live check
+    # 2026-11-22: kept open after the window recovered, the card showed a stale failure next to 100 %)
+    await readings(f, p, n=6, start=start + timedelta(minutes=50))
+    [closed] = _incidents(f, p)
+    assert closed.status == "fixed" and incident.id == closed.id
+    [resolved] = _records(f, p, "resolved")
+    assert "window is back within its target" in resolved.summary and resolved.data["time_to_restore_s"] > 0
+    assert resolved.data["classification"].startswith("operational: the live state had drifted")
+    assert _records(f, p, "recovered") == [], "one record says how it ended"
+    assert f.manager.operations.view(f.store.get_product(p.id)).responses == []
+
+
+async def test_the_same_breach_soon_after_it_was_resolved_goes_on_up_the_ladder(make_factory):
+    f, ex, p = await delivered(make_factory, OpsExecutor(heal_on=("helm rollback ",)))
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(hours=3)
+    p.release.at = start - timedelta(minutes=5)
+    f.store.save_product(p)
+    await readings(f, p, n=5, start=start, every=FAST)
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    await readings(f, p, n=6, start=start + timedelta(minutes=40))
+    [item] = _incidents(f, p)
+    assert item.status == "fixed"
+    ex.down = True  # back an hour later: within a day of the resolution
+    await readings(f, p, n=5, start=start + timedelta(hours=1), every=FAST)
+    [item] = _incidents(f, p)
+    assert item.status == "open" and _ran(f, p) == ["reapply", "restart"], "re-apply was tried: the next step"
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert (r.state, r.reopened) in {("mitigating", 1), ("reopened", 1)}
+
+
+async def test_a_crash_with_the_recorded_release_is_restarted_once_then_held_for_the_owner(make_factory):
+    f, ex, p = await delivered(make_factory)
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"crash": "CrashLoopBackOff", "crash_persists": True}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=20)
+    await readings(f, p, n=5, start=start)
+    assert _ran(f, p) == ["restart"], "nothing drifted: restart once"
+    assert any("rollout restart deployment" in c for c in ex.calls)
+    assert not any("helm rollback" in c for c in ex.calls), "re-apply only when the live state differs"
+    # the crash survives the restart; after the settle time the ladder has nothing left in slice 0
+    await readings(f, p, n=4, start=start + timedelta(minutes=5))
+    assert _ran(f, p) == ["restart"], "each step once per incident"
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert r.state == "mitigating" and "rolling back to an earlier release" in r.held
+    holds = [x for x in _respond_records(f, p) if x.data.get("hold")]
+    assert len(holds) == 1, "a hold is said once, not on every reading"
+    app, ctx, c = await _client(f)
+    async with c:
+        [need] = (await c.get("/api/attention", params={"product_id": p.id})).json()
+        assert (need["title"], need["panel"], need["blocking"]) == (
+            "Incident: the factory's response is held for you",
+            "operations",
+            True,
+        )
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_a_newer_live_release_is_never_undone(make_factory):
+    f, ex, p = await delivered(make_factory)
+    _drill_passed(f)
+    revs = ex.helm.releases[p.slug]
+    newer = json.loads(json.dumps(revs[-1]["values"]))
+    newer["image"]["tag"] = "hotfix"
+    ex.helm._add(p.slug, newer, "Upgrade complete")  # released by someone (or a newer factory) since the record
+    ex.down = True
+    await readings(f, p, n=5)
+    assert _ran(f, p) == [] and not any("helm rollback" in c or "rollout restart" in c for c in ex.calls)
+    [hold] = _respond_records(f, p)
+    assert hold.data["hold"] == "stale_record" and "revision 2" in hold.summary
+
+
+async def test_ask_mode_proposes_and_the_owner_runs_it(make_factory):
+    f, ex, p = await delivered(make_factory, OpsExecutor(heal_on=("rollout restart",)))
+    ex.down = True  # no factory restore drill on this install: ask
+    await readings(f, p, n=5)
+    assert _ran(f, p) == []
+    [proposal] = _respond_records(f, p)
+    assert proposal.data == {**proposal.data, "ask": True, "step": "restart"}
+    view = f.manager.operations.view(f.store.get_product(p.id))
+    assert (view.respond.configured, view.respond.mode) == ("auto", "ask") and "restore drill" in view.respond.why
+    ops = f.manager.operations
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.post(f"/api/products/{p.id}/respond")
+        assert r.status_code == 200, r.text
+        assert r.json()["responding"], "the step runs in the background: a dropped request can't cut it off"
+        again = await c.post(f"/api/products/{p.id}/respond")
+        assert again.status_code == 422 and "already running" in again.text
+        await asyncio.gather(*list(ops._jobs))
+        view = (await c.get(f"/api/products/{p.id}/operations")).json()
+        [resp] = view["responses"]
+        assert (view["responding"], resp["state"], resp["tried"]) == (False, "mitigating", ["restart"])
+    await ctx.__aexit__(None, None, None)
+    [act] = [r for r in _respond_records(f, p) if r.data.get("ran")]
+    assert act.ok and act.by != "factory"
+
+
+async def test_a_failed_step_says_why_and_is_not_credited_when_service_comes_back(make_factory):
+    """Live check 2026-11-22: a re-apply that didn't restore the release, then a person rolled back by hand.
+    The record must carry Helm's own words, and the restore must not be credited to the failed step."""
+    helm_says = "Error: timed out waiting for the condition (token=s3cr3t-value)"
+    ex = OpsExecutor(refuse={"helm rollback ": helm_says})
+    f, ex, p = await delivered(make_factory, ex)
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=20)
+    with patch.object(REDACTOR, "text", lambda t: t.replace("s3cr3t-value", "***")):
+        await readings(f, p, n=5, start=start, every=FAST)
+    [act] = [r for r in _respond_records(f, p) if r.data.get("ran")]
+    assert not act.ok and act.summary.startswith("re-apply the recorded release failed: helm rollback failed")
+    assert "timed out waiting for the condition" in act.data["detail"] and "s3cr3t" not in act.data["detail"]
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert (r.failed, r.last_ok) == (["reapply"], False) and "timed out" in r.last_detail
+    ex.down = False  # someone ran `helm rollback` by hand
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    [restored] = _records(f, p, "restored")
+    assert restored.data["by_step"] == "" and "not by the factory" in restored.summary
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert r.state == "restored" and r.classification.startswith(
+        "service came back after the factory's last step failed"
+    )
+
+
+async def test_the_page_says_the_app_answers_while_the_window_still_holds_the_outage(make_factory):
+    f, ex, p = await delivered(make_factory)
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=10)
+    await readings(f, p, n=6, start=start)
+    ex.down = False
+    await readings(f, p, n=2, start=start + timedelta(minutes=6))
+    now = start + timedelta(minutes=8, seconds=30)
+    av = f.manager.operations.view(f.store.get_product(p.id), now).availability
+    assert av.state == "breached" and av.last_ok is True and av.last_detail == ""
+    assert av.clears_at == start + timedelta(minutes=6) + timedelta(minutes=30), "the last failed reading ages out"
+    ex.down = True
+    await readings(f, p, n=1, start=start + timedelta(minutes=8))
+    av = f.manager.operations.view(f.store.get_product(p.id), now).availability
+    assert av.last_ok is False and "Connection refused" in av.last_detail and av.clears_at is None
+
+
+async def test_a_recurrence_reopens_the_incident_and_goes_up_the_ladder(make_factory):
+    f, ex, p = await delivered(make_factory, OpsExecutor(heal_on=("helm rollback ",)))
+    _drill_passed(f)
+    ex.helm.drift[p.slug] = {"digest": "sha256:" + "a" * 64}
+    ex.down = True
+    start = datetime.now(UTC) - timedelta(minutes=50)
+    await readings(f, p, n=5, start=start, every=FAST)
+    await readings(f, p, n=3, start=start + 5 * FAST, every=FAST)
+    assert [r.kind for r in f.store.list_operations(p.id)][0] == "restored"
+    ex.down = True  # the same breach, twenty minutes later, before the quiet period ended
+    await readings(f, p, n=5, start=start + timedelta(minutes=20), every=FAST)
+    assert _ran(f, p) == ["reapply", "restart"], "re-apply was tried for this incident: the next step"
+    [r] = f.manager.operations.view(f.store.get_product(p.id)).responses
+    assert r.reopened == 1 and len(_incidents(f, p)) == 1
+
+
+async def test_at_most_three_actions_an_hour_on_a_product(make_factory):
+    f, ex, p = await delivered(make_factory)
+    _drill_passed(f)
+    now = datetime.now(UTC)
+    for i in range(3):  # three steps on this product within the hour, for earlier incidents
+        f.manager.operations._record(p, "respond", True, "earlier", "factory",
+                                     {"incident": f"old{i}", "step": "restart", "ran": True},
+                                     at=now - timedelta(minutes=30))  # fmt: skip
+    ex.down = True
+    await readings(f, p, n=5, start=now - timedelta(minutes=20))
+    assert not any("rollout restart" in c or "helm rollback" in c for c in ex.calls)
+    [hold] = [r for r in _respond_records(f, p) if r.data.get("hold")]
+    assert hold.data["hold"] == "rate_limited" and "at most 3" in hold.summary
+
+
+async def test_after_a_factory_restore_it_asks_until_the_record_matches_the_live_release(make_factory):
+    f, ex, p = await delivered(make_factory)
+    _drill_passed(f)
+    ops = f.manager.operations
+    (Path(f.manager.ws.data_dir) / "factory-restored").write_text("2026-11-22T12:00:00Z\n")
+    assert ops.note_restore() and not (Path(f.manager.ws.data_dir) / "factory-restored").exists()
+    assert ops.response_mode(p)[0] == "ask"
+    await readings(f, p, n=1)  # one reading: the recorded release is the live one
+    assert ops.response_mode(f.store.get_product(p.id)) == ("auto", "")
+    assert any("matches the live one" in e.message for e in f.store.list_events(p.latest_change_id))
+
+
+async def test_respond_off_leaves_incidents_to_a_fix_change(make_factory):
+    f, ex, p = await delivered(make_factory)
+    _drill_passed(f)
+    f.cfg.operate.respond = "off"
+    ex.down = True
+    await readings(f, p)
+    assert len(_incidents(f, p)) == 1 and _respond_records(f, p) == []
 
 
 # ------------------------------------------------------- backup and restore --

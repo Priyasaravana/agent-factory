@@ -1,6 +1,7 @@
 # Plan: stations as team members, owned by teams, integrated with their tools
 
-Status: direction and order decided by Saravana 2026-11-21 (architect session). Nothing here is built. J4 and J5
+Status: direction and order decided by Saravana 2026-11-21 (architect session). Slice 0's minimal part is in review
+(2026-11-22, ADR-0049 §4 amended); nothing else here is built. J4 and J5
 ran live on 2026-11-21, so the freeze has lifted; slice 0 comes first, slices 1–6 after the v0.1.0 release
 (roadmap "Next, in order"). It refines phase **T. Team delivery** and composable-SDLC steps
 2–4 ([composable-sdlc.md](composable-sdlc.md)) and builds on the station contract
@@ -160,6 +161,11 @@ are separated instead:
   minimal slice.
 - **To verify live:** Helm's three-way merge puts replicas back on a rollback to the same revision; if an HPA owns
   replicas, "scale to the release's replicas" is needed instead.
+- **Built (minimal slice, 2026-11-22):** as above, with these choices made while building: the next step waits
+  120 s after the last one and is taken only while readings still fail; a failed reading switches the product to
+  10 s readings at once, so detection doesn't wait for five minute-apart readings; the response's states live in
+  the operation records (no new table); `auto` takes effect once a person records a passed factory restore
+  drill (`agent-factory factory-drill passed`), since the factory can't drill itself yet.
 
 **Decided (Saravana, 2026-11-21):**
 1. **When:** J4 and J5 had already run live on today's path, so slice 0 is the first item after the journey

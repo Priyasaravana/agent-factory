@@ -150,6 +150,10 @@ class FakeHelm:
     releases: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # a mesh proxy in every pod, on its own image: digests are read for the app's containers only
     sidecar: str = "docker.io/istio/proxyv2:1.24.0=docker.io/istio/proxyv2@sha256:" + "f" * 64
+    # what changed on the cluster behind Helm's back, per release (incident response, ADR-0049 §4):
+    # `digest` (pods run another image), `replicas` (a Deployment scaled by hand), `crash` (a waiting reason;
+    # a restart clears it unless `crash_persists`). A Helm upgrade or rollback puts digest and replicas back.
+    drift: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @staticmethod
     def digest(image: str) -> str:
@@ -172,8 +176,11 @@ class FakeHelm:
             return 0, json.dumps({"items": []})
         if "helm template " in command and " --namespace " in command:
             return 0, "# [dry-run] nothing rendered\n"
+        if (live := self._live(command)) is not None:
+            return live
         if m := _UPGRADE.search(command):
             name = m.group(1)
+            self._heal(name)
             self._add(name, _values(command), "Upgrade complete" if name in self.releases else "Install complete")
             return 0, f"[dry-run] Release {name} has been upgraded."
         if m := _UNINSTALL.search(command):  # the release and its history go (a temporary one, archive)
@@ -185,6 +192,7 @@ class FakeHelm:
             if old is None:
                 return None
             self._add(name, old["values"], f"Rollback to {rev}")
+            self._heal(name)  # Helm's three-way merge puts the release's own manifest back
             return 0, "Rollback was a success! Happy Helming!"
         for name, revs in self.releases.items():
             if not revs or not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", command):
@@ -207,11 +215,52 @@ class FakeHelm:
                 lines = []
                 for image in running:
                     repo = image.rsplit(":", 1)[0]
-                    app = f"docker.io/library/{image}=docker.io/library/{repo}@{self.digest(image)}"
+                    digest = self.drift.get(name, {}).get("digest") or self.digest(image)
+                    app = f"docker.io/library/{image}=docker.io/library/{repo}@{digest}"
                     lines.append(f"|{app} {self.sidecar} ")
                 return 0, "\n".join(lines) + "\n"
         if " get values " in command:  # a release Helm doesn't have
             return 1, "Error: release: not found"
+        return None
+
+    def _heal(self, name: str) -> None:
+        d = self.drift.get(name)
+        if d:
+            d.pop("digest", None)
+            d.pop("replicas", None)
+
+    def _live(self, command: str) -> tuple[int, str] | None:
+        """The cluster's side of a release (incident response): its manifest's workloads, their replicas and
+        readiness, the pods' health, and a restart."""
+        name = next(
+            (
+                n
+                for n, revs in self.releases.items()
+                if revs and re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", command)
+            ),
+            None,
+        )
+        if name is None:
+            return None
+        d = self.drift.get(name, {})
+        crash = str(d.get("crash") or "")
+        if " get manifest " in command:
+            return 0, (
+                f"---\nkind: Deployment\nmetadata:\n  name: {name}\nspec:\n  replicas: 1\n"
+                f"---\nkind: StatefulSet\nmetadata:\n  name: {name}-postgres\nspec:\n  replicas: 1\n"
+            )
+        if "get deployments,statefulsets" in command:
+            replicas = d.get("replicas", 1)
+            ready = 0 if crash else replicas
+            return 0, f"Deployment/{name}={replicas}={ready}\nStatefulSet/{name}-postgres=1=1\n"
+        if "get pods" in command and "restartCount" in command:
+            if crash:
+                return 0, f"|false=7={crash} true=0= \n"
+            return 0, "|true=0= true=0= \n"
+        if "rollout restart deployment" in command:
+            if crash and not d.get("crash_persists"):
+                d.pop("crash", None)
+            return 0, f"deployment.apps/{name} restarted"
         return None
 
     def latest_image(self, name: str) -> str | None:

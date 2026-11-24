@@ -7,6 +7,7 @@ import {
   DatabaseBackup,
   HeartPulse,
   RefreshCw,
+  LifeBuoy,
   RotateCcw,
   Siren,
   Target,
@@ -24,6 +25,8 @@ import { Panel, type PanelTone } from "./ui/panel";
 
 type View = components["schemas"]["OperationsView"];
 type Record_ = components["schemas"]["OperationRecord"];
+type Response_ = components["schemas"]["IncidentResponse"];
+type WorkItem_ = components["schemas"]["WorkItem"];
 
 const STATE: Record<string, { label: string; tone: string }> = {
   ok: { label: "Within target", tone: "ok" },
@@ -39,7 +42,26 @@ const KIND: Record<string, string> = {
   recovered: "Recovered",
   retire: "Retirement",
   owner: "Owner",
+  respond: "Response",
+  restored: "Restored",
+  resolved: "Resolved",
 };
+const STEP: Record<string, string> = {
+  reapply: "Re-apply the recorded release",
+  restart: "Restart the app",
+};
+const STAGES = ["open", "mitigating", "restored", "resolved"] as const;
+const STAGE_LABEL: Record<string, string> = {
+  open: "Open",
+  mitigating: "Restoring",
+  restored: "Restored",
+  resolved: "Resolved",
+};
+
+function mins(s?: number | null) {
+  if (s === null || s === undefined) return "–";
+  return s < 90 ? `${Math.round(s)} s` : `${(s / 60).toFixed(1)} min`;
+}
 
 function pct(n?: number | null, digits = 1) {
   return n === null || n === undefined ? "–" : `${(n * 100).toFixed(digits)}%`;
@@ -56,7 +78,8 @@ export default function Operations({ productId, canSteer }: { productId: string;
   const q = useQuery({
     queryKey: key,
     queryFn: () => unwrap(api.GET("/api/products/{product_id}/operations", path)),
-    refetchInterval: 15_000,
+    // a response step runs in the background: read every few seconds until it ends
+    refetchInterval: (query) => ((query.state.data as View | undefined)?.responding ? 3_000 : 15_000),
   });
   const refresh = () => {
     for (const k of [key, ["ready-for"], ["next-iteration", productId], ["work-items", productId], ["attention"]])
@@ -91,6 +114,15 @@ export default function Operations({ productId, canSteer }: { productId: string;
       refresh();
       setEditing(false);
       toast.success(`Target: ${v.availability.target}`);
+    },
+  });
+
+  const respondNow = useMutation({
+    mutationFn: () => unwrap(api.POST("/api/products/{product_id}/respond", path)),
+    onSuccess: (view) => {
+      qc.setQueryData(key, view);
+      refresh();
+      toast.success("Started: the result shows on the incident when it ends");
     },
   });
 
@@ -162,11 +194,31 @@ export default function Operations({ productId, canSteer }: { productId: string;
                     <span className="text-muted-foreground">no readings yet</span>
                   )}
                 </Line>
+                {a.last_at && (
+                  <Line label="Latest">
+                    {a.last_ok ? (
+                      <span className="text-ok">answering ({ago(a.last_at)})</span>
+                    ) : (
+                      <span className="text-bad">
+                        failing ({ago(a.last_at)}){a.last_detail ? `: ${a.last_detail}` : ""}
+                      </span>
+                    )}
+                    {a.clears_at && (
+                      <span className="block text-xs text-muted-foreground">
+                        The window still holds the outage until {new Date(a.clears_at).toLocaleTimeString()}; the
+                        measure above recovers then.
+                      </span>
+                    )}
+                  </Line>
+                )}
                 <Line label="Watch">
                   {a.watching ? (
                     <span className="text-ok">running{a.last_at ? `, read ${ago(a.last_at)}` : ""}</span>
                   ) : (
-                    <span className="text-warn">not reading it{a.last_at ? ` (last ${ago(a.last_at)})` : ""}</span>
+                    <span className="text-warn">
+                      not reading it
+                      {a.last_at ? ` (last ${ago(a.last_at)})` : ""}
+                    </span>
                   )}
                 </Line>
                 {a.reasons?.map((r) => (
@@ -291,8 +343,8 @@ export default function Operations({ productId, canSteer }: { productId: string;
               )}
             </Line>
             <p className="m-0 text-xs text-muted-foreground">
-              The live image is scanned again and dependencies compared with their newest releases. What is found
-              waits on the Next iteration card.
+              The live image is scanned again and dependencies compared with their newest releases. What is found waits
+              on the Next iteration card.
             </p>
             {canSteer && v.live && (
               <div className="mt-1">
@@ -306,18 +358,17 @@ export default function Operations({ productId, canSteer }: { productId: string;
         <Problems error={step.error} />
 
         {incidents.map((i) => (
-          <div key={i.id} className="grid gap-1 rounded-lg border border-bad/40 bg-bad/5 p-3 text-sm">
-            <span className="flex items-center gap-2 font-medium">
-              <Siren className="size-4 text-bad" aria-hidden />
-              {i.title}
-              <span className="pill muted">{i.status === "in_progress" ? "fix in progress" : "open"}</span>
-            </span>
-            <p className="m-0 whitespace-pre-line text-muted-foreground">{i.detail}</p>
-            {i.status === "open" && (
-              <p className="m-0 text-xs">Tick it on the Next iteration card to start a fix change.</p>
-            )}
-          </div>
+          <IncidentCard
+            key={i.id}
+            item={i}
+            response={(v.responses ?? []).find((r) => r.incident === i.id)}
+            mode={v.respond}
+            canSteer={canSteer && v.live}
+            busy={respondNow.isPending || !!v.responding}
+            onRespond={() => respondNow.mutate()}
+          />
         ))}
+        <Problems error={respondNow.error} />
 
         {(v.records ?? []).length > 0 && (
           <div className="grid gap-1">
@@ -344,12 +395,138 @@ export default function Operations({ productId, canSteer }: { productId: string;
 
         <div className="flex items-center gap-2 border-t pt-3 text-sm text-muted-foreground">
           <UserRound className="size-4" aria-hidden />
-          Incidents, upkeep and retirement go to{" "}
-          <strong className="text-foreground">{v.owner ?? "nobody yet"}</strong>
+          Incidents, upkeep and retirement go to <strong className="text-foreground">{v.owner ?? "nobody yet"}</strong>
           {v.owner && !v.owner_named && " (its creator; an admin can name an owner under Ready for)"}
         </div>
       </div>
     </Panel>
+  );
+}
+
+/** One open incident and the engine's response to it (ADR-0049 §4, slice 0): where it is on the way to
+ * resolved, what was tried, why it is held, the DORA timings, and the step the owner can run now. */
+function IncidentCard({
+  item,
+  response: r,
+  mode,
+  canSteer,
+  busy,
+  onRespond,
+}: {
+  item: WorkItem_;
+  response?: Response_;
+  mode: View["respond"];
+  canSteer: boolean;
+  busy: boolean;
+  onRespond: () => void;
+}) {
+  const stage = r ? (r.state === "reopened" ? "mitigating" : r.state) : "open";
+  const at = STAGES.indexOf(stage as (typeof STAGES)[number]);
+  const offer = r?.proposed ?? "";
+  return (
+    <div className="grid gap-2 rounded-lg border border-bad/40 bg-bad/5 p-3 text-sm" data-testid="incident">
+      <span className="flex flex-wrap items-center gap-2 font-medium">
+        <Siren className="size-4 text-bad" aria-hidden />
+        {item.title}
+        <span className={cn("pill", r?.state === "restored" ? "ok" : "muted")}>
+          {item.status === "in_progress"
+            ? "fix in progress"
+            : r?.state === "restored"
+              ? "service restored · watching for a recurrence"
+              : "open"}
+        </span>
+        {busy && <span className="pill warn">step running…</span>}
+        {r && r.reopened > 0 && <span className="pill warn">came back {r.reopened}×</span>}
+      </span>
+      {r && mode.mode !== "off" && (
+        <ol className="m-0 flex list-none flex-wrap items-center gap-1 p-0 text-xs" aria-label="Incident state">
+          {STAGES.map((s, n) => (
+            <li key={s} className="flex items-center gap-1">
+              <span
+                className={cn(
+                  "rounded-full border px-2 py-0.5",
+                  n < at && "border-ok/40 text-ok",
+                  n === at && "border-primary bg-primary/10 font-semibold text-foreground",
+                  n > at && "text-muted-foreground",
+                )}
+              >
+                {STAGE_LABEL[s]}
+              </span>
+              {n < STAGES.length - 1 && <span className="text-muted-foreground">→</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="m-0 whitespace-pre-line text-muted-foreground">{item.detail}</p>
+      {r && (
+        <div className="grid gap-1 rounded-md border bg-background/60 p-2">
+          <Line label="Tried">
+            {r.tried?.length ? (
+              r.tried.map((t, n) => (
+                <span key={`${t}-${n}`}>
+                  {n > 0 && " → "}
+                  {STEP[t] ?? t}
+                  {r.failed?.includes(t) && <span className="text-bad"> (failed)</span>}
+                </span>
+              ))
+            ) : (
+              <span className="text-muted-foreground">nothing yet</span>
+            )}
+          </Line>
+          {r.last_result && !r.last_ok && (
+            <Line label="Last step">
+              <span className="text-bad">{r.last_result}</span>
+              {r.last_detail && (
+                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-xs">
+                  {r.last_detail}
+                </pre>
+              )}
+            </Line>
+          )}
+          {r.held && (
+            <Line label="Held">
+              <span className="text-warn">{r.held}</span>
+            </Line>
+          )}
+          {r.proposed && (
+            <Line label="Proposed">
+              {STEP[r.proposed] ?? r.proposed}
+              {mode.why && <span className="text-muted-foreground"> · {mode.why}</span>}
+            </Line>
+          )}
+          {r.classification && <Line label="Cause">{r.classification}</Line>}
+          <Line label="Timings">
+            detected in {mins(r.time_to_detect_s)}
+            {r.restored_at && <> · restored in {mins(r.time_to_restore_s)}</>}
+            <span className="text-muted-foreground"> · from the first failed reading</span>
+          </Line>
+          {r.caused_by && (
+            <Line label="Counts against">
+              change <code>{r.caused_by}</code>{" "}
+              <span className="text-muted-foreground">(it began within a day of its release)</span>
+            </Line>
+          )}
+          {r.state === "restored" && (
+            <p className="m-0 text-xs text-muted-foreground">
+              Service is back without a change. It is resolved once it stays healthy for a day; if the same breach
+              returns first, the factory takes the next step.
+            </p>
+          )}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {canSteer && offer && (
+          <Button size="sm" onClick={onRespond} disabled={busy} data-testid="respond-now">
+            <LifeBuoy className={cn(busy && "animate-spin")} /> {STEP[offer] ?? "Run the proposed step"} now
+          </Button>
+        )}
+        {item.status === "open" && (
+          <span className="text-xs text-muted-foreground">
+            The root cause is fixed by a change: tick it on the Next iteration card.
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -378,7 +555,11 @@ function RecordLine({ rec, none }: { rec?: Record_ | null; none: string }) {
   if (!rec) return <span className="text-muted-foreground">{none}</span>;
   return (
     <span className={rec.ok ? "" : "text-bad"} title={rec.summary}>
-      {rec.ok ? <CircleCheck className="mr-1 inline size-3.5 text-ok" /> : <CircleDashed className="mr-1 inline size-3.5" />}
+      {rec.ok ? (
+        <CircleCheck className="mr-1 inline size-3.5 text-ok" />
+      ) : (
+        <CircleDashed className="mr-1 inline size-3.5" />
+      )}
       {rec.ok ? "ok" : "failed"} · {ago(rec.at)}
     </span>
   );

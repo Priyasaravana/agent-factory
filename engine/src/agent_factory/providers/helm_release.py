@@ -13,7 +13,7 @@ import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from agent_factory import blue_green, rollback
+from agent_factory import blue_green, respond, rollback
 from agent_factory.executor import CommandResult, OutputCutOff
 from agent_factory.models import Release
 from agent_factory.providers.base import StepResult
@@ -56,7 +56,7 @@ class HelmRelease:
     def _pods(self, color: str | None) -> str:
         """The release's pods; on a blue/green release only one colour's (ADR-0046 slice 4), since
         both colours run the same repository and only the tag tells them apart."""
-        selector = f"app.kubernetes.io/instance={self.name}" + (f",{blue_green.COLOR_LABEL}={color}" if color else "")
+        selector = self._selector(color)
         jsonpath = shlex.quote(PODS_JSONPATH)
         return f"{self.kubectl} get pods {self._ns()} -l {shlex.quote(selector)} -o jsonpath={jsonpath}"
 
@@ -110,6 +110,72 @@ class HelmRelease:
         rev = f" --revision {revision}" if revision else ""
         res = await self.run(f"{self.helm} get values {shlex.quote(self.name)} {self._ns()}{rev} -o json", 60)
         return rollback.values_image(_whole(res)) if res.ok else None
+
+    def _selector(self, color: str | None) -> str:
+        return f"app.kubernetes.io/instance={self.name}" + (f",{blue_green.COLOR_LABEL}={color}" if color else "")
+
+    async def state(self, image: str, color: str | None = None) -> respond.Live:
+        """What the release runs now, read-only (incident response, ADR-0049 §4): Helm's newest revision and
+        the image its values name, the digests the running containers report, the replicas each workload asks
+        for against what the release's manifest says, and the pods' readiness. Anything that can't be read
+        makes the whole state unreadable (`error`), so nothing is decided from half of it."""
+        rows = await self._history()
+        if not rows:
+            return respond.Live(error="Helm reported no history for the release")
+        newest = max(rows, key=lambda r: int(str(r["revision"])))
+        live_image = await self._image()
+        sel = shlex.quote(self._selector(color))
+        pods = await self.run(self._pods(color), 60)
+        health = await self.run(
+            f"{self.kubectl} get pods {self._ns()} -l {sel} -o jsonpath={shlex.quote(respond.POD_HEALTH_JSONPATH)}", 60
+        )
+        loads = await self.run(
+            f"{self.kubectl} get deployments,statefulsets {self._ns()} -l {shlex.quote(self._selector(None))} "
+            f"-o jsonpath={shlex.quote(respond.WORKLOADS_JSONPATH)}",
+            60,
+        )
+        manifest = await self.run(f"{self.helm} get manifest {shlex.quote(self.name)} {self._ns()}", 60)
+        unread = [what for what, res in (("pods", pods), ("pod health", health), ("workloads", loads),
+                                         ("manifest", manifest)) if not res.ok]  # fmt: skip
+        if unread:
+            return respond.Live(error="could not read the release's " + ", ".join(unread))
+        n, not_ready, crashing, restarts = respond.pod_health(_whole(health))
+        expected = respond.manifest_replicas(_whole(manifest))
+        if color:  # blue/green: only the live colour's Deployment is compared (green's name ends in -green)
+            expected = {
+                k: v for k, v in expected.items()
+                if not k.startswith("Deployment/") or k.endswith("-green") == (color == "green")
+            }  # fmt: skip
+        return respond.Live(
+            revision=int(str(newest["revision"])),
+            description=str(newest["description"]),
+            status=str(newest["status"]),
+            image=live_image,
+            digests=rollback.app_digests(_whole(pods), image),
+            workloads=respond.workloads(_whole(loads)),
+            expected=expected,
+            pods=n,
+            not_ready=not_ready,
+            crashing=crashing,
+            restarts=restarts,
+        )
+
+    async def restart(self, color: str | None, probe: Probe, paths: list[str]) -> StepResult:
+        """Restart the release's Deployments (never a StatefulSet: that is where the data lives) and wait for
+        the rollout, then the health paths must answer (incident response, the ladder's second step)."""
+        sel = shlex.quote(self._selector(color))
+        res = await self.run(f"{self.kubectl} rollout restart deployment {self._ns()} -l {sel}", 120)
+        if not res.ok:
+            return StepResult(False, "the restart was refused", res.output[-1500:])
+        rollout = await self.run(f"{self.kubectl} rollout status deployment {self._ns()} -l {sel} --timeout=180s", 240)
+        problems = [] if rollout.ok else [f"rollout did not complete: {rollout.output.strip()[-300:]}"]
+        for path in paths:
+            answered = await probe(path)
+            if not answered.ok:
+                problems.append(f"{path} did not answer: {answered.output.strip()[-300:]}")
+        if problems:
+            return StepResult(False, "restarted, but " + "; ".join(problems), data={"verify": problems})
+        return StepResult(True, f"restarted; rollout complete, {', '.join(paths)} ok")
 
     async def rollback(self, release: Release, now: dict[str, str], probe: Probe, paths: list[str]) -> StepResult:
         """Restore `release`, failing closed: refuse unless the record is complete, names this
