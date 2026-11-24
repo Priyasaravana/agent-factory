@@ -207,7 +207,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      KIND_VERSION: v0.27.0           # the version the factory image ships (images/factory/Dockerfile)
+      KIND_VERSION: v0.33.0           # the version the factory image ships (images/factory/Dockerfile)
+      KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -215,8 +216,9 @@ jobs:
       - name: a kind cluster (kindnet enforces NetworkPolicy)
         run: |
           curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  /tmp/kind" | sha256sum -c -
           sudo install -m 0755 /tmp/kind /usr/local/bin/kind
-          kind create cluster --wait 180s
+          kind create cluster --wait 180s --image "$(grep -oE 'kindest/node:[^ ]+' cluster/kind-config.yaml)"
           kubectl version
       - name: app pods reach DNS and their own namespace only; a chart can't widen that (scripts/cluster-security-check.py)
         run: cd engine && uv run --python 3.12 python ../scripts/cluster-security-check.py

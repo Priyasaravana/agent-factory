@@ -3,9 +3,17 @@
 # It never gets the host Docker socket; it talks to the dind sidecar over TLS.
 FROM python:3.12-slim-bookworm
 
-ARG KIND_VERSION=v0.27.0
-ARG KUBECTL_VERSION=v1.32.3
-ARG HELM_VERSION=v3.17.2
+# Cluster tools (2026-11-24: the versions before these carried fixable CRITICAL CVEs in their Go
+# builds; CI's `images` job fails on those now, S-08). Every download is checked before use: kind
+# against the checksums pinned here, kubectl and helm against the checksum file their release host
+# publishes beside the binary (pinning those two here too is S-07). Keep KIND_VERSION in step with
+# ci.yml's cluster-security job.
+ARG KIND_VERSION=v0.33.0
+ARG KIND_SHA256_AMD64=aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+ARG KIND_SHA256_ARM64=20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2
+# kubectl stays within one minor of the node image in cluster/kind-config.yaml (tests/test_cluster_tools.py)
+ARG KUBECTL_VERSION=v1.37.2
+ARG HELM_VERSION=v3.22.1
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,14 +30,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # One tool per layer so a failed download names itself in the build log.
 RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
- && curl -fsSLo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH} \
- && chmod +x /usr/local/bin/kind && kind version
+ && case "$ARCH" in amd64) SUM=$KIND_SHA256_AMD64;; arm64) SUM=$KIND_SHA256_ARM64;; *) echo "no kind checksum for $ARCH"; exit 1;; esac \
+ && curl -fsSLo /tmp/kind https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH} \
+ && echo "${SUM}  /tmp/kind" | sha256sum -c - \
+ && install -m 0755 /tmp/kind /usr/local/bin/kind && rm /tmp/kind && kind version
 RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
- && curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl \
- && chmod +x /usr/local/bin/kubectl && kubectl version --client
+ && curl -fsSLo /tmp/kubectl https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl \
+ && echo "$(curl -fsSL https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256)  /tmp/kubectl" | sha256sum -c - \
+ && install -m 0755 /tmp/kubectl /usr/local/bin/kubectl && rm /tmp/kubectl && kubectl version --client
 RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} \
- && curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz | tar -xz -C /tmp \
- && mv /tmp/linux-${ARCH}/helm /usr/local/bin/helm && helm version --short
+ && cd /tmp && curl -fsSLO https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz \
+ && curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz.sha256sum | sha256sum -c - \
+ && tar -xzf helm-${HELM_VERSION}-linux-${ARCH}.tar.gz \
+ && install -m 0755 linux-${ARCH}/helm /usr/local/bin/helm && rm -rf /tmp/helm-* /tmp/linux-${ARCH} && helm version --short
 # No vulnerability-scanner binary here: the Package station runs the scanner as a
 # container inside dind (see blueprints.*.scan_command in .agent-factory/config.yaml).
 
