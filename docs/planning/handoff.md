@@ -8,6 +8,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   Work goes ahead on separate branches, decided by Saravana 2026-11-24, in this order: phase A item 5 (Dependabot
   roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07
   (on top of #190's helm code).
+- **#199 merged 2026-11-24** (roll-up and history scan, plus certifi and opentelemetry-api CVE fixes the new audit
+  needs). **In review:** `security/s08-s10-s11` (S-08 + S-10 + S-11). **On the Mac after merging:** `make upgrade`
+  (rebuilds web with the headers), then `make sandbox-check`, which now also checks the headers. The CSP refuses
+  inline scripts: if a page looks broken after the upgrade, the browser console names what was refused.
 
 ## Earlier state (2026-11-22)
 - **Merged in #190 (`operate/incident-response-slice-0`):** phase A item 3, incident response slice 0 (ADR-0049 §4

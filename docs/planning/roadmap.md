@@ -594,6 +594,17 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
    did not restore the release (cause being traced: failed steps now keep their command's output); not done.
    Drill gate and 120 s settle kept (decided 2026-11-22).
 4. **The security groups that slipped:** S-05, S-06, S-07, S-08, S-10, S-11 (backlog entry "Security assessment").
+   ✅ **S-08, S-10 and S-11 in review on `security/s08-s10-s11` (2026-11-24, stacked on the roll-up branch):**
+   S-08: `.github/workflows/security.yml` (gitleaks over every commit with `.gitleaks.toml` allowing three exact
+   test values, pip-audit on the engine and auth lockfiles, npm audit on the UI's runtime packages, CodeQL on
+   Python, TypeScript and the workflows), a blocking scan of the factory, auth, web and sandbox images in
+   `images` (fixable CRITICAL fails), every action pinned to a commit; tests `tests/test_ci_gates.py`. S-10:
+   `web/security-headers.conf` on every response (CSP without inline scripts, the theme script moved to
+   `/theme.js`), sign-in and the webhook rate limited per address; `tests/test_static_ops.py`,
+   `scripts/gateway-check.sh`. S-11: `untrusted.py` marks a request, feedback, answers, CI and pod output, diffs
+   and file names in every prompt, every agent's system prompt says what the blocks mean, and
+   `tests/test_untrusted.py` fails on a prompt that puts a request, feedback or answers in unmarked.
+   S-05, S-06 and S-07 are still open.
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
    ✅ **In review on `deps/rollup-2026-11-24` (2026-11-24):** the eleven open Dependabot PRs in one (engine and auth
    lockfiles, the web group, `ossf/scorecard-action` 2.6.0; engine pydantic taken to 2.14.4 to match auth). History
