@@ -829,7 +829,8 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
 - Evaluation: repeated runs per case; side-by-side models; scheduled re-evaluation for drift.
 - Hidden-scenario verifier for web apps with a browser (today it uses curl; the pack's Playwright suite covers the browser side). Kudos board iteration 2 (2026-10-29): it judged a phone layout from the CSS, estimating widths, because it had no browser.
 - Security and models:
-  - OpenTelemetry GenAI export;
+  - OpenTelemetry GenAI export: now part of [plans/telemetry-standards.md](plans/telemetry-standards.md) (logs,
+    metrics and traces on open standards for the factory and both packs; proposed for v0.1.0 phase C, 2026-11-24);
   - model profiles and fallback;
   - requirements, feedback and align-flow text ("Other…" answers, comments) marked as untrusted data inside prompts (considered for J1 on 2026-10-25, left for later);
   - Actions pinned to SHAs.
