@@ -88,6 +88,9 @@ services:
       # read-only: the gitignored config.local.yaml, never in the image (.dockerignore). A folder, not the
       # file, so an install without one starts cleanly (docker would make a missing file a directory)
       - ./.agent-factory:/etc/agent-factory:ro
+      # S-06: tokens as files (`NAME_FILE=/run/secrets/…` in .env, read by env://NAME when a step needs it), so the
+      # values aren't in the engine's environment; `make secrets-files` moves them out of .env once
+      - ./.secrets:/run/secrets:ro
     depends_on:
       dind:
         condition: service_healthy

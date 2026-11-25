@@ -4,7 +4,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-25)
-- **Drift re-apply, phase A (#213, `operate/drift-reapply`).** Most likely cause of the 2026-11-22 failure: the
+- **S-06 (#214, `security/s06-secret-files`)** (the last of phase A item 4). Code: `secret_refs.EnvBackend`
+  (`NAME_FILE`), `GitHubAppBackend` (`github-app://`, JWT RS256 from the app's key file, cached in memory until ten
+  minutes before expiry, no redirects), `scripts/secrets-to-files.py` / `make secrets-files`, the `.secrets` mount,
+  `.env.example`. Tests: `tests/test_secret_files.py`. **On the Mac after merging:** `make secrets-files`, `make
+  upgrade`, publish once and open one PR, then delete the backup it names. A GitHub App is optional (`.env.example`).
+- **Drift re-apply, phase A (#213, merged 2026-11-26).** Most likely cause of the 2026-11-22 failure: the
   owner's step ran inside the HTTP request, and `helm rollback --wait` was cut off with it (#190's follow-up already
   runs it in the background). New: a Helm revision left `pending-*` by a cut-off operation is refused before Helm
   runs, naming it and the command a person runs to clear it (`rollback.history_problems`); a failed `helm rollback`

@@ -352,6 +352,11 @@
   read only when `Settings.factory_config_local` is set, so tests never see a developer's file). A new entry point
   that runs the factory loads its config with `load_factory_config`, never `load_config` alone. Tests in
   `tests/test_config_local.py`.
+- Secrets (S-06): a credential is a reference, resolved by `secret_refs.SecretResolver` just in time. Tokens are files
+  by default: `env://NAME` reads `NAME`, else the file `NAME_FILE` names (`.secrets/`, mounted read-only at
+  `/run/secrets`; `make secrets-files` moves values out of `.env`). `github-app://<app>/<installation>[#repo,…]` mints a
+  GitHub App installation token per use (key from a mounted file, https, no redirects). A new token in `.env.example`
+  ships as `NAME_FILE=/run/secrets/<name>`, never a value line. Tests in `tests/test_secret_files.py`.
 - Text from outside the factory (a request, feedback, answers, PR comments, CI or pod output, a diff, file
   names) reaches an agent only inside `untrusted.block(source, text)` (S-11); every station agent's system
   prompt carries `untrusted.RULE`, and an agent run outside `ctx.agent` (retro, suggestions) puts it in its
