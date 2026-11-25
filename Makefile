@@ -7,11 +7,13 @@ init: ## create .env from the example
 	@test -f .env || cp .env.example .env && echo "edit .env, then: make up"
 
 up: init ## start the factory (mode from .env)
+	python3 scripts/pin-images.py --check-compose
 	docker compose up -d --build
 	@echo "UI  http://localhost:8080   API docs  http://localhost:8080/api/docs (after sign-in)"
 	@docker compose exec -T auth sh -c 'test -f /data/initial-admin-password && echo "first sign-in: admin / $$(cat /data/initial-admin-password)  (change it when asked)"' 2>/dev/null || true
 
 up-live: ## start in live mode (real agents + kind)
+	python3 scripts/pin-images.py --check-compose
 	FACTORY_MODE=live docker compose up -d --build
 
 down: ## stop everything (keeps cluster, images and data)
@@ -37,6 +39,7 @@ upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.
 	  echo "  .agent-factory/config.local.yaml. Move them once with: make config-split" >&2; exit 2; }
 	./scripts/backup.sh
 	git pull --ff-only
+	python3 scripts/pin-images.py --check-compose
 	docker compose up -d --build --wait
 	docker compose exec -T -u factory factory agent-factory sandbox check
 

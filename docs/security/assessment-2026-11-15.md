@@ -165,7 +165,9 @@ is not a person on the network: it is code an agent wrote or a package it instal
   `uv export --frozen` output with `--require-hashes`, then the project with `--no-deps`, and `uv pip check`; CI's
   `images` job dry-runs each image against its lockfile and fails on any difference. Every `FROM`, `COPY --from` and
   compose image carries its digest next to its tag (LiteLLM's `main-stable` included, so the default no longer
-  floats); kind, kubectl and helm are checked against checksums pinned in the Dockerfile, never fetched beside the
+  floats). An install's own LiteLLM is `LITELLM_REPO` plus `LITELLM_DIGEST`: compose's reference always ends in `@`, so a
+  tag alone is not an image, and `pin-images.py --check-compose` (before every start, `.env` applied) refuses anything
+  but `@sha256:<64 hex>`; kind, kubectl and helm are checked against checksums pinned in the Dockerfile, never fetched beside the
   binary. `scripts/pin-images.py --check` gates it in CI and `tests/test_locked_images.py`; `--resolve` fails when a
   pinned checksum isn't the published one. Dependabot moves the compose digests too (`docker-compose` ecosystem).
   Not covered: the apt packages in the images (Debian's signed repositories, unpinned versions) and the sandbox's

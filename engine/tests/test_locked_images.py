@@ -83,10 +83,10 @@ COMPOSE = """services:
   a:
     image: docker:27-dind
   b:
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-stable}   # comment
+    image: ${LITELLM_REPO:-ghcr.io/berriai/litellm:main-stable}@${LITELLM_DIGEST:-sha256:ZEROS}   # comment
   c:
     build: .
-"""
+""".replace("ZEROS", "0" * 64)
 
 
 def test_build_stages_and_scratch_are_not_images_and_compose_defaults_are(tmp_path):
@@ -96,10 +96,10 @@ def test_build_stages_and_scratch_are_not_images_and_compose_defaults_are(tmp_pa
         (P.TOOL_FILE, "python:3.12-slim"),
         (P.TOOL_FILE, "ghcr.io/astral-sh/uv:0.8"),
         (P.COMPOSE, "docker:27-dind"),
-        (P.COMPOSE, "ghcr.io/berriai/litellm:main-stable"),
+        (P.COMPOSE, f"ghcr.io/berriai/litellm:main-stable@sha256:{'0' * 64}"),
     ]
     problems = P.check(root)
-    assert sum("not pinned" in p for p in problems) == 4
+    assert sum("not pinned" in p for p in problems) == 3, "the repo-and-digest form reads as its defaults"
     assert "images/factory/Dockerfile: no ARG KUBECTL_SHA256_AMD64" in problems
 
 
@@ -118,7 +118,8 @@ def test_write_pins_digests_keeping_the_tag_and_adds_the_sums(tmp_path):
     assert f"FROM python:3.12-slim@{DIGEST} AS base" in factory and "FROM base AS app" in factory
     assert f"ARG KUBECTL_VERSION=v1.37.2\nARG KUBECTL_SHA256_AMD64={'c' * 64}" in factory
     compose = (root / P.COMPOSE).read_text()
-    assert f"${{LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-stable@{DIGEST}}}   # comment" in compose
+    litellm = f"${{LITELLM_REPO:-ghcr.io/berriai/litellm:main-stable}}@${{LITELLM_DIGEST:-{DIGEST}}}   # comment"
+    assert litellm in compose, "the digest default moves; the repo default keeps its tag, never gains a digest"
     # writing again moves a pinned digest, never doubles it
     P._write(root, {"docker:27-dind": OTHER}, {"KUBECTL_SHA256_AMD64": "d" * 64})
     compose = (root / P.COMPOSE).read_text()
@@ -136,3 +137,55 @@ def test_resolve_fails_on_a_pinned_sum_that_is_not_the_published_one(tmp_path, m
     assert P.resolve(False, root) == 1
     out = capsys.readouterr().out
     assert "FAIL  KUBECTL v1.37.2 amd64: pinned" in out and "UNPINNED" in out
+
+
+# ------------------------------------------------- overrides (review on #204) --
+def _svc(image: str, build: bool = False) -> dict:
+    return {"image": image, **({"build": {"context": "."}} if build else {})}
+
+
+def test_what_compose_will_pull_must_be_pinned_whatever_an_override_set():
+    ok = {"services": {"gw": _svc(f"ghcr.io/berriai/litellm:main-stable@{DIGEST}"), "factory": _svc("af", build=True)}}
+    assert P.check_compose(ok, {}) == [], "a pinned override, and locally built images, are fine"
+    mutable = {"services": {"gw": _svc("ghcr.io/berriai/litellm:main-stable")}}
+    assert P.check_compose(mutable, {}) == [
+        "service gw: ghcr.io/berriai/litellm:main-stable is not pinned by digest (@sha256:<64 hex>)"
+    ]
+    for bad in ("ghcr.io/x:main-stable@main-stable", "x@sha256:abc", f"x@sha512:{'a' * 64}", f"x@{DIGEST}0"):
+        assert P.check_compose({"services": {"gw": _svc(bad)}}, {}), bad
+    retired = P.check_compose(ok, {"LITELLM_IMAGE": "ghcr.io/berriai/litellm:main-stable"})
+    assert len(retired) == 1 and retired[0].startswith("LITELLM_IMAGE is set"), "refused, not silently ignored"
+    assert "LITELLM_REPO and LITELLM_DIGEST" in retired[0]
+
+
+def test_the_shipped_compose_needs_a_digest_for_any_litellm_override():
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]["model-gateway"]["image"]
+    assert re.fullmatch(r"\$\{LITELLM_REPO:-[^}@]+\}@\$\{LITELLM_DIGEST:-sha256:[0-9a-f]{64}\}", compose), compose
+
+    def resolved(env: dict[str, str]) -> str:  # compose's own interpolation of ${VAR:-default}
+        return re.sub(r"\$\{(\w+):-([^}]*)\}", lambda m: env.get(m.group(1)) or m.group(2), compose)
+
+    shipped = resolved({})
+    pinned_override = resolved({"LITELLM_REPO": "ghcr.io/me/litellm:v1.81.14", "LITELLM_DIGEST": DIGEST})
+    tag_only = resolved({"LITELLM_DIGEST": "main-stable"})
+    repo_only = resolved({"LITELLM_REPO": "ghcr.io/me/litellm:latest"})
+    assert not P.check_compose({"services": {"gw": _svc(shipped)}}, {})
+    assert not P.check_compose({"services": {"gw": _svc(pinned_override)}}, {})
+    assert P.check_compose({"services": {"gw": _svc(tag_only)}}, {}), "a tag in the digest's place is refused"
+    assert repo_only.endswith(shipped.split("@", 1)[1]), "another repo still pulls by the pinned digest"
+
+
+def test_everything_that_starts_the_stack_checks_compose_first():
+    make = (ROOT / "Makefile").read_text()
+    for target in ("up", "up-live", "upgrade"):
+        body = make.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+        assert body.index("pin-images.py --check-compose") < body.index("docker compose up"), target
+    restore = (ROOT / "scripts/restore.sh").read_text()
+    assert restore.index("--check-compose") < restore.index("docker compose up -d")
+    ci = (ROOT / ".github/workflows/ci.yml").read_text().split("\n  e2e:", 1)[1]
+    assert ci.index("--check-compose") < ci.index("docker compose up -d --build")
+    assert "LITELLM_DIGEST=main-stable docker compose --profile gateway pull" in ci, "compose itself refuses a tag"
+    for name in ("docker-compose.yml", ".env.example", "Makefile", "scripts/restore.sh"):
+        assert "LITELLM_IMAGE" not in (ROOT / name).read_text(), name

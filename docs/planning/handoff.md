@@ -10,7 +10,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   with `--require-hashes` (CI dry-runs each image against its lockfile); digests on every `FROM`, `COPY --from` and
   compose image; kubectl and helm sums pinned beside kind's; `scripts/pin-images.py` (`--check` offline, gated in CI
   and `tests/test_locked_images.py`; `--resolve [--write]` online, needs `docker buildx`: how to add an image or move
-  a tool's version); Dependabot's `docker-compose` ecosystem. **On the Mac after merging:** `make upgrade` (rebuilds
+  a tool's version; `--check-compose` before every start: what compose will really pull, `.env` applied, is
+  pinned; `LITELLM_IMAGE` is retired for `LITELLM_REPO` + `LITELLM_DIGEST`); Dependabot's `docker-compose` ecosystem. **On the Mac after merging:** `make upgrade` (rebuilds
   from the pinned images; dind and postgres are pulled by digest, so their containers are recreated once). **Left in
   phase A item 4:** S-06.
 - **Phase B, part 1 merged (#202)** (ADR-0050, proposed): signed manifests and

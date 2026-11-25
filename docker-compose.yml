@@ -142,7 +142,10 @@ services:
   # through it, with a virtual key per agent call; it never gets the factory's .env.
   model-gateway:
     profiles: [gateway]
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:main-stable@sha256:c626bac46847bc539118c252a63c430728088e1cd0707ca39ff4ed5f7868057a}   # by digest (S-07); LITELLM_IMAGE overrides it
+    # By digest, and only by digest (S-07): an install may choose another repository or tag (LITELLM_REPO) and
+    # digest (LITELLM_DIGEST), but the reference always ends in `@`, so a tag alone is not a valid image here.
+    # `scripts/pin-images.py --check-compose` (make up / upgrade, CI) also refuses anything but @sha256:<64 hex>.
+    image: ${LITELLM_REPO:-ghcr.io/berriai/litellm-non_root:main-stable}@${LITELLM_DIGEST:-sha256:c626bac46847bc539118c252a63c430728088e1cd0707ca39ff4ed5f7868057a}
     command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}               # required with the gateway profile

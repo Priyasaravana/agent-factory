@@ -37,5 +37,6 @@ date -u +%Y-%m-%dT%H:%M:%SZ > .factory-data/factory-restored
 # auth.db goes in on stdin: no bind mount, so the folder can stay readable by its owner only
 docker compose run --rm --no-deps -T --entrypoint sh auth \
   -c 'cat > /data/auth.db && rm -f /data/auth.db-wal /data/auth.db-shm' < "$src/auth.db"
+python3 scripts/pin-images.py --check-compose   # S-07: only digest-pinned images, .env overrides included
 docker compose up -d
 echo "restored. Previous data kept in .factory-data.before-restore-$ts"

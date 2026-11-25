@@ -10,6 +10,9 @@ checksum (S-07). Python 3 standard library only.
                                        versions. A pinned checksum that differs from the published one
                                        fails (a wrong pin, or a changed download); a digest that is no
                                        longer its tag's newest is only reported (Dependabot moves it).
+    scripts/pin-images.py --check-compose
+                                       before compose pulls (make up / upgrade, CI e2e): every image it
+                                       will really use, .env overrides applied, is pinned by digest
     scripts/pin-images.py --resolve --write
                                        pin what --resolve found into the files (to add a new image or
                                        move a tool's version: change the tag or version, then run this)
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -48,7 +52,10 @@ TOOL_FILE = "images/factory/Dockerfile"
 _FROM = re.compile(r"^FROM\s+(?:--platform=\S+\s+)?(?P<ref>\S+)(?:\s+AS\s+(?P<stage>\S+))?", re.I | re.M)
 _COPY_FROM = re.compile(r"^COPY\s+(?:--\S+\s+)*?--from=(?P<ref>\S+)", re.I | re.M)
 _IMAGE = re.compile(r"^\s*image:\s*(?P<raw>\S+)", re.M)
-_DEFAULT = re.compile(r"^\$\{[A-Z0-9_]+:-(?P<ref>[^}]+)\}$")
+_VAR = re.compile(r"\$\{[A-Z0-9_]+:-(?P<default>[^}]*)\}")
+_DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
+# variables that once replaced a whole compose image, so a tag alone could get in; refused if still set
+RETIRED = {"LITELLM_IMAGE": "set LITELLM_REPO and LITELLM_DIGEST instead (a digest is required)"}
 
 
 @dataclass(frozen=True)
@@ -58,7 +65,7 @@ class Ref:
 
     @property
     def pinned(self) -> bool:
-        return bool(re.search(r"@sha256:[0-9a-f]{64}$", self.ref))
+        return bool(_DIGEST.search(self.ref))
 
     @property
     def tag(self) -> str:
@@ -83,8 +90,7 @@ def refs(root: Path = ROOT) -> list[Ref]:
                 out.append(Ref(name, ref))
     for m in _IMAGE.finditer((root / COMPOSE).read_text()):
         raw = m.group("raw").strip("\"'")
-        d = _DEFAULT.match(raw)
-        out.append(Ref(COMPOSE, d.group("ref") if d else raw))
+        out.append(Ref(COMPOSE, _VAR.sub(lambda v: v.group("default"), raw)))  # the defaults, as shipped
     return out
 
 
@@ -110,6 +116,48 @@ def check(root: Path = ROOT) -> list[str]:
             problems.append(f"{TOOL_FILE}: no ARG {tool}_VERSION")
         problems += [f"{TOOL_FILE}: no ARG {tool}_SHA256_{a.upper()}" for a in ARCHES if not pins[a]]
     return problems
+
+
+# ------------------------------------------- what compose will really pull --
+def check_compose(config: dict, env: dict[str, str]) -> list[str]:
+    """Pure: the problems in `docker compose config --format json` (every profile, this install's .env
+    and environment applied). Every service that pulls an image must name it by digest, whatever an
+    override set; a retired override variable is refused rather than silently ignored."""
+    problems = [f"{k} is set in the environment or .env: {why}" for k, why in RETIRED.items() if env.get(k)]
+    for name, svc in sorted((config.get("services") or {}).items()):
+        image = svc.get("image")
+        if image and not svc.get("build") and not _DIGEST.search(str(image)):
+            problems.append(f"service {name}: {image} is not pinned by digest (@sha256:<64 hex>)")
+    return problems
+
+
+def _dotenv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            k, sep, v = line.strip().partition("=")
+            if sep and k and not k.startswith("#"):
+                out[k.removeprefix("export ").strip()] = v.strip().strip("\"'")
+    return out
+
+
+def compose_config(root: Path = ROOT) -> dict:
+    def run(*args: str) -> str:
+        res = subprocess.run(  # noqa: S603
+            ["docker", "compose", *args],  # noqa: S607
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr.strip() or "docker compose config failed")
+        return res.stdout
+
+    profiles = [p for p in run("config", "--profiles").split() if p]
+    flags = [x for p in profiles for x in ("--profile", p)]
+    return dict(json.loads(run(*flags, "config", "--format", "json")))
 
 
 # ------------------------------------------------------------------ online --
@@ -181,7 +229,15 @@ def _write(root: Path, digests: dict[str, str], sums: dict[str, str]) -> None:
         p = root / name
         text = p.read_text()
         for tag, d in digests.items():
-            text = re.sub(rf"(?<![\w./@]){re.escape(tag)}(?:@sha256:[0-9a-f]{{64}})?(?![\w.:/@-])", f"{tag}@{d}", text)
+            # `${REPO:-tag}@${DIGEST:-sha256:…}` (compose, an override must name a digest): move the digest default
+            text = re.sub(
+                rf"(\$\{{[A-Z0-9_]+:-){re.escape(tag)}(\}}@\$\{{[A-Z0-9_]+:-)sha256:[0-9a-f]{{64}}(\}})",
+                lambda m, tag=tag, d=d: f"{m.group(1)}{tag}{m.group(2)}{d}{m.group(3)}",
+                text,
+            )
+            text = re.sub(
+                rf"(?<![\w./@]){re.escape(tag)}(?:@sha256:[0-9a-f]{{64}})?(?![\w.:/@}}-])", f"{tag}@{d}", text
+            )
         if name == TOOL_FILE:
             for arg, s in sums.items():
                 line = f"ARG {arg}={s}"
@@ -199,6 +255,11 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--resolve", action="store_true")
+    mode.add_argument(
+        "--check-compose",
+        action="store_true",
+        help="before pulling: what compose will really use (.env applied) is pinned by digest",
+    )
     ap.add_argument("--write", action="store_true", help="with --resolve: pin what was found")
     a = ap.parse_args(argv)
     if a.check:
@@ -206,6 +267,16 @@ def main(argv: list[str] | None = None) -> int:
         for p in problems:
             print(f"FAIL  {p}")
         print("every image pinned by digest, every download by checksum" if not problems else "NOT PINNED")
+        return 1 if problems else 0
+    if a.check_compose:
+        try:
+            problems = check_compose(compose_config(), {**_dotenv(ROOT / ".env"), **os.environ})
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"FAIL  can't read the compose config: {exc}")
+            return 1
+        for p in problems:
+            print(f"FAIL  {p}")
+        print("every image compose pulls is pinned by digest" if not problems else "REFUSED: not starting")
         return 1 if problems else 0
     return resolve(a.write)
 
