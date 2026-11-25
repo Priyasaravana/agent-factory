@@ -9,12 +9,19 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07
   (on top of #190's helm code).
 - **#199 merged 2026-11-24** (roll-up and history scan, plus certifi and opentelemetry-api CVE fixes the new audit
-  needs). **In review:** `security/s08-s10-s11` (S-08 + S-10 + S-11). **On the Mac after merging:** `make upgrade`
+  needs). **#200 merged 2026-11-25** (S-08 + S-10 + S-11). **On the Mac:** `make upgrade`
   (rebuilds web with the headers), then `make sandbox-check`, which now also checks the headers. The CSP refuses
   inline scripts: if a page looks broken after the upgrade, the browser console names what was refused.
   #200 also moves the cluster tools to kind v0.33.0, kubectl v1.37.2 and helm v3.22.1 (decided by Saravana
   2026-11-24, after the new image scan found fixable CRITICALs in the old ones), with the node image pinned at
   Kubernetes 1.37: **finish the #190 live test before running `make upgrade` with #200**, then `make reset-cluster`.
+- **#201 merged 2026-11-25** (S-05, ahead of phase B by Saravana's call): before every release both deploy providers
+  label the app's namespace for Pod Security (`providers/pod_security.py`): `restricted` when the rendered chart meets
+  it (new products from fastapi-service 1.2.1 and nextjs-web 1.6.1), `baseline` for older charts, refused below
+  baseline; the level only goes up by itself. **Not run live (needs the Mac):** a real deploy of both packs under
+  `restricted` (watch postgres as uid 70 on local-path), `kubectl get ns app-kudos --show-labels` showing
+  `enforce=baseline` after `make upgrade`, and a privileged `kubectl run` in `app-kudos` being refused (commands in
+  the PR). **Left in phase A item 4:** S-06 and S-07.
 
 ## Earlier state (2026-11-22)
 - **Merged in #190 (`operate/incident-response-slice-0`):** phase A item 3, incident response slice 0 (ADR-0049 §4
