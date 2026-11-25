@@ -42,6 +42,7 @@ own work with evidence, which *is* autonomy working. It shows up as effort
 | Metric | Definition |
 |---|---|
 | **Cost per delivered change** | All model spend of iterations started in the window, **failed ones included**, divided by deliveries. Failed attempts are part of what a delivered change really costs. |
+| **Gateway meter** | The same, on the model gateway's meter (`Change.gateway_spend_usd`, ADR-0036): shown beside the CLI's meter, empty without a gateway. The G0 target asks for both meters to agree. |
 
 Model spend is the agent CLI's own price of each call (`Change.cost_usd`, Anthropic list prices). With a
 model gateway (ADR-0036) the gateway prices the same calls too (`Change.gateway_spend_usd`); its per-call cap
@@ -130,6 +131,14 @@ Apps delivered before the Quality gate station existed have no scorecard and are
 retired it and why, its owner then, its changes (every change of the product, delivered or not), its deliveries
 (changes that reached delivery, the same rule as the delivery metrics above) and the SHA-256 of its sealed
 decommission record. Evaluation products are left out. A retirement that stopped half-way is not listed.
+
+<!-- baselines:begin (written by `agent-factory baselines`; don't edit by hand) -->
+## Baselines (G0)
+
+Not recorded yet. Phase A item 2 (vision G0): on the install that ran the live journeys, run `make baselines`
+(optionally `BASELINES_INSTALL="reference install (Mac)" make baselines`), read the diff and commit it. It replaces
+this section with the six measures, what each was computed from, and the targets they are set against.
+<!-- baselines:end -->
 
 ## Using it
 - **Before and after a workflow change:** compare the **By workflow** table

@@ -210,6 +210,7 @@ def compute(f: Facts) -> OutcomesView:
 
     created = [r for r in f.changes if since <= r.created_at <= now]
     cost_total = round(sum(r.cost_usd for r in created), 4)
+    gateway_total = round(sum(r.gateway_spend_usd for r in created), 4)
 
     split = TimeSplit()
     with_timeline = [r for r in in_window if r.id in f.transitions]
@@ -319,6 +320,8 @@ def compute(f: Facts) -> OutcomesView:
         ),
         cost_total_usd=cost_total,
         cost_per_delivery_usd=_ratio(cost_total, deliveries),
+        gateway_cost_total_usd=gateway_total,
+        gateway_cost_per_delivery_usd=_ratio(gateway_total, deliveries) if gateway_total else None,
         fix_loops_per_delivery=_ratio(sum(r.loops for r, _ in delivered), deliveries),
         time_split=TimeSplit(**{k: round(v, 1) for k, v in split.model_dump().items()}),
         changes_with_timeline=len(with_timeline),

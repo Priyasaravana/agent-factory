@@ -252,8 +252,14 @@ export default function ChangePanel({
           />
         ) : (
           <>
-            {!simple && <DecisionsPanel changeId={changeId} runStatus={r.status} />}
-            {!simple && <SpecPanel changeId={changeId} runStatus={r.status} />}
+            {/* J4/J5 live run finding #6: a panel waiting on a person shows in Overview too, so "Needs you" → Go to
+                lands on it; otherwise it stays in Advanced */}
+            {(!simple || r.decisions_pending || !!r.discuss_pending) && (
+              <DecisionsPanel changeId={changeId} runStatus={r.status} />
+            )}
+            {(!simple || r.status === "awaiting_approval") && (
+              <SpecPanel changeId={changeId} runStatus={r.status} />
+            )}
           </>
         )}
         {risk && (
