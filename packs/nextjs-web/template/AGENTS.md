@@ -86,6 +86,9 @@ if (denied) return denied;` in every protected route handler (it also refuses cr
 - Keep the runtime stages of the Dockerfile as they are: the pack's approved images
   (`runtime-hardened`, `runtime-distroless`), picked by `ARG RUNTIME` (the factory's Build station
   chooses), non-root as uid 65532, `output: "standalone"` and the port at 3000. It has no shell or npm: anything the app needs at run time ships in the build.
+- Keep every pod in the chart within Pod Security `restricted` (the cluster enforces it): non-root,
+  `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`, and
+  only configMap, secret, emptyDir or PVC volumes. Never host paths, host ports or host namespaces.
 - Do not change the chart's `image.*`, `service.*`, `ingress.*` or `imagePullSecrets` value
   names: the Deploy station sets them (NodePort locally, ClusterIP + Ingress on a cluster).
 - Keep `@playwright/test` at the version in `package.json`: the factory's sandbox provides the

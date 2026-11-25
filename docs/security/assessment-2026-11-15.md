@@ -134,6 +134,16 @@ is not a person on the network: it is code an agent wrote or a package it instal
   them; keep the regex as the early warning. ~0.5 day. Both charts already set
   `runAsNonRoot` and `allowPrivilegeEscalation: false`; neither sets `seccompProfile: RuntimeDefault`
   or `capabilities.drop: [ALL]`, which `restricted` requires, so add those to both templates first.
+- **Status (2026-11-24, `security/s05-pod-security`): fixed, in review.** Both deploy providers label the app's
+  namespace for Pod Security admission before every release (`providers/pod_security.py`): `restricted` when every
+  pod the chart renders meets it (the packs' charts do from fastapi-service 1.2.1 and nextjs-web 1.6.1, postgres
+  included as uid 70), `baseline` for a chart made before them, so delivered products keep deploying with host
+  namespaces, host paths, privileged pods and added capabilities refused; a pod below baseline is refused before
+  anything is installed. `warn` and `audit` are always `restricted`. A namespace at `restricted` is never lowered by
+  a chart, and a change's own namespace counts production's level. Apps already running on the local cluster get
+  `baseline` at start where their namespace enforces nothing. The regex stays as the early warning. **Not run
+  live:** a real kind deploy of both packs under `restricted` (postgres as uid 70 on kind's local-path volumes
+  especially).
 
 **S-06 · Secrets in a plaintext `.env`, handed whole to the engine**
 - Known and planned (ADR-0038, deferred until after J5). Raised here because J3 adds per-org repo

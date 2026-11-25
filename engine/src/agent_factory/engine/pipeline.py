@@ -2280,9 +2280,11 @@ class ChangeManager:
         """At start-up: every app already running on the local cluster gets its namespace's egress policy
         now, not at its next deploy (ADR-0048; review of #182: an upgrade must not leave delivered apps
         without the control). Returns (namespaces secured, namespaces that could not be). A cluster target
-        needs its own kubeconfig for each step, so its namespaces get the policy at their next deploy."""
+        needs its own kubeconfig for each step, so its namespaces get the policy at their next deploy. The same
+        pass gives each namespace the Pod Security baseline floor where it enforces nothing yet (S-05)."""
         from agent_factory.providers.app_network import egress_steps
         from agent_factory.providers.local import namespace
+        from agent_factory.providers.pod_security import floor_step
 
         secured: list[str] = []
         failed: list[str] = []
@@ -2292,12 +2294,12 @@ class ChangeManager:
             blueprint = self.cfg.blueprints.get(product.blueprint)
             if product.archived_at or not product.app_url or blueprint is None or blueprint.target != "new":
                 continue
-            if blueprint.app_egress != "restricted":
-                continue
             if getattr(self.providers.for_blueprint(product.blueprint).deploy, "kind", "") != "local":
                 continue
             ns = namespace(product)
-            res = await self.ex.run("set -e; " + "; ".join(egress_steps("kubectl", ns, "restricted")), timeout=120)
+            # the egress policy (S-02, unless the blueprint opens egress) and the Pod Security floor (S-05)
+            steps = egress_steps("kubectl", ns, "restricted") if blueprint.app_egress == "restricted" else []
+            res = await self.ex.run("set -e; " + "; ".join([*steps, floor_step("kubectl", ns)]), timeout=120)
             (secured if res.ok else failed).append(ns)
         return secured, failed
 

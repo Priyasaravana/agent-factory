@@ -5,7 +5,8 @@ For each pack chart: `helm lint` in place and blue/green, then `helm template` i
 blue/green release, blue/green staged (blue serving, green new) and switched; each render is parsed
 and checked for what the engine relies on: blue keeps the Deployment the app always had, the two
 colours never select each other's pods, the Service sends users to the live colour only, the preview
-reaches the idle colour only, and bad values fail the render. CI runs it (job `charts`).
+reaches the idle colour only, every pod (postgres included) meets Pod Security restricted (S-05, the
+engine's own `pod_security.assess`), and bad values fail the render. CI runs it (job `charts`).
 
 usage: scripts/check-charts.py [chart ...]   (HELM=<command> to use another helm binary)
 """
@@ -19,6 +20,9 @@ import sys
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/src"))
+from agent_factory.providers.pod_security import assess  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CHARTS = [ROOT / "packs/fastapi-service/template/deploy/chart", ROOT / "packs/nextjs-web/template/deploy/chart"]
@@ -124,6 +128,16 @@ def check(chart: Path) -> list[str]:
         expect(ing is not None and ing["spec"]["rules"][0]["host"] == f"{R}-next.apps.example.com", "preview host")
         expect(objs[("Ingress", R)]["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] == R,
                "the main Ingress stays on the main Service")  # fmt: skip
+
+    # the namespace enforces restricted for these charts (S-05): every pod meets it, in each strategy
+    for mode, sets in (
+        ("in place", ["image.repository=app", "image.tag=1", "postgres.enabled=true", *INGRESS]),
+        ("blue/green", ["postgres.enabled=true", *INGRESS, *bg("blue", "app:1", "app:2")]),
+    ):
+        out = run(["template", R, str(chart), *[a for s in sets for a in ("--set", s)]])
+        base, strict = assess(out.stdout) if out.returncode == 0 else ([out.stderr.strip()[-300:]], [])
+        expect(not base and not strict, f"Pod Security restricted ({mode}): {base + strict}")
+        expect("kind: StatefulSet" in out.stdout, f"postgres renders ({mode}), so its pod is checked too")
 
     for bad, why in (
         (["strategy=canary"], "an unknown strategy"),

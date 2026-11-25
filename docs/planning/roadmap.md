@@ -774,7 +774,9 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
     "Security and models" below, widened to team repo contents, PR comments and CI logs); S-06's
     short-lived GitHub App tokens.
   - **Before J4, with "Upgradable selections" (~2.5 days):** S-05 Pod Security `restricted` on app
-    namespaces; S-07 images built from the lockfile, checksummed downloads, digests; S-08 security gates in
+    namespaces (🟡 in review 2026-11-24 on `security/s05-pod-security`, built in parallel with #199 and #200; in
+    Saravana's order of 2026-11-24 it comes after phase B, so its merge is his call; status under S-05 in the
+    assessment); S-07 images built from the lockfile, checksummed downloads, digests; S-08 security gates in
     the factory's own CI (with "Actions pinned to SHAs" below); S-10 gateway headers and rate limits; the
     `opentelemetry-api` bump to 1.45.2 in both lockfiles.
   - **With auth and roles for shared instances (after J5):** S-03's auth-injecting proxy, S-09 token expiry

@@ -32,7 +32,8 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from agent_factory import blue_green, respond
-from agent_factory.providers import app_network
+from agent_factory.models import EventKind
+from agent_factory.providers import app_network, pod_security
 from agent_factory.providers.app_network import egress_steps
 from agent_factory.providers.base import (
     CheckContext,
@@ -286,8 +287,21 @@ class HelmProvider:
             return StepResult(
                 False, "deployment failed: the chart widens the app's egress", app_network.refused(problems)
             )
-        # the namespace, then its egress policy before the release, so no pod runs without it (S-02)
-        steps: list[str] = egress_steps(k, ns, ctx.blueprint.app_egress)
+
+        async def kube(cmd: str, timeout: float) -> Any:
+            return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv)
+
+        # the cluster refuses pods the namespace's Pod Security level doesn't allow (S-05); a change's own
+        # namespace counts production's level too, so validation never passes a chart production refuses
+        production = f"{self.namespace_prefix}{ctx.product.slug}"[:63]
+        label, why, note = await pod_security.prepare(ctx, k, ns, render.whole(), kube, also=(production,))
+        if label is None:
+            return StepResult(False, "deployment failed: the chart's pods need more than Pod Security allows", why)
+        if note:
+            await ctx.emit(EventKind.log, note, data={"pod_security": "baseline"})
+        # the namespace, then its egress policy and Pod Security level before the release, so no pod runs
+        # without them (S-02, S-05)
+        steps: list[str] = [*egress_steps(k, ns, ctx.blueprint.app_egress), label]
         if ctx.slot:  # a temporary validation environment: findable by a person and by the sweep
             steps.append(
                 f"{k} label namespace {ns} --overwrite agent-factory.io/validation={shlex.quote(ctx.change.id)} "
@@ -315,11 +329,7 @@ class HelmProvider:
         if not res.ok:
             return StepResult(False, "deployment failed", res.output[-2500:])
         if restricted:  # what the namespace really holds, after the release (`local.app_network_after`)
-
-            async def run(cmd: str, timeout: float) -> Any:
-                return await ctx.cmd(self._kube(cmd, kfile), timeout=timeout, env=kenv)
-
-            if refusal := await app_network.after_release(ctx, k, ns, run):
+            if refusal := await app_network.after_release(ctx, k, ns, kube):
                 return refusal
         url = self._origin(probe_host)
         smoke = await self._probe(ctx, ctx.blueprint.health_path, probe_host)

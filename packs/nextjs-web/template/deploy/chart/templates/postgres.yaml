@@ -28,10 +28,19 @@ spec:
         {{- include "app.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgres
     spec:
+      # Pod Security restricted (S-05): the alpine image's own `postgres` user (uid 70) owns the data;
+      # the entrypoint skips its chown when not root, and initdb makes PGDATA with the right mode
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
           ports: [{containerPort: 5432}]
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
           env:
             - {name: POSTGRES_DB, value: {{ .Values.postgres.database | quote }}}
             - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}

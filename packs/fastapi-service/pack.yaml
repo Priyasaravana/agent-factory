@@ -3,7 +3,7 @@
 # where and how this install runs it (environment, ports, scan commands, minimum level).
 # Only an admin installs a pack, after reviewing it: list its folder under `packs:` in the config.
 id: fastapi-service
-version: 1.2.0
+version: 1.2.1
 title: FastAPI service
 stack:
   builds: service
