@@ -194,6 +194,8 @@ def _evidence_key(action: str, confirm: bool) -> None:
     print(f"allowed_signers: {signing.allowed_signers_line(blob)}")
     for fp in (signing.fingerprint(b) for b in signer.retired()):
         print(f"retired, still trusted: {fp}")
+
+
 def _config_split(base: Path, mine: Path, out: Path, force: bool) -> None:
     """Write the override that turns the tracked default into this install's edited config, then prove
     it: the default plus the override must load to exactly the edited config. Nothing is changed in
