@@ -183,18 +183,26 @@ def verify(
     return v
 
 
+def _files_inside(folder: Path) -> set[str]:
+    """POSIX paths of the regular files really under `folder` (no links), found by walking it."""
+    return {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and not p.is_symlink()}
+
+
 def write_bundle(folder: Path, dest: Path) -> Path:
-    """Zip the sealed folder (manifest, SHA256SUMS and every listed file) under `<run>/`."""
+    """Zip the sealed folder (manifest, SHA256SUMS and every listed file) under `<run>/`. Only files found
+    inside the folder go in: a manifest changed on disk can't name a path that leaves it (review of #202),
+    such as the evidence key in `<data>/keys/`; an unlisted or missing file is the verifier's to report."""
     manifest = json.loads((folder / MANIFEST).read_text())
+    inside = _files_inside(folder)
     root = folder.name
     with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for name in (MANIFEST, SUMS, SIGNATURE):
-            if (folder / name).is_file():
+            if name in inside:
                 z.write(folder / name, f"{root}/{name}")
         for f in manifest["files"]:
-            p = folder / f["path"]
-            if p.is_file():
-                z.write(p, f"{root}/{f['path']}")
+            path = f.get("path") if isinstance(f, dict) else None
+            if isinstance(path, str) and path in inside and path not in _NOT_HASHED:
+                z.write(folder / path, f"{root}/{path}")
     return dest
 
 

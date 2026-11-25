@@ -55,18 +55,20 @@ OK, FAILED, CANT_CHECK, UNPINNED = 0, 1, 2, 3
 class Bundle:
     """The files of a zip (read in place, never extracted) or a folder, by POSIX path under its root."""
 
-    def __init__(
-        self, names: dict[str, int], opener: Callable[[str], IO[bytes]], root: str
-    ) -> None:
+    def __init__(self, names: dict[str, int], opener: Callable[[str], IO[bytes]], root: str) -> None:
         self.sizes = names
         self._open = opener
         self.root = root
 
     def read(self, name: str) -> bytes:
+        if name not in self.sizes:  # only files found inside the bundle, never a path from elsewhere
+            raise KeyError(name)
         with self._open(name) as fh:
             return fh.read()
 
     def sha256(self, name: str) -> str:
+        if name not in self.sizes:
+            raise KeyError(name)
         h = hashlib.sha256()
         with self._open(name) as fh:
             for chunk in iter(lambda: fh.read(1 << 16), b""):
@@ -75,13 +77,13 @@ class Bundle:
 
 
 def _safe(name: str) -> bool:
-    p = PurePosixPath(name)
-    return (
-        not p.is_absolute()
-        and ".." not in p.parts
-        and "\\" not in name
-        and name.strip() == name
-    )
+    """A normalised relative POSIX path: no absolute path, no empty, `.` or `..` part, no backslash,
+    no control character, nothing that normalising would change."""
+    if not name or name != name.strip() or "\\" in name or any(ord(c) < 32 for c in name):
+        return False
+    if name.startswith("/") or PurePosixPath(name).is_absolute():
+        return False
+    return all(part not in ("", ".", "..") for part in name.split("/"))
 
 
 def open_bundle(path: Path) -> Bundle:
@@ -113,9 +115,7 @@ def open_bundle(path: Path) -> Bundle:
             raise ValueError(f"{rest} is in the zip twice")
         names[rest] = info.file_size
     if len(roots) != 1:
-        raise ValueError(
-            f"a bundle is one folder; this zip has {len(roots) or 'no'} top-level folders"
-        )
+        raise ValueError(f"a bundle is one folder; this zip has {len(roots) or 'no'} top-level folders")
     (root,) = roots
     return Bundle(names, lambda n: z.open(f"{root}/{n}"), root)
 
@@ -135,9 +135,7 @@ def _string(b: bytes) -> bytes:
 
 
 def fingerprint(blob: bytes) -> str:
-    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip(
-        "="
-    )
+    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
 
 
 @dataclass
@@ -197,12 +195,7 @@ def _crypto_check(message: bytes, sig: Sig) -> bool | None:
     hfun = {"sha512": hashlib.sha512, "sha256": hashlib.sha256}.get(sig.hash_alg)
     if hfun is None:
         return False
-    data = (
-        _MAGIC
-        + _string(sig.namespace.encode())
-        + _string(b"")
-        + _string(sig.hash_alg.encode())
-    )
+    data = _MAGIC + _string(sig.namespace.encode()) + _string(b"") + _string(sig.hash_alg.encode())
     data += _string(hfun(message).digest())
     _, at = _read_string(sig.pub_blob, 0)
     raw_pub, _ = _read_string(sig.pub_blob, at)
@@ -220,9 +213,7 @@ def _ssh_keygen_check(message: bytes, sig_text: str, pub_blob: bytes) -> bool | 
         return None
     with tempfile.TemporaryDirectory() as d:
         allowed = Path(d) / "allowed_signers"
-        allowed.write_text(
-            f'{NAMESPACE} namespaces="{NAMESPACE}" {_KEY_TYPE} {base64.b64encode(pub_blob).decode()}\n'
-        )
+        allowed.write_text(f'{NAMESPACE} namespaces="{NAMESPACE}" {_KEY_TYPE} {base64.b64encode(pub_blob).decode()}\n')
         sig = Path(d) / SIGNATURE
         sig.write_text(sig_text)
         cmd = [
@@ -245,9 +236,7 @@ def _ssh_keygen_check(message: bytes, sig_text: str, pub_blob: bytes) -> bool | 
         return res.returncode == 0
 
 
-def signature_valid(
-    message: bytes, sig_text: str, sig: Sig, prefer: str = "auto"
-) -> tuple[bool | None, str]:
+def signature_valid(message: bytes, sig_text: str, sig: Sig, prefer: str = "auto") -> tuple[bool | None, str]:
     """(valid, by which tool). valid is None when neither tool is available."""
     order = {
         "auto": ("ssh-keygen", "cryptography"),
@@ -256,9 +245,7 @@ def signature_valid(
     }
     for name in order[prefer]:
         got = (
-            _ssh_keygen_check(message, sig_text, sig.pub_blob)
-            if name == "ssh-keygen"
-            else _crypto_check(message, sig)
+            _ssh_keygen_check(message, sig_text, sig.pub_blob) if name == "ssh-keygen" else _crypto_check(message, sig)
         )
         if got is not None:
             return got, name
@@ -306,10 +293,22 @@ def check(
     manifest_bytes = b.read(MANIFEST)
     try:
         m = json.loads(manifest_bytes)
-        listed = {f["path"]: (f["sha256"], int(f["bytes"])) for f in m["files"]}
+        entries = [(f["path"], f["sha256"], int(f["bytes"])) for f in m["files"]]
     except (ValueError, KeyError, TypeError):
         r.fail("manifest.json is not a valid evidence manifest")
         return r
+    # every path the manifest names is checked before anything is read or hashed: the manifest is
+    # untrusted input too, and nothing may ever reach outside the bundle (fail closed)
+    names = [p for p, _, _ in entries]
+    unsafe = [p for p in names if not isinstance(p, str) or not _safe(p) or p in (MANIFEST, SUMS, SIGNATURE)]
+    dupes = sorted({p for p in names if isinstance(p, str) and names.count(p) > 1})
+    if unsafe or dupes:
+        for p in unsafe:
+            r.fail(f"manifest.json lists an unsafe path: {p!r}")
+        for p in dupes:
+            r.fail(f"manifest.json lists {p!r} twice")
+        return r
+    listed = {p: (sha, size) for p, sha, size in entries}
     if m.get("_type") != SCHEMA:
         r.fail(f"manifest type {m.get('_type')!r}, expected {SCHEMA!r}")
         return r
@@ -321,23 +320,17 @@ def check(
             bad.append(f"missing: {name}")
         elif b.sizes[name] != size or b.sha256(name) != sha:
             bad.append(f"changed: {name}")
-    extra = sorted(
-        n for n in b.sizes if n not in listed and n not in (MANIFEST, SUMS, SIGNATURE)
-    )
+    extra = sorted(n for n in b.sizes if n not in listed and n not in (MANIFEST, SUMS, SIGNATURE))
     bad += [f"not in the manifest: {n}" for n in extra]
     if bad:
         for x in bad:
             r.fail(x)
     else:
-        r.ok(
-            f"{len(listed)} files match the manifest's SHA-256 and sizes, nothing added"
-        )
+        r.ok(f"{len(listed)} files match the manifest's SHA-256 and sizes, nothing added")
 
     # 3. SHA256SUMS agrees with the manifest
     if SUMS in b.sizes:
-        want = {n: s for n, (s, _) in listed.items()} | {
-            MANIFEST: hashlib.sha256(manifest_bytes).hexdigest()
-        }
+        want = {n: s for n, (s, _) in listed.items()} | {MANIFEST: hashlib.sha256(manifest_bytes).hexdigest()}
         got = {}
         for line in b.read(SUMS).decode(errors="replace").splitlines():
             if line.strip():
@@ -353,13 +346,9 @@ def check(
     # 4. the signature
     if SIGNATURE not in b.sizes:
         if allow_unsigned:
-            r.ok(
-                "not signed (sealed before signing): checked by its hashes only, as you asked"
-            )
+            r.ok("not signed (sealed before signing): checked by its hashes only, as you asked")
         else:
-            r.fail(
-                "not signed: a sealed bundle from a factory with ADR-0050 carries manifest.json.sig"
-            )
+            r.fail("not signed: a sealed bundle from a factory with ADR-0050 carries manifest.json.sig")
         return r
     sig_text = b.read(SIGNATURE).decode(errors="replace")
     try:
@@ -403,9 +392,7 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__.split("\n\n")[0],
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    ap.add_argument(
-        "bundle", type=Path, help="evidence-<change>.zip, or an evidence folder"
-    )
+    ap.add_argument("bundle", type=Path, help="evidence-<change>.zip, or an evidence folder")
     ap.add_argument(
         "--key",
         action="append",
@@ -423,9 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="accept a bundle sealed before signing (hashes only)",
     )
-    ap.add_argument(
-        "--tool", choices=("auto", "ssh-keygen", "cryptography"), default="auto"
-    )
+    ap.add_argument("--tool", choices=("auto", "ssh-keygen", "cryptography"), default="auto")
     ap.add_argument("--json", action="store_true", help="print the result as JSON")
     a = ap.parse_args(argv)
     keys: list[bytes] = []

@@ -47,6 +47,10 @@ run on a downloaded bundle. The phase is done when a real bundle verifies on ano
    `ssh-keygen` or the `cryptography` package for the signature (tried in that order). It never imports the factory.
    It reads a zip in place without extracting it, or a folder. It checks:
    - the bundle is one folder, with no path that leaves it, no links and no duplicates;
+   - every path the manifest names is a normalised relative path (no absolute path, no empty, `.` or `..` part, no
+     backslash), listed once, and checked before anything is read or hashed: the manifest is untrusted too. The
+     factory's own download (`write_bundle`) likewise takes only files it finds inside the evidence folder, so a
+     manifest changed on disk can't pull in a file from elsewhere, such as the signing key;
    - every listed file is there with its size and SHA-256, and nothing unlisted is;
    - `SHA256SUMS` agrees with the manifest;
    - the signature is valid SSHSIG in our namespace;

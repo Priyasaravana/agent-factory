@@ -338,3 +338,69 @@ def test_the_key_command_shows_and_rotates_only_when_confirmed(tmp_path, monkeyp
     cli._evidence_key("rotate", True)
     out = json.loads(capsys.readouterr().out)
     assert out["retired"] == fp and out["fingerprint"] != fp
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["../outside.txt", "../../etc/hostname", "/etc/hostname", "./events.jsonl", "a//b", "sessions/../events.jsonl",
+     "a\\b", "", " events.jsonl", "manifest.json", "nul\x00l"],
+)  # fmt: skip
+@pytest.mark.parametrize("as_zip", [False, True])
+def test_a_manifest_path_that_could_leave_the_bundle_fails_before_anything_is_read(tmp_path, monkeypatch, path, as_zip):
+    """The manifest is untrusted too (review on #202): every path it names is checked before any read or hash."""
+    s = signing.LocalSigner(tmp_path / "k")
+    d, _, _ = _seal(tmp_path, s)
+    (tmp_path / "artifacts" / "outside.txt").write_text("not evidence")
+    m = json.loads((d / evidence.MANIFEST).read_text())
+    m["files"].append({"path": path, "sha256": "0" * 64, "bytes": 1})
+    (d / evidence.MANIFEST).write_text(json.dumps(m))
+    target = evidence.write_bundle(d, tmp_path / "b.zip") if as_zip else d
+    opened: list[str] = []
+    real_open = Path.open
+
+    def spy(self, *a, **k):  # noqa: ANN001, ANN002, ANN003, ANN202
+        opened.append(str(self))
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(Path, "open", spy)
+    r = V.check(target, _key(s), tool="cryptography")
+    # a zip of such a manifest is refused even earlier, at its own member names
+    why = ("unsafe path", "outside the bundle", "unsafe path in the zip")
+    assert r.code == V.FAILED and any(any(x in w for x in why) for ok, w in r.checks if not ok), list(r.lines())
+    assert not any("outside" in o or o.startswith("/etc") for o in opened), opened
+
+
+def test_a_manifest_listing_a_file_twice_fails(tmp_path):
+    s = signing.LocalSigner(tmp_path / "k")
+    d, _, _ = _seal(tmp_path, s)
+    m = json.loads((d / evidence.MANIFEST).read_text())
+    m["files"].append(dict(m["files"][0]))
+    (d / evidence.MANIFEST).write_text(json.dumps(m))
+    r = V.check(d, _key(s), tool="cryptography")
+    assert r.code == V.FAILED and any("twice" in w for _, w in r.checks)
+
+
+def test_the_bundle_never_opens_a_name_it_did_not_find(tmp_path):
+    s = signing.LocalSigner(tmp_path / "k")
+    d, _, _ = _seal(tmp_path, s)
+    b = V.open_bundle(d)
+    with pytest.raises(KeyError):
+        b.sha256("../outside.txt")
+    with pytest.raises(KeyError):
+        b.read("/etc/hostname")
+
+
+def test_a_download_never_carries_a_file_from_outside_the_evidence_folder(tmp_path):
+    """A manifest changed on disk can't pull the signing key (or anything else) into a bundle (review on #202)."""
+    s = signing.LocalSigner(tmp_path)
+    d, _, _ = _seal(tmp_path, s)
+    s.public_blob()  # the key exists under <data>/keys/evidence/
+    outside = os.path.relpath(s.key_path, d)
+    m = json.loads((d / evidence.MANIFEST).read_text())
+    m["files"].append({"path": outside, "sha256": "0" * 64, "bytes": 1})
+    (d / "link").symlink_to(s.key_path)
+    m["files"].append({"path": "link", "sha256": "0" * 64, "bytes": 1})
+    (d / evidence.MANIFEST).write_text(json.dumps(m))
+    names = zipfile.ZipFile(evidence.write_bundle(d, tmp_path / "b.zip")).namelist()
+    assert not any("signing_key" in n or n.endswith("/link") for n in names), names
+    assert "c1/events.jsonl" in names
