@@ -42,12 +42,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no {env}: nothing to move")
         return 0
     lines = env.read_text().splitlines(keepends=True)
-    secrets = a.root / ".secrets"
+    files_dir = a.root / ".secrets"  # where the token files go
     moves: list[tuple[int, str, str]] = []
     for i, line in enumerate(lines):
         m = _LINE.match(line.rstrip("\n"))
         if m and m.group("name") in NAMES and (value := _value(m.group("value"))):
-            target = secrets / m.group("name").lower()
+            target = files_dir / m.group("name").lower()
             if target.exists() and target.read_text().strip() != value:
                 print(f"refused: {target} already exists with another value; nothing was changed")
                 return 1
@@ -57,15 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     old_umask = os.umask(0o077)
     try:
-        secrets.mkdir(mode=0o700, exist_ok=True)
-        secrets.chmod(0o700)
+        files_dir.mkdir(mode=0o700, exist_ok=True)
+        files_dir.chmod(0o700)
         backups = a.root / "backups"
         backups.mkdir(mode=0o700, exist_ok=True)
         keep = backups / f".env.before-secrets-{time.strftime('%Y%m%d-%H%M%S')}"
         keep.write_text("".join(lines))
         keep.chmod(0o600)
         for i, name, value in moves:
-            f = secrets / name.lower()
+            f = files_dir / name.lower()
             f.write_text(value + "\n")
             f.chmod(0o600)
             lines[i] = f"{name}_FILE=/run/secrets/{name.lower()}\n"
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         os.umask(old_umask)
     # printed from the constant list, never from anything read out of .env (a line there holds a value)
     moved = [n for n in NAMES if any(name == n for _, name, _ in moves)]
-    print(f"moved {', '.join(moved)} to {secrets}/ (0600); .env now names their files")
+    print(f"moved {', '.join(moved)} to {files_dir}/ (0600); .env now names their files")
     print(f"the old .env is {keep} (0600): delete it once the factory works (make upgrade)")
     if sys.platform.startswith("linux"):
         print("Linux: let the factory read them:  sudo chown -R 10001 .secrets")
