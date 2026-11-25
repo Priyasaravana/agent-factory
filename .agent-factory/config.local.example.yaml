@@ -1,5 +1,7 @@
 # Copy to config.local.yaml (gitignored) for this install's own settings. It is merged over
-# config.yaml, the shipped default, when the factory starts (`make upgrade` rebuilds with it):
+# config.yaml, the shipped default, when the factory starts. It is never built into an image (.dockerignore):
+# compose mounts .agent-factory/ read-only, so an edit needs only `docker compose restart factory`.
+# Not for default_skills: those are cached into the image from config.yaml at build.
 #   - a mapping merges key by key: set only the keys you change;
 #   - a list or a value replaces the default's whole (repeat the items you keep);
 #   - an override can't remove a key: set it to the value you want, or null where that is allowed.

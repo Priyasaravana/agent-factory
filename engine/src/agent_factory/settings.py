@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     # gateway mode: the file holding the secret the gateway adds to every request (identity.read_proof)
     gateway_proof_file: str | None = None
     factory_config: str = "/opt/factory/.agent-factory/config.yaml"
-    # this install's own edits, merged over factory_config (gitignored; phase B). The image sets it; unset,
-    # no override is read (tests never see a developer's own file)
+    # this install's own edits, merged over factory_config (gitignored; phase B). Compose sets it to the
+    # read-only mount of .agent-factory/; unset, no override is read (tests never see a developer's file)
     factory_config_local: str | None = None
     factory_home: str = "/opt/factory"  # templates/, prompts/, plugin/
     data_dir: str | None = None  # overrides config.factory.data_dir

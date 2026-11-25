@@ -3,6 +3,7 @@ the gitignored config.local.yaml, merged over it. A pull never collides with an 
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -147,11 +148,47 @@ def test_the_override_is_gitignored_and_its_example_loads(tmp_path):
     assert set(over) <= set(yaml.safe_load(CONFIG.read_text())), "every example sets a real section"
 
 
-def test_the_image_reads_the_override_and_upgrade_refuses_edits_to_the_default():
+def test_the_override_never_enters_an_image_and_is_mounted_read_only():
+    """Review of #203: git's ignore rules don't apply to a build context, so the file is in .dockerignore and
+    reaches the factory only as a read-only mount, read at start."""
+    ignored = (REPO / ".dockerignore").read_text().splitlines()
+    assert ".agent-factory/config.local.yaml" in ignored
+    assert {".env", ".factory-data"} <= set(ignored), "secrets and state stay out of build contexts too"
     docker = (REPO / "images" / "factory" / "Dockerfile").read_text()
-    assert docker.count("FACTORY_CONFIG_LOCAL=/opt/factory/.agent-factory/config.local.yaml") == 2
+    assert "FACTORY_CONFIG_LOCAL" not in docker.replace("(docker-compose.yml, FACTORY_CONFIG_LOCAL)", "")
+    compose = yaml.safe_load((REPO / "docker-compose.yml").read_text())["services"]["factory"]
+    assert compose["environment"]["FACTORY_CONFIG_LOCAL"] == "/etc/agent-factory/config.local.yaml"
+    assert "./.agent-factory:/etc/agent-factory:ro" in compose["volumes"], "a folder, read-only"
+    for other in ("factory-init", "auth", "web"):
+        svc = yaml.safe_load((REPO / "docker-compose.yml").read_text())["services"][other]
+        assert not any(".agent-factory" in str(v) for v in svc.get("volumes", [])), other
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)  # noqa: S603, S607
+
+
+def test_upgrade_refuses_staged_and_unstaged_edits_to_the_default(tmp_path):
+    """Review of #203: the guard compares with HEAD, so a staged edit stops the upgrade too."""
     make = (REPO / "Makefile").read_text()
     upgrade = make.split("\nupgrade:", 1)[1].split("\n\n", 1)[0]
-    assert "git diff --quiet -- .agent-factory/config.yaml" in upgrade
-    assert upgrade.index("git diff --quiet") < upgrade.index("git pull"), "checked before anything is pulled"
+    assert upgrade.index("git diff --quiet HEAD --") < upgrade.index("git pull"), "checked before anything is pulled"
     assert "config-split:" in make
+    guard = re.search(r"git diff --quiet HEAD -- (\S+)", upgrade)
+    assert guard and guard.group(1) == ".agent-factory/config.yaml"
+    repo = tmp_path / "r"
+    (repo / ".agent-factory").mkdir(parents=True)
+    cfg = repo / ".agent-factory" / "config.yaml"
+    cfg.write_text("factory: {}\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c")
+    check = ["diff", "--quiet", "HEAD", "--", ".agent-factory/config.yaml"]
+    assert _git(repo, *check).returncode == 0, "a clean default passes"
+    cfg.write_text("factory: {max_concurrent_changes: 2}\n")
+    assert _git(repo, *check).returncode == 1, "unstaged edits stop it"
+    _git(repo, "add", ".")
+    assert _git(repo, "diff", "--quiet", "--", ".agent-factory/config.yaml").returncode == 0, (
+        "the old check missed this"
+    )
+    assert _git(repo, *check).returncode == 1, "staged edits stop it too"

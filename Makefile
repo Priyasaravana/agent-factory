@@ -32,7 +32,7 @@ restore: ## restore a backup: make restore BACKUP=backups/agent-factory-<timesta
 	./scripts/restore.sh $(BACKUP)
 
 upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.md)
-	@git diff --quiet -- .agent-factory/config.yaml || { \
+	@git diff --quiet HEAD -- .agent-factory/config.yaml || { \
 	  echo "refused: .agent-factory/config.yaml has local edits; they belong in the gitignored" >&2; \
 	  echo "  .agent-factory/config.local.yaml. Move them once with: make config-split" >&2; exit 2; }
 	./scripts/backup.sh

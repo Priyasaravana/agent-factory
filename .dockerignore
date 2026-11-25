@@ -1,0 +1,8 @@
+# Never in a build context (phase B review on #203, S-07): this install's own settings, secrets and state.
+# The images' COPY steps name what they take; this keeps the rest away from the builder and any cache.
+.agent-factory/config.local.yaml
+.env
+.env.*
+!.env.example
+.factory-data
+.cache

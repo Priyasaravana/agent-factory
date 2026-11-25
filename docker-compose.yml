@@ -75,6 +75,8 @@ services:
       # agents + generated code run in throw-away sandboxes inside dind (ADR-0014);
       # AGENT_SANDBOX=off in .env is for development only
       AGENT_SANDBOX: ${AGENT_SANDBOX:-container}
+      # this install's own settings over the image's config.yaml (phase B); read at start, absent is fine
+      FACTORY_CONFIG_LOCAL: /etc/agent-factory/config.local.yaml
     # Least privilege (ADR-0018): never root, no capabilities, no privilege escalation.
     user: "10001:10001"
     cap_drop: [ALL]
@@ -82,7 +84,10 @@ services:
     volumes:
       - factory-certs:/factory-certs:ro  # dind client certs, owned by uid 10001 (factory-init)
       - gateway-proof-engine:/run/gateway-proof:ro
-      - ./.factory-data:/data            # the ONLY host path mounted: state, product repos, run worktrees
+      - ./.factory-data:/data            # state, product repos, run worktrees
+      # read-only: the gitignored config.local.yaml, never in the image (.dockerignore). A folder, not the
+      # file, so an install without one starts cleanly (docker would make a missing file a directory)
+      - ./.agent-factory:/etc/agent-factory:ro
     depends_on:
       dind:
         condition: service_healthy

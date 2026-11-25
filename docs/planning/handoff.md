@@ -19,12 +19,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   can't change, such as the repo README.
 - **Phase B, part 2 merged (#203): the config split.** Code: `config.merge` / `diff` / `load_config(path, local)` /
   `load_factory_config` (used by every entry point, `evidence-key` included), `Settings.factory_config_local`
-  (`FACTORY_CONFIG_LOCAL`, set in the factory image), CLI `agent-factory config split-local`, `make config-split`,
+  (`FACTORY_CONFIG_LOCAL`, set by compose to a read-only mount of `.agent-factory/`; the file is kept out of every
+  build context by `.dockerignore`), CLI `agent-factory config split-local`, `make config-split`,
   the `make upgrade` guard, `.agent-factory/config.local.example.yaml`. Tests: `tests/test_config_local.py`.
   **On the Mac, once** (the first `make upgrade` still pulls with the old Makefile): `make config-split`, read
   `.agent-factory/config.local.yaml`, `git checkout -- .agent-factory/config.yaml`, then `make upgrade`; the
   factory's start log lists the settings it took from the override. From then on `git pull` never collides with
-  your settings. Do this before the signing check above, so the key lands in the data folder your override names.
+  your settings.
 
 ## Earlier state (2026-11-24)
 - **PR #190 (incident response, slice 0) merged 2026-11-24**; its live checks are recorded under 2026-11-22 below.
