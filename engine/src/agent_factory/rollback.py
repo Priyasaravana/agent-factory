@@ -205,8 +205,8 @@ def history_problems(release: Release, rows: list[dict[str, Any]], image_at_revi
     newest = max(rows, key=lambda r: int(str(r["revision"]))) if rows else None
     if newest is not None and str(newest["status"]).startswith("pending"):
         out.append(
-            f"Helm's newest revision {newest['revision']} of {release.helm_release} is '{newest['status']}': an earlier "
-            f"Helm operation was cut off, so Helm refuses another until a person clears it on the cluster "
+            f"Helm's newest revision {newest['revision']} of {release.helm_release} is '{newest['status']}': "
+            f"an earlier Helm operation was cut off, so Helm refuses another until a person clears it on the cluster "
             f"(helm rollback {release.helm_release} {release.revision} -n {release.namespace} --wait)"
         )
     row = next((r for r in rows if r["revision"] == release.revision), None)

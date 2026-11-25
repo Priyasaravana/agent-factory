@@ -4,6 +4,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-25)
+- **Drift re-apply, phase A (#213, `operate/drift-reapply`).** Most likely cause of the 2026-11-22 failure: the
+  owner's step ran inside the HTTP request, and `helm rollback --wait` was cut off with it (#190's follow-up already
+  runs it in the background). New: a Helm revision left `pending-*` by a cut-off operation is refused before Helm
+  runs, naming it and the command a person runs to clear it (`rollback.history_problems`); a failed `helm rollback`
+  puts Helm's own error line in the step's summary. **Live check (Saravana):** repeat the drift (`kubectl -n
+  app-kudos set image …`), press the step (or `auto` after the drill) and read "Last step" on the card.
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
   phase B). S-07 below.
 - **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`
