@@ -109,7 +109,11 @@
   can move to blue/green without replacing its pods; `scripts/check-charts.py` (CI job `charts`) checks it. New change-starting actions
   go through the preflight gate (`manager.preflight.gate`, ADR-0015).
 - Changes to `images/`, Dockerfiles, `docker-compose.yml` or the golden path must
-  keep CI `images` and `e2e` green (they test what ships, ADR-0016). The factory's
+  keep CI `images` and `e2e` green (they test what ships, ADR-0016). Images are built from locked, verified
+  inputs (S-07): Python from `uv export --frozen` with `--require-hashes`, every `FROM`, `COPY --from` and compose
+  image as `tag@sha256:…`, every download against a checksum pinned in the Dockerfile. A new image or tool version:
+  change the tag or version, then `scripts/pin-images.py --resolve --write` (CI's `images` job prints the values
+  when this session can't reach the registries); `--check` gates it (`tests/test_locked_images.py`). The factory's
   Python (factory/auth images, CI) is one version; apps pick theirs from the
   sandbox's `APP_PYTHONS` (`tests/test_python_versions.py`).
 - Generated apps are spec-driven (ADR-0017): every requirement in

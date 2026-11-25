@@ -4,7 +4,7 @@ name: agent-factory
 
 services:
   dind:
-    image: docker:27-dind
+    image: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
     restart: unless-stopped              # come back after Docker Desktop restarts / laptop sleep
     privileged: true                     # required by Docker-in-Docker; scoped to this container
     # Containers inside dind (builds, start checks, scanners, kind nodes and app pods) can't open
@@ -142,7 +142,7 @@ services:
   # through it, with a virtual key per agent call; it never gets the factory's .env.
   model-gateway:
     profiles: [gateway]
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:main-stable}   # pin a reviewed version (>= 1.81.14)
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:main-stable@sha256:c626bac46847bc539118c252a63c430728088e1cd0707ca39ff4ed5f7868057a}   # by digest (S-07); LITELLM_IMAGE overrides it
     command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}               # required with the gateway profile
@@ -160,7 +160,7 @@ services:
 
   model-gateway-db:
     profiles: [gateway]
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     user: "70:70"                        # the image's postgres user; the volume inherits its ownership
     environment:
       POSTGRES_USER: litellm
