@@ -639,6 +639,12 @@ class FactoryConfig(BaseModel):
     packs: list[str] = Field(default_factory=list)
 
     _stack_packs: dict[str, PackBinding] = PrivateAttr(default_factory=dict)
+    # dotted paths the install's config.local.yaml set (phase B); empty when there is none
+    _local_overrides: list[str] = PrivateAttr(default_factory=list)
+
+    @property
+    def local_overrides(self) -> list[str]:
+        return list(self._local_overrides)
 
     def bind_stack_packs(self, packs: dict[str, PackBinding]) -> None:
         """Set by `packs.install`: every installed stack pack, by id, for team repos (ADR-0041 §5)."""
@@ -709,6 +715,69 @@ class FactoryConfig(BaseModel):
         return "\n\n".join(parts)
 
 
-def load_config(path: str | Path) -> FactoryConfig:
-    raw = yaml.safe_load(Path(path).read_text())
-    return FactoryConfig.model_validate(raw)
+# ------------------------------------------------------- the local override --
+# The tracked `.agent-factory/config.yaml` is the shipped default; an install's own edits go in the
+# gitignored `config.local.yaml` beside it (phase B), merged on top, so a pull never collides with them.
+LOCAL_NAME = "config.local.yaml"
+
+
+def merge(base: Any, local: Any, at: str = "") -> tuple[Any, list[str]]:
+    """Pure: `local` laid over `base`. Mappings merge key by key; anything else (a list, a scalar,
+    null) replaces what `base` had. Returns the merged document and the dotted paths `local` set."""
+    if isinstance(base, dict) and isinstance(local, dict):
+        out = dict(base)
+        paths: list[str] = []
+        for k, v in local.items():
+            sub = f"{at}.{k}" if at else str(k)
+            out[k], p = merge(base.get(k), v, sub) if k in base else (v, [sub])
+            paths += p
+        return out, paths
+    return local, [at] if at else []
+
+
+def diff(base: Any, mine: Any, at: str = "") -> tuple[dict[str, Any], list[str]]:
+    """Pure: the smallest override that turns `base` into `mine`, and keys `mine` dropped (an override
+    can't remove a key: those are reported, never guessed). Used once to move local edits out of the
+    tracked file (`agent-factory config split-local`)."""
+    if not (isinstance(base, dict) and isinstance(mine, dict)):
+        raise ValueError("both documents must be mappings")
+    out: dict[str, Any] = {}
+    dropped: list[str] = []
+    for k, v in mine.items():
+        sub = f"{at}.{k}" if at else str(k)
+        if k not in base:
+            out[k] = v
+        elif isinstance(base[k], dict) and isinstance(v, dict):
+            inner, d = diff(base[k], v, sub)
+            dropped += d
+            if inner:
+                out[k] = inner
+        elif base[k] != v:
+            out[k] = v
+    dropped += [f"{at}.{k}" if at else str(k) for k in base if k not in mine]
+    return out, dropped
+
+
+def local_path_for(path: str | Path) -> Path:
+    return Path(path).with_name(LOCAL_NAME)
+
+
+def load_config(path: str | Path, local: str | Path | None = None) -> FactoryConfig:
+    """The config at `path`, with `local` (an install's override) merged on top when that file exists.
+    Callers that run the factory pass `Settings.factory_config_local`; tests pass none, so a developer's
+    own override never changes what the tests see."""
+    raw = yaml.safe_load(Path(path).read_text()) or {}
+    paths: list[str] = []
+    if local is not None and Path(local).is_file():
+        over = yaml.safe_load(Path(local).read_text()) or {}
+        if not isinstance(over, dict):
+            raise ValueError(f"{local}: the local override must be a mapping, like config.yaml")
+        raw, paths = merge(raw, over)
+    cfg = FactoryConfig.model_validate(raw)
+    cfg._local_overrides = paths
+    return cfg
+
+
+def load_factory_config(settings: Any) -> FactoryConfig:
+    """The running factory's config: `settings.factory_config` plus its local override."""
+    return load_config(settings.factory_config, settings.factory_config_local)

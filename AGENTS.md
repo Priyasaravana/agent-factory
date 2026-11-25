@@ -343,6 +343,11 @@
   `evidence.sign_manifest` and checks with `evidence.verify(..., signed_by, trusted)`, never by hashes alone.
   `scripts/verify-evidence.py` is the verifier anyone can run: Python's standard library only (it must never import
   the factory), and it never trusts a key from inside the bundle. Tests in `tests/test_signing.py`.
+- Config (phase B): `.agent-factory/config.yaml` is the shipped default and stays free of an install's edits; those go
+  in the gitignored `config.local.yaml` beside it, merged at start by `config.load_factory_config` (pure `config.merge`;
+  read only when `Settings.factory_config_local` is set, so tests never see a developer's file). A new entry point
+  that runs the factory loads its config with `load_factory_config`, never `load_config` alone. Tests in
+  `tests/test_config_local.py`.
 - Text from outside the factory (a request, feedback, answers, PR comments, CI or pod output, a diff, file
   names) reaches an agent only inside `untrusted.block(source, text)` (S-11); every station agent's system
   prompt carries `untrusted.RULE`, and an agent run outside `ctx.agent` (retro, suggestions) puts it in its

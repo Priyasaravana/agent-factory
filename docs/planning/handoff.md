@@ -4,21 +4,27 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-25)
-- **#199 and #200 merged** (roll-up and history scan; S-08, S-10, S-11). **#201 (S-05, pod security) in review**,
-  built ahead of phase B; S-07 waits for it (same Dockerfiles and lockfiles).
-- **Phase B, part 1 in review on `evidence/b1-signed-verifier`** (ADR-0050, proposed): signed manifests and
+- **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
+  phase B). S-07 is next in phase A item 4 (same Dockerfiles and lockfiles as #199 and #200).
+- **Phase B, part 1 merged (#202)** (ADR-0050, proposed): signed manifests and
   `scripts/verify-evidence.py`. Code map: `signing.py` (SSHSIG format, `check` pure, `LocalSigner` key in
   `<data>/keys/evidence/`, `rotate`), `evidence.sign_manifest` / `verify(..., signed_by, trusted)` / `verify_seal`,
   the decommission record (`Retirement.record_signed_by`), `GET /api/evidence/key`, CLI `agent-factory evidence-key
   show|rotate`, the evidence panel's "signed" pill and "Check it anywhere". Tests: `tests/test_signing.py` (both
   `ssh-keygen` and `cryptography`, eight kinds of tampering, a delivered change's bundle end to end).
-  **On the Mac after merging:** `make upgrade`; let one change stop (or retire a test product); download its bundle,
+  **On the Mac:** `make upgrade`; let one change stop (or retire a test product); download its bundle,
   copy it to another machine and run `scripts/verify-evidence.py evidence-<id>.zip --fingerprint <from the evidence
   panel>` (expect VERIFIED), then edit one file inside the zip and run it again (expect FAILED). That is phase B's
   "Done when" for signing. Then publish the fingerprint (`agent-factory evidence-key show`) somewhere the factory
   can't change, such as the repo README.
-- **Next:** phase B part 2, the config split (`.agent-factory/config.yaml` into a tracked default and a gitignored
-  local override), on its own branch.
+- **Phase B, part 2 merged (#203): the config split.** Code: `config.merge` / `diff` / `load_config(path, local)` /
+  `load_factory_config` (used by every entry point, `evidence-key` included), `Settings.factory_config_local`
+  (`FACTORY_CONFIG_LOCAL`, set in the factory image), CLI `agent-factory config split-local`, `make config-split`,
+  the `make upgrade` guard, `.agent-factory/config.local.example.yaml`. Tests: `tests/test_config_local.py`.
+  **On the Mac, once** (the first `make upgrade` still pulls with the old Makefile): `make config-split`, read
+  `.agent-factory/config.local.yaml`, `git checkout -- .agent-factory/config.yaml`, then `make upgrade`; the
+  factory's start log lists the settings it took from the override. From then on `git pull` never collides with
+  your settings. Do this before the signing check above, so the key lands in the data folder your override names.
 
 ## Earlier state (2026-11-24)
 - **PR #190 (incident response, slice 0) merged 2026-11-24**; its live checks are recorded under 2026-11-22 below.

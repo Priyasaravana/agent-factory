@@ -63,7 +63,8 @@ COPY .agent-factory .agent-factory
 # works offline. They are installed into the DB and managed on the Skills page.
 # Build steps run as root and write into the image: tell the CLI not to drop to
 # the runtime user here (it does so at run time, see cli.run).
-RUN AGENT_FACTORY_ALLOW_ROOT=1 FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml agent-factory skills cache --out /opt/factory/skill-seeds
+RUN AGENT_FACTORY_ALLOW_ROOT=1 FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml \
+    FACTORY_CONFIG_LOCAL=/opt/factory/.agent-factory/config.local.yaml agent-factory skills cache --out /opt/factory/skill-seeds
 COPY prompts prompts
 COPY workflow-templates workflow-templates
 COPY packs packs
@@ -74,6 +75,7 @@ COPY images/sandbox images/sandbox
 
 ENV FACTORY_HOME=/opt/factory \
     FACTORY_CONFIG=/opt/factory/.agent-factory/config.yaml \
+    FACTORY_CONFIG_LOCAL=/opt/factory/.agent-factory/config.local.yaml \
     DATA_DIR=/data \
     KUBECONFIG=/data/kube/config \
     DOCKER_CERT_PATH=/factory-certs \

@@ -96,6 +96,16 @@ def main() -> None:
     )
     ek.add_argument("action", choices=["show", "rotate"])
     ek.add_argument("--confirm", action="store_true", help="rotate: yes, make a new key (the old one stays trusted)")
+    cf = sub.add_parser("config", help="the factory config and this install's local override")
+    cfsub = cf.add_subparsers(dest="cf_cmd", required=True)
+    cs = cfsub.add_parser(
+        "split-local",
+        help="move an install's edits out of the tracked config.yaml into config.local.yaml (once)",
+    )
+    cs.add_argument("--base", type=Path, required=True, help="the tracked default (e.g. git show HEAD:…)")
+    cs.add_argument("--mine", type=Path, required=True, help="the edited config.yaml")
+    cs.add_argument("--out", type=Path, required=True, help="where to write the override")
+    cs.add_argument("--force", action="store_true", help="replace an existing override")
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
@@ -129,6 +139,8 @@ def main() -> None:
         _factory_drill(args.result, args.by, args.note)
     elif args.cmd == "evidence-key":
         _evidence_key(args.action, args.confirm)
+    elif args.cmd == "config":
+        _config_split(args.base, args.mine, args.out, args.force)
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
         _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
@@ -142,13 +154,13 @@ def _factory_drill(result: str, by: str, note: str) -> None:
     changes the data format."""
     from datetime import UTC, datetime
 
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.engine.operations import DRILL_PASSED
     from agent_factory.settings import Settings
     from agent_factory.state import SqliteStateStore
 
     s = Settings()
-    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    data_dir = Path(s.data_dir or load_factory_config(s).factory.data_dir)
     store = SqliteStateStore(data_dir / "factory.db")
     if result == "show":
         print(store.get_meta(DRILL_PASSED) or "no factory restore drill recorded: incident response runs in ask mode")
@@ -165,11 +177,11 @@ def _evidence_key(action: str, confirm: bool) -> None:
     or rotate it: the old public key is kept as trusted, so evidence sealed before still verifies here;
     bundles already handed out verify against the old fingerprint."""
     from agent_factory import signing
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.settings import Settings
 
     s = Settings()
-    signer = signing.LocalSigner(Path(s.data_dir or load_config(s.factory_config).factory.data_dir))
+    signer = signing.LocalSigner(Path(s.data_dir or load_factory_config(s).factory.data_dir))
     if action == "rotate":
         if not confirm:
             sys.exit("rotating makes a new signing key; publish its fingerprint again. Re-run with --confirm.")
@@ -182,18 +194,48 @@ def _evidence_key(action: str, confirm: bool) -> None:
     print(f"allowed_signers: {signing.allowed_signers_line(blob)}")
     for fp in (signing.fingerprint(b) for b in signer.retired()):
         print(f"retired, still trusted: {fp}")
+def _config_split(base: Path, mine: Path, out: Path, force: bool) -> None:
+    """Write the override that turns the tracked default into this install's edited config, then prove
+    it: the default plus the override must load to exactly the edited config. Nothing is changed in
+    config.yaml; restoring it (`git checkout`) is left to the person, after they read the override."""
+    import yaml
+
+    from agent_factory.config import diff, load_config
+
+    if out.exists() and not force:
+        sys.exit(f"{out} exists: merge by hand, or re-run with --force to replace it")
+    over, dropped = diff(yaml.safe_load(base.read_text()) or {}, yaml.safe_load(mine.read_text()) or {})
+    if dropped:
+        sys.exit(
+            "your config removes settings the default has, which an override can't do: "
+            + ", ".join(dropped)
+            + ". Set them to the value you want instead (or null), then run this again."
+        )
+    header = (
+        "# This install's own settings, merged over config.yaml (gitignored: never commit it).\n"
+        "# Mappings merge key by key; a list or a value replaces the default's. Made by\n"
+        "# `make config-split` from your edits; see config.local.example.yaml.\n"
+    )
+    out.write_text(header + (yaml.safe_dump(over, sort_keys=False, allow_unicode=True) if over else "{}\n"))
+    if load_config(base, out).model_dump() != load_config(mine).model_dump():
+        out.unlink()
+        sys.exit("the split would change your settings; nothing was written. Please report this.")
+    keys = load_config(base, out).local_overrides
+    print(f"wrote {out}: {len(keys)} setting(s): {', '.join(keys) or '(none)'}")
+    print("the default plus this override loads exactly as your edited config.yaml.")
+    print("next: read it, then `git checkout -- .agent-factory/config.yaml` and `make upgrade`.")
 
 
 def _apps(slug: str | None, password: bool, password_only: bool) -> None:
     import sys
 
     from agent_factory import apps
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.settings import Settings
     from agent_factory.state import SqliteStateStore
 
     s = Settings()
-    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    data_dir = Path(s.data_dir or load_factory_config(s).factory.data_dir)
     products = [p for p in SqliteStateStore(data_dir / "factory.db").list_products() if not p.eval_run_id]
     if not slug:
         live = [p for p in products if not p.archived_at]
@@ -214,12 +256,12 @@ def _apps(slug: str | None, password: bool, password_only: bool) -> None:
 
 def _reset(confirm: bool) -> None:
     from agent_factory import reset
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.settings import Settings
     from agent_factory.state import SqliteStateStore
 
     s = Settings()
-    data_dir = Path(s.data_dir or load_config(s.factory_config).factory.data_dir)
+    data_dir = Path(s.data_dir or load_factory_config(s).factory.data_dir)
     store = SqliteStateStore(data_dir / "factory.db")
     what = reset.plan(store, data_dir) if not confirm else reset.reset(store, data_dir)
     for name, n in what.items():
@@ -247,7 +289,7 @@ def _sandbox_context(out: Path) -> None:
     if problem:
         raise SystemExit(problem)
     config = Path(s.factory_config)
-    cfg = load_config(config if config.is_file() else home / ".agent-factory" / "config.yaml")
+    cfg = load_config(config if config.is_file() else home / ".agent-factory" / "config.yaml", s.factory_config_local)
     args = toolchain.build_args(sandbox_layers(install(cfg, home)), toolchain.from_home(home))
     (out / "build-args").write_text(" ".join(args) + "\n")
     print(f"sandbox build context in {out}; build args: {' '.join(args) or '(none)'}")
@@ -258,13 +300,13 @@ def _sandbox_check() -> None:
     import sys
 
     from agent_factory.app_factory import effective_sandbox, sandbox_layers
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.packs import install
     from agent_factory.sandbox import SandboxManager
     from agent_factory.settings import Settings
 
     s = Settings()
-    cfg = load_config(s.factory_config)
+    cfg = load_factory_config(s)
     # the same egress as the engine's (gateway included), or ensure() would rebuild the proxy without it
     sb = effective_sandbox(cfg)
     # and the same image layers, or the check would build (and test) a different image
@@ -284,14 +326,14 @@ def _skills_cache(out: Path) -> None:
     factory can install them without GitHub access."""
     import shutil
 
-    from agent_factory.config import load_config
+    from agent_factory.config import load_factory_config
     from agent_factory.github import fetch_dir
     from agent_factory.secret_refs import SecretResolver
     from agent_factory.settings import Settings
     from agent_factory.skills import seed_dir
 
     settings = Settings()
-    cfg = load_config(settings.factory_config)
+    cfg = load_factory_config(settings)
     for src in cfg.default_skills:
         for path in src.paths:
             dest = seed_dir(out, src.repo, src.sha, path)
