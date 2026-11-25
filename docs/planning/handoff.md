@@ -1,9 +1,26 @@
-# Agent Factory: handoff (updated 2026-11-24)
+# Agent Factory: handoff (updated 2026-11-25)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-24)
+## Current state (2026-11-25)
+- **#199 and #200 merged** (roll-up and history scan; S-08, S-10, S-11). **#201 (S-05, pod security) in review**,
+  built ahead of phase B; S-07 waits for it (same Dockerfiles and lockfiles).
+- **Phase B, part 1 in review on `evidence/b1-signed-verifier`** (ADR-0050, proposed): signed manifests and
+  `scripts/verify-evidence.py`. Code map: `signing.py` (SSHSIG format, `check` pure, `LocalSigner` key in
+  `<data>/keys/evidence/`, `rotate`), `evidence.sign_manifest` / `verify(..., signed_by, trusted)` / `verify_seal`,
+  the decommission record (`Retirement.record_signed_by`), `GET /api/evidence/key`, CLI `agent-factory evidence-key
+  show|rotate`, the evidence panel's "signed" pill and "Check it anywhere". Tests: `tests/test_signing.py` (both
+  `ssh-keygen` and `cryptography`, eight kinds of tampering, a delivered change's bundle end to end).
+  **On the Mac after merging:** `make upgrade`; let one change stop (or retire a test product); download its bundle,
+  copy it to another machine and run `scripts/verify-evidence.py evidence-<id>.zip --fingerprint <from the evidence
+  panel>` (expect VERIFIED), then edit one file inside the zip and run it again (expect FAILED). That is phase B's
+  "Done when" for signing. Then publish the fingerprint (`agent-factory evidence-key show`) somewhere the factory
+  can't change, such as the repo README.
+- **Next:** phase B part 2, the config split (`.agent-factory/config.yaml` into a tracked default and a gitignored
+  local override), on its own branch.
+
+## Earlier state (2026-11-24)
 - **PR #190 (incident response, slice 0) merged 2026-11-24**; its live checks are recorded under 2026-11-22 below.
   Work goes ahead on separate branches, decided by Saravana 2026-11-24, in this order: phase A item 5 (Dependabot
   roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07

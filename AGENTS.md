@@ -337,6 +337,12 @@
   record; nothing starts on a retired product (`start_change`). Product items go to the owner
   (`attention.product_actions`); the owner may steer. Tests in `tests/test_operate.py`,
   `tests/test_operations.py`, `tests/test_retire.py`.
+- Evidence is signed (ADR-0050, `signing.py`): every seal (a change's and the decommission record) writes
+  `manifest.json.sig` (OpenSSH SSHSIG, ed25519, namespace `agent-factory-evidence`) with the key in
+  `<data>/keys/evidence/` and records its fingerprint (`signed_by`); a new kind of seal calls
+  `evidence.sign_manifest` and checks with `evidence.verify(..., signed_by, trusted)`, never by hashes alone.
+  `scripts/verify-evidence.py` is the verifier anyone can run: Python's standard library only (it must never import
+  the factory), and it never trusts a key from inside the bundle. Tests in `tests/test_signing.py`.
 - Text from outside the factory (a request, feedback, answers, PR comments, CI or pod output, a diff, file
   names) reaches an agent only inside `untrusted.block(source, text)` (S-11); every station agent's system
   prompt carries `untrusted.RULE`, and an agent run outside `ctx.agent` (retro, suggestions) puts it in its

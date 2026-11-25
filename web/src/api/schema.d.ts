@@ -904,6 +904,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/evidence/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The factory's evidence signing key (ADR-0050): its fingerprint, public key and allowed_signers line, to check a downloaded bundle with scripts/verify-evidence or ssh-keygen -Y verify
+         * @description The factory's evidence signing key (ADR-0050): its fingerprint, public key and allowed_signers line, to check a downloaded bundle with scripts/verify-evidence or ssh-keygen -Y verify
+         */
+        get: operations["get_evidence_key"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/evidence/bundle": {
         parameters: {
             query?: never;
@@ -3631,6 +3651,21 @@ export interface components {
             bytes: number;
         };
         /**
+         * EvidenceKeyView
+         * @description The factory's evidence signing key (ADR-0050): publish its fingerprint where people who check
+         *     a bundle can find it (a README, a repo), so they can trust it without trusting the factory.
+         */
+        EvidenceKeyView: {
+            /** Fingerprint */
+            fingerprint?: string | null;
+            /** Public Key */
+            public_key?: string | null;
+            /** Allowed Signers */
+            allowed_signers?: string | null;
+            /** Retired */
+            retired?: string[];
+        };
+        /**
          * EvidenceView
          * @description A change's sealed evidence (ADR-0023) and whether it still matches its seal.
          */
@@ -3668,6 +3703,20 @@ export interface components {
             missing?: string[];
             /** Added */
             added?: string[];
+            /**
+             * Signed
+             * @default false
+             */
+            signed: boolean;
+            /**
+             * Signature Ok
+             * @default false
+             */
+            signature_ok: boolean;
+            /** Signed By */
+            signed_by?: string | null;
+            /** Signature Problem */
+            signature_problem?: string | null;
         };
         /** Feedback */
         Feedback: {
@@ -5261,6 +5310,8 @@ export interface components {
             finished_at?: string | null;
             /** Record Sha256 */
             record_sha256?: string | null;
+            /** Record Signed By */
+            record_signed_by?: string | null;
         };
         /** ReviewFinding */
         ReviewFinding: {
@@ -8058,6 +8109,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evidence_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceKeyView"];
                 };
             };
         };

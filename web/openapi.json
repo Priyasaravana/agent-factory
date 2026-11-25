@@ -2254,6 +2254,28 @@
         }
       }
     },
+    "/api/evidence/key": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "The factory's evidence signing key (ADR-0050): its fingerprint, public key and allowed_signers line, to check a downloaded bundle with scripts/verify-evidence or ssh-keygen -Y verify",
+        "description": "The factory's evidence signing key (ADR-0050): its fingerprint, public key and allowed_signers line, to check a downloaded bundle with scripts/verify-evidence or ssh-keygen -Y verify",
+        "operationId": "get_evidence_key",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceKeyView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/evidence/bundle": {
       "get": {
         "tags": [
@@ -9087,6 +9109,53 @@
         ],
         "title": "EvidenceFile"
       },
+      "EvidenceKeyView": {
+        "properties": {
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Key"
+          },
+          "allowed_signers": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Signers"
+          },
+          "retired": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Retired"
+          }
+        },
+        "type": "object",
+        "title": "EvidenceKeyView",
+        "description": "The factory's evidence signing key (ADR-0050): publish its fingerprint where people who check\na bundle can find it (a README, a repo), so they can trust it without trusting the factory."
+      },
       "EvidenceView": {
         "properties": {
           "sealed": {
@@ -9180,6 +9249,38 @@
             },
             "type": "array",
             "title": "Added"
+          },
+          "signed": {
+            "type": "boolean",
+            "title": "Signed",
+            "default": false
+          },
+          "signature_ok": {
+            "type": "boolean",
+            "title": "Signature Ok",
+            "default": false
+          },
+          "signed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signed By"
+          },
+          "signature_problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature Problem"
           }
         },
         "type": "object",
@@ -12746,6 +12847,17 @@
               }
             ],
             "title": "Record Sha256"
+          },
+          "record_signed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Signed By"
           }
         },
         "type": "object",

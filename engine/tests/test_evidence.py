@@ -100,7 +100,9 @@ async def test_a_delivered_run_is_sealed_and_downloadable(make_factory):
         z = zipfile.ZipFile(io.BytesIO(r.content))
         names = set(z.namelist())
         assert {f"{change_id}/manifest.json", f"{change_id}/SHA256SUMS", f"{change_id}/events.jsonl"} <= names
-        assert len(names) == len(ev["files"]) + 2
+        assert f"{change_id}/manifest.json.sig" in names, "signed (ADR-0050)"
+        assert len(names) == len(ev["files"]) + 3
+        assert ev["signed"] and ev["signature_ok"] and ev["signed_by"].startswith("SHA256:")
         assert (await c.get(f"/api/changes/{change_id}/evidence/bundle", headers=ADMIN)).status_code == 200
 
         # tampering is reported, not hidden
@@ -125,6 +127,7 @@ async def test_a_cancelled_run_is_sealed_too(make_factory):
     assert seals and seals["status"] == "cancelled"
     folder = f.manager.ws.data_dir / "artifacts" / change.id
     assert evidence.verify(folder, seals["sha256"]).intact
+    assert evidence.verify_seal(f.manager.ws.data_dir, change.id, seals).signature_ok
 
 
 async def test_no_evidence_before_the_run_stops(make_factory):

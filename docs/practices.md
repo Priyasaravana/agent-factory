@@ -22,7 +22,7 @@ The goal is **every generated app starts at Level 3**, not Level 5 everywhere.
 | Environment & sandbox | ✅ reproducible; agents and `make verify` run in a sandbox (ADR-0014) | ✅ compose; sandbox per agent session |
 | Code quality | ✅ small golden-path modules | 🟡 `actions.py` is ~1,800 lines |
 | Observability | ✅ JSON logs with request ids, /metrics, OpenTelemetry hook | 🟡 event log per change, egress log, per-agent-call records, transcripts and denials (ADR-0022); no OpenTelemetry export yet |
-| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model, sealed evidence per change (ADR-0023), capability grants per station (ADR-0039) |
+| Security & governance | ✅ Trivy, gitleaks, CODEOWNERS, Dependabot, SBOM + provenance · ⬜ branch protection (on publish) | ✅ secret refs + redaction, auth + audit, role checks, hooks, sandbox, threat model, sealed and signed evidence per change, with a verifier anyone can run (ADR-0023, ADR-0050), capability grants per station (ADR-0039) |
 
 **Processes:** ✅ signal→build→verify→deploy→accept→feedback loop with human gates · ✅ preflight before any model usage ·
 🟡 model tiers per agent (no provider fallback) · ✅ lanes per kind of work: new product, product change, repo assessment, repo change as a PR (ADR-0031/0033/0039) · ⬜ intake from issues/Jira ·

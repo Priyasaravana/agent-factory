@@ -13,6 +13,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "jsonschema" },
     { name = "pydantic" },
@@ -39,6 +40,7 @@ dev = [
 requires-dist = [
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34" },
     { name = "claude-agent-sdk", specifier = ">=0.2.159,<0.3" },
+    { name = "cryptography", specifier = ">=46" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.20" },

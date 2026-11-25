@@ -81,6 +81,7 @@ from agent_factory.models import (
     Event,
     EventKind,
     EvidenceFile,
+    EvidenceKeyView,
     EvidenceView,
     FeedbackFixView,
     FeedbackInput,
@@ -1603,7 +1604,7 @@ def get_change_evidence(f: Factory, change_id: str) -> EvidenceView:
         raise FactoryError("change not found")
     folder = f.manager.ws.data_dir / "artifacts" / change_id
     seal = evidence.latest_seal(f.store, change_id)
-    v = evidence.verify(folder, seal["sha256"] if seal else None)
+    v = evidence.verify_seal(f.manager.ws.data_dir, change_id, seal)
     if not v.sealed or seal is None:
         return EvidenceView(sealed=False)
     try:
@@ -1624,6 +1625,33 @@ def get_change_evidence(f: Factory, change_id: str) -> EvidenceView:
         changed=v.changed,
         missing=v.missing,
         added=v.added,
+        signed=v.signed,
+        signature_ok=v.signature_ok,
+        signed_by=seal.get("signed_by"),
+        signature_problem=v.signature_problem or None,
+    )
+
+
+@action(
+    "get_evidence_key",
+    "The factory's evidence signing key (ADR-0050): its fingerprint, public key and allowed_signers line, to "
+    "check a downloaded bundle with scripts/verify-evidence or ssh-keygen -Y verify",
+    "GET",
+    "/api/evidence/key",
+)
+def get_evidence_key(f: Factory) -> EvidenceKeyView:
+    from agent_factory import signing
+
+    s = signing.LocalSigner(f.manager.ws.data_dir)
+    retired = [signing.fingerprint(b) for b in s.retired()]
+    if not s.key_path.is_file():  # reading never makes the key; the first seal does
+        return EvidenceKeyView(retired=retired)
+    blob = s.public_blob()
+    return EvidenceKeyView(
+        fingerprint=signing.fingerprint(blob),
+        public_key=signing.public_line(blob),
+        allowed_signers=signing.allowed_signers_line(blob),
+        retired=retired,
     )
 
 
