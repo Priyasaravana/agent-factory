@@ -183,7 +183,7 @@ def test_everything_that_starts_the_stack_checks_compose_first():
         body = make.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
         assert body.index("pin-images.py --check-compose") < body.index("docker compose up"), target
     restore = (ROOT / "scripts/restore.sh").read_text()
-    assert restore.index("--check-compose") < restore.index("docker compose up -d")
+    assert restore.index("--check-compose") < restore.index("docker compose stop"), "before anything is touched"
     ci = (ROOT / ".github/workflows/ci.yml").read_text().split("\n  e2e:", 1)[1]
     assert ci.index("--check-compose") < ci.index("docker compose up -d --build")
     assert "LITELLM_DIGEST=main-stable docker compose --profile gateway pull" in ci, "compose itself refuses a tag"

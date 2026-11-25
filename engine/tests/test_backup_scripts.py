@@ -16,18 +16,25 @@ REPO = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
 
-def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
-    """A fresh checkout: the scripts and nothing else (no backups/, no .factory-data), with stub tools."""
+PINNED = '{"services": {"dind": {"image": "docker:27-dind@sha256:' + "a" * 64 + '"}}}'
+UNPINNED = '{"services": {"dind": {"image": "docker:27-dind"}}}'
+
+
+def _checkout(tmp_path: Path, compose_config: str = PINNED) -> tuple[Path, dict[str, str]]:
+    """A fresh checkout: the scripts and nothing else (no backups/, no .factory-data), with stub tools.
+    The docker stub answers `compose config` with `compose_config`, for the image check (S-07)."""
     root = tmp_path / "checkout"
     (root / "scripts").mkdir(parents=True)
-    for name in ("backup.sh", "restore.sh"):
+    for name in ("backup.sh", "restore.sh", "pin-images.py"):
         shutil.copy(REPO / "scripts" / name, root / "scripts" / name)
+    (tmp_path / "compose-config.json").write_text(compose_config)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     docker = bin_dir / "docker"
     # records each call; `compose run ... < auth.db` keeps the auth.db it was given
     docker.write_text(
         '#!/usr/bin/env bash\necho "$@" >> "$DOCKER_LOG"\nif [ "$2" = run ]; then cat > "$DOCKER_LOG.stdin"; fi\n'
+        'case "$*" in *"config --profiles"*) ;; *"config --format json"*) cat "$COMPOSE_CONFIG";; esac\n'
     )
     docker.chmod(0o755)
     if shutil.which("age") is None:
@@ -38,6 +45,7 @@ def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "HOME": str(tmp_path),
         "DOCKER_LOG": str(tmp_path / "docker.log"),
+        "COMPOSE_CONFIG": str(tmp_path / "compose-config.json"),
     }
     return root, env
 
@@ -91,6 +99,26 @@ def test_an_encrypted_backup_restores_on_a_fresh_checkout(tmp_path):
     assert Path(env["DOCKER_LOG"] + ".stdin").read_text() == "auth-db", "auth.db went in on stdin"
     assert oct((root / "backups").stat().st_mode)[-3:] == "700"
     assert list((root / "backups").iterdir()) == [], "the decrypted copy is removed"
+    calls = Path(env["DOCKER_LOG"]).read_text().splitlines()
+    assert calls.index("compose config --format json") < calls.index("compose stop factory auth web"), "checked first"
+
+
+def test_a_restore_never_starts_an_image_that_is_not_pinned(tmp_path):
+    """S-07 review on #204: a restore starts the stack too, so it refuses what `make up` refuses."""
+    root, env = _checkout(tmp_path, UNPINNED)
+    backup, key = _encrypted_backup(tmp_path)
+    r = subprocess.run(
+        ["bash", "scripts/restore.sh", str(backup)],
+        cwd=root,
+        env={**env, "BACKUP_AGE_IDENTITY": str(key)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode != 0 and "not pinned by digest" in r.stdout + r.stderr
+    calls = Path(env["DOCKER_LOG"]).read_text().splitlines()
+    assert not any(c.startswith(("compose stop", "compose up", "compose run")) for c in calls), calls
+    assert not (root / ".factory-data").exists(), "refused before anything was stopped or moved"
 
 
 def test_an_encrypted_backup_needs_its_key(tmp_path):

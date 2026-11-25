@@ -24,6 +24,9 @@ if [ -f "$src" ] && [ "${src%.age}" != "$src" ]; then
   src="$plain"
 fi
 for f in factory.db auth.db factory-data.tgz; do test -f "$src/$f" || { echo "missing $src/$f"; exit 1; }; done
+# S-07: the restore restarts the stack, so check first, before anything is stopped or moved, that every image
+# compose will pull (.env applied) is pinned by digest
+python3 scripts/pin-images.py --check-compose
 echo "restoring $src (factory version $(cat "$src/factory-version.txt" 2>/dev/null || echo unknown))"
 docker compose stop factory auth web
 ts=$(date +%Y%m%d-%H%M%S)
@@ -37,6 +40,5 @@ date -u +%Y-%m-%dT%H:%M:%SZ > .factory-data/factory-restored
 # auth.db goes in on stdin: no bind mount, so the folder can stay readable by its owner only
 docker compose run --rm --no-deps -T --entrypoint sh auth \
   -c 'cat > /data/auth.db && rm -f /data/auth.db-wal /data/auth.db-shm' < "$src/auth.db"
-python3 scripts/pin-images.py --check-compose   # S-07: only digest-pinned images, .env overrides included
 docker compose up -d
 echo "restored. Previous data kept in .factory-data.before-restore-$ts"
