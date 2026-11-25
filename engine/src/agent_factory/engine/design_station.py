@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_factory import decisions, ledger
+from agent_factory import decisions, ledger, untrusted
 from agent_factory.decisions import Catalogue, Mode, Sheet
 from agent_factory.engine.stations import (
     StationContext,
@@ -187,7 +187,11 @@ def _alignment_so_far(ctx: StationContext) -> str:
     turns = ctx.change.discussion
     if not turns:
         return ""
-    return "\n## The alignment with the person so far (keep what was agreed)\n" + _thread(turns) + "\n"
+    return (
+        "\n## The alignment with the person so far (keep what was agreed)\n"
+        + untrusted.block("the review page's alignment thread", _thread(turns))
+        + "\n"
+    )
 
 
 def _fix_prompt(errors: list[str]) -> str:
@@ -480,10 +484,10 @@ Read docs/spec.md, docs/requirements.yaml, docs/design.md, docs/tasks.md and {de
   factory sends it back to the specification and the design runs again. Otherwise leave it "".{check}
 
 Earlier in this alignment:
-{_thread(earlier) or "(nothing yet)"}
+{untrusted.block("the review page's alignment thread", _thread(earlier), "(nothing yet)")}
 
 The person's input now:
-{message}"""
+{untrusted.block("the person on the review page", message)}"""
 
 
 def _design_doc(rel: str) -> bool:

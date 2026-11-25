@@ -225,3 +225,13 @@ boundaries", correct row 5, and add the browser boundary between the factory UI 
   `BACKUP_PLAINTEXT=1`; backups are owner-readable only. Still open: signing evidence manifests with a key
   outside `/data`. Also from the review: a retired product's final export is deleted after
   `retire.keep_export_days` (90), with the deletion recorded (ADR-0049).
+- **2026-11-24 (`security/s08-s10-s11`):** S-08 closed: `.github/workflows/security.yml` scans every commit for
+  secrets (gitleaks, pinned and checksum-verified; `.gitleaks.toml` allows three exact test values found by the
+  [history scan](history-scan-2026-11-24.md)), audits the engine and auth lockfiles (pip-audit) and the UI's
+  runtime packages (npm audit), and runs CodeQL; the `images` job fails on a fixable CRITICAL in the factory,
+  auth, web or sandbox image; every action is pinned to a commit. S-10 closed: one header set on every response
+  (CSP with no inline scripts, `frame-ancestors 'none'`, nosniff, Referrer-Policy, Permissions-Policy, COOP),
+  and a per-address limit on sign-in and the webhook (429). S-13's per-address part comes with it; behind
+  Docker's port mapping every browser on the host shares one address, so the burst is generous. S-11 closed:
+  `untrusted.py` marks external text in every prompt, and a test fails on a prompt that doesn't. Files an agent
+  reads itself are covered only by the rule in its system prompt.

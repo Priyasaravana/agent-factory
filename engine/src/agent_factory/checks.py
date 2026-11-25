@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from agent_factory import untrusted
 from agent_factory.tools import RANK, SEVERITIES, Finding, Tool
 
 
@@ -164,7 +165,7 @@ Severity: critical is reserved for tools; use high for exploitable problems, med
 weaknesses, low for hardening.
 
 ## Files
-{scope}"""
+{untrusted.block("the repository's file names", scope)}"""
 
 
 def judge_agent(tool_id: str, report: dict[str, Any], paths: list[str]) -> tuple[list[Finding], list[str]]:

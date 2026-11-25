@@ -15,8 +15,8 @@ jobs:
   engine:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd engine && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd engine && uv run --python 3.12 --extra dev pytest -q
@@ -28,26 +28,26 @@ jobs:
   auth:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - run: cd auth && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd auth && uv run --python 3.12 --extra dev pytest -q
 
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json}
       - run: cd web && npm ci && npm run gen:api && git diff --exit-code src/api/schema.d.ts && npm run build
 
   golden-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - uses: azure/setup-helm@v5
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           # npm's download cache: a dropped registry connection (ECONNRESET) no longer fails the job
@@ -82,9 +82,9 @@ jobs:
   charts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - uses: azure/setup-helm@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
       - run: helm version --short
       - run: cd engine && uv run --python 3.12 python ../scripts/check-charts.py
 
@@ -97,8 +97,8 @@ jobs:
       matrix:
         python: ["3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - run: git config --global user.email ci@example.com && git config --global user.name ci
       - run: cd engine && uv run --python ${{ matrix.python }} --extra dev pytest -q
 
@@ -109,8 +109,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: build the factory, auth and web images
         run: |
           docker build -f images/factory/Dockerfile -t af-factory:ci .
@@ -173,6 +173,20 @@ jobs:
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image \
               --quiet --exit-code 1 --severity CRITICAL --ignore-unfixed "$img"
           done
+      # S-08: the factory's own images are held to the rule its Build station applies to products: a
+      # CRITICAL with a released fix fails. Blocking, unlike the templates above: these images are
+      # what an install runs. HIGH findings are listed, not blocking.
+      - name: the factory, auth, web and sandbox images have no fixable critical CVE
+        run: |
+          trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+            aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 image --quiet "$@"; }
+          rc=0
+          for img in af-factory:ci af-auth:ci af-web:ci af-sandbox:ci; do
+            echo "== $img"
+            trivy --severity HIGH --ignore-unfixed --exit-code 0 "$img"
+            trivy --severity CRITICAL --ignore-unfixed --exit-code 1 "$img" || rc=1
+          done
+          exit $rc
       - name: the sandbox verifies the Next.js template and runs its e2e + accessibility tests with its Chromium
         run: |
           work=$(mktemp -d) && cp -r packs/nextjs-web/template/. "$work" && chmod -R a+rwX "$work"
@@ -193,16 +207,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      KIND_VERSION: v0.27.0           # the version the factory image ships (images/factory/Dockerfile)
+      KIND_VERSION: v0.33.0           # the version the factory image ships (images/factory/Dockerfile)
+      KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - uses: azure/setup-helm@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
       - name: a kind cluster (kindnet enforces NetworkPolicy)
         run: |
           curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  /tmp/kind" | sha256sum -c -
           sudo install -m 0755 /tmp/kind /usr/local/bin/kind
-          kind create cluster --wait 180s
+          kind create cluster --wait 180s --image "$(grep -oE 'kindest/node:[^ ]+' cluster/kind-config.yaml)"
           kubectl version
       - name: app pods reach DNS and their own namespace only; a chart can't widen that (scripts/cluster-security-check.py)
         run: cd engine && uv run --python 3.12 python ../scripts/cluster-security-check.py
@@ -216,8 +232,8 @@ jobs:
       LITELLM_MASTER_KEY: sk-ci-model-gateway-check
       MODEL_GATEWAY_DB_PASSWORD: ci-model-gateway-db
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: the gateway, with test models and a published port (CI only)
         run: |
           cp .env.example .env   # the compose file names it for the factory; nothing here reads it
@@ -255,8 +271,8 @@ jobs:
     env:
       FACTORY_ADMIN_PASSWORD: ci-smoke-admin-password
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: configure dry-run
         run: cp .env.example .env && sed -i 's/^FACTORY_MODE=.*/FACTORY_MODE=dry-run/' .env
       - name: start the stack
@@ -282,7 +298,7 @@ jobs:
       - name: collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-evidence

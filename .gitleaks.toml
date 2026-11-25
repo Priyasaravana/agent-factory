@@ -1,0 +1,16 @@
+# The factory's own secret scan (S-08, .github/workflows/security.yml): gitleaks' default rules,
+# with exactly the values below allowed. Each is a test value or a comment found by the history
+# scan (docs/security/history-scan-2026-11-24.md), never a credential. Allow a value, never a
+# path or a whole rule: a real secret in the same file must still be found. Adding a line here is
+# a reviewed change, like an exclusion in a product (risk.SCANNER_EXCLUSIONS).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test values and comments, never credentials"
+regexTarget = "secret"
+regexes = [
+  '''^ghp_never_in_logs_1234567890$''',   # engine/tests/test_repo_changes.py: a fake token the test greps logs for
+  '''^CVE-\d{4}-\d{4,}$''',                # a CVE id next to the word "key" (engine/tests/test_base_images.py)
+  '''^ANTHROPIC_API_KEY=$''',              # .env.example: the empty variable under its comment
+]

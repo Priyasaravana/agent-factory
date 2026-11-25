@@ -10,7 +10,7 @@ import pytest
 from conftest import PRODUCT, wait_run
 from test_api import _client
 
-from agent_factory import evidence
+from agent_factory import evidence, untrusted
 from agent_factory.agents import FakeAgentRunner
 from agent_factory.engine.pipeline import InvalidRequestError
 from agent_factory.identity import Identity, _current
@@ -51,7 +51,8 @@ async def test_bug_change_tells_the_agents_to_reproduce_first(make_factory):
     assert (bug.kind, bug.iteration) == (ChangeKind.bug, 2)
     assert await wait_run(f, bug.id) == ChangeStatus.awaiting_feedback
     intake = _calls(agents, "intake")[-1]
-    assert "[bug] tags with spaces are dropped" in intake
+    assert '[bug] <untrusted source="the change request' in intake  # S-11: the request is marked
+    assert untrusted.inside(intake, "tags with spaces are dropped")
     assert "Reproduce the bug first with a failing test" in intake
     assert "Reproduce the bug first" in _calls(agents, "developer")[-1]
     # a new product's prompts carry no kind guidance: the evaluated prompts are unchanged

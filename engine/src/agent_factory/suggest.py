@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import ledger, waiting
+from agent_factory import ledger, untrusted, waiting
 from agent_factory.agents.runner import AgentRequest
 from agent_factory.models import Change, ChangeKind, ChangeStatus, EventKind, Product, ProductTarget, WorkItem
 from agent_factory.observe import AgentCall
@@ -110,14 +110,16 @@ def _ledger_view(items: list[WorkItem]) -> str:
 
 
 def _common(product: Product, change: Change, items: list[WorkItem], cap: int) -> str:
-    return f"""## Product: {product.title}
-{product.requirements[:2000]}
+    return f"""{untrusted.RULE}
+
+## Product: {untrusted.block("the product's title", product.title)}
+{untrusted.block("the customer's requirements", product.requirements[:2000])}
 
 Iteration {change.iteration} was just delivered. What it asked for:
-{(change.change_request or product.requirements)[:1500]}
+{untrusted.block("the change request", (change.change_request or product.requirements)[:1500])}
 
 ## Features suggested before for this product
-{_ledger_view(items)}
+{untrusted.block("the product's work ledger", _ledger_view(items))}
 Never suggest a rejected or delivered one again. To keep an open one, repeat its title exactly.
 
 Give at most {cap} suggestions (fewer is fine, none if nothing is worth it). For each:

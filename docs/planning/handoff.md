@@ -8,6 +8,13 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   Work goes ahead on separate branches, decided by Saravana 2026-11-24, in this order: phase A item 5 (Dependabot
   roll-up and the history secrets scan, `deps/rollup-2026-11-24`), S-08 + S-10 + S-11, phase B, then S-05 + S-07
   (on top of #190's helm code).
+- **#199 merged 2026-11-24** (roll-up and history scan, plus certifi and opentelemetry-api CVE fixes the new audit
+  needs). **In review:** `security/s08-s10-s11` (S-08 + S-10 + S-11). **On the Mac after merging:** `make upgrade`
+  (rebuilds web with the headers), then `make sandbox-check`, which now also checks the headers. The CSP refuses
+  inline scripts: if a page looks broken after the upgrade, the browser console names what was refused.
+  #200 also moves the cluster tools to kind v0.33.0, kubectl v1.37.2 and helm v3.22.1 (decided by Saravana
+  2026-11-24, after the new image scan found fixable CRITICALs in the old ones), with the node image pinned at
+  Kubernetes 1.37: **finish the #190 live test before running `make upgrade` with #200**, then `make reset-cluster`.
 
 ## Earlier state (2026-11-22)
 - **Merged in #190 (`operate/incident-response-slice-0`):** phase A item 3, incident response slice 0 (ADR-0049 §4

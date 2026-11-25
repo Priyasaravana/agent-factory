@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The engine answers only the gateway (assessment 2026-11-15, S-01), and the gateway keeps the UI
-# and the apps on different sites (S-04). Run by `make sandbox-check`
+# and the apps on different sites (S-04) and sends the security headers (S-10). Run by `make sandbox-check`
 # and CI e2e against the running stack. The probe is a container on the engine's own network
 # (web, without nginx's proof) claiming to be an admin: the engine must refuse it.
 set -uo pipefail
@@ -37,6 +37,15 @@ check "a sign-in posted from another site is refused" \
   "$(code -X POST -H 'Origin: https://elsewhere.example' -H 'Content-Type: application/json' -d '{}' "$UI/auth/login")" 403
 check "the same request from the UI's own page reaches the gateway's sign-in check" \
   "$(code -X POST -H "Origin: $UI" -d '{}' "$UI/api/products")" 401
+
+# S-10: security headers on pages and on refusals (a sign-in rate-limit probe would lock CI's own
+# sign-ins out for a minute, so the limit is checked from the config in tests/test_static_ops.py)
+header() { local h=$1; shift; curl -s -o /dev/null -D - "$@" | tr -d '\r' | awk -v h="$h" 'tolower($0) ~ "^"h":" { sub(/^[^:]*: */, ""); print; exit }'; }
+check "the UI page can't be framed" "$(header x-frame-options "$UI/products")" "DENY"
+check "the UI page isn't sniffed" "$(header x-content-type-options "$UI/")" "nosniff"
+check "the UI page refuses inline scripts" \
+  "$(header content-security-policy "$UI/" | grep -o "script-src 'self';")" "script-src 'self';"
+check "an API refusal carries the headers too" "$(header x-frame-options "$UI/api/products")" "DENY"
 
 if [ "$fail" = 0 ]; then echo "gateway proof: OK"; else echo "gateway proof: FAILED"; fi
 exit "$fail"

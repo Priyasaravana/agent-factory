@@ -337,6 +337,15 @@
   record; nothing starts on a retired product (`start_change`). Product items go to the owner
   (`attention.product_actions`); the owner may steer. Tests in `tests/test_operate.py`,
   `tests/test_operations.py`, `tests/test_retire.py`.
+- Text from outside the factory (a request, feedback, answers, PR comments, CI or pod output, a diff, file
+  names) reaches an agent only inside `untrusted.block(source, text)` (S-11); every station agent's system
+  prompt carries `untrusted.RULE`, and an agent run outside `ctx.agent` (retro, suggestions) puts it in its
+  prompt. `tests/test_untrusted.py` fails on an f-string that interpolates a request, feedback or answers
+  without it; a place that builds text no agent reads is listed there deliberately.
+- The factory's own CI keeps its security gates (S-08, `.github/workflows/security.yml`, the image scan in
+  `images`): every action pinned to a commit with its version in a comment; `.gitleaks.toml` allows exact
+  values only, never paths or rules (`tests/test_ci_gates.py`). Security headers are one snippet,
+  `web/security-headers.conf`, included again in any nginx location with its own `add_header` (S-10).
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

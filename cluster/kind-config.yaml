@@ -17,6 +17,10 @@ containerdConfigPatches:
       config_path = "/etc/containerd/certs.d"
 nodes:
   - role: control-plane
+    # Pinned by digest, not kind's default: the cluster's Kubernetes changes only when this line does
+    # (kind v0.33.0's default; kubectl in images/factory/Dockerfile stays within one minor of it).
+    # A running cluster keeps its version until `make reset-cluster`.
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
     # the kind ingress-nginx controller runs on the node labelled ingress-ready (ADR-0026)
     kubeadmConfigPatches:
       - |
