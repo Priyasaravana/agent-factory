@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade config-split test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -32,6 +32,9 @@ restore: ## restore a backup: make restore BACKUP=backups/agent-factory-<timesta
 	./scripts/restore.sh $(BACKUP)
 
 upgrade: ## back up, pull main, rebuild and prove the stack (see docs/upgrading.md)
+	@git diff --quiet HEAD -- .agent-factory/config.yaml || { \
+	  echo "refused: .agent-factory/config.yaml has local edits; they belong in the gitignored" >&2; \
+	  echo "  .agent-factory/config.local.yaml. Move them once with: make config-split" >&2; exit 2; }
 	./scripts/backup.sh
 	git pull --ff-only
 	docker compose up -d --build --wait
@@ -93,6 +96,12 @@ lint:
 skills-sync: ## copy the engineering standards skills from plugin/skills to .claude/skills (ADR-0032)
 	@for d in .claude/skills/*/; do n=$$(basename $$d); cp plugin/skills/$$n/SKILL.md .claude/skills/$$n/SKILL.md; done
 	@echo "synced: $$(ls .claude/skills | tr '\n' ' ')"
+
+config-split: ## move your edits in .agent-factory/config.yaml into the gitignored config.local.yaml (once)
+	@mkdir -p .cache
+	git show HEAD:.agent-factory/config.yaml > .cache/config.base.yaml
+	cd engine && uv run agent-factory config split-local --base ../.cache/config.base.yaml \
+	  --mine ../.agent-factory/config.yaml --out ../.agent-factory/config.local.yaml
 
 openapi: ## regenerate the API contract and the UI's typed client
 	cd engine && uv run agent-factory openapi --out ../web/openapi.json

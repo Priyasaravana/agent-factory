@@ -393,7 +393,7 @@ def test_sandbox_check_keeps_the_gateway_egress(monkeypatch, tmp_path):
     root = Path(__file__).resolve().parents[2]
     cfg = config_mod.load_config(root / ".agent-factory" / "config.yaml")
     cfg.model_gateway = ModelGatewayConfig(provider="litellm")
-    monkeypatch.setattr(config_mod, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(config_mod, "load_config", lambda _path, _local=None: cfg)
     monkeypatch.setattr(app_factory, "resolve_address", lambda url: "10.0.0.5")
     built: list[Any] = []
 

@@ -623,6 +623,11 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   evidence-key show|rotate`, `GET /api/evidence/key`, the evidence panel. **Left:** the live bundle on another machine
   (Saravana), then the config split on its own branch.
 - `.agent-factory/config.yaml` split into the tracked default and a gitignored local override.
+  🟡 **In review on `config/b2-local-override` (2026-11-25):** `config.local.yaml` beside the default, merged over it at
+  start (`config.merge`, pure: mappings key by key, everything else replaced; `FactoryConfig.local_overrides` logged),
+  read only when `FACTORY_CONFIG_LOCAL` is set (compose sets it to a read-only mount; the file never enters an image, `.dockerignore`; tests never read a developer's file). `make
+  config-split` moves an install's edits out of the tracked file once and proves the result loads identically;
+  `make upgrade` refuses while the tracked file has local edits.
 - **Done when:** a sealed live run's bundle verifies on another machine, and a tampered copy fails.
 
 **Phase C. Open core seam (by 2026-12-04)** · code split recommended in

@@ -1,0 +1,21 @@
+# Copy to config.local.yaml (gitignored) for this install's own settings. It is merged over
+# config.yaml, the shipped default, when the factory starts. It is never built into an image (.dockerignore):
+# compose mounts .agent-factory/ read-only, so an edit needs only `docker compose restart factory`.
+# Not for default_skills: those are cached into the image from config.yaml at build.
+#   - a mapping merges key by key: set only the keys you change;
+#   - a list or a value replaces the default's whole (repeat the items you keep);
+#   - an override can't remove a key: set it to the value you want, or null where that is allowed.
+# The factory's log names every setting it took from here at start.
+# Already edited config.yaml itself? `make config-split` moves your edits here once.
+# Never put credentials here either: secrets come from .env (see .env.example).
+
+# --- examples (uncomment what you need) ---
+# factory:
+#   max_concurrent_changes: 2
+#   public_app_base_url: http://127.0.0.1
+#
+# models:
+#   default: opus
+#
+# checks:
+#   providers: {code: snyk}     # the other checks keep the default's providers

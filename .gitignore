@@ -11,3 +11,5 @@ web/*.tsbuildinfo
 backups/
 .factory-data.before-restore-*/
 .cache/check/
+# this install's own config edits, merged over .agent-factory/config.yaml (phase B)
+.agent-factory/config.local.yaml

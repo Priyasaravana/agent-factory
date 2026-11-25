@@ -58,6 +58,8 @@ COPY engine/src engine/src
 ARG ENGINE_EXTRAS=""
 RUN uv pip install --system --no-cache "./engine${ENGINE_EXTRAS:+[${ENGINE_EXTRAS}]}"
 
+# The shipped default only: this install's config.local.yaml is kept out of the build (.dockerignore) and
+# mounted read-only at run time (docker-compose.yml, FACTORY_CONFIG_LOCAL).
 COPY .agent-factory .agent-factory
 # Default skills (config: default_skills) at their pinned commits, so first start
 # works offline. They are installed into the DB and managed on the Skills page.

@@ -18,7 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from agent_factory import actions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
-from agent_factory.config import FactoryConfig, SandboxConfig, load_config
+from agent_factory.config import FactoryConfig, SandboxConfig, load_factory_config
 from agent_factory.engine.pipeline import ChangeManager, FactoryError, InvalidRequestError, RefusedError
 from agent_factory.engine.preflight import PreflightFailed
 from agent_factory.engine.workflows import WorkflowError, WorkflowRegistry
@@ -96,7 +96,13 @@ def build_factory(
     agents: AgentRunner | None = None,
 ) -> Factory:
     settings = settings or Settings()
-    cfg = cfg or load_config(settings.factory_config)
+    cfg = cfg or load_factory_config(settings)
+    if cfg.local_overrides:
+        log.info(
+            "config: %d setting(s) from the local override: %s",
+            len(cfg.local_overrides),
+            ", ".join(cfg.local_overrides),
+        )
     data_dir = Path(settings.data_dir or cfg.factory.data_dir)
     home = Path(settings.factory_home)
     store = store or SqliteStateStore(data_dir / "factory.db")
