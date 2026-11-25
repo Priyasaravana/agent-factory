@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1
 # Node.js for existing repos' own checks (npm test, ADR-0033), taken from the official image.
-FROM node:22-bookworm-slim AS node
+FROM node:22-bookworm-slim@sha256:be979e5523c76fa4d5ca4ebd3099078f220aa47ec39c48ad5b5df9314debd6eb AS node
 
 # Agent sandbox image (ADR-0014). Built by the engine INSIDE dind on first start
 # (agent_factory.sandbox.SandboxManager), from a context it assembles:
 #   Dockerfile (this file), claude (the CLI the engine's Agent SDK bundles),
 #   plugin/ (the factory's own skills), egress.py (the allowlist proxy).
 # It holds tools only: no credentials, no Docker CLI, no kubectl, no engine.
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:44cf1793efa7c7a476bb0f2cff81443f4a072c90c1cb127e2924933daa3e8c64
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash git make curl jq ripgrep ca-certificates procps less \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.8@sha256:1d31be550ff927957472b2a491dc3de1ea9b5c2d319a9cea5b6a48021e2990a6 /uv /uvx /usr/local/bin/
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \

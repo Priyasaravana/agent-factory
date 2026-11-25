@@ -604,7 +604,9 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
    `scripts/gateway-check.sh`. S-11: `untrusted.py` marks a request, feedback, answers, CI and pod output, diffs
    and file names in every prompt, every agent's system prompt says what the blocks mean, and
    `tests/test_untrusted.py` fails on a prompt that puts a request, feedback or answers in unmarked.
-   S-05, S-06 and S-07 are still open.
+   S-05 merged 2026-11-25 (#201). ✅ **S-07 in review on `security/s07-locked-images` (2026-11-25):** images from the
+   lockfiles with hashes (checked against each image in CI), every image by digest, every download by a pinned
+   checksum (`scripts/pin-images.py`, `tests/test_locked_images.py`). S-06 is still open.
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
    ✅ **In review on `deps/rollup-2026-11-24` (2026-11-24):** the eleven open Dependabot PRs in one (engine and auth
    lockfiles, the web group, `ossf/scorecard-action` 2.6.0; engine pydantic taken to 2.14.4 to match auth). History

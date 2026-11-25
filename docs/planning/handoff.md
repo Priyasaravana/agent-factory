@@ -5,7 +5,15 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 
 ## Current state (2026-11-25)
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
-  phase B). S-07 is next in phase A item 4 (same Dockerfiles and lockfiles as #199 and #200).
+  phase B). S-07 below.
+- **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`
+  with `--require-hashes` (CI dry-runs each image against its lockfile); digests on every `FROM`, `COPY --from` and
+  compose image; kubectl and helm sums pinned beside kind's; `scripts/pin-images.py` (`--check` offline, gated in CI
+  and `tests/test_locked_images.py`; `--resolve [--write]` online, needs `docker buildx`: how to add an image or move
+  a tool's version; `--check-compose` before every start: what compose will really pull, `.env` applied, is
+  pinned; `LITELLM_IMAGE` is retired for `LITELLM_REPO` + `LITELLM_DIGEST`); Dependabot's `docker-compose` ecosystem. **On the Mac after merging:** `make upgrade` (rebuilds
+  from the pinned images; dind and postgres are pulled by digest, so their containers are recreated once). **Left in
+  phase A item 4:** S-06.
 - **Phase B, part 1 merged (#202)** (ADR-0050, proposed): signed manifests and
   `scripts/verify-evidence.py`. Code map: `signing.py` (SSHSIG format, `check` pure, `LocalSigner` key in
   `<data>/keys/evidence/`, `rotate`), `evidence.sign_manifest` / `verify(..., signed_by, trusted)` / `verify_seal`,

@@ -111,6 +111,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: every image pinned by digest, every download by checksum (S-07)
+        run: |
+          # what each tag points at now, and the published checksums of the pinned tool versions:
+          # a pinned sum that differs fails; a digest behind its tag is reported for Dependabot
+          python3 scripts/pin-images.py --resolve
+          python3 scripts/pin-images.py --check
       - name: build the factory, auth and web images
         run: |
           docker build -f images/factory/Dockerfile -t af-factory:ci .
@@ -125,6 +131,17 @@ jobs:
               git config --global user.email ci@example.com && git config --global user.name ci &&
               git config --global --add safe.directory "*" &&
               uv run --python "$(command -v python3)" --extra dev pytest -q'
+      - name: the images ship exactly the lockfiles' versions (S-07)
+        run: |
+          for pkg in engine:af-factory:ci auth:af-auth:ci; do
+            dir=${pkg%%:*}; img=${pkg#*:}
+            (cd "$dir" && uv export --frozen --no-dev --no-emit-project -q -o "/tmp/$dir-locked.txt")
+            # a dry run against the lockfile's pins and hashes: anything to install or remove is drift
+            out=$(docker run --rm --entrypoint "" -v "/tmp/$dir-locked.txt:/locked.txt:ro" "$img" \
+              uv pip install --system --no-cache --dry-run --require-hashes -r /locked.txt 2>&1)
+            echo "$out" | tail -3
+            echo "$out" | grep -q "Would make no changes" || { echo "$img differs from $dir/uv.lock"; exit 1; }
+          done
       - name: images run as non-root users (ADR-0018)
         run: |
           for img in af-factory:ci af-auth:ci af-web:ci; do
@@ -275,6 +292,15 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: configure dry-run
         run: cp .env.example .env && sed -i 's/^FACTORY_MODE=.*/FACTORY_MODE=dry-run/' .env
+      - name: what compose will pull is pinned by digest, overrides included (S-07)
+        run: |
+          python3 scripts/pin-images.py --check-compose
+          # and a mutable override is refused: by the gate, and by compose itself (a tag alone isn't an image here)
+          if LITELLM_DIGEST=main-stable python3 scripts/pin-images.py --check-compose; then exit 1; fi
+          if LITELLM_IMAGE=ghcr.io/berriai/litellm-non_root:main-stable python3 scripts/pin-images.py --check-compose; then exit 1; fi
+          if LITELLM_DIGEST=main-stable docker compose --profile gateway pull model-gateway; then
+            echo "compose pulled a tag-only LiteLLM override"; exit 1
+          fi
       - name: start the stack
         run: docker compose up -d --build --wait --wait-timeout 900
       - name: sandbox isolation (make sandbox-check)

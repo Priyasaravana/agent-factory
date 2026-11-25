@@ -51,3 +51,13 @@ updates:
     ignore:
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+  # The compose file's images (dind, postgres, LiteLLM) are pinned by digest (S-07): this moves them.
+  # A major (postgres 17 -> 18, docker 27 -> 28) is a deliberate change: postgres data needs a migration.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: {interval: weekly}
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: docker
+        update-types: ["version-update:semver-major"]

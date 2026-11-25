@@ -24,6 +24,9 @@ if [ -f "$src" ] && [ "${src%.age}" != "$src" ]; then
   src="$plain"
 fi
 for f in factory.db auth.db factory-data.tgz; do test -f "$src/$f" || { echo "missing $src/$f"; exit 1; }; done
+# S-07: the restore restarts the stack, so check first, before anything is stopped or moved, that every image
+# compose will pull (.env applied) is pinned by digest
+python3 scripts/pin-images.py --check-compose
 echo "restoring $src (factory version $(cat "$src/factory-version.txt" 2>/dev/null || echo unknown))"
 docker compose stop factory auth web
 ts=$(date +%Y%m%d-%H%M%S)
