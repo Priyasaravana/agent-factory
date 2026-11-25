@@ -44,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     lines = env.read_text().splitlines(keepends=True)
     secrets = a.root / ".secrets"
     moves: list[tuple[int, str, str]] = []
+    moved: list[str] = []  # names only: nothing that held a value is ever printed
     for i, line in enumerate(lines):
         m = _LINE.match(line.rstrip("\n"))
         if m and m.group("name") in NAMES and (value := _value(m.group("value"))):
@@ -52,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"refused: {target} already exists with another value; nothing was changed")
                 return 1
             moves.append((i, m.group("name"), value))
+            moved.append(str(m.group("name")))
     if not moves:
         print("nothing to move: no token is set in .env")
         return 0
@@ -75,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         tmp.replace(env)
     finally:
         os.umask(old_umask)
-    print(f"moved {', '.join(n for _, n, _ in moves)} to {secrets}/ (0600); .env now names their files")
+    print(f"moved {', '.join(moved)} to {secrets}/ (0600); .env now names their files")
     print(f"the old .env is {keep} (0600): delete it once the factory works (make upgrade)")
     if sys.platform.startswith("linux"):
         print("Linux: let the factory read them:  sudo chown -R 10001 .secrets")
