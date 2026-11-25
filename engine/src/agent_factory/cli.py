@@ -90,6 +90,12 @@ def main() -> None:
     fd.add_argument(
         "--note", default="", help="where it was restored to and what was verified (at least 20 characters)"
     )
+    ek = sub.add_parser(
+        "evidence-key",
+        help="the key that signs sealed evidence (ADR-0050): show it to publish, or rotate it",
+    )
+    ek.add_argument("action", choices=["show", "rotate"])
+    ek.add_argument("--confirm", action="store_true", help="rotate: yes, make a new key (the old one stays trusted)")
     sb = sub.add_parser("sandbox", help="agent sandbox (ADR-0014)")
     sbsub = sb.add_subparsers(dest="sb_cmd", required=True)
     sbsub.add_parser("check", help="prepare the sandbox and prove its isolation from inside a real one")
@@ -121,6 +127,8 @@ def main() -> None:
         _skills_cache(Path(args.out))
     elif args.cmd == "factory-drill":
         _factory_drill(args.result, args.by, args.note)
+    elif args.cmd == "evidence-key":
+        _evidence_key(args.action, args.confirm)
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
         _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
@@ -150,6 +158,30 @@ def _factory_drill(result: str, by: str, note: str) -> None:
     entry = {"passed": result == "passed", "at": datetime.now(UTC).isoformat(), "by": by.strip(), "note": note.strip()}
     store.set_meta(DRILL_PASSED, json.dumps(entry))
     print(json.dumps(entry))
+
+
+def _evidence_key(action: str, confirm: bool) -> None:
+    """Show the evidence signing key (publish its fingerprint where people who check bundles will find it),
+    or rotate it: the old public key is kept as trusted, so evidence sealed before still verifies here;
+    bundles already handed out verify against the old fingerprint."""
+    from agent_factory import signing
+    from agent_factory.config import load_config
+    from agent_factory.settings import Settings
+
+    s = Settings()
+    signer = signing.LocalSigner(Path(s.data_dir or load_config(s.factory_config).factory.data_dir))
+    if action == "rotate":
+        if not confirm:
+            sys.exit("rotating makes a new signing key; publish its fingerprint again. Re-run with --confirm.")
+        old, new = signer.rotate()
+        print(json.dumps({"retired": old, "fingerprint": new}))
+        return
+    blob = signer.public_blob()
+    print(f"fingerprint:     {signing.fingerprint(blob)}")
+    print(f"public key:      {signing.public_line(blob)}")
+    print(f"allowed_signers: {signing.allowed_signers_line(blob)}")
+    for fp in (signing.fingerprint(b) for b in signer.retired()):
+        print(f"retired, still trusted: {fp}")
 
 
 def _apps(slug: str | None, password: bool, password_only: bool) -> None:

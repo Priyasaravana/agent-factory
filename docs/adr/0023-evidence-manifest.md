@@ -1,6 +1,6 @@
 # ADR-0023: Evidence manifest: every stopped run is sealed, re-verified on read, downloadable
 
-**Status:** accepted · 2026-10-01
+**Status:** accepted · 2026-10-01 · manifests signed since [ADR-0050](0050-signed-evidence.md) (2026-11-25)
 
 ## Context
 A run already produces good evidence, but it was scattered and unchecked:
@@ -65,7 +65,7 @@ So three questions had no answer:
   the files. It is not a defence against someone who can write both the data
   folder and the database, because they could seal again. Stronger options are
   not done yet:
-  - signing manifests (Sigstore/cosign, with the registry provider);
+  - signing manifests: done in [ADR-0050](0050-signed-evidence.md) (OpenSSH signatures, a verifier anyone can run);
   - anchoring digests outside the factory, such as in the published repo or a
     transparency log.
 - Disk: small. The event log copy and the manifest sit next to files already

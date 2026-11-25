@@ -615,6 +615,13 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 
 **Phase B. Evidence anyone can verify (by 2026-11-29)**
 - Evidence manifests **signed**, not only hashed; a **verifier** anyone can run on a downloaded evidence bundle.
+  🟡 **In review on `evidence/b1-signed-verifier` (2026-11-25, ADR-0050, proposed):** every seal (a change's and the
+  decommission record) signs `manifest.json` with the factory's ed25519 key as an OpenSSH signature
+  (`manifest.json.sig`, checkable with `ssh-keygen -Y verify`), records the signer, and the re-check fails on a
+  removed, foreign or broken signature. `scripts/verify-evidence.py` (Python's standard library, plus ssh-keygen or
+  `cryptography`) checks a zip or folder against a key or fingerprint given from outside the bundle. Key: `agent-factory
+  evidence-key show|rotate`, `GET /api/evidence/key`, the evidence panel. **Left:** the live bundle on another machine
+  (Saravana), then the config split on its own branch.
 - `.agent-factory/config.yaml` split into the tracked default and a gitignored local override.
 - **Done when:** a sealed live run's bundle verifies on another machine, and a tampered copy fails.
 

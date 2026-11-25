@@ -89,9 +89,11 @@ async def test_the_decommission_record_is_sealed_and_names_every_changes_evidenc
     done = await f.manager.retirer.retire(p.id, "priya", REASON, "bookmarks-service")
     folder = f.manager.retirer.folder(done)
     assert sorted(x.name for x in folder.iterdir()) == [
-        "SHA256SUMS", "history.json", "manifest.json", "operations.json", "record.json", "work-ledger.json",
+        "SHA256SUMS", "history.json", "manifest.json", "manifest.json.sig", "operations.json", "record.json",
+        "work-ledger.json",
     ]  # fmt: skip
     assert evidence.verify(folder, done.retirement.record_sha256).intact
+    assert done.retirement.record_signed_by and f.manager.retirer.verify(done)["signature_ok"], "signed (ADR-0050)"
     record = json.loads((folder / "record.json").read_text())
     assert record["decommission"] == retire.SCHEMA and record["retired_by"] == "priya" and record["reason"] == REASON
     assert record["totals"] == {"changes": 2, "deliveries": 2}

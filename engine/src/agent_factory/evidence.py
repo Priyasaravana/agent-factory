@@ -11,15 +11,19 @@ engine **seals** its evidence folder `artifacts/<run>/`:
    ledger's summary (`ledger.json`, ADR-0037), and every file with its SHA-256 and size.
 5. `SHA256SUMS`: the same hashes in coreutils format, so anyone can check a
    downloaded bundle with `sha256sum -c SHA256SUMS`, without our tools.
+6. `manifest.json.sig`: the manifest signed with the factory's evidence key (ADR-0050,
+   `signing.py`, OpenSSH SSHSIG), so a copy can be checked by someone who trusts only the
+   factory's public key: `scripts/verify-evidence`, or `ssh-keygen -Y verify`.
 
 The manifest's own SHA-256 is recorded as a decision event in the database. On
 every read the engine re-hashes the files and compares (`verify`, a pure function
 of the folder): a changed, missing or added file is reported, never hidden.
 
-Scope, stated honestly: this detects evidence that changed after it was sealed
-(by accident, a bug, or casual editing). Someone with write access to both the
-data folder and the database could re-seal; signing and external anchoring are
-future work (see the ADR).
+Scope, stated honestly: the hashes detect evidence that changed after it was sealed
+(by accident, a bug, or casual editing); the signature lets a downloaded copy be
+checked away from the factory. The signing key lives in the data folder, so someone
+with write access to it (and the database) could still re-seal and re-sign; a
+customer KMS signer (phase D) and external anchoring close that (ADR-0050).
 
 Never in a manifest or bundle: the hidden scenarios (they live outside the
 artifacts folder) and secret values (every stored text goes through REDACTOR).
@@ -39,7 +43,8 @@ MANIFEST = "manifest.json"
 SUMS = "SHA256SUMS"
 PILLAR_INDEX = "pillars.json"  # evidence grouped by quality pillar (ADR-0024)
 SCHEMA = "agent-factory/evidence-manifest/v1"
-_NOT_HASHED = {MANIFEST, SUMS}  # written last; they describe the others
+SIGNATURE = MANIFEST + ".sig"  # ADR-0050
+_NOT_HASHED = {MANIFEST, SUMS, SIGNATURE}  # written last; they describe the others
 
 
 def sha256_file(path: Path) -> str:
@@ -111,6 +116,14 @@ def write_manifest(folder: Path, manifest: dict[str, Any]) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
+def sign_manifest(folder: Path, signer: Any) -> str:
+    """Sign the manifest as written (ADR-0050); returns the signing key's fingerprint."""
+    from agent_factory import signing
+
+    (folder / SIGNATURE).write_text(signer.sign((folder / MANIFEST).read_bytes()))
+    return signing.fingerprint(signer.public_blob())
+
+
 @dataclass
 class Verification:
     sealed: bool
@@ -118,18 +131,46 @@ class Verification:
     changed: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     added: list[str] = field(default_factory=list)  # written after the seal
+    # ADR-0050: sealed with a signature (recorded at the seal); a seal from before signing has none
+    signed: bool = False
+    signature_ok: bool = False  # the signature matches, by the key the seal recorded, which is trusted
+    signer: str | None = None
+    signature_problem: str = ""
 
     @property
     def intact(self) -> bool:
-        return self.sealed and self.manifest_ok and not (self.changed or self.missing or self.added)
+        return (
+            self.sealed
+            and self.manifest_ok
+            and not (self.changed or self.missing or self.added)
+            and (self.signature_ok or not self.signed)
+        )
 
 
-def verify(folder: Path, recorded_sha256: str | None) -> Verification:
-    """Re-hash the folder against its manifest and the manifest against the recorded digest."""
+def verify(
+    folder: Path,
+    recorded_sha256: str | None,
+    signed_by: str | None = None,
+    trusted: set[bytes] | None = None,
+) -> Verification:
+    """Re-hash the folder against its manifest and the manifest against the recorded digest.
+    `signed_by`: the key fingerprint the seal recorded (ADR-0050); the signature must then be there,
+    match, be by that key and that key be one of `trusted` (the factory's keys). A seal that recorded
+    no signature (sealed before signing) is checked by its hashes only, and says so (`signed` False)."""
+    from agent_factory import signing
+
     mpath = folder / MANIFEST
     if not recorded_sha256 or not mpath.is_file():
         return Verification(sealed=False)
-    v = Verification(sealed=True, manifest_ok=sha256_file(mpath) == recorded_sha256)
+    v = Verification(sealed=True, manifest_ok=sha256_file(mpath) == recorded_sha256, signed=bool(signed_by))
+    if signed_by:
+        sig = folder / SIGNATURE
+        c = signing.check(mpath.read_bytes(), sig.read_text() if sig.is_file() else None, trusted or set())
+        v.signer = c.signer
+        v.signature_ok = c.ok and c.signer == signed_by
+        v.signature_problem = (
+            c.reason if not c.ok else ("" if c.signer == signed_by else f"signed by {c.signer}, not {signed_by}")
+        )
     try:
         listed = {f["path"]: f["sha256"] for f in json.loads(mpath.read_text())["files"]}
     except (ValueError, KeyError, TypeError):
@@ -142,17 +183,26 @@ def verify(folder: Path, recorded_sha256: str | None) -> Verification:
     return v
 
 
+def _files_inside(folder: Path) -> set[str]:
+    """POSIX paths of the regular files really under `folder` (no links), found by walking it."""
+    return {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file() and not p.is_symlink()}
+
+
 def write_bundle(folder: Path, dest: Path) -> Path:
-    """Zip the sealed folder (manifest, SHA256SUMS and every listed file) under `<run>/`."""
+    """Zip the sealed folder (manifest, SHA256SUMS and every listed file) under `<run>/`. Only files found
+    inside the folder go in: a manifest changed on disk can't name a path that leaves it (review of #202),
+    such as the evidence key in `<data>/keys/`; an unlisted or missing file is the verifier's to report."""
     manifest = json.loads((folder / MANIFEST).read_text())
+    inside = _files_inside(folder)
     root = folder.name
     with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        for name in (MANIFEST, SUMS):
-            z.write(folder / name, f"{root}/{name}")
+        for name in (MANIFEST, SUMS, SIGNATURE):
+            if name in inside:
+                z.write(folder / name, f"{root}/{name}")
         for f in manifest["files"]:
-            p = folder / f["path"]
-            if p.is_file():
-                z.write(p, f"{root}/{f['path']}")
+            path = f.get("path") if isinstance(f, dict) else None
+            if isinstance(path, str) and path in inside and path not in _NOT_HASHED:
+                z.write(folder / path, f"{root}/{path}")
     return dest
 
 
@@ -160,6 +210,18 @@ def write_bundle(folder: Path, dest: Path) -> Path:
 def latest_seal(store: Any, change_id: str) -> dict[str, Any] | None:
     seals = store.events_with_key([change_id], "evidence_seal")
     return seals[-1][2] if seals else None
+
+
+def verify_seal(data_dir: Path, change_id: str, seal: dict[str, Any] | None) -> Verification:
+    """A change's evidence folder checked against its latest seal, signature included."""
+    from agent_factory import signing
+
+    return verify(
+        Path(data_dir) / "artifacts" / change_id,
+        seal.get("sha256") if seal else None,
+        seal.get("signed_by") if seal else None,
+        signing.signer_for(data_dir).trusted(),
+    )
 
 
 def _pack_facts(cfg: Any, blueprint: str) -> dict[str, Any] | None:
@@ -227,13 +289,22 @@ async def seal(mgr: Any, change: Any, product: Any) -> str:
     (folder / PILLAR_INDEX).write_text(json.dumps(build_pillar_index(folder), indent=2) + "\n")
     manifest = build_manifest(folder, facts, datetime.now(UTC))
     digest = write_manifest(folder, manifest)
+    from agent_factory import signing
+
+    signed_by = sign_manifest(folder, signing.signer_for(mgr.ws.data_dir))
     t = manifest["totals"]
     mgr.store.add_event(
         change.id,
         EventKind.decision,
-        f"evidence sealed: {t['files']} files, manifest sha256 {digest[:12]}",
+        f"evidence sealed: {t['files']} files, manifest sha256 {digest[:12]}, signed by {signed_by}",
         data={
-            "evidence_seal": {"sha256": digest, "files": t["files"], "bytes": t["bytes"], "status": str(change.status)}
+            "evidence_seal": {
+                "sha256": digest,
+                "files": t["files"],
+                "bytes": t["bytes"],
+                "status": str(change.status),
+                "signed_by": signed_by,
+            }
         },
     )
     return digest

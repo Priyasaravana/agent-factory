@@ -1048,6 +1048,21 @@ class EvidenceView(BaseModel):
     changed: list[str] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
     added: list[str] = Field(default_factory=list)
+    # ADR-0050: signed at the seal (a seal from before signing is checked by its hashes only)
+    signed: bool = False
+    signature_ok: bool = False
+    signed_by: str | None = None  # the key's fingerprint, SHA256:…, as `ssh-keygen -l` prints it
+    signature_problem: str | None = None
+
+
+class EvidenceKeyView(BaseModel):
+    """The factory's evidence signing key (ADR-0050): publish its fingerprint where people who check
+    a bundle can find it (a README, a repo), so they can trust it without trusting the factory."""
+
+    fingerprint: str | None = None  # none until the first seal makes the key
+    public_key: str | None = None  # `ssh-ed25519 AAAA…`
+    allowed_signers: str | None = None  # the line `ssh-keygen -Y verify -f` reads
+    retired: list[str] = Field(default_factory=list)  # fingerprints of rotated-out keys, still trusted
 
 
 class EvalCaseResult(BaseModel):
@@ -1796,6 +1811,7 @@ class Retirement(BaseModel):
     steps: list[RetireStep] = Field(default_factory=list)
     finished_at: datetime | None = None
     record_sha256: str | None = None  # the sealed decommission record
+    record_signed_by: str | None = None  # its signing key's fingerprint (ADR-0050)
 
     @property
     def done(self) -> bool:

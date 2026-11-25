@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agent_factory import evidence, retire
+from agent_factory import evidence, retire, signing
 from agent_factory.engine.operations import OperateError
 from agent_factory.models import (
     Change,
@@ -86,7 +86,12 @@ class Retirer:
         matches the manifest and the manifest the digest stored on the product."""
         r = product.retirement
         folder = self.folder(product)
-        v = evidence.verify(folder, r.record_sha256 if r else None)
+        v = evidence.verify(
+            folder,
+            r.record_sha256 if r else None,
+            r.record_signed_by if r else None,
+            signing.signer_for(self.m.ws.data_dir).trusted(),
+        )
         facts: dict[str, Any] = {}
         if (folder / RECORD).is_file():
             try:
@@ -101,6 +106,8 @@ class Retirer:
             "missing": v.missing,
             "added": v.added,
             "manifest_sha256": r.record_sha256 if r else None,
+            "signed_by": r.record_signed_by if r else None,
+            "signature_ok": v.signature_ok,
         }
 
     # --------------------------------------------------------------- retire --
@@ -319,7 +326,7 @@ class Retirer:
         for c in changes:
             seal = evidence.latest_seal(self.store, c.id)
             sha = str(seal["sha256"]) if seal and seal.get("sha256") else None
-            v = evidence.verify(data_dir / "artifacts" / c.id, sha)
+            v = evidence.verify_seal(data_dir, c.id, seal)
             ev[c.id] = {"sealed": v.sealed, "manifest_sha256": sha, "intact": v.intact}
         exports = [x for x in self.store.list_operations(product.id, "backup", 5) if x.ok]
         export_step = next(s for s in r.steps if s.id == "export")
@@ -356,6 +363,7 @@ class Retirer:
             now,
         )
         r.record_sha256 = evidence.write_manifest(folder, manifest)
+        r.record_signed_by = evidence.sign_manifest(folder, signing.signer_for(data_dir))
         r.finished_at = now  # the moment the record states
         intact = sum(1 for v in ev.values() if v["intact"])
         return (

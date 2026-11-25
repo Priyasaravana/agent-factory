@@ -12,6 +12,7 @@ dependencies = [
   "pydantic-settings>=2.4",
   "pyyaml>=6.0",
   "jsonschema>=4.20",  # artifact schemas (ADR-0037); already pulled in by claude-agent-sdk
+  "cryptography>=46",  # evidence signing, ed25519 (ADR-0050); already pulled in by claude-agent-sdk
 ]
 
 [project.optional-dependencies]
