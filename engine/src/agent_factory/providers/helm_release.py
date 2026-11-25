@@ -188,8 +188,9 @@ class HelmRelease:
             return StepResult(False, "rollback refused: " + "; ".join(refuse), data={"refused": refuse})
         cmd = f"{self.helm} rollback {shlex.quote(self.name)} {release.revision} {self._ns()} --wait --timeout 5m"
         res = await self.run(cmd, 420)
-        if not res.ok:
-            return StepResult(False, "helm rollback failed", res.output[-2500:])
+        if not res.ok:  # Helm's own reason in the summary too, so the card says why without opening the output
+            why = next((ln.strip() for ln in reversed(res.output.strip().splitlines()) if "rror" in ln), "")
+            return StepResult(False, "helm rollback failed" + (f": {why[-300:]}" if why else ""), res.output[-2500:])
         rollout = await self.run(
             f"{self.kubectl} rollout status deployment {self._ns()} "
             f"-l app.kubernetes.io/instance={shlex.quote(self.name)} --timeout=180s",
