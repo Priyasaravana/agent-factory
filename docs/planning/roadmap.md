@@ -636,8 +636,14 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 [plans/open-source-release.md](plans/open-source-release.md), to be confirmed by Saravana before this phase starts
 - `LICENSE` (Apache-2.0 with a directory map), the `licensed/` folder with its own licence, the CI guard, the
   extension entry points, the offline licence key, two signed images (core, enterprise) with SBOMs from one tag.
+- **Logs, metrics and traces on open standards** (decided by Saravana 2026-11-26, all of it in this phase):
+  slices O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md): one log contract on the
+  OpenTelemetry log model for the factory and both packs, the factory's `/metrics` and `gen_ai.*` traces, a tested
+  redaction boundary, both collector modes with enforced egress, the standard HTTP duration metric, the setup card
+  with Test connection, then a live validation (O7, Saravana). About 17 h of AI build and 4.5 h of checks.
 - **Done when:** the core image builds and passes CI without `licensed/`; the enterprise image loads an extension
-  with a valid key and refuses it with an invalid one.
+  with a valid key and refuses it with an invalid one; O7's live validation passes (a log line's trace id matches
+  the evidence manifest, the egress probe passes, and no planted secret reaches telemetry).
 
 **Phase D. First paid features (by 2026-12-14)**
 - SSO (OIDC first, then SAML), audit export to a SIEM, evidence signed with the customer's KMS, the compliance
@@ -860,10 +866,9 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
 - Evaluation: repeated runs per case; side-by-side models; scheduled re-evaluation for drift.
 - Hidden-scenario verifier for web apps with a browser (today it uses curl; the pack's Playwright suite covers the browser side). Kudos board iteration 2 (2026-10-29): it judged a phone layout from the CSS, estimating widths, because it had no browser.
 - Security and models:
-  - OpenTelemetry GenAI export: now part of [plans/telemetry-standards.md](plans/telemetry-standards.md) (logs,
-    metrics and traces on open standards for the factory and both packs; proposed for v0.1.0 phase C, 2026-11-24);
+  - OpenTelemetry GenAI export: now part of [plans/telemetry-standards.md](plans/telemetry-standards.md), in v0.1.0
+    phase C (decided 2026-11-26);
   - model profiles and fallback;
-  - requirements, feedback and align-flow text ("Other…" answers, comments) marked as untrusted data inside prompts (considered for J1 on 2026-10-25, left for later);
   - Actions pinned to SHAs.
 - Execution: parallel tasks; staged rollouts.
 - Code quality: split `actions.py` (1,875 lines), `stations.py` (1,973) and `pipeline.py` (1,136); a good moment is when J-milestones touch them.
