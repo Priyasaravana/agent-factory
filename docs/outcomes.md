@@ -135,10 +135,39 @@ decommission record. Evaluation products are left out. A retirement that stopped
 <!-- baselines:begin (written by `agent-factory baselines`; don't edit by hand) -->
 ## Baselines (G0)
 
-Not recorded yet. Phase A item 2 (vision G0): on the install that ran the live journeys, run `make baselines`
-(optionally `BASELINES_INSTALL="reference install (Mac)" make baselines`), read the diff and commit it. It replaces
-this section with the six measures, what each was computed from, and the targets they are set against.
+Recorded 2026-11-25 at 22:28 UTC from the Mac reference install using the baseline tool at `7c652c4`.
+The 365-day window starts on 2025-11-25 and covers factory changes in the store, excluding evaluation
+products. Keep this snapshot as the reference when measuring progress toward the G0 targets.
+
+| Measure | Baseline | From | Target |
+|---|---|---|---|
+| Autonomy (no unplanned human touch) | 53% | 15 deliveries | ≥ 80% |
+| Change failure rate | 47% | 15 finished, 7 failed or rescued | ≤ 15% |
+| Lead time | p50 130 min, p90 38.7 h | 15 deliveries | p50 ≤ 60 min (feature change) |
+| Cost per delivered change, failures included | $6.75 (gateway: $1.80) | $101.25 over 15 deliveries | ≤ $10 |
+| Requirements verified live | 100% | 66 of 66, live products' latest delivery | 100% |
+| Share of live products at Level 3 | 83% | 5 of 6 live products | 100% |
+
+The factory averaged 0.3 deliveries per week, 0.7 fix loops per delivery, and 1.20 unplanned touches
+per delivery. Recovery time for held changes was 123 min at p50 and 35.7 h at p90.
 <!-- baselines:end -->
+
+### Reading the Mac baseline
+
+Gateway coverage varies across the recorded changes. Some have CLI spend with no gateway spend. Keep
+the gateway figure as a reference for the spend seen by that meter. Compare the meters on a matched set
+of calls before evaluating the goal that they agree. The CLI figure includes spend on failed changes.
+
+### Where to improve
+
+- **Reliability and autonomy.** Start with the seven failed or rescued changes. Group them by station
+  and cause, then address the most frequent cause of unplanned human intervention.
+- **Lead time.** Review the slowest deliveries and use the time split to see how much was spent
+  waiting for people, waiting on infrastructure or doing work. The sample combines change kinds.
+  Measure feature changes separately against the 60-minute median target.
+- **Live quality.** Identify the readiness signals missing from the one live product below Level 3.
+  If the same signals recur, fix the relevant stack pack or workflow. Track live requirements
+  coverage alongside speed and autonomy to catch regressions.
 
 ## Using it
 - **Before and after a workflow change:** compare the **By workflow** table

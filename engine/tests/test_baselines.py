@@ -65,10 +65,10 @@ def test_nothing_to_measure_says_so_instead_of_inventing_zeroes():
 
 def test_writing_replaces_only_the_section_and_twice_is_the_same():
     doc = (REPO / "docs" / "outcomes.md").read_text()
-    assert baselines.BEGIN in doc and "Not recorded yet" in doc, "the placeholder ships until make baselines runs"
+    assert doc.count(baselines.BEGIN) == doc.count(baselines.END) == 1
     text = baselines.section(_view(), install="i", version="v", taken=TAKEN)
     once = baselines.write_into(doc, text)
-    assert "Not recorded yet" not in once and once.count(baselines.BEGIN) == 1
+    assert text.rstrip("\n") in once and once.count(baselines.BEGIN) == 1
     assert once.replace(text.rstrip("\n"), "") == doc.replace(
         doc[doc.index(baselines.BEGIN) : doc.index(baselines.END) + len(baselines.END)], ""
     ), "nothing else in the page changes"
@@ -86,7 +86,7 @@ def test_the_command_reads_the_store_and_writes_the_page(tmp_path, monkeypatch, 
     monkeypatch.setattr("sys.stdin", io.StringIO((REPO / "docs" / "outcomes.md").read_text()))
     cli._baselines(365, "test install", "abc1234", "-")
     out = capsys.readouterr().out
-    assert "on test install (factory abc1234)" in out and "Not recorded yet" not in out
+    assert "on test install (factory abc1234)" in out
     assert out.count(baselines.BEGIN) == 1 and "## Using it" in out
 
 

@@ -585,9 +585,9 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 2. **Baselines** (vision G0): autonomy, change failure rate, lead time p50/p90, cost per delivered change (failures
    included, both meters), requirements verified live and share at Level 3, from the live runs so far, in
    [../outcomes.md](../outcomes.md).
-   🟡 **Tool in review (`outcomes/baselines`, 2026-11-25):** `agent-factory baselines` / `make baselines` computes the six
-   from the store (both meters: Outcomes now carries the gateway's) and writes the dated section into outcomes.md.
-   **Left:** Saravana runs `make baselines` on the reference install and commits the section.
+   🟡 **Mac baseline recorded in #215 (2026-11-26):** all six measures from the 2026-11-25 reference snapshot
+   are in [../outcomes.md](../outcomes.md#baselines-g0), with sample sizes and the gateway coverage caveat.
+   `make baselines` can regenerate the dated section from the reference install.
 3. **Incident response, slice 0** ([plans/stations-and-teams.md](plans/stations-and-teams.md)): snapshot first,
    re-apply, restart once, rollback when additive, the restored window, the states, DORA timings, the incident ↔
    change link; `operate.respond: auto`. An ADR-0049 §4 amendment.

@@ -1,9 +1,9 @@
-# Agent Factory: handoff (updated 2026-11-25)
+# Agent Factory: handoff (updated 2026-11-26)
 
 Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds the **current state**
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
-## Current state (2026-11-25)
+## Current state (2026-11-26)
 - **S-06 (#214, `security/s06-secret-files`)** (the last of phase A item 4). Code: `secret_refs.EnvBackend`
   (`NAME_FILE`), `GitHubAppBackend` (`github-app://`, JWT RS256 from the app's key file, cached in memory until ten
   minutes before expiry, no redirects), `scripts/secrets-to-files.py` / `make secrets-files`, the `.secrets` mount,
@@ -18,8 +18,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **Phase A items 1 and 2 (#215, `outcomes/baselines`).** Item 1: the J4/J5 run written up (UX-29 to UX-35); fixed here:
   UX-29 (`sandbox-paths-probe.sh` on macOS bash 3.2) and UX-34 (decision sheet and spec review shown in Overview when
   waiting). Item 2: `baselines.py` (pure section), `agent-factory baselines --into -`, `make baselines`, Outcomes'
-  gateway meter (`gateway_cost_*`, `test_outcomes.py`), placeholder in `docs/outcomes.md`. Tests: `test_baselines.py`.
-  **On the Mac:** `BASELINES_INSTALL="reference install (Mac)" make baselines`, read the diff, commit it.
+  gateway meter (`gateway_cost_*`, `test_outcomes.py`). Tests: `test_baselines.py`.
+  **Recorded 2026-11-26:** the 2026-11-25 Mac reference snapshot and suggested investigations are in
+  [outcomes](../outcomes.md#baselines-g0). The gateway figure has partial coverage.
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
   phase B). S-07 below.
 - **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`
