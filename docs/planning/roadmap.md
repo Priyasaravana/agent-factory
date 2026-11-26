@@ -639,11 +639,15 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 - **Logs, metrics and traces on open standards** (decided by Saravana 2026-11-26, all of it in this phase):
   slices O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md): one log contract on the
   OpenTelemetry log model for the factory and both packs, the factory's `/metrics` and `gen_ai.*` traces, a tested
-  redaction boundary, both collector modes with enforced egress, the standard HTTP duration metric, the setup card
-  with Test connection, then a live validation (O7, Saravana). About 17 h of AI build and 4.5 h of checks.
+  redaction boundary, both collector modes with engine-owned egress (read back against the expected policy, and
+  supported for production per adapter only once its live enforcement check passes), the standard HTTP duration
+  metric delivered at each pack's own path, the setup card with a Test connection that reports each hop it proved,
+  then a live validation (O7, Saravana). About 19 h of AI build and 5.5 h of checks (revised for the review of #218).
 - **Done when:** the core image builds and passes CI without `licensed/`; the enterprise image loads an extension
   with a valid key and refuses it with an invalid one; O7's live validation passes (a log line's trace id matches
-  the evidence manifest, the egress probe passes, and no planted secret reaches telemetry).
+  the evidence manifest, Test connection reaches "Verified at destination" and names the backend hop when it fails,
+  real request counts arrive for both packs in both modes, the live enforcement check passes, and no planted secret
+  reaches telemetry).
 
 **Phase D. First paid features (by 2026-12-14)**
 - SSO (OIDC first, then SAML), audit export to a SIEM, evidence signed with the customer's KMS, the compliance

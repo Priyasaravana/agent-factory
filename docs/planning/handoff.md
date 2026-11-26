@@ -4,6 +4,10 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-25)
+- **2026-11-26, planning only:** telemetry (O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md))
+  slotted in phase C, then revised for the review of #218: telemetry egress is engine-owned and read back, an
+  adapter supports production only once its live enforcement check passes, Test connection reports each hop it
+  proved, and metrics are scraped at each pack's own path. Now about 19 h of AI build. Nothing is built.
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
   phase B). S-07 below.
 - **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`
