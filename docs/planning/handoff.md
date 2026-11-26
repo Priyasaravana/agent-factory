@@ -7,6 +7,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **2026-11-26, planning only:** the UI design review and redesign plan, [plans/ui-redesign.md](plans/ui-redesign.md),
   slotted in phase D by Saravana, with three mocked-up directions on a private Design canvas linked from the plan.
   **Waiting on Saravana:** the direction and the six questions at the end of that page. Nothing is built.
+  Revised the same day for the review of #219: a recommended mix (Guided first product, Quiet daily, Console detail on
+  demand), the product page as the signature feature, an admin-only Factory settings API contract (UI-44), and a
+  Phase D gate of its own for the UI with a real operating-task rehearsal.
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
   phase B). S-07 below.
 - **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`

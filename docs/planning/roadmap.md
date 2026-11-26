@@ -646,10 +646,18 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   call): the design review in [plans/ui-redesign.md](plans/ui-redesign.md) (UI-01 to UI-60) and six web slices: the
   shell and a Simple / Advanced switch, home and New product, the product page, Insights, factory settings, the
   sign-in page and a public site (published in phase E). Three mocked-up directions to choose from (Quiet, Console,
-  Guided). Core, not a paid feature. If the phase runs short, slices 1–3 first and 4–6 before the rehearsal.
-- **Done when:** each works on the enterprise image and is absent from core; safety features stay in core. The UI:
-  every page fits a phone (390 px) in light and dark, no page in Simple uses engineering words (a test), one primary
-  action per page from the engine.
+  Guided; recommended in the review of #219: Guided for the first product, Quiet for daily work, Console-style detail
+  on demand). The signature page is the product page: is it healthy, what changed, what next (health card with app
+  and telemetry health apart, release and incident timeline). Core, not a paid feature. If the phase runs short,
+  slices 1–3 first and 4–6 before the rehearsal.
+- **Done when (paid features):** each works on the enterprise image and is absent from core; safety features stay
+  in core.
+- **Done when (the UI, core; its own criterion, since the "absent from core" gate above doesn't apply to it):** every
+  page fits a phone (390 px) in light and dark and reflows at 320 CSS px; no page in Simple uses engineering words
+  (a test); one primary action per page from the engine; the admin-only Factory settings API passes its member-denial
+  and secret-omission tests; and the operating-task rehearsal passes: a product owner opens a degraded product from
+  Home, identifies the affected release and reaches the correct action or owner without help, in Simple, keyboard
+  only, at 320 CSS px.
 
 **Phase E. Release v0.1.0 (rehearsal by 2026-12-20, public by 2026-12-31)**
 - Licence audit (the Claude Agent SDK and CLI terms, every bundled image, template and skill → `THIRD_PARTY.md`),

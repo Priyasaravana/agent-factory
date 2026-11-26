@@ -3,6 +3,13 @@
 Status: **proposed**. Placed in **phase D, before the release** by Saravana (2026-11-26): mockups first, two or
 three directions to choose from. The direction is still his call (open questions at the end).
 
+Revised 2026-11-26 for the review of PR #219 (requested changes before implementation; the Design canvas wasn't
+open to the reviewer, so the recommendation rests on this written plan):
+- a recommended mix of the three directions, and one signature page: the product page (below);
+- the Factory settings page gets a safe API contract (UI-44, admin-only, per-field source, no secrets);
+- Phase D's UI gate adds a real operating task, run in Simple with a keyboard and at 320 CSS px, and the UI gets its
+  own release criterion, apart from the paid features' "absent from core" gate.
+
 ## What was done
 The UI on main `25156de` was run in dry-run with sign-in off (`AUTH_MODE=off`, the single-user admin "local"),
 with one product per stack pack, and every route was screenshotted at desktop (1440 × 900) and phone (390 × 844)
@@ -66,7 +73,7 @@ are there, but nothing is simple by default.
 | UI-41 | The workflow editor is one page 4,410 px tall: phase board, spec review gate, design decisions, an evaluation gate with editable suites, learn from changes, start from a template or GitHub, agents, reference docs | O (`desk-workflow-edit`); UX-23, UX-25 | Tabs: **Stations** · **Approvals** (spec gate, design decisions) · **Agents** · **Docs** · **Evaluation**; a sticky Publish bar; "start from a template / import from GitHub" moves to a "New workflow" flow on the list |
 | UI-42 | The Skills page opens with the GitHub import form; each skill row has three buttons | O (`desk-skills`) | "Import a skill" opens a dialog; a row opens the skill, actions in its menu. Usage per skill belongs to phase I's skill upkeep |
 | UI-43 | Integrations lists every readiness check for every stack (22 rows, almost all green) before the integrations | O (`desk-integrations`) | A summary first ("Everything a change needs is ready · 1 warning", the warning shown); the per-stack checks open on demand; Environments under Advanced |
-| UI-44 | Most config sections have no page at all: `budgets`, `limits`, `gates`, `policies`, `change_risk`, `model_gateway`, `sandbox`, `preflight`, `models`, `checks`, `timezone`. An admin can't see what the factory is set to without reading two YAML files | C (config, `web/src`) | A read-only **Factory settings** page: each effective value and where it came from (shipped default or `config.local.yaml`). Editing stays in the file (phase B) |
+| UI-44 | Most config sections have no page at all: `budgets`, `limits`, `gates`, `policies`, `change_risk`, `model_gateway`, `sandbox`, `preflight`, `models`, `checks`, `timezone`. An admin can't see what the factory is set to without reading two YAML files | C (config, `web/src`) | A read-only **Factory settings** page for admins: each approved field's effective value, where it came from, and for credentials only a status. Editing stays in the file (phase B). It needs server work, specified below ("Factory settings: the API contract") |
 | UI-45 | API fields the UI never reads: `ConfigView.repo_blueprints`, `CatalogView.handlers` / `handler_info`, `Product.node_port`, `Product.eval_run_id`, `EvidenceKeyView.public_key`, `EvalRun.suite_hash` and others | C (schema scan) | Decide each: show it (the evidence public key belongs beside "Check it anywhere"), or drop it from the response model. Fields for API clients stay |
 
 ### Sign-in
@@ -78,6 +85,46 @@ are there, but nothing is simple by default.
 | # | Finding | Evidence | Proposed |
 |---|---|---|---|
 | UI-60 | There is no public site; the README is the front door and sells a laptop tool (user-journeys A2) | C | A small static site from [vision.md](../vision.md): the headline, the journey from inception to retirement, three proofs (the engine judges, a record you verify yourself, it runs what it builds), the quick start in practice mode, open source and enterprise side by side, Security, Licence, Contributing. Built in phase D, published with v0.1.0 in phase E |
+
+### Factory settings: the API contract (UI-44)
+The page must not be built on `ConfigView` or a raw config dump: today every `GET` is open to any signed-in user
+(`identity.requires_admin` returns False for reads), and the config holds secret references and gateway settings.
+- **Endpoint:** `GET /api/factory-settings`, **admin-only**. This is the first admin-only read, so
+  `identity.requires_admin` gains it deliberately and `tests/test_access.py` classifies it.
+- **Only approved fields:** an explicit allowlist (`settings_view.APPROVED`, pure), section by section; a config
+  field not on it is absent from the response, never shown by default. A new config field is hidden until someone
+  adds it.
+- **Per-field provenance:** each field is `{path, value, source}`, where `source` is `default` (the shipped
+  `config.yaml`), `local` (`config.local.yaml`, from `FactoryConfig._local_overrides`) or `environment`, so an admin
+  sees why a value is what it is.
+- **Credentials as status only:** a field that names a credential (a secret reference, a token, a gateway key, a
+  registry login) returns `credential: configured | missing | not needed` and never its value or its reference.
+- **Tests:** a member gets 403 and an admin 200; the response holds none of a set of planted values (resolved
+  secrets, `env://` and `github-app://` references, a gateway key), checked the way `test_cluster_target.py` greps
+  for leaks; a field off the allowlist is absent; a value set in `config.local.yaml` reports `source: local`.
+
+## What to lead with (recommended in the review of #219)
+**Direction: a mix, not one of the three.** Guided for the first product, Quiet for daily work, Console-style
+detail on demand (the Simple / Advanced switch). A and C already share one shell (above), so this costs no more
+than C.
+
+**The signature feature is the product page, answering three questions in order:**
+1. **Is it healthy?** 2. **What changed?** 3. **What should I do next?**
+
+The telemetry plan ([telemetry-standards.md](telemetry-standards.md), PR #218) supplies the evidence; this plan
+makes it usable. Three features, in this order:
+- **Product health card** (answers 1 and 3). Leads with user impact, the affected version, when health was last
+  verified, and the next action (from `attention.product_actions`, never chosen by the page). **App health and
+  telemetry health are separate lines**, so a collector outage stays distinguishable from an app outage
+  ("App: healthy · verified 2 min ago" beside "Telemetry: no real data for 20 min").
+- **Release and incident timeline** (answers 2; the feature to demo). Deploys, promotions, rollbacks and incident
+  milestones (`IncidentResponse.opened_at`, `restored_by`, `resolved_at`) on one timeline, newest first. Each entry
+  opens its signed evidence and, when telemetry is set up, the matching trace or dashboard (the change's trace id is
+  in its manifest, telemetry §7). Built by a pure engine function from the product's records
+  (`timeline.of_product`, served on the product; tests in `tests/test_timeline.py`), never assembled in the page.
+- **Guided first product.** The Guided start, in practice mode, then the user lands on the **same product page**
+  they will use live, not a separate tutorial screen. The empty state is about starting; the returning state is
+  about what needs attention.
 
 ## The rules the redesign keeps
 1. **One question per page.** Home: what needs me? Product: how is it, and what's next? Insights: are we getting
@@ -110,17 +157,31 @@ the home page leads with a request. A and C can share one implementation of the 
    390 px in light and dark for every page. (UI-01 to UI-07)
 2. **Home and New product:** pending actions first, filter chips, the plain-words start with Advanced, "Bring a
    repository", the empty state, the engine's estimate. (UI-10 to UI-14)
-3. **Product page:** one "What's next" card, the More menu, Simple and Advanced content, the fields in UI-24.
+3. **Product page:** the health card (app and telemetry health apart), the release and incident timeline, one
+   "What's next" card, the More menu, Simple and Advanced content, the fields in UI-24.
 4. **Insights:** three numbers against baselines, the period, phone layout. (UI-30 to UI-32)
 5. **Factory settings:** workflow editor tabs, the skills dialog, the integrations summary, the read-only Factory
-   settings page, the unused-fields decisions. (UI-40 to UI-45)
+   settings page on its admin-only API (contract above), the unused-fields decisions. (UI-40 to UI-45)
 6. **Sign-in and the public site:** the sign-in page with the SSO slot (the button joins phase D's SSO work), the
    static site in the repo, published in phase E. (UI-50, UI-60)
 
-**Done when:** every page fits 390 px without horizontal scroll, light and dark, in `web/e2e`; no page in Simple
-fails the plain-words test; each page has one primary action from the engine; the release rehearsal (phase E)
-creates a first product from the home page in practice mode without the docs. The engine changes only where a
-finding needs a value it doesn't serve yet (the estimate in UI-14, the period in UI-31, `/auth/me` in UI-04).
+**Done when** (the UI's own release criterion; it is core, so the paid features' "on the enterprise image, absent
+from core" gate doesn't apply to it):
+- **Layout and words (regression checks):** every page fits 390 px without horizontal scroll, light and dark, in
+  `web/e2e`, and reflows at **320 CSS px** with no two-dimensional scrolling for text
+  ([WCAG 2.2 Reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html)); no page in Simple fails the
+  plain-words test; each page has one primary action from the engine.
+- **A real operating task (rehearsal).** A product owner who hasn't seen the redesign opens a **degraded** product
+  from Home, identifies the affected release, and reaches the correct action or owner **without help**. Run in
+  Simple, with a **keyboard only**, at **320 CSS px**, against a practice-mode product with a seeded incident. It is
+  scripted in `web/e2e` (the same steps and assertions: the degraded product is reachable from Home, the timeline
+  names the release, the health card's action is the engine's) and done once by a person before phase D closes,
+  with the time taken and where they hesitated recorded in the plan.
+- **First product:** the release rehearsal (phase E) creates a first product from the home page in practice mode
+  without the docs.
+
+The engine changes only where a finding needs a value it doesn't serve yet: the estimate in UI-14, the period in
+UI-31, `/auth/me` in UI-04, the admin-only Factory settings API (UI-44) and the product timeline.
 
 **Risk to phase D:** four paid features already share the phase, and the compliance pack is the first to slip
 ([open-source-release.md](open-source-release.md), Risks). These slices touch only `web/` (and the small engine
@@ -128,7 +189,8 @@ values named above), so they run beside them; if the phase is short, slices 1–
 phase E before the rehearsal.
 
 ## Open questions for Saravana
-1. Which direction: A, B, C, or a mix (for example B's sidebar with C's home page)?
+1. Which direction: A, B, C, or a mix? Recommended in the review: Guided for the first product, Quiet for daily
+   work, Console-style detail on demand (above).
 2. Advanced as a per-user switch (proposed), or only "Details" sections per page?
 3. The stack in plain words on the create form, with the stack cards under Advanced: agreed?
 4. Light or dark as the default for a new install?
