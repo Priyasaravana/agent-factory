@@ -27,6 +27,13 @@ def test_long_running_services_drop_everything():
         assert "no-new-privileges:true" in svc.get("security_opt", []), f"{name}: no-new-privileges"
 
 
+def test_the_auth_service_never_gets_the_factorys_secrets():
+    """ADR-0052: auth reads only its own folder (the licence key and the OIDC client secret), never .secrets/ whole."""
+    mounts = [str(v).split(":")[0] for v in COMPOSE["auth"].get("volumes", [])]
+    assert "./.secrets" not in mounts and "./.secrets/auth" in mounts
+    assert "env_file" not in COMPOSE["auth"]
+
+
 def test_the_factory_never_runs_as_root():
     assert COMPOSE["factory"]["user"] == f"{RUNTIME_UID}:{RUNTIME_UID}"
     dockerfile = (ROOT / "images" / "factory" / "Dockerfile").read_text()

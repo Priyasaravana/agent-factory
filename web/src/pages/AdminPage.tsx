@@ -112,6 +112,11 @@ export default function AdminPage() {
                     <span className="pill warn">must change password</span>
                   )}
                   {u.disabled && <span className="pill bad">disabled</span>}
+                  {u.source && u.source !== "local" && (
+                    <span className="pill info" title="signs in through the identity provider; no password here">
+                      {u.source.replace(/^sso:/, "SSO · ")}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <select

@@ -131,6 +131,7 @@ jobs:
           docker build -f images/factory/Dockerfile -t af-factory:ci .
           docker build -f images/factory/Dockerfile --target enterprise -t af-factory-enterprise:ci .
           docker build -f images/auth/Dockerfile -t af-auth:ci .
+          docker build -f images/auth/Dockerfile --target enterprise -t af-auth-enterprise:ci .
           docker build -t af-web:ci web
       - name: one Dockerfile, two editions; core never holds licensed code (ADR-0051)
         run: |
@@ -147,6 +148,12 @@ jobs:
             | tee /tmp/no-key.json
           docker run --rm --entrypoint agent-factory -e AGENT_FACTORY_LICENCE=AFL1.e30.AAAA \
             af-factory-enterprise:ci edition --require enterprise | tee /tmp/bad-key.json
+          # the auth service: core has no sign-in extension; enterprise without a key offers no SSO provider
+          ! docker run --rm --entrypoint python af-auth:ci -c "import agent_factory_licensed" 2>/dev/null
+          docker run --rm --entrypoint python af-auth-enterprise:ci -c "
+          from factory_auth import extensions as e
+          r = e.load()
+          assert r.edition == 'enterprise' and not r.providers and r.loaded[0].status == 'refused', r"
           for f in /tmp/no-key.json /tmp/bad-key.json; do
             jq -e '.licence.valid == false and ([.extensions[] | select(.status == "loaded")] | length == 0)' "$f"
           done

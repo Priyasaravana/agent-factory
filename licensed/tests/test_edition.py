@@ -49,7 +49,7 @@ def test_a_valid_key_loads_the_feature_and_audit_events_reach_the_file(issuer, t
     monkeypatch.setenv("AGENT_FACTORY_AUDIT_DIR", str(tmp_path / "audit"))
     reg = extensions.load([_EP(_ext(issuer, _valid(issuer)))])
     assert reg.edition == "enterprise" and reg.licence and reg.licence["valid"]
-    assert [(e.name, e.status) for e in reg.loaded] == [("audit-file", "loaded")]
+    assert [(e.name, e.status) for e in reg.loaded] == [("audit-file", "loaded"), ("sso", "refused")]
     reg.audit("change.status", change_id="c1", to_status="running")
     reg.audit("change.status", change_id="c1", to_status="delivered")
     lines = [json.loads(ln) for f in sorted((tmp_path / "audit").glob("*.jsonl")) for ln in f.read_text().splitlines()]
@@ -62,8 +62,8 @@ def test_an_invalid_or_missing_key_refuses_every_feature_and_core_runs_on(issuer
     monkeypatch.setenv("AGENT_FACTORY_AUDIT_DIR", str(tmp_path / "audit"))
     reg = extensions.load([_EP(_ext(issuer, key))])
     assert reg.edition == "enterprise" and reg.licence and not reg.licence["valid"]
-    assert [(e.name, e.status) for e in reg.loaded] == [("siem", "refused")]
-    assert reg.loaded[0].reason.startswith("licence: ")
+    assert [(e.name, e.status) for e in reg.loaded] == [("siem", "refused"), ("sso", "refused")]
+    assert all(e.reason.startswith("licence: ") for e in reg.loaded)
     assert reg.audit_sinks == [] and reg.signer_factory is None
     reg.audit("change.status", change_id="c1")
     assert not (tmp_path / "audit").exists()
@@ -73,14 +73,15 @@ def test_a_valid_key_without_the_feature_refuses_only_that_feature(issuer):
     reg = extensions.load([_EP(_ext(issuer, _valid(issuer, features=("sso",))))])
     assert reg.licence and reg.licence["valid"]
     assert [(e.name, e.status, e.reason) for e in reg.loaded] == [
-        ("siem", "refused", "the licence does not include this feature")
+        ("siem", "refused", "the licence does not include this feature"),
+        ("sso", "loaded", ""),
     ]
 
 
 def test_an_expired_key_past_grace_refuses(issuer):
     key = licence.issue(issuer, "Acme", ["siem"], date(2020, 1, 1), issued=date(2019, 1, 1))
     reg = extensions.load([_EP(_ext(issuer, key))])
-    assert [e.status for e in reg.loaded] == ["refused"] and "expired" in reg.loaded[0].reason
+    assert [e.status for e in reg.loaded] == ["refused", "refused"] and "expired" in reg.loaded[0].reason
 
 
 def test_the_audit_chain_shows_a_removed_or_edited_line(tmp_path):

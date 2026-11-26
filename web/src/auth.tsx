@@ -7,6 +7,7 @@ export type Me = {
   role: "admin" | "member";
   disabled: boolean;
   must_change: boolean;
+  source?: string; // "local", or "sso:<provider>" (ADR-0052)
 };
 export type AuthState =
   | { kind: "loading" }

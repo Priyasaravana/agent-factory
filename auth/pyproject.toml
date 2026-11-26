@@ -11,6 +11,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]
+# what the enterprise image's licensed sign-in needs on top of core (ADR-0052); core never uses it
+enterprise = ["cryptography>=46"]
 
 [project.scripts]
 factory-auth = "factory_auth.cli:main"

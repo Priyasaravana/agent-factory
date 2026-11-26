@@ -1,11 +1,34 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { Factory, LogIn } from "lucide-react";
+import { useQuery, useQueryClient as useClient } from "@tanstack/react-query";
+import { Factory, KeyRound, LogIn } from "lucide-react";
 import { useState } from "react";
 import { authFetch, type Me } from "../auth";
 import { Button } from "../components/ui/button";
 
+// ADR-0052: what a failed single sign-on may say. Fixed texts for fixed codes; nothing from the identity provider.
+const SSO_ERRORS: Record<string, string> = {
+  state: "That sign-in link expired or came from another browser. Start again.",
+  provider:
+    "The sign-in provider is not available right now. Try again, or sign in with a password.",
+  denied:
+    "Your identity provider did not allow this sign-in, or your account is not in a group that may use the factory.",
+  account: "A local account already has that name. Ask an admin.",
+  disabled: "Your account is disabled. Ask an admin.",
+  invalid: "The sign-in could not be verified. Try again.",
+};
+
+type Provider = { id: string; label: string };
+
 export default function LoginPage() {
-  const qc = useQueryClient();
+  const qc = useClient();
+  const providers = useQuery({
+    queryKey: ["sso-providers"],
+    queryFn: async () => {
+      const r = await fetch("/auth/sso", { credentials: "same-origin" });
+      return r.ok ? ((await r.json()) as Provider[]) : [];
+    },
+    retry: false,
+  });
+  const ssoError = new URLSearchParams(window.location.search).get("sso_error");
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,7 +43,10 @@ export default function LoginPage() {
           setBusy(true);
           setError(null);
           try {
-            const me = await authFetch<Me>("/auth/login", { method: "POST", body: JSON.stringify(form) });
+            const me = await authFetch<Me>("/auth/login", {
+              method: "POST",
+              body: JSON.stringify(form),
+            });
             qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" }); // nothing cached from before sign-in
             qc.setQueryData(["me"], { kind: "signed-in", me });
           } catch (err) {
@@ -35,10 +61,33 @@ export default function LoginPage() {
             <Factory className="size-5" />
           </div>
           <div>
-            <h1 className="m-0 text-xl font-semibold tracking-tight">Agent Software Factory</h1>
-            <p className="m-0 mt-1 text-sm text-muted-foreground">Sign in to continue</p>
+            <h1 className="m-0 text-xl font-semibold tracking-tight">
+              Agent Software Factory
+            </h1>
+            <p className="m-0 mt-1 text-sm text-muted-foreground">
+              Sign in to continue
+            </p>
           </div>
         </div>
+        {ssoError && !error && (
+          <p className="error">{SSO_ERRORS[ssoError] ?? SSO_ERRORS.invalid}</p>
+        )}
+        {(providers.data ?? []).map((p) => (
+          <Button key={p.id} asChild size="lg" variant="outline">
+            <a
+              href={`/auth/sso/${encodeURIComponent(p.id)}/start`}
+              data-testid={`sso-${p.id}`}
+            >
+              <KeyRound /> {p.label}
+            </a>
+          </Button>
+        ))}
+        {(providers.data ?? []).length > 0 && (
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" /> or with a password{" "}
+            <span className="h-px flex-1 bg-border" />
+          </div>
+        )}
         <label>
           Username
           <input

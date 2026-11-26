@@ -675,6 +675,13 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 **Phase D. First paid features (by 2026-12-14)**
 - SSO (OIDC first, then SAML), audit export to a SIEM, evidence signed with the customer's KMS, the compliance
   report pack ("aligned with", never "compliant"; the first to slip to January).
+  🟡 **SSO part 1, OIDC, built 2026-11-26 on `feat/sso-oidc`** (stacked on phase C's `feat/open-core-seam`;
+  [ADR-0052](../adr/0052-single-sign-on.md), proposed): the auth service's own seam (`factory_auth/extensions.py`,
+  point `sign_in`); `/auth/sso/{id}/start` and `/callback` in core (state bound to the browser, `AUTH_PUBLIC_URL`
+  only, no takeover of a local account, disabled stays out, fixed error codes); the licensed OIDC provider (PKCE,
+  nonce, discovery and JWKS over https without redirects, RS256/PS256/ES256 only, group and domain mapping);
+  auth image targets `core` / `enterprise`; sign-in page buttons; SSO badge on Admin. **Left:** SAML, then SIEM
+  delivery, customer KMS signing and the compliance pack; the live check with a real identity provider (Saravana).
 - **The factory UI, simple by default** (placed here by Saravana 2026-11-26; mockups first, the direction still his
   call): the design review in [plans/ui-redesign.md](plans/ui-redesign.md) (UI-01 to UI-60) and six web slices: the
   shell and a Simple / Advanced switch, home and New product, the product page, Insights, factory settings, the

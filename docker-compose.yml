@@ -114,6 +114,7 @@ services:
     build:
       context: .
       dockerfile: images/auth/Dockerfile
+      target: ${FACTORY_EDITION:-core}   # ADR-0051/0052: enterprise adds licensed single sign-on
     environment:
       # Only what auth needs; it never gets the factory's .env (model/GitHub tokens).
       FACTORY_ADMIN_USER: ${FACTORY_ADMIN_USER:-admin}
@@ -121,10 +122,22 @@ services:
       AUTH_SESSION_HOURS: ${AUTH_SESSION_HOURS:-12}
       AUTH_IDLE_MINUTES: ${AUTH_IDLE_MINUTES:-60}          # a session unused this long ends (S-14)
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}      # true behind HTTPS
+      # single sign-on (ADR-0052, enterprise edition with a licence covering `sso`); unset: local sign-in only.
+      # The licence key and client secret are files in .secrets/ (mounted below), never values here.
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-}                # e.g. https://factory.example.com
+      AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
+      AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
+      AUTH_OIDC_LABEL: ${AUTH_OIDC_LABEL:-}
+      AUTH_OIDC_ADMIN_GROUPS: ${AUTH_OIDC_ADMIN_GROUPS:-}
+      AUTH_OIDC_MEMBER_GROUPS: ${AUTH_OIDC_MEMBER_GROUPS:-}
+      AUTH_OIDC_ALLOWED_DOMAINS: ${AUTH_OIDC_ALLOWED_DOMAINS:-}
     cap_drop: [ALL]                      # runs as uid 10002 (image USER), needs no capabilities
     security_opt: ["no-new-privileges:true"]
     volumes:
       - auth-data:/data                  # its own database: users, sessions, token hashes, audit
+      # its own secrets folder, never the factory's tokens: agent_factory_licence and auth_oidc_client_secret
+      # (enterprise edition, ADR-0052); an empty folder on core
+      - ./.secrets/auth:/run/secrets:ro
     restart: unless-stopped
 
   web:

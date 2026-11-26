@@ -6,7 +6,7 @@ name: release
 #   cosign verify ghcr.io/<owner>/agent-factory:<tag> \
 #     --certificate-identity-regexp 'https://github.com/<owner>/agent-factory/.github/workflows/release.yml@refs/tags/v.*' \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
-# The auth, web and sandbox images join the release in phase E (rehearsal).
+# The auth service's two editions (ADR-0052) are built, proved and signed too; web and the sandbox join in phase E.
 on:
   push:
     tags: ["v*"]
@@ -39,22 +39,29 @@ jobs:
           [[ "$GITHUB_REF" == refs/tags/v* ]] || tag="dev-${GITHUB_SHA::12}"
           echo "CORE=ghcr.io/$owner/agent-factory:$tag" >> "$GITHUB_ENV"
           echo "ENTERPRISE=ghcr.io/$owner/agent-factory-enterprise:$tag" >> "$GITHUB_ENV"
+          echo "AUTH_CORE=ghcr.io/$owner/agent-factory-auth:$tag" >> "$GITHUB_ENV"
+          echo "AUTH_ENTERPRISE=ghcr.io/$owner/agent-factory-auth-enterprise:$tag" >> "$GITHUB_ENV"
       - name: build both editions from the same source
         run: |
           docker build -f images/factory/Dockerfile --target core -t "$CORE" .
           docker build -f images/factory/Dockerfile --target enterprise -t "$ENTERPRISE" .
+          docker build -f images/auth/Dockerfile --target core -t "$AUTH_CORE" .
+          docker build -f images/auth/Dockerfile --target enterprise -t "$AUTH_ENTERPRISE" .
       - name: each image is the edition it says (core holds no licensed code)
         run: |
           docker run --rm --entrypoint agent-factory "$CORE" edition --require core
           ! docker run --rm --entrypoint python3 "$CORE" -c "import agent_factory_licensed" 2>/dev/null
           docker run --rm --entrypoint agent-factory "$ENTERPRISE" edition --require enterprise
+          ! docker run --rm --entrypoint python "$AUTH_CORE" -c "import agent_factory_licensed" 2>/dev/null
+          docker run --rm --entrypoint python "$AUTH_ENTERPRISE" -c \
+            "from factory_auth import extensions as e; assert e.load().edition == 'enterprise'"
       - name: push
         if: env.PUSH == 'true'
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          for img in "$CORE" "$ENTERPRISE"; do
+          for img in "$CORE" "$ENTERPRISE" "$AUTH_CORE" "$AUTH_ENTERPRISE"; do
             docker push "$img"
             digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$img")
             echo "$img -> $digest"
@@ -83,5 +90,8 @@ jobs:
           ent=$(grep "/agent-factory-enterprise@" /tmp/digests)
           cosign sign --yes "$core"
           cosign sign --yes "$ent"
+          # the auth images are signed too; their SBOMs join in phase E with web and the sandbox
+          cosign sign --yes "$(grep "/agent-factory-auth@" /tmp/digests)"
+          cosign sign --yes "$(grep "/agent-factory-auth-enterprise@" /tmp/digests)"
           cosign attest --yes --type spdxjson --predicate /tmp/sbom-core.spdx.json "$core"
           cosign attest --yes --type spdxjson --predicate /tmp/sbom-enterprise.spdx.json "$ent"

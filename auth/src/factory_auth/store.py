@@ -65,6 +65,12 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk.hex(), digest)
 
 
+def check_username(username: str) -> None:
+    # '@' for identity-provider names (ADR-0052); nothing that could break a header or a path
+    if not username or len(username) > 64 or not username.translate(str.maketrans("", "", "-_.@")).isalnum():
+        raise AuthError("username may contain letters, digits, '.', '-', '_' and '@'")
+
+
 def check_password_policy(password: str) -> None:
     if len(password) < MIN_PASSWORD:
         raise AuthError(f"password must be at least {MIN_PASSWORD} characters")
@@ -77,6 +83,7 @@ class User:
     disabled: bool
     must_change: bool
     created_at: str
+    source: str = "local"  # local, or sso:<provider id> (ADR-0052): how this account signs in
 
 
 @dataclass
@@ -113,6 +120,9 @@ class Store:
         cols = {r[1] for r in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
         if "last_seen_at" not in cols:  # databases from before the idle timeout (S-14)
             self._db.execute("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT")
+        ucols = {r[1] for r in self._db.execute("PRAGMA table_info(users)").fetchall()}
+        if "source" not in ucols:  # databases from before single sign-on (ADR-0052): every account was local
+            self._db.execute("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'")
         # a dummy hash so login timing does not reveal whether a user exists
         self._dummy = hash_password(secrets.token_hex(8))
 
@@ -132,19 +142,19 @@ class Store:
 
     def get_user(self, username: str) -> User | None:
         row = self._q(
-            "SELECT username, role, disabled, must_change, created_at FROM users WHERE username=?", (username,)
+            "SELECT username, role, disabled, must_change, created_at, source FROM users WHERE username=?",
+            (username,),
         ).fetchone()
-        return User(row[0], row[1], bool(row[2]), bool(row[3]), row[4]) if row else None
+        return User(row[0], row[1], bool(row[2]), bool(row[3]), row[4], row[5]) if row else None
 
     def list_users(self) -> list[User]:
-        rows = self._q("SELECT username, role, disabled, must_change, created_at FROM users ORDER BY username")
-        return [User(r[0], r[1], bool(r[2]), bool(r[3]), r[4]) for r in rows.fetchall()]
+        rows = self._q("SELECT username, role, disabled, must_change, created_at, source FROM users ORDER BY username")
+        return [User(r[0], r[1], bool(r[2]), bool(r[3]), r[4], r[5]) for r in rows.fetchall()]
 
     def create_user(self, username: str, password: str, role: Role, must_change: bool = False) -> User:
         if role not in ROLES:
             raise AuthError(f"role must be one of {ROLES}")
-        if not username or not username.replace("-", "").replace("_", "").replace(".", "").isalnum():
-            raise AuthError("username may contain letters, digits, '.', '-' and '_'")
+        check_username(username)
         check_password_policy(password)
         if self.get_user(username):
             raise AuthError(f"user '{username}' already exists")
@@ -156,13 +166,17 @@ class Store:
 
     def authenticate(self, username: str, password: str) -> User | None:
         row = self._q("SELECT pw, disabled FROM users WHERE username=?", (username,)).fetchone()
-        stored = row[0] if row else self._dummy
+        local = bool(row and "$" in row[0])  # an SSO account (pw "sso") has no password: same timing, never ok
+        stored = row[0] if row and local else self._dummy
         ok = verify_password(password, stored)
-        if not row or not ok or row[1]:
+        if not row or not local or not ok or row[1]:
             return None
         return self.get_user(username)
 
     def set_password(self, username: str, password: str, must_change: bool = False) -> None:
+        user = self.get_user(username)
+        if user and user.source != "local":
+            raise AuthError(f"'{username}' signs in with {user.source}; it has no password here")
         check_password_policy(password)
         self._q(
             "UPDATE users SET pw=?, must_change=? WHERE username=?",
@@ -192,6 +206,26 @@ class Store:
         self.revoke_sessions(username)
         self._q("DELETE FROM tokens WHERE username=?", (username,))
         self._q("DELETE FROM users WHERE username=?", (username,))
+
+    def sso_user(self, username: str, provider: str, role: Role | None) -> User:
+        """The account an identity provider vouched for (ADR-0052): made on its first sign-in, its role kept in
+        step with the provider's groups when a mapping gives one. Never a local account: a name the factory
+        already has from elsewhere is refused, so an identity provider can't take over `admin`. Disabled stays
+        disabled; the caller refuses it."""
+        source = f"sso:{provider}"
+        check_username(username)
+        user = self.get_user(username)
+        if user is None:
+            self._q(
+                "INSERT INTO users(username, role, pw, must_change, created_at, source) VALUES (?,?,?,?,?,?)",
+                (username, role or "member", "sso", 0, _now().isoformat(), source),
+            )
+            return self.get_user(username)  # type: ignore[return-value]
+        if user.source != source:
+            raise AuthError(f"'{username}' is a {user.source} account here, not one {source} vouches for")
+        if role and role != user.role and not user.disabled:
+            return self.update_user(username, role=role)  # the last active admin rule still holds
+        return user
 
     def _active_admins(self) -> int:
         return int(self._q("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0").fetchone()[0])
