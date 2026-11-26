@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { api, unwrap, type CheckView, type PreflightView } from "../api/client";
+import { EditionCard } from "../components/EditionCard";
 import Problems from "../components/Problems";
 import { RepoSourcesCard } from "../components/RepoSources";
 import { Button } from "../components/ui/button";
@@ -105,6 +106,8 @@ export default function IntegrationsPage() {
       )}
 
       <RepoSourcesCard />
+
+      <EditionCard />
 
       {delivery.data && (
         <Card>

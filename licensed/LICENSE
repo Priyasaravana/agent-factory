@@ -1,0 +1,50 @@
+Agent Software Factory Commercial Licence, version 1.0 (draft)
+
+DRAFT: to be reviewed by a lawyer before the first public release (roadmap phase E). Until then this
+text states the intended terms; the Licensor may replace it with the reviewed version.
+
+1. Definitions
+"Licensor" means the copyright holder named in the NOTICE file in this directory.
+"Software" means the files in the directory that contains this LICENSE file (the "licensed/" directory
+of the Agent Software Factory repository), in source or compiled form, and any modified version of them.
+"Subscription" means a current, paid agreement with the Licensor that names the features and the term it
+covers, evidenced by a licence key issued by the Licensor.
+"Production Use" means any use of the Software other than Development Use.
+"Development Use" means using the Software to develop, test, evaluate or demonstrate it, or to develop
+and test changes to it, in a non-production environment.
+
+2. What you may do
+2.1 You may read, copy and modify the Software, and use it for Development Use, without a Subscription.
+2.2 You may make Production Use of the features a valid Subscription covers, for its term, on the number
+of installations it covers.
+2.3 You may contribute changes to the Software back to the Licensor. Contributions are accepted under the
+terms in CONTRIBUTING (Developer Certificate of Origin).
+
+3. What you may not do
+3.1 Make Production Use of the Software, or of any feature of it, without a valid Subscription covering
+that feature.
+3.2 Remove, disable, bypass or work around the licence key check, or any part of the Software that
+enforces this licence, or make the Software accept a key the Licensor did not issue.
+3.3 Provide the Software, or any feature of it, to third parties as a hosted or managed service.
+3.4 Sell, sublicense or distribute the Software, modified or not, except copies for Development Use that
+keep this LICENSE and the NOTICE file.
+3.5 Remove or change any licence, copyright or other notice in the Software.
+
+4. The rest of the repository
+Everything outside the "licensed/" directory is licensed under the Apache License 2.0 (see the LICENSE file
+at the repository root). This licence does not limit your rights under that licence to anything outside
+"licensed/". Using the Apache-2.0 core alone never needs a Subscription.
+
+5. Ending
+Your rights under section 2.2 end when your Subscription ends. Your rights under this licence end
+automatically if you break section 3; they come back if you stop and the breach is cured within 30 days of
+notice from the Licensor, once only.
+
+6. No warranty, limited liability
+The Software is provided "as is", without warranty of any kind, express or implied, including fitness for a
+particular purpose and non-infringement, except as a Subscription agreement states otherwise. To the extent
+the law allows, the Licensor is not liable for any damages arising from the Software or its use, except as a
+Subscription agreement states otherwise.
+
+7. Governing law
+This licence is governed by the laws of England and Wales.

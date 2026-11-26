@@ -74,6 +74,7 @@ from agent_factory.models import (
     DraftTemplatesView,
     DraftView,
     DuplicateAgentInput,
+    EditionView,
     EntryArtifactView,
     EnvironmentView,
     EvalRun,
@@ -83,6 +84,7 @@ from agent_factory.models import (
     EvidenceFile,
     EvidenceKeyView,
     EvidenceView,
+    ExtensionView,
     FeedbackFixView,
     FeedbackInput,
     FromGitHubInput,
@@ -1642,16 +1644,39 @@ def get_change_evidence(f: Factory, change_id: str) -> EvidenceView:
 def get_evidence_key(f: Factory) -> EvidenceKeyView:
     from agent_factory import signing
 
-    s = signing.LocalSigner(f.manager.ws.data_dir)
-    retired = [signing.fingerprint(b) for b in s.retired()]
-    if not s.key_path.is_file():  # reading never makes the key; the first seal does
-        return EvidenceKeyView(retired=retired)
-    blob = s.public_blob()
+    s = signing.signer_for(f.manager.ws.data_dir)
+    if isinstance(s, signing.LocalSigner):
+        retired = [signing.fingerprint(b) for b in s.retired()]
+        if not s.key_path.is_file():  # reading never makes the key; the first seal does
+            return EvidenceKeyView(retired=retired)
+        blob = s.public_blob()
+    else:  # an extension's signer (ADR-0051): its current key, and every other key it trusts
+        blob = s.public_blob()
+        retired = sorted(signing.fingerprint(b) for b in s.trusted() if b != blob)
     return EvidenceKeyView(
         fingerprint=signing.fingerprint(blob),
         public_key=signing.public_line(blob),
         allowed_signers=signing.allowed_signers_line(blob),
         retired=retired,
+    )
+
+
+@action(
+    "get_edition",
+    "Which edition is running (core or enterprise), what its licence grants and when it ends, and which "
+    "extensions loaded or were refused, with the reason (ADR-0051)",
+    "GET",
+    "/api/edition",
+)
+def get_edition(f: Factory) -> EditionView:
+    from agent_factory import extensions
+
+    reg = extensions.active()
+    return EditionView(
+        edition=reg.edition,
+        licence=reg.licence,
+        extensions=[ExtensionView(**vars(e)) for e in reg.loaded],
+        ui_slots=dict(reg.ui_slots),
     )
 
 

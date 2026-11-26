@@ -104,6 +104,8 @@ def main() -> None:
     )
     ek.add_argument("action", choices=["show", "rotate"])
     ek.add_argument("--confirm", action="store_true", help="rotate: yes, make a new key (the old one stays trusted)")
+    ed = sub.add_parser("edition", help="core or enterprise, the licence and the extensions it loads (ADR-0051)")
+    ed.add_argument("--require", choices=["core", "enterprise"], help="exit 1 unless this edition is running")
     cf = sub.add_parser("config", help="the factory config and this install's local override")
     cfsub = cf.add_subparsers(dest="cf_cmd", required=True)
     cs = cfsub.add_parser(
@@ -149,6 +151,8 @@ def main() -> None:
         _factory_drill(args.result, args.by, args.note)
     elif args.cmd == "evidence-key":
         _evidence_key(args.action, args.confirm)
+    elif args.cmd == "edition":
+        _edition(args.require)
     elif args.cmd == "config":
         _config_split(args.base, args.mine, args.out, args.force)
     elif args.cmd == "sandbox" and args.sb_cmd == "context":
@@ -223,6 +227,22 @@ def _evidence_key(action: str, confirm: bool) -> None:
     print(f"allowed_signers: {signing.allowed_signers_line(blob)}")
     for fp in (signing.fingerprint(b) for b in signer.retired()):
         print(f"retired, still trusted: {fp}")
+
+
+def _edition(require: str | None) -> None:
+    """Load the installed extensions exactly as the factory does at start and print what came of them
+    (no key material). `--require` makes it a check: the release job proves each image's edition."""
+    from agent_factory import extensions
+
+    reg = extensions.load()
+    out = {
+        "edition": reg.edition,
+        "licence": reg.licence,
+        "extensions": [vars(e) for e in reg.loaded],
+    }
+    print(json.dumps(out, indent=2, default=str))
+    if require and reg.edition != require:
+        sys.exit(f"expected the {require} edition, found {reg.edition}")
 
 
 def _config_split(base: Path, mine: Path, out: Path, force: bool) -> None:

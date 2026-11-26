@@ -640,10 +640,19 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   `make upgrade` refuses while the tracked file has local edits.
 - **Done when:** a sealed live run's bundle verifies on another machine, and a tampered copy fails.
 
-**Phase C. Open core seam (by 2026-12-04)** · code split recommended in
-[plans/open-source-release.md](plans/open-source-release.md), to be confirmed by Saravana before this phase starts
+**Phase C. Open core seam (by 2026-12-04)** · code split **confirmed by Saravana 2026-11-26**: one repo with
+`licensed/` under a custom commercial licence (not ELv2 or BSL); telemetry (O1–O7, below) after the seam, on its own branch
+([plans/open-source-release.md](plans/open-source-release.md))
 - `LICENSE` (Apache-2.0 with a directory map), the `licensed/` folder with its own licence, the CI guard, the
   extension entry points, the offline licence key, two signed images (core, enterprise) with SBOMs from one tag.
+  🟡 **Built 2026-11-26 on `feat/open-core-seam` ([ADR-0051](../adr/0051-open-core-seam.md), proposed):** root `LICENSE`
+  with the directory map; `licensed/LICENSE` (draft, for a lawyer before phase E) and `NOTICE`; the boundary test
+  (`tests/test_licence_boundary.py`) and a CI build of core from a checkout without `licensed/`; `extensions.py` (five
+  points; the evidence signer and change audit events wired); the offline key (`agent_factory_licensed.licence`,
+  `make licence-issuer` / `licence-issue`); the first licensed feature, `siem`'s hash-chained audit file; Dockerfile
+  targets `core` (default) and `enterprise`; `release.yml` (both images, SBOMs, cosign keyless, SBOM attested);
+  `GET /api/edition` and the Edition card. **Left for Saravana:** make the issuer key on the Mac and commit its public
+  line; then the live check below.
 - **Logs, metrics and traces on open standards** (decided by Saravana 2026-11-26, all of it in this phase):
   slices O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md): one log contract on the
   OpenTelemetry log model for the factory and both packs, the factory's `/metrics` and `gen_ai.*` traces, a tested

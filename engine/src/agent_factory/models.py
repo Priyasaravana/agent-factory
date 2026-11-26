@@ -1068,6 +1068,26 @@ class EvidenceKeyView(BaseModel):
     retired: list[str] = Field(default_factory=list)  # fingerprints of rotated-out keys, still trusted
 
 
+class ExtensionView(BaseModel):
+    """One extension, or one feature the licensed edition offered, and what became of it (ADR-0051)."""
+
+    name: str
+    feature: str
+    status: str  # loaded | refused | failed
+    reason: str = ""
+    points: list[str] = Field(default_factory=list)
+
+
+class EditionView(BaseModel):
+    """Which edition is running (core or enterprise), what its licence says, and which extensions loaded.
+    Never any key material: the licence's holder, features and expiry only."""
+
+    edition: str = "core"
+    licence: dict[str, Any] | None = None
+    extensions: list[ExtensionView] = Field(default_factory=list)
+    ui_slots: dict[str, str] = Field(default_factory=dict)
+
+
 class EvalCaseResult(BaseModel):
     """One evaluation case on one workflow version (ADR-0025)."""
 

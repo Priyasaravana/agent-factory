@@ -154,3 +154,10 @@ Credits: the Factory conventions and the default skills come from
 at a pinned commit (see `default_skills` in `.agent-factory/config.yaml`), not
 copied into this repo. The shared-actions pattern comes from
 [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native).
+
+## Licence
+Open core ([ADR-0051](docs/adr/0051-open-core-seam.md)): everything outside `licensed/` is **Apache-2.0**
+([LICENSE](LICENSE)). `licensed/` (SSO, SIEM export, customer KMS signing, the compliance pack) is source-available
+under the [Agent Software Factory Commercial Licence](licensed/LICENSE): free to read and try, a subscription for
+production use. The default image (`core`) never contains it; `FACTORY_EDITION=enterprise` builds the edition that
+does, and its features load only with a valid licence key.

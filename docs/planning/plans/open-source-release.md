@@ -3,8 +3,8 @@
 Status: release date **decided by Saravana 2026-11-21**: v0.1.0 public by **2026-12-31**. Built by AI, reviewed by
 AI; Saravana validates the outcome of each step. SaaS is **design only** in December (decided 2026-11-21). First
 paid features in December: SSO (OIDC/SAML), audit export to a SIEM, evidence signed with the customer's KMS, and a
-compliance report pack (decided 2026-11-21). How the code is split is **recommended** below (Saravana asked for a suggestion 2026-11-21); he confirms it before
-phase C starts. The phases and their "Done when" are in the roadmap's "Next, in order" (A–E).
+compliance report pack (decided 2026-11-21). How the code is split was recommended below (Saravana asked for a suggestion 2026-11-21) and **confirmed by him
+2026-11-26**, with a custom commercial licence for `licensed/` ([ADR-0051](../../adr/0051-open-core-seam.md)). The phases and their "Done when" are in the roadmap's "Next, in order" (A–E).
 Vision and goals: [../vision.md](../vision.md).
 
 ## How to split the code (proposed 2026-11-21)

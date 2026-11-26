@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: LicenseRef-AgentFactory-Commercial
+# Licence issuer public keys this build trusts (ADR-0051), one `ssh-ed25519 AAAA… comment` per line.
+# Empty until the Licensor makes the first issuer key (make licence-issuer, on the Licensor's machine);
+# until then every key is refused and the enterprise image runs its features as refused.
+# Adding a key here is a release decision: it is reviewed like code (CODEOWNERS).

@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1
 # The factory runtime: engine + API, and every tool the stations shell out to.
 # It never gets the host Docker socket; it talks to the dind sidecar over TLS.
-FROM python:3.12-slim-bookworm@sha256:44cf1793efa7c7a476bb0f2cff81443f4a072c90c1cb127e2924933daa3e8c64
+# Two editions from one Dockerfile and one tag (ADR-0051): `core` (Apache-2.0, the default target, never sees
+# licensed/) and `enterprise` (core plus the licensed package; its features load only with a valid key).
+FROM python:3.12-slim-bookworm@sha256:44cf1793efa7c7a476bb0f2cff81443f4a072c90c1cb127e2924933daa3e8c64 AS core
+LABEL org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="agent-factory (core)"
 
 # Cluster tools (2026-11-24: the versions before these carried fixable CRITICAL CVEs in their Go
 # builds; CI's `images` job fails on those now, S-08). Every download is checked against a checksum
@@ -102,3 +106,20 @@ ENV HOME=/home/factory USER=factory
 EXPOSE 8000
 ENTRYPOINT ["/opt/factory/cluster/entrypoint.sh"]
 CMD ["agent-factory", "serve"]
+
+# ---------------------------------------------------------------- enterprise --
+# Core plus licensed/ (Agent Software Factory Commercial Licence). The package adds no dependencies beyond
+# core's (installed --no-deps over the locked core), and registers under the core's extension entry points.
+# Without a valid key (AGENT_FACTORY_LICENCE_FILE, a mounted secret) it runs as core with its features refused.
+FROM core AS enterprise
+LABEL org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-AgentFactory-Commercial" \
+      org.opencontainers.image.title="agent-factory (enterprise)"
+USER root
+COPY licensed/pyproject.toml licensed/LICENSE licensed/NOTICE licensed/
+COPY licensed/src licensed/src
+RUN uv pip install --system --no-cache --no-deps ./licensed && uv pip check --system \
+ && AGENT_FACTORY_ALLOW_ROOT=1 agent-factory edition --require enterprise >/dev/null
+USER 10001:10001
+
+# The default target is core: `docker build` without --target never ships licensed code.
+FROM core

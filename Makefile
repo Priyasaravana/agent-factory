@@ -1,4 +1,4 @@
-.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade config-split test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline secrets-files baselines
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade config-split test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline secrets-files baselines licence-issuer licence-issue
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -92,6 +92,14 @@ local-ingress: ## local trial of the cluster target: registry + ingress-nginx in
 test: ## engine + auth tests (dry-run, no model usage)
 	cd engine && uv run --extra dev pytest -q
 	cd auth && uv run --extra dev pytest -q
+	cd licensed && uv run --extra dev pytest -q
+
+licence-issuer: ## Licensor, once: make the licence issuer key outside the repo (ADR-0051), print its public line
+	cd licensed && uv run agent-factory-licence new-issuer --out "$${ISSUER_DIR:-$$HOME/.agent-factory-issuer}"
+
+licence-issue: ## Licensor: issue a key, e.g. make licence-issue LICENSEE="Acme Ltd" FEATURES=sso,siem EXPIRES=2027-12-31
+	cd licensed && uv run agent-factory-licence issue --issuer-key "$${ISSUER_DIR:-$$HOME/.agent-factory-issuer}/issuer_key" \
+		--licensee "$(LICENSEE)" --features "$(FEATURES)" --expires "$(EXPIRES)"
 
 lint:
 	cd engine && uv run --extra dev ruff check src tests

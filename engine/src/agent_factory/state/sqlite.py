@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_factory import extensions
 from agent_factory.models import (
     Change,
     ChangeStatus,
@@ -222,6 +223,13 @@ class SqliteStateStore:
                 ),
             )
             self._record_transition(change.id, None, change.status, change.created_at)
+        extensions.active().audit(
+            "change.created",
+            change_id=change.id,
+            product_id=change.product_id,
+            to_status=ChangeStatus(change.status).value,
+            requested_by=change.requested_by,
+        )
         return change
 
     def get_change(self, change_id: str) -> Change | None:
@@ -238,8 +246,18 @@ class SqliteStateStore:
                 "UPDATE changes SET status=?, doc=? WHERE id=?",
                 (change.status, REDACTOR.text(change.model_dump_json()), change.id),
             )
-            if row and row[0] != change.status:
+            moved = bool(row and row[0] != change.status)
+            if row and moved:
                 self._record_transition(change.id, ChangeStatus(row[0]), change.status, change.updated_at)
+        if moved:  # outside the lock: an audit sink (ADR-0051) never holds up the store
+            extensions.active().audit(
+                "change.status",
+                change_id=change.id,
+                product_id=change.product_id,
+                from_status=ChangeStatus(row[0]).value if row else None,
+                to_status=ChangeStatus(change.status).value,
+                requested_by=change.requested_by,
+            )
 
     def _record_transition(self, change_id: str, old: ChangeStatus | None, new: ChangeStatus, ts: datetime) -> None:
         # caller holds the lock

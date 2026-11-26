@@ -8,6 +8,7 @@
 #   scripts/check changed          engine tests touched by this branch (fast dev loop)
 #   scripts/check test [ARGS]      engine pytest; ARGS go to pytest (files, -k, --lf, ...)
 #   scripts/check auth             auth lint + tests
+#   scripts/check licensed         licensed/ lint + tests (the enterprise edition, ADR-0051)
 #   scripts/check lint             ruff check + ruff format --check (engine and auth)
 #   scripts/check mypy             mypy, showing only errors not in engine/.mypy-baseline.txt
 #   scripts/check mypy-baseline    re-record the baseline (only after fixing old errors)
@@ -78,6 +79,17 @@ step_auth() {
     ok auth "$(summary auth)"
   else
     fail auth "$(summary auth)"; pytest_failure auth
+  fi
+}
+
+step_licensed() {
+  if run licensed licensed sh -c '
+      uv run -q --extra dev ruff check --quiet --output-format=concise src tests &&
+      uv run -q --extra dev ruff format --check --quiet src tests &&
+      uv run -q --extra dev pytest -q --no-header -p no:cacheprovider -rfE --tb=short'; then
+    ok licensed "$(summary licensed)"
+  else
+    fail licensed "$(summary licensed)"; pytest_failure licensed
   fi
 }
 
@@ -200,11 +212,12 @@ cmd="${1:-help}"; shift || true
 case "$cmd" in
   all)
     rm -f "$OUT"/*.rc
-    step_lint; step_mypy; step_test; step_auth; step_openapi; step_web
+    step_lint; step_mypy; step_test; step_auth; step_licensed; step_openapi; step_web
     [ "$status" -eq 0 ] && echo "ALL OK" || echo "SOME CHECKS FAILED" ;;
   changed)  step_changed "$@" ;;
   test)     step_test "$@" ;;
   auth)     step_auth ;;
+  licensed) step_licensed ;;
   lint)     step_lint ;;
   mypy)     step_mypy ;;
   mypy-baseline) step_mypy_baseline ;;

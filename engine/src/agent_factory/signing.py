@@ -318,4 +318,8 @@ class LocalSigner:
 
 
 def signer_for(data_dir: Path | str) -> Signer:
-    return LocalSigner(data_dir)
+    """The local key, unless an installed extension provides the evidence signer (ADR-0051: a customer
+    KMS in the licensed edition). Verifying never changes: `check` against the signer's trusted keys."""
+    from agent_factory import extensions  # late: extensions imports Signer from here
+
+    return extensions.active().signer(data_dir) or LocalSigner(data_dir)
