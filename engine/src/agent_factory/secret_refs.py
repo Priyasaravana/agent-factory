@@ -8,8 +8,11 @@ prints it. See docs/design/integrations.md (phase 2).
 
 Backends (``scheme://path[#key]``):
 
-    env://NAME                  environment variable (dev / docker-compose .env)
+    env://NAME                  environment variable, or the file NAME_FILE names (Docker's convention,
+                                S-06: .env then holds a path, never the value)
     file:///run/secrets/name    a mounted file (Docker/K8s secrets); #key reads a JSON field
+    github-app://APP/INST[#r,r] a GitHub App installation token, minted when asked and valid for an hour (S-06):
+                                no long-lived token; the app's private key is a mounted file
     aws-sm://secret-id#key      AWS Secrets Manager (IRSA / default credential chain)
     vault://mount/path#key      HashiCorp Vault KV v2 (VAULT_ADDR + VAULT_TOKEN[_FILE])
 
@@ -23,6 +26,7 @@ import json
 import os
 import re
 import threading
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -82,6 +86,12 @@ class EnvBackend:
         value = os.environ.get(ref.path)
         if not value and self.settings is not None:
             value = getattr(self.settings, ref.path.lower(), None)
+        if not value and (path := os.environ.get(f"{ref.path}_FILE")):
+            # Docker's NAME_FILE convention (S-06): the value is a mounted file, read now, never in the environment
+            file = Path(path)
+            if not file.is_file():
+                raise SecretError(f"{ref}: {ref.path}_FILE names {path}, which is not a file")
+            value = file.read_text().strip()
         if not value:
             raise SecretError(f"{ref} is not set")
         return _pick_key(str(value), ref)
@@ -156,6 +166,116 @@ class VaultBackend:
         return str(next(iter(data.values())))
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        return None  # a token request is never carried to another address
+
+
+_NO_REDIRECTS = urllib.request.build_opener(_NoRedirect)
+
+
+class GitHubAppBackend:
+    """Short-lived GitHub App installation tokens (S-06), in place of long-lived personal tokens.
+
+    ``github-app://<app id>/<installation id>`` mints a token for the installation (GitHub gives it an hour);
+    ``#repo-a,repo-b`` narrows it to those repositories of the installation's owner. The app's private key is a
+    mounted file: ``GITHUB_APP_PRIVATE_KEY_FILE`` (default ``/run/secrets/github-app-<app id>.pem``). A token is
+    reused, in memory only, until ten minutes before it expires; nothing is written anywhere. The API is
+    ``GITHUB_API_URL`` (https only; default api.github.com), and the request never follows a redirect."""
+
+    REUSE_UNTIL_S = 600  # a token with less left than this is replaced, so no step starts on a dying one
+
+    def __init__(
+        self,
+        opener: Callable[[urllib.request.Request], Any] | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        import time  # noqa: PLC0415
+
+        self._open = opener or (lambda req: _NO_REDIRECTS.open(req, timeout=15))
+        self._clock = clock or time.time
+        self._cache: dict[tuple[str, str, str, str], tuple[str, float]] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _parse(ref: SecretRef) -> tuple[str, str, list[str]]:
+        app, _, inst = ref.path.strip("/").partition("/")
+        if not (app.isdigit() and inst.isdigit()):
+            raise SecretError(f"{ref}: expected github-app://<app id>/<installation id>")
+        repos = [r.strip() for r in (ref.key or "").split(",") if r.strip()]
+        if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", r) for r in repos):
+            raise SecretError(f"{ref}: #… lists repository names of the installation's owner, comma-separated")
+        return app, inst, repos
+
+    def _jwt(self, app: str, now: float) -> str:
+        import base64  # noqa: PLC0415
+
+        from cryptography.hazmat.primitives import hashes, serialization  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: PLC0415
+
+        path = Path(os.environ.get("GITHUB_APP_PRIVATE_KEY_FILE") or f"/run/secrets/github-app-{app}.pem")
+        if not path.is_file():
+            raise SecretError(f"github-app://{app}: the app's private key {path} is not a file")
+        try:
+            key = serialization.load_pem_private_key(path.read_bytes(), password=None)
+        except ValueError as exc:
+            raise SecretError(f"github-app://{app}: {path} is not a PEM private key") from exc
+        if not isinstance(key, rsa.RSAPrivateKey):
+            raise SecretError(f"github-app://{app}: {path} is not an RSA key (GitHub App keys are RSA)")
+
+        def b64(b: bytes) -> str:
+            return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+        # iat a minute back for clock drift; GitHub refuses an exp more than ten minutes ahead
+        claims = {"iat": int(now) - 60, "exp": int(now) + 540, "iss": app}
+        head = b64(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
+        body = b64(json.dumps(claims, separators=(",", ":")).encode())
+        sig = key.sign(f"{head}.{body}".encode(), padding.PKCS1v15(), hashes.SHA256())
+        return f"{head}.{body}.{b64(sig)}"
+
+    def get(self, ref: SecretRef) -> str:
+        from datetime import datetime  # noqa: PLC0415
+
+        app, inst, repos = self._parse(ref)
+        api = (os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+        if not api.startswith("https://"):
+            raise SecretError(f"{ref}: GITHUB_API_URL must be https")
+        cache_key = (api, app, inst, ",".join(sorted(repos)))
+        now = self._clock()
+        with self._lock:
+            hit = self._cache.get(cache_key)
+            if hit and hit[1] - now > self.REUSE_UNTIL_S:
+                return hit[0]
+            req = urllib.request.Request(  # noqa: S310 - https, checked above
+                f"{api}/app/installations/{inst}/access_tokens",
+                data=json.dumps({"repositories": repos} if repos else {}).encode(),
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {self._jwt(app, now)}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                    "Content-Type": "application/json",
+                },
+            )
+            try:
+                with self._open(req) as resp:
+                    data = json.loads(resp.read())
+            except urllib.error.HTTPError as exc:  # the status only: a response body could echo a request
+                why = {401: "the app id or its private key was refused", 404: "no such installation for this app"}
+                raise SecretError(f"{ref}: GitHub answered {exc.code} ({why.get(exc.code, 'refused')})") from None
+            except Exception as exc:  # noqa: BLE001 - network errors vary; never include a value
+                raise SecretError(f"{ref}: {type(exc).__name__}") from None
+            token, expires = data.get("token"), data.get("expires_at")
+            if not isinstance(token, str) or not token or not isinstance(expires, str):
+                raise SecretError(f"{ref}: GitHub's answer had no token")
+            try:
+                until = datetime.fromisoformat(expires.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                until = now + 3600 - 60
+            self._cache[cache_key] = (token, until)
+            return token
+
+
 # ------------------------------------------------------------------ redactor --
 class Redactor:
     """Masks every secret value the engine has resolved, wherever text is stored."""
@@ -191,6 +311,7 @@ class Redactor:
 
 
 REDACTOR = Redactor()  # process-wide: every store write goes through it
+_GITHUB_APP = GitHubAppBackend()  # process-wide, so a token is reused across steps until near its expiry
 
 
 # ------------------------------------------------------------------ resolver --
@@ -200,6 +321,7 @@ _BACKENDS: dict[str, BackendFactory] = {
     "file": lambda settings: FileBackend(),
     "aws-sm": lambda settings: AwsSecretsManagerBackend(),
     "vault": lambda settings: VaultBackend(),
+    "github-app": lambda settings: _GITHUB_APP,
 }
 
 

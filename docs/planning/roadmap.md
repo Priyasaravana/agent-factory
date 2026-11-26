@@ -604,9 +604,11 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
    `scripts/gateway-check.sh`. S-11: `untrusted.py` marks a request, feedback, answers, CI and pod output, diffs
    and file names in every prompt, every agent's system prompt says what the blocks mean, and
    `tests/test_untrusted.py` fails on a prompt that puts a request, feedback or answers in unmarked.
-   S-05 merged 2026-11-25 (#201). ✅ **S-07 in review on `security/s07-locked-images` (2026-11-25):** images from the
+   S-05 merged 2026-11-25 (#201). ✅ **S-07 merged 2026-11-25 (#204):** images from the
    lockfiles with hashes (checked against each image in CI), every image by digest, every download by a pinned
-   checksum (`scripts/pin-images.py`, `tests/test_locked_images.py`). S-06 is still open.
+   checksum (`scripts/pin-images.py`, `tests/test_locked_images.py`). ✅ **S-06 in review on `security/s06-secret-files`
+   (2026-11-25):** tokens as mounted files by default (`NAME_FILE`, `make secrets-files`) and short-lived GitHub App
+   installation tokens (`github-app://`); `tests/test_secret_files.py`.
 5. **One Dependabot roll-up**, and a **secrets scan of the whole history** (anything found is rotated first).
    ✅ **In review on `deps/rollup-2026-11-24` (2026-11-24):** the eleven open Dependabot PRs in one (engine and auth
    lockfiles, the web group, `ossf/scorecard-action` 2.6.0; engine pydantic taken to 2.14.4 to match auth). History
@@ -617,7 +619,7 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 
 **Phase B. Evidence anyone can verify (by 2026-11-29)**
 - Evidence manifests **signed**, not only hashed; a **verifier** anyone can run on a downloaded evidence bundle.
-  🟡 **In review on `evidence/b1-signed-verifier` (2026-11-25, ADR-0050, proposed):** every seal (a change's and the
+  ✅ **Merged 2026-11-25 (#202, ADR-0050, proposed):** every seal (a change's and the
   decommission record) signs `manifest.json` with the factory's ed25519 key as an OpenSSH signature
   (`manifest.json.sig`, checkable with `ssh-keygen -Y verify`), records the signer, and the re-check fails on a
   removed, foreign or broken signature. `scripts/verify-evidence.py` (Python's standard library, plus ssh-keygen or
@@ -625,7 +627,7 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   evidence-key show|rotate`, `GET /api/evidence/key`, the evidence panel. **Left:** the live bundle on another machine
   (Saravana), then the config split on its own branch.
 - `.agent-factory/config.yaml` split into the tracked default and a gitignored local override.
-  🟡 **In review on `config/b2-local-override` (2026-11-25):** `config.local.yaml` beside the default, merged over it at
+  ✅ **Merged 2026-11-25 (#203):** `config.local.yaml` beside the default, merged over it at
   start (`config.merge`, pure: mappings key by key, everything else replaced; `FactoryConfig.local_overrides` logged),
   read only when `FACTORY_CONFIG_LOCAL` is set (compose sets it to a read-only mount; the file never enters an image, `.dockerignore`; tests never read a developer's file). `make
   config-split` moves an install's edits out of the tracked file once and proves the result loads identically;

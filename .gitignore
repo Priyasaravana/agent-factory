@@ -13,3 +13,5 @@ backups/
 .cache/check/
 # this install's own config edits, merged over .agent-factory/config.yaml (phase B)
 .agent-factory/config.local.yaml
+# S-06: token files, mounted read-only at /run/secrets (make secrets-files)
+.secrets/
