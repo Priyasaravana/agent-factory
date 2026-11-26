@@ -123,6 +123,27 @@ Verification checks the requirements it was given; nothing checks it was given t
 - A supported fault-injection switch (deploy-time, not source) would make drills repeatable without editing
   products: backlog, since it's new surface during the freeze.
 
+## J4/J5 live run (Saravana, 2026-11-21, Kudos on `local-ingress`, main `56d7f16`; written up 2026-11-25)
+Run against [run-and-retire.md](run-and-retire.md) with `operate.probe_seconds: 30` and `policies.recover.mode: auto`.
+**Passed:** J4.1 owner named (incidents routed to the second account); J4.2 target tightened to 99.5% (98% refused);
+J4.3 the watch read 100% of 46 checks; J4.4 backup and restore drill, proven in a scratch release that was removed
+afterwards; J4.5 a fault (`scale --replicas=0`) opened one incident, routed to the owner's "Needs you"; the fix went
+through a change; J5 retired the product with its sealed decommission record (roadmap J4/J5).
+**Not proven in the run:** J4.6's restart-resume (the change ran implement 16:29–16:34 with no restart in between;
+`recover.mode: auto` is covered by tests, not live). **Design change it led to:** an incident should not take the full
+development cycle; Saravana asked for an SRE-style response that restores the running service first and raises a bug
+fix only for a code defect (2026-11-21), built as incident response slice 0 (#190, roadmap phase A item 3).
+
+| ID | Pri | What happened | Status |
+|---|---|---|---|
+| UX-29 | Med | `make sandbox-check`'s path probe reported OPEN paths on macOS: bash 3.2 with `set -u` fails on an empty array, so the probe's `docker run` failed and read as reachable. Re-run under Homebrew bash: closed. | ✅ fixed 2026-11-25 (`${args[@]+"${args[@]}"}` in `scripts/sandbox-paths-probe.sh`) |
+| UX-30 | Med | Upkeep said "18 dependencies behind · not checked: the image was not scanned again (scanned)": the scanner ran, the engine got no usable report, and the message contradicts itself. | Open: the message should say the report was unreadable; check on the next upkeep run |
+| UX-31 | Low | Tightening the target added nothing to "What the factory did", unlike naming the owner. | Recorded as an event (`availability target set to …, by …`, `actions.py`); the list shows operations, not product settings: open as a UI gap |
+| UX-32 | Low | After "Back up now" and "Test a restore", "What the factory did" still showed "Owner · 5h ago" until a reload. | Open: refresh the list after a button's step ends |
+| UX-33 | Med | Publishing failed on an expired `GITHUB_TOKEN`, and the failure check said "what the command depends on … is all available": it doesn't test that a credential still works. | Open: a cheap live check (`gh api user`) in preflight; S-06's GitHub App tokens (#214) remove the expiry class altogether |
+| UX-34 | High | "Needs you" → Go to, for the architect's approval, landed on Overview, where the "Align with the architect" panel isn't shown (`ChangePanel.tsx`, Advanced only); the approval was found only in Advanced. | ✅ fixed 2026-11-25: a decision sheet or spec review waiting on a person shows in Overview too |
+| UX-35 | Med | The token's expiry (the fine-grained token had lapsed mid-run) stopped the run; renewing it needed a container recreate (`docker compose up -d factory`), not a restart. | Mitigated by S-06 (#214): token files are read when used, so a renewed file needs no recreate; GitHub App tokens don't expire on a person |
+
 ## Decision (Saravana, 2026-11-04)
 **Fix correctness first, then carry on with the plan.** In order, as "Now" in the roadmap's "Next, in order":
 1. L-3 (blue/green fails closed).

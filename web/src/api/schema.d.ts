@@ -4375,6 +4375,13 @@ export interface components {
             cost_total_usd: number;
             /** Cost Per Delivery Usd */
             cost_per_delivery_usd?: number | null;
+            /**
+             * Gateway Cost Total Usd
+             * @default 0
+             */
+            gateway_cost_total_usd: number;
+            /** Gateway Cost Per Delivery Usd */
+            gateway_cost_per_delivery_usd?: number | null;
             /** Fix Loops Per Delivery */
             fix_loops_per_delivery?: number | null;
             time_split: components["schemas"]["TimeSplit"];

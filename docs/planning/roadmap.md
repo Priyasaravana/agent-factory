@@ -579,9 +579,15 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 **Phase A. Close out the journey and harden (by 2026-11-26)**
 1. Record the J4/J5 live run: its evidence and findings ([plans/run-and-retire.md](plans/run-and-retire.md),
    "What to write down"), in handoff and the plan.
+   ✅ **Written up 2026-11-25** (`outcomes/baselines`): passes, what wasn't proven (J4.6 restart-resume) and findings
+   UX-29 to UX-35 in [plans/live-test-usability.md](plans/live-test-usability.md); UX-29 (macOS probe) and UX-34 (approval
+   hidden in Advanced) fixed in the same branch.
 2. **Baselines** (vision G0): autonomy, change failure rate, lead time p50/p90, cost per delivered change (failures
    included, both meters), requirements verified live and share at Level 3, from the live runs so far, in
    [../outcomes.md](../outcomes.md).
+   🟡 **Mac baseline recorded in #215 (2026-11-26):** all six measures from the 2026-11-25 reference snapshot
+   are in [../outcomes.md](../outcomes.md#baselines-g0), with sample sizes and the gateway coverage caveat.
+   `make baselines` can regenerate the dated section from the reference install.
 3. **Incident response, slice 0** ([plans/stations-and-teams.md](plans/stations-and-teams.md)): snapshot first,
    re-apply, restart once, rollback when additive, the restored window, the states, DORA timings, the incident ↔
    change link; `operate.respond: auto`. An ADR-0049 §4 amendment.
