@@ -4,6 +4,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-25)
+- **2026-11-26, planning only:** the UI design review and redesign plan, [plans/ui-redesign.md](plans/ui-redesign.md),
+  slotted in phase D by Saravana, with three mocked-up directions on a private Design canvas linked from the plan.
+  **Waiting on Saravana:** the direction and the six questions at the end of that page. Nothing is built.
 - **#199, #200 and #201 merged** (roll-up and history scan; S-08, S-10, S-11; S-05, pod security, built ahead of
   phase B). S-07 below.
 - **S-07 in review on `security/s07-locked-images`** (#204). Code: both Python images install `uv export --frozen`

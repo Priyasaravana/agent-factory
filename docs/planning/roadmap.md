@@ -642,7 +642,14 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 **Phase D. First paid features (by 2026-12-14)**
 - SSO (OIDC first, then SAML), audit export to a SIEM, evidence signed with the customer's KMS, the compliance
   report pack ("aligned with", never "compliant"; the first to slip to January).
-- **Done when:** each works on the enterprise image and is absent from core; safety features stay in core.
+- **The factory UI, simple by default** (placed here by Saravana 2026-11-26; mockups first, the direction still his
+  call): the design review in [plans/ui-redesign.md](plans/ui-redesign.md) (UI-01 to UI-60) and six web slices: the
+  shell and a Simple / Advanced switch, home and New product, the product page, Insights, factory settings, the
+  sign-in page and a public site (published in phase E). Three mocked-up directions to choose from (Quiet, Console,
+  Guided). Core, not a paid feature. If the phase runs short, slices 1–3 first and 4–6 before the rehearsal.
+- **Done when:** each works on the enterprise image and is absent from core; safety features stay in core. The UI:
+  every page fits a phone (390 px) in light and dark, no page in Simple uses engineering words (a test), one primary
+  action per page from the engine.
 
 **Phase E. Release v0.1.0 (rehearsal by 2026-12-20, public by 2026-12-31)**
 - Licence audit (the Claude Agent SDK and CLI terms, every bundled image, template and skill → `THIRD_PARTY.md`),
@@ -771,6 +778,8 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
   residual risks unaccepted, no data-flow statement, and a README and licence that don't yet match the vision.
   Proposed fixes sit inside phases A–E; the notifier comes in two steps (in-app first, outbound only after the
   secret store, under the integration rules). **Placement is Saravana's call** (five questions at the end of the page).
+  The screens these journeys share (home, create form, product page, sign-in) are redesigned in phase D
+  ([plans/ui-redesign.md](plans/ui-redesign.md)), which takes A6, A7, C1, C2, C5, C7 and E3 into its slices.
 - **Security assessment 2026-11-15** (added 2026-11-15; code review and scanners on main `43b36d3`, nothing run
   live): 18 findings, 4 high, in [../security/assessment-2026-11-15.md](../security/assessment-2026-11-15.md),
   each with evidence, a fix and a size. The main class: agent-written code also runs outside the sandbox
