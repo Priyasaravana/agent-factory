@@ -4,6 +4,12 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-26)
+- **2026-11-26, planning only:** telemetry (O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md))
+  slotted in phase C, then revised for the review of #218: telemetry egress is engine-owned and read back, an
+  adapter supports production only once its live enforcement check passes, Test connection reports each hop it
+  proved, and metrics are scraped at each pack's own path. Revised again 2026-11-27 for the tenant boundary (§3a:
+  trusted factory and product ids, backend-enforced isolation, a two-factory test) and owner-scoped readback (held and
+  named, never deleted). Now about 20.5 h of AI build. Nothing is built.
 - **2026-11-26, planning only:** the UI design review and redesign plan, [plans/ui-redesign.md](plans/ui-redesign.md),
   slotted in phase D by Saravana, with three mocked-up directions on a private Design canvas linked from the plan.
   **Waiting on Saravana:** the direction and the six questions at the end of that page. Nothing is built.
