@@ -301,3 +301,44 @@ def test_what_reaches_the_log_and_audit_is_one_printable_line(env):
     c.get(f"/auth/sso/corp/callback?code=x&state={_start(c)}")
     target = [a for a in store.audit_log() if a["action"] == "single sign-on failed: invalid"][-1]["target"]
     assert "\n" not in target and "\r" not in target and "\x1b" not in target
+
+
+def test_names_deleted_before_the_upgrade_are_retired_from_the_audit_log(tmp_path, monkeypatch):
+    """PR #221 review: an install upgraded from before retired_usernames must not hand a name deleted back then to a
+    new identity, who would inherit that name's product steering rights."""
+    import sqlite3
+
+    monkeypatch.setenv("FACTORY_ADMIN_PASSWORD", ADMIN_PW)
+    db = tmp_path / "auth.db"
+    con = sqlite3.connect(db)  # the schema as it was before this change: no retired_usernames, sso or uid
+    con.executescript(
+        """
+        CREATE TABLE users (username TEXT PRIMARY KEY, role TEXT NOT NULL, pw TEXT NOT NULL,
+          disabled INTEGER NOT NULL DEFAULT 0, must_change INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+        CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT, action TEXT NOT NULL,
+          target TEXT);
+        INSERT INTO users VALUES ('admin', 'admin', 'x$y$z', 0, 0, '2026-01-01');
+        INSERT INTO users VALUES ('erin', 'member', 'x$y$z', 0, 0, '2026-03-01');
+        INSERT INTO audit(ts, actor, action, target) VALUES
+          ('2026-02-01T00:00:00+00:00', 'admin', 'created user', 'bea'),
+          ('2026-02-02T00:00:00+00:00', 'admin', 'deleted user', 'bea'),
+          ('2026-02-03T00:00:00+00:00', 'admin', 'deleted user', 'erin'),
+          ('2026-02-04T00:00:00+00:00', 'admin', 'disabled user', 'carl');
+        """
+    )
+    con.close()
+    store = Store(db)
+    assert store.is_retired("bea"), "deleted before the upgrade: retired from the audit log"
+    assert not store.is_retired("erin"), "an account holds the name now: it is retired when that one is deleted"
+    assert not store.is_retired("carl"), "only deletions count"
+    reg = extensions.Registry()
+    provider = FakeProvider()
+    reg.provide("test", "sso", sign_in=provider)
+    c = TestClient(
+        create_app(store, Settings(data_dir=tmp_path, public_url=LOCAL), reg), base_url=LOCAL, follow_redirects=False
+    )
+    assert _sign_in(c, provider, _id("bea", sub="new-person")).endswith("sso_error=account")
+    with pytest.raises(AuthError, match="never reused"):
+        store.create_user("bea", "a-long-enough-password", "member")
+    Store(db)  # starting again changes nothing
+    assert store.is_retired("bea") and store.get_user("erin") is not None

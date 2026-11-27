@@ -33,8 +33,9 @@ local sign-in can't be switched off by an extension.
    - **a deleted account's name is retired for good** (`retired_usernames`; PR #221's second review): the engine
      knows people by name (`X-Auth-User`), so products they made, changes they asked for and who may steer are
      recorded by name. A retired name is refused for a new local account and for any identity's first sign-in,
-     its former owner's included, so it can never point at someone else. Admins disable to pause someone; delete
-     is for good. This is the interim guarantee; carrying the account's `uid` through the gateway into the engine's
+     its former owner's included, so it can never point at someone else. Names deleted before this rule existed are
+     retired at start from the audit log's `deleted user` records (never pruned), except a name an account holds
+     now. Admins disable to pause someone; delete is for good. This is the interim guarantee; carrying the account's `uid` through the gateway into the engine's
      ownership checks replaces it before one sign-in serves several factories (ADR-0051 §9);
    - a disabled account stays out; the role follows the provider's groups when a mapping is set (the last-active-
      admin rule still holds), else the account keeps the role an admin gave it;

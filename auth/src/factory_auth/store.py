@@ -142,6 +142,13 @@ class Store:
         for (name,) in self._db.execute("SELECT username FROM users WHERE uid IS NULL").fetchall():
             self._db.execute("UPDATE users SET uid=? WHERE username=?", (secrets.token_hex(16), name))
         self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_uid ON users(uid)")
+        # Names deleted before retired_usernames existed (PR #221 review): the audit log records every deletion, so
+        # retire those too, unless an account holds the name now (then deleting it retires it). Idempotent.
+        self._db.execute(
+            "INSERT OR IGNORE INTO retired_usernames(username, uid, retired_at) "
+            "SELECT target, NULL, MIN(ts) FROM audit WHERE action='deleted user' AND target IS NOT NULL "
+            "AND target NOT IN (SELECT username FROM users) GROUP BY target"
+        )
         # a dummy hash so login timing does not reveal whether a user exists
         self._dummy = hash_password(secrets.token_hex(8))
 
