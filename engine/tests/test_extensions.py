@@ -205,7 +205,7 @@ def test_a_named_signer_that_did_not_load_fails_closed_never_the_local_key(tmp_p
     extensions.activate(extensions.Registry()).refuse("kms", "kms", "licence: expired")
     with pytest.raises(signing.SignerUnavailable, match="'kms' is configured but not loaded"):
         signing.signer_for(tmp_path)
-    assert signing.trusted_keys(tmp_path) == [], "nothing verifies against a key it wasn't signed with"
+    assert signing.trusted_keys(tmp_path) == set(), "nothing verifies against a key it wasn't signed with"
     assert not (tmp_path / "keys").exists()
 
 

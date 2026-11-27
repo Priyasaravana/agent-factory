@@ -343,11 +343,11 @@ def signer_for(data_dir: Path | str) -> Signer:
     return signer
 
 
-def trusted_keys(data_dir: Path | str) -> list[bytes]:
+def trusted_keys(data_dir: Path | str) -> set[bytes]:
     """The keys evidence is checked against. With the named signer unavailable there are none: evidence it
     signed reads as not verified (with the reason), never as checked against some other key."""
     try:
         return signer_for(data_dir).trusted()
     except SignerUnavailable:
         log.warning("evidence signer unavailable: signatures can't be checked until it loads")
-        return []
+        return set()
