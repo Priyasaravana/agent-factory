@@ -663,7 +663,8 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
 - **Done when (the UI, core; its own criterion, since the "absent from core" gate above doesn't apply to it):** every
   page fits a phone (390 px) in light and dark and reflows at 320 CSS px; no page in Simple uses engineering words
   (a test); one primary action per page from the engine; the admin-only Factory settings API passes its member-denial
-  and secret-omission tests; and the operating-task rehearsal passes: a product owner opens a degraded product from
+  and secret-omission tests; every read is scoped to one factory by the server, and the two-factory test
+  passes (a direct link into another factory is denied); and the operating-task rehearsal passes: a product owner opens a degraded product from
   Home, identifies the affected release and reaches the correct action or owner without help, in Simple, keyboard
   only, at 320 CSS px.
 

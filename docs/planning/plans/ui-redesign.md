@@ -3,6 +3,10 @@
 Status: **proposed**. Placed in **phase D, before the release** by Saravana (2026-11-26): mockups first, two or
 three directions to choose from. The direction is still his call (open questions at the end).
 
+Revised 2026-11-27 for the second review of #219 (held for a tenant boundary): every page and link the UI serves
+is scoped to one factory, validated by the server, with client caches keyed to it and a two-factory test (below,
+"Factory scope"). The standalone install keeps its navigation; a factory switcher waits for the SaaS phase.
+
 Revised 2026-11-26 for the review of PR #219 (requested changes before implementation; the Design canvas wasn't
 open to the reviewer, so the recommendation rests on this written plan):
 - a recommended mix of the three directions, and one signature page: the product page (below);
@@ -89,7 +93,8 @@ are there, but nothing is simple by default.
 ### Factory settings: the API contract (UI-44)
 The page must not be built on `ConfigView` or a raw config dump: today every `GET` is open to any signed-in user
 (`identity.requires_admin` returns False for reads), and the config holds secret references and gateway settings.
-- **Endpoint:** `GET /api/factory-settings`, **admin-only**. This is the first admin-only read, so
+- **Endpoint:** `GET /api/factory-settings`, **admin-only, for an admin of the request's factory** (see "Factory
+  scope" below). This is the first admin-only read, so
   `identity.requires_admin` gains it deliberately and `tests/test_access.py` classifies it.
 - **Only approved fields:** an explicit allowlist (`settings_view.APPROVED`, pure), section by section; a config
   field not on it is absent from the response, never shown by default. A new config field is hidden until someone
@@ -102,6 +107,35 @@ The page must not be built on `ConfigView` or a raw config dump: today every `GE
 - **Tests:** a member gets 403 and an admin 200; the response holds none of a set of planted values (resolved
   secrets, `env://` and `github-app://` references, a gateway key), checked the way `test_cluster_target.py` greps
   for leaks; a field off the allowlist is absent; a value set in `config.local.yaml` reports `source: local`.
+
+### Factory scope (second review of #219)
+The first hosted offer is one isolated factory per customer; multi-tenant self-service comes later
+([open-source-release.md](open-source-release.md#saas)). An admin-only endpoint protects a single install, but a
+shared shell later must also say *which* factory a request is about and check every resource against it. That is a
+design requirement now, so the pages built in phase D don't assume one factory per browser.
+- **One scope per request, decided by the server.** The engine resolves each request to exactly one factory (its
+  id is generated once at the factory's first start, the same id telemetry carries,
+  [telemetry-standards.md §3a](telemetry-standards.md)). The standalone install always resolves to its own factory,
+  with no header or URL segment. A future shared shell gets the scope from the signed-in user's membership, asserted
+  by the auth service through the gateway with its proof (ADR-0012); a URL segment, header or cached value from the
+  browser is only a hint the server checks, never the scope itself.
+- **Roles are per factory.** An admin of factory A has no role in factory B.
+- **Every resource is checked against the scope**, in the engine, not the page:
+  - **Settings:** admins of this factory only.
+  - **Home and attention:** only this factory's products and actions (`attention.pending_actions` gets the scope).
+  - **Insights and Outcomes:** aggregates over this factory's products only.
+  - **Product, change and evidence:** a product, change, evidence file or signed bundle from another factory
+    answers **404**, never 403, so a link doesn't confirm that it exists.
+  - **Trace and dashboard links:** built and resolved by the engine (`/api/changes/{id}/trace` redirects after
+    checking the change is in scope), never a raw backend URL in the page with another tenant's ids.
+- **Client caches are scoped.** Every query-cache key starts with the factory id; signing out or a change of scope
+  clears the cache; browser storage holds only per-viewer conveniences, keyed by factory id, never product data.
+- **Tested with two factories** (`tests/test_factory_scope.py`, a fixture with two factory scopes and an admin of
+  each): A's admin follows direct links into B (product, change, evidence file, signed bundle, trace link, Factory
+  settings) and each is denied with 404; A's Home, attention and Insights never count B's items; a member of A gets
+  403 on A's settings. A web unit test shows a cache filled under A renders nothing for B.
+- **Not now:** a factory switcher and the shared control plane stay in the SaaS phase. The single-factory UI keeps
+  its navigation unchanged.
 
 ## What to lead with (recommended in the review of #219)
 **Direction: a mix, not one of the three.** Guided for the first product, Quiet for daily work, Console-style
@@ -177,11 +211,14 @@ from core" gate doesn't apply to it):
   scripted in `web/e2e` (the same steps and assertions: the degraded product is reachable from Home, the timeline
   names the release, the health card's action is the engine's) and done once by a person before phase D closes,
   with the time taken and where they hesitated recorded in the plan.
+- **Factory scope:** the two-factory test passes (above): direct links into another factory are denied, and no
+  page or cache shows another factory's data.
 - **First product:** the release rehearsal (phase E) creates a first product from the home page in practice mode
   without the docs.
 
 The engine changes only where a finding needs a value it doesn't serve yet: the estimate in UI-14, the period in
-UI-31, `/auth/me` in UI-04, the admin-only Factory settings API (UI-44) and the product timeline.
+UI-31, `/auth/me` in UI-04, the admin-only Factory settings API (UI-44), the product timeline, and the factory
+scope on every read the UI makes.
 
 **Risk to phase D:** four paid features already share the phase, and the compliance pack is the first to slip
 ([open-source-release.md](open-source-release.md), Risks). These slices touch only `web/` (and the small engine
