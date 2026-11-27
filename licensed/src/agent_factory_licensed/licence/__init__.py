@@ -27,7 +27,9 @@ import base64
 import json
 import os
 import sys
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -205,6 +207,37 @@ def current(issuers: list[bytes] | None = None, env: dict[str, str] | None = Non
     except ValueError as exc:
         return Licence(False, str(exc))
     return check(read_key(env), issuers)
+
+
+class Live:
+    """The licence as it stands now, for a process that runs for weeks (PR #220 review): checked again at most
+    every `ttl` seconds and whenever the UTC day changes, so expiry, grace and a replaced key file take effect
+    without a restart. Every licensed component asks it before each use."""
+
+    def __init__(
+        self,
+        check: Callable[[], Licence] = lambda: current(),
+        ttl: float = 600.0,
+        clock: Callable[[], float] = time.monotonic,
+        today: Callable[[], date] = lambda: datetime.now(UTC).date(),
+    ) -> None:
+        self._check, self._ttl, self._clock, self._today = check, ttl, clock, today
+        self._lic: Licence | None = None
+        self._at = 0.0
+        self._day: date | None = None
+
+    def now(self) -> Licence:
+        t, d = self._clock(), self._today()
+        if self._lic is None or t - self._at >= self._ttl or d != self._day:
+            self._lic, self._at, self._day = self._check(), t, d
+        return self._lic
+
+    def grants(self, feature: str) -> bool:
+        return self.now().grants(feature)
+
+    def why_not(self, feature: str) -> str:
+        lic = self.now()
+        return f"licence: {lic.problem}" if not lic.valid else "the licence does not include this feature"
 
 
 # ------------------------------------------------------- issuing (Licensor) --

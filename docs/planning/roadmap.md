@@ -652,7 +652,11 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   `make licence-issuer` / `licence-issue`); the first licensed feature, `siem`'s hash-chained audit file; Dockerfile
   targets `core` (default) and `enterprise`; `release.yml` (both images, SBOMs, cosign keyless, SBOM attested);
   `GET /api/edition` and the Edition card. **Left for Saravana:** make the issuer key on the Mac and commit its public
-  line; then the live check below.
+  line; then the live check below. **Revised 2026-11-27 after the review:** registration is staged and published
+  whole; the licence is checked while running (`licence.Live`, every 10 minutes and each day); a signer is used only
+  when named (`AGENT_FACTORY_EVIDENCE_SIGNER`) and fails closed if it didn't load; no tenancy point: one factory per
+  customer, tenancy enforced by the core when it comes (ADR-0051 §9; the two-tenant test is the gate before
+  self-service SaaS).
 - **Logs, metrics and traces on open standards** (decided by Saravana 2026-11-26, all of it in this phase):
   slices O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md): one log contract on the
   OpenTelemetry log model for the factory and both packs, the factory's `/metrics` and `gen_ai.*` traces, a tested

@@ -19,6 +19,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `FACTORY_EDITION=enterprise` in `.env`, `make upgrade`, and check Integrations → Edition says licensed with `siem`
   loaded; let a change run and see `.factory-data/audit/audit-<day>.jsonl` grow; then put a wrong key in the file,
   restart, and see `siem` refused. That is phase C's "Done when" live. Tag `v0.1.0-rc0` once to try `release.yml`.
+  Review changes (2026-11-27): staged registration (`Registry._stage`), `licence.Live` + `GatedSink`, the named signer
+  (`signing.SIGNER_ENV`, `SignerUnavailable`, `trusted_keys`), the tenancy point removed (ADR-0051 §9).
 - **2026-11-26, planning only:** telemetry (O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md))
   slotted in phase C, then revised for the review of #218: telemetry egress is engine-owned and read back, an
   adapter supports production only once its live enforcement check passes, Test connection reports each hop it

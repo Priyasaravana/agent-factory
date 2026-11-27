@@ -1644,7 +1644,10 @@ def get_change_evidence(f: Factory, change_id: str) -> EvidenceView:
 def get_evidence_key(f: Factory) -> EvidenceKeyView:
     from agent_factory import signing
 
-    s = signing.signer_for(f.manager.ws.data_dir)
+    try:
+        s = signing.signer_for(f.manager.ws.data_dir)
+    except signing.SignerUnavailable as exc:
+        raise FactoryError(str(exc)) from exc
     if isinstance(s, signing.LocalSigner):
         retired = [signing.fingerprint(b) for b in s.retired()]
         if not s.key_path.is_file():  # reading never makes the key; the first seal does
@@ -1674,7 +1677,7 @@ def get_edition(f: Factory) -> EditionView:
     reg = extensions.active()
     return EditionView(
         edition=reg.edition,
-        licence=reg.licence,
+        licence=reg.licence_now(),
         extensions=[ExtensionView(**vars(e)) for e in reg.loaded],
         ui_slots=dict(reg.ui_slots),
     )

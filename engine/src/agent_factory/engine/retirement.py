@@ -90,7 +90,7 @@ class Retirer:
             folder,
             r.record_sha256 if r else None,
             r.record_signed_by if r else None,
-            signing.signer_for(self.m.ws.data_dir).trusted(),
+            signing.trusted_keys(self.m.ws.data_dir),
         )
         facts: dict[str, Any] = {}
         if (folder / RECORD).is_file():

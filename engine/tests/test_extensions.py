@@ -55,7 +55,7 @@ class _Sink:
 # --------------------------------------------------------------------- loading --
 def test_the_core_finds_no_extensions_and_runs_as_core():
     reg = extensions.load([])
-    assert reg.edition == "core" and reg.loaded == [] and reg.signer(Path("/x")) is None
+    assert reg.edition == "core" and reg.loaded == [] and reg.signer(Path("/x"), "kms") is None
     reg.audit("change.status", change_id="c1")  # no sinks: a no-op, never an error
 
 
@@ -122,8 +122,61 @@ def test_safety_is_not_an_extension_point():
         assert not any(w in point for w in ("floor", "sandbox", "seal", "verify", "mfa", "policy", "hook"))
 
 
+def test_registration_is_all_or_nothing_and_a_failure_leaves_what_loaded_before(tmp_path):
+    """PR #220 review: an extension that installs a signer and a sink, then raises, leaves neither behind, and
+    the extension loaded before it keeps its own."""
+    first_sink, partial_sink = _Sink(), _Sink()
+
+    def good(reg):
+        reg.provide("kms", "kms", evidence_signer=lambda d: signing.LocalSigner(tmp_path / "kms"))
+        reg.provide("audit", "siem", audit_sink=first_sink, ui_slot="settings.edition")
+
+    def half(reg):
+        reg.set_edition("enterprise", {"valid": True})
+        reg.provide("other", "siem", audit_sink=partial_sink, ui_slot="other.slot")
+        raise RuntimeError("broke after registering")
+
+    def refusing_late(reg):
+        reg.provide("late", "siem", audit_sink=partial_sink)
+        raise extensions.Refused("changed its mind")
+
+    reg = extensions.load([_EP("a", _Ext("a", good)), _EP("b", _Ext("b", half)), _EP("c", _Ext("c", refusing_late))])
+    assert [(e.name, e.status) for e in reg.loaded] == [
+        ("kms", "loaded"),
+        ("audit", "loaded"),
+        ("b", "failed"),
+        ("c", "refused"),
+    ]
+    assert [n for n, _ in reg.audit_sinks] == ["audit"] and reg.ui_slots == {"settings.edition": "audit"}
+    assert reg.edition == "core" and reg.licence is None, "the failed extension's edition was not published"
+    assert reg.signer(tmp_path, "kms") is not None
+    reg.audit("change.status", change_id="c1")
+    assert len(first_sink.events) == 1 and partial_sink.events == []
+
+
+def test_the_licence_shown_is_checked_now_not_at_start():
+    state = {"valid": True}
+    reg = extensions.Registry()
+    reg.set_edition("enterprise", {"valid": True}, live=lambda: dict(state))
+    state["valid"] = False
+    assert reg.licence_now() == {"valid": False}
+
+    def broken():
+        raise OSError("disk")
+
+    reg.set_edition("enterprise", {"valid": True}, live=broken)
+    assert reg.licence_now()["valid"] is False
+
+
+def test_there_is_no_tenancy_point_one_factory_serves_one_customer():
+    """ADR-0051 §9 (PR #220 review): tenancy is enforced by the core when it comes, never provided by an extension."""
+    assert "tenancy" not in extensions.POINTS
+    assert extensions.Registry().provide("t", "saas", tenancy=object()).status == "refused"
+
+
 # ------------------------------------------------------------- core call sites --
-def test_an_extensions_signer_signs_evidence_and_the_core_still_checks_it(tmp_path):
+def test_an_extensions_signer_signs_evidence_and_the_core_still_checks_it(tmp_path, monkeypatch):
+    monkeypatch.setenv(signing.SIGNER_ENV, "kms")
     kms_dir = tmp_path / "kms"
     reg = extensions.activate(extensions.Registry())
     reg.provide("kms", "kms", evidence_signer=lambda _d: signing.LocalSigner(kms_dir))
@@ -137,6 +190,23 @@ def test_an_extensions_signer_signs_evidence_and_the_core_still_checks_it(tmp_pa
 def test_without_an_extension_evidence_is_signed_with_the_local_key(tmp_path):
     s = signing.signer_for(tmp_path)
     assert isinstance(s, signing.LocalSigner) and s.dir == tmp_path / "keys" / "evidence"
+
+
+def test_an_installed_signer_is_used_only_when_the_install_names_it(tmp_path, monkeypatch):
+    monkeypatch.delenv(signing.SIGNER_ENV, raising=False)
+    reg = extensions.activate(extensions.Registry())
+    reg.provide("kms", "kms", evidence_signer=lambda _d: signing.LocalSigner(tmp_path / "kms"))
+    assert signing.signer_for(tmp_path / "data").dir == tmp_path / "data" / "keys" / "evidence"
+
+
+def test_a_named_signer_that_did_not_load_fails_closed_never_the_local_key(tmp_path, monkeypatch):
+    """PR #220 review: a configured signer must never silently fall back to another key."""
+    monkeypatch.setenv(signing.SIGNER_ENV, "kms")
+    extensions.activate(extensions.Registry()).refuse("kms", "kms", "licence: expired")
+    with pytest.raises(signing.SignerUnavailable, match="'kms' is configured but not loaded"):
+        signing.signer_for(tmp_path)
+    assert signing.trusted_keys(tmp_path) == [], "nothing verifies against a key it wasn't signed with"
+    assert not (tmp_path / "keys").exists()
 
 
 def test_every_change_created_and_every_status_change_reaches_the_audit_sinks():

@@ -69,6 +69,7 @@ services:
     env_file: .env
     environment:
       DOCKER_HOST: tcp://docker:2376     # must match the dind cert SAN (see alias above)
+      AGENT_FACTORY_EVIDENCE_SIGNER: ${AGENT_FACTORY_EVIDENCE_SIGNER:-local}  # ADR-0051: a named signer fails closed
       DOCKER_TLS_VERIFY: "1"
       DIND_HOST: dind
       AUTH_MODE: gateway                 # trust only the identity the gateway forwards

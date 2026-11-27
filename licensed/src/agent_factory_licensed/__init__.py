@@ -13,6 +13,7 @@ registry's methods: `set_edition`, `provide`, `refuse`.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -20,32 +21,51 @@ from agent_factory_licensed import licence as _licence
 from agent_factory_licensed import siem
 
 EDITION = "enterprise"
+log = logging.getLogger(__name__)
 
 
-def _siem(reg: Any) -> None:
-    reg.provide("audit-file", "siem", audit_sink=siem.AuditFile(siem.default_dir()))
+class GatedSink:
+    """An audit sink that works only while the licence covers its feature; checked before every event."""
+
+    def __init__(self, sink: Any, feature: str, live: _licence.Live) -> None:
+        self.sink, self.feature, self.live = sink, feature, live
+        self._stopped = False
+
+    def emit(self, event: dict[str, Any]) -> None:
+        if not self.live.grants(self.feature):
+            if not self._stopped:  # once per lapse, not once per event
+                log.warning("audit export stopped: %s", self.live.why_not(self.feature))
+            self._stopped = True
+            return
+        self._stopped = False
+        self.sink.emit(event)
+
+
+def _siem(reg: Any, live: _licence.Live) -> None:
+    reg.provide("audit-file", "siem", audit_sink=GatedSink(siem.AuditFile(siem.default_dir()), "siem", live))
 
 
 # feature -> how it registers. Phase D adds sso, kms and compliance here.
-FEATURES: dict[str, Callable[[Any], None]] = {"siem": _siem}
+FEATURES: dict[str, Callable[[Any, _licence.Live], None]] = {"siem": _siem}
 
 
 class Enterprise:
     name = "licensed"
 
-    def __init__(self, check: Callable[[], _licence.Licence] = _licence.current) -> None:
-        self._check = check
+    def __init__(self, check: Callable[[], _licence.Licence] = _licence.current, ttl: float = 600.0) -> None:
+        self._check, self._ttl = check, ttl
 
     def register(self, registry: Any) -> None:
-        lic = self._check()
-        registry.set_edition(EDITION, lic.summary())
+        live = _licence.Live(self._check, self._ttl)
+        lic = live.now()
+        registry.set_edition(EDITION, lic.summary(), live=lambda: live.now().summary())
+        # A feature the key doesn't cover at start is refused (restart to add it). One it covers is registered,
+        # and each use asks `live` again, so expiry while running stops it without a restart.
         for feature, provide in FEATURES.items():
-            if not lic.valid:
-                registry.refuse(feature, feature, f"licence: {lic.problem}")
-            elif not lic.grants(feature):
-                registry.refuse(feature, feature, "the licence does not include this feature")
+            if lic.grants(feature):
+                provide(registry, live)
             else:
-                provide(registry)
+                registry.refuse(feature, feature, live.why_not(feature))
 
 
 extension = Enterprise()

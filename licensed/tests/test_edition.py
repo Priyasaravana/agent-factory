@@ -103,3 +103,48 @@ def test_the_chain_resumes_after_a_restart(tmp_path):
     assert siem.verify_chain(tmp_path) == (True, "2 event(s), chain intact")
     f = next(tmp_path.glob("*.jsonl"))
     assert oct(f.stat().st_mode & 0o777) == "0o600"
+
+
+# ------------------------------------------- the licence while running (PR #220 review) --
+class _Clock:
+    def __init__(self):
+        self.t, self.day = 0.0, date(2026, 12, 1)
+
+
+def _live(clock, results):
+    calls = []
+
+    def check():
+        calls.append(clock.t)
+        return results[min(len(calls), len(results)) - 1]
+
+    return licence.Live(check, ttl=600, clock=lambda: clock.t, today=lambda: clock.day), calls
+
+
+def test_the_licence_is_checked_again_after_the_ttl_and_on_a_new_day():
+    clock = _Clock()
+    ok, gone = licence.Licence(True, features=["siem"]), licence.Licence(False, "expired on 2026-12-01")
+    live, calls = _live(clock, [ok, gone])
+    assert live.grants("siem") and live.grants("siem") and len(calls) == 1, "cached within the ttl"
+    clock.t = 601
+    assert not live.grants("siem") and len(calls) == 2
+    live2, calls2 = _live(clock, [ok, gone])
+    live2.now()
+    clock.day = date(2026, 12, 2)  # expiry and grace end at a day boundary
+    assert not live2.grants("siem") and len(calls2) == 2
+
+
+def test_audit_export_stops_when_the_licence_lapses_while_running_and_resumes_with_a_new_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_FACTORY_AUDIT_DIR", str(tmp_path / "audit"))
+    state = {"lic": licence.Licence(True, features=["siem"], licensee="Acme")}
+    reg = extensions.load([_EP(edition.Enterprise(lambda: state["lic"], ttl=0))])
+    reg.audit("change.status", n=1)
+    state["lic"] = licence.Licence(False, "expired on 2026-12-01 (and its 14 days' grace)")
+    reg.audit("change.status", n=2)
+    reg.audit("change.status", n=3)
+    assert reg.licence_now()["valid"] is False and "expired" in reg.licence_now()["problem"]
+    state["lic"] = licence.Licence(True, features=["siem"], licensee="Acme")  # a renewed key file
+    reg.audit("change.status", n=4)
+    lines = [json.loads(ln) for f in (tmp_path / "audit").glob("*.jsonl") for ln in f.read_text().splitlines()]
+    assert [ln["n"] for ln in lines] == [1, 4]
+    assert siem.verify_chain(tmp_path / "audit")[0]
