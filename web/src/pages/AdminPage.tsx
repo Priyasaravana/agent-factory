@@ -56,9 +56,9 @@ export default function AdminPage() {
         <h2>Admin: users</h2>
         <p className="muted small">
           <strong>Admins</strong> change workflows, skills and users.{" "}
-          <strong>Members</strong> submit products, give feedback, operate changes
-          and can see everything. New users get a temporary password and must
-          change it at first sign-in.
+          <strong>Members</strong> submit products, give feedback, operate
+          changes and can see everything. New users get a temporary password and
+          must change it at first sign-in.
         </p>
         <form
           className="row"
@@ -112,6 +112,14 @@ export default function AdminPage() {
                     <span className="pill warn">must change password</span>
                   )}
                   {u.disabled && <span className="pill bad">disabled</span>}
+                  {u.source && u.source !== "local" && (
+                    <span
+                      className="pill info"
+                      title="signs in through the identity provider; no password here"
+                    >
+                      {u.source.replace(/^sso:/, "SSO · ")}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <select
@@ -168,7 +176,7 @@ export default function AdminPage() {
                       onClick={() => {
                         if (
                           window.confirm(
-                            `Delete ${u.username} and their API tokens?`,
+                            `Delete ${u.username} and their API tokens? The name stays reserved: it is never given to anyone else, because products and history refer to it. To pause someone, disable instead.`,
                           )
                         )
                           m.mutate(() =>

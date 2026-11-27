@@ -68,7 +68,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## 6. Enterprise governance (when a company adopts it)
 - NIST SSDF (secure development practices) and ISO/IEC 42001 (AI management system) are the frameworks auditors will ask about.
-- Our audit log, versioned workflows, approvals and evidence records are the raw material. ✅ The licensed edition exports every change's creation and status changes as a hash-chained JSON-lines audit log a SIEM agent tails (ADR-0051, feature `siem`); ⬜ direct delivery to a SIEM (phase D). ⬜ Map them when a real customer needs it; don't build for it now.
+- Our audit log, versioned workflows, approvals and evidence records are the raw material. ✅ Single sign-on with OIDC for the licensed edition (ADR-0052): PKCE, nonce, asymmetric ID tokens only, roles from the organisation's groups, local accounts never taken over · ⬜ SAML, SCIM. ✅ The licensed edition exports every change's creation and status changes as a hash-chained JSON-lines audit log a SIEM agent tails (ADR-0051, feature `siem`); ⬜ direct delivery to a SIEM (phase D). ⬜ Map them when a real customer needs it; don't build for it now.
 
 ## 7. Quality pillars (ADR-0024)
 

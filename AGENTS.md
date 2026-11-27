@@ -379,6 +379,16 @@
   `issuers.txt`); every source file there starts with `SPDX-License-Identifier: LicenseRef-AgentFactory-Commercial`.
   The factory image's default target is `core`; `--target enterprise` adds `licensed/` with `--no-deps`. Tests for
   `licensed/` live in `licensed/tests/` (`scripts/check licensed`).
+- Single sign-on (ADR-0052): the auth service has its own seam (`factory_auth/extensions.py`, group
+  `factory_auth.extensions`, point `sign_in`). A provider only proves identity (`start`, `finish` → `Identity`); the
+  core decides everything else in `app.py`'s `/auth/sso/...`: browser-bound one-time state, redirect address from
+  `AUTH_PUBLIC_URL` only, accounts bound to the verified `(issuer, subject)` through an immutable `uid`
+  (`Store.sso_user`, `sso_identities`; names and emails are profile attributes; a taken name is refused, so no
+  takeover; a deleted account's name is retired for good in `retired_usernames`, since the engine grants rights by
+  name), disabled stays out, no API tokens for SSO accounts, at most `SSO_PENDING_PER_SOURCE` pending sign-ins
+  per address, fixed `sso_error` codes only, log text through `_clean`. A provider may offer `available()` (the
+  live licence), asked before listing, start and callback. Auth mounts only `.secrets/auth/`, never the factory's tokens. Tests in
+  `auth/tests/test_sso.py` (core, fake provider) and `licensed/tests/test_oidc.py` (a fake identity provider).
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

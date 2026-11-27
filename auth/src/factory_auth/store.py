@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS tokens (
   id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, username TEXT NOT NULL, name TEXT NOT NULL,
   created_at TEXT NOT NULL, last_used_at TEXT);
+CREATE TABLE IF NOT EXISTS retired_usernames (
+  username TEXT PRIMARY KEY, uid TEXT, retired_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sso_identities (
+  issuer TEXT NOT NULL, subject TEXT NOT NULL, uid TEXT NOT NULL, provider TEXT NOT NULL,
+  username_claim TEXT, email TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (issuer, subject));
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, actor TEXT, action TEXT NOT NULL, target TEXT);
 """
@@ -40,6 +46,13 @@ CREATE TABLE IF NOT EXISTS audit (
 
 class AuthError(Exception):
     pass
+
+
+_USER_COLS = "username, role, disabled, must_change, created_at, source, uid"
+
+
+def _user(r: tuple) -> User:
+    return User(r[0], r[1], bool(r[2]), bool(r[3]), r[4], r[5], r[6] or "")
 
 
 def _now() -> datetime:
@@ -65,6 +78,12 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk.hex(), digest)
 
 
+def check_username(username: str) -> None:
+    # '@' for identity-provider names (ADR-0052); nothing that could break a header or a path
+    if not username or len(username) > 64 or not username.translate(str.maketrans("", "", "-_.@")).isalnum():
+        raise AuthError("username may contain letters, digits, '.', '-', '_' and '@'")
+
+
 def check_password_policy(password: str) -> None:
     if len(password) < MIN_PASSWORD:
         raise AuthError(f"password must be at least {MIN_PASSWORD} characters")
@@ -77,6 +96,8 @@ class User:
     disabled: bool
     must_change: bool
     created_at: str
+    source: str = "local"  # local, or sso:<provider id> (ADR-0052): how this account signs in
+    uid: str = ""  # the account's immutable internal id; an SSO identity is bound to it, never to the name
 
 
 @dataclass
@@ -113,6 +134,21 @@ class Store:
         cols = {r[1] for r in self._db.execute("PRAGMA table_info(sessions)").fetchall()}
         if "last_seen_at" not in cols:  # databases from before the idle timeout (S-14)
             self._db.execute("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT")
+        ucols = {r[1] for r in self._db.execute("PRAGMA table_info(users)").fetchall()}
+        if "source" not in ucols:  # databases from before single sign-on (ADR-0052): every account was local
+            self._db.execute("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'")
+        if "uid" not in ucols:
+            self._db.execute("ALTER TABLE users ADD COLUMN uid TEXT")
+        for (name,) in self._db.execute("SELECT username FROM users WHERE uid IS NULL").fetchall():
+            self._db.execute("UPDATE users SET uid=? WHERE username=?", (secrets.token_hex(16), name))
+        self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_uid ON users(uid)")
+        # Names deleted before retired_usernames existed (PR #221 review): the audit log records every deletion, so
+        # retire those too, unless an account holds the name now (then deleting it retires it). Idempotent.
+        self._db.execute(
+            "INSERT OR IGNORE INTO retired_usernames(username, uid, retired_at) "
+            "SELECT target, NULL, MIN(ts) FROM audit WHERE action='deleted user' AND target IS NOT NULL "
+            "AND target NOT IN (SELECT username FROM users) GROUP BY target"
+        )
         # a dummy hash so login timing does not reveal whether a user exists
         self._dummy = hash_password(secrets.token_hex(8))
 
@@ -131,38 +167,44 @@ class Store:
         return int(self._q("SELECT COUNT(*) FROM users").fetchone()[0])
 
     def get_user(self, username: str) -> User | None:
-        row = self._q(
-            "SELECT username, role, disabled, must_change, created_at FROM users WHERE username=?", (username,)
-        ).fetchone()
-        return User(row[0], row[1], bool(row[2]), bool(row[3]), row[4]) if row else None
+        row = self._q(f"SELECT {_USER_COLS} FROM users WHERE username=?", (username,)).fetchone()  # noqa: S608
+        return _user(row) if row else None
+
+    def user_by_uid(self, uid: str) -> User | None:
+        row = self._q(f"SELECT {_USER_COLS} FROM users WHERE uid=?", (uid,)).fetchone()  # noqa: S608
+        return _user(row) if row else None
 
     def list_users(self) -> list[User]:
-        rows = self._q("SELECT username, role, disabled, must_change, created_at FROM users ORDER BY username")
-        return [User(r[0], r[1], bool(r[2]), bool(r[3]), r[4]) for r in rows.fetchall()]
+        rows = self._q(f"SELECT {_USER_COLS} FROM users ORDER BY username")  # noqa: S608
+        return [_user(r) for r in rows.fetchall()]
 
     def create_user(self, username: str, password: str, role: Role, must_change: bool = False) -> User:
         if role not in ROLES:
             raise AuthError(f"role must be one of {ROLES}")
-        if not username or not username.replace("-", "").replace("_", "").replace(".", "").isalnum():
-            raise AuthError("username may contain letters, digits, '.', '-' and '_'")
+        check_username(username)
         check_password_policy(password)
         if self.get_user(username):
             raise AuthError(f"user '{username}' already exists")
+        self._refuse_retired(username)
         self._q(
-            "INSERT INTO users(username, role, pw, must_change, created_at) VALUES (?,?,?,?,?)",
-            (username, role, hash_password(password), int(must_change), _now().isoformat()),
+            "INSERT INTO users(username, role, pw, must_change, created_at, uid) VALUES (?,?,?,?,?,?)",
+            (username, role, hash_password(password), int(must_change), _now().isoformat(), secrets.token_hex(16)),
         )
         return self.get_user(username)  # type: ignore[return-value]
 
     def authenticate(self, username: str, password: str) -> User | None:
         row = self._q("SELECT pw, disabled FROM users WHERE username=?", (username,)).fetchone()
-        stored = row[0] if row else self._dummy
+        local = bool(row and "$" in row[0])  # an SSO account (pw "sso") has no password: same timing, never ok
+        stored = row[0] if row and local else self._dummy
         ok = verify_password(password, stored)
-        if not row or not ok or row[1]:
+        if not row or not local or not ok or row[1]:
             return None
         return self.get_user(username)
 
     def set_password(self, username: str, password: str, must_change: bool = False) -> None:
+        user = self.get_user(username)
+        if user and user.source != "local":
+            raise AuthError(f"'{username}' signs in with {user.source}; it has no password here")
         check_password_policy(password)
         self._q(
             "UPDATE users SET pw=?, must_change=? WHERE username=?",
@@ -191,7 +233,102 @@ class Store:
             raise AuthError("the last active admin cannot be deleted")
         self.revoke_sessions(username)
         self._q("DELETE FROM tokens WHERE username=?", (username,))
+        self._q("DELETE FROM sso_identities WHERE uid=?", (user.uid,))
+        # The engine knows people by name (X-Auth-User): products they made, changes they asked for, who may steer.
+        # A deleted account's name is retired for good, so it can never point at someone else (PR #221 review).
+        self._q(
+            "INSERT OR REPLACE INTO retired_usernames(username, uid, retired_at) VALUES (?,?,?)",
+            (username, user.uid, _now().isoformat()),
+        )
         self._q("DELETE FROM users WHERE username=?", (username,))
+
+    def is_retired(self, username: str) -> bool:
+        return self._q("SELECT 1 FROM retired_usernames WHERE username=?", (username,)).fetchone() is not None
+
+    def _refuse_retired(self, username: str) -> None:
+        if self.is_retired(username):
+            raise AuthError(
+                f"'{username}' belonged to a deleted account; names are never reused, because the factory's products "
+                "and history refer to people by name"
+            )
+
+    def sso_user(
+        self,
+        provider: str,
+        issuer: str,
+        subject: str,
+        username: str,
+        role: Role | None,
+        email: str | None = None,
+    ) -> User:
+        """The account an identity provider vouched for (ADR-0052, PR #221 review). An identity is the verified
+        `(issuer, subject)` pair (OIDC Core §5.7), bound to the account's immutable `uid` on its first sign-in;
+        the name and email it arrives with are profile attributes only. So a renamed person keeps their account,
+        a different person given a reused name never inherits it, and a replaced issuer is a new identity. A
+        first sign-in whose name the factory already has (local, or bound to another identity) is refused: an
+        identity provider can't take over `admin`, or anyone. The role follows the provider's groups when a
+        mapping gives one; disabled stays disabled (the caller refuses it)."""
+        if not issuer or not subject:
+            raise AuthError("the identity provider gave no issuer or subject")
+        now = _now().isoformat()
+        with self._lock:  # one transaction: two first sign-ins can't both bind, or both take the name
+            db = self._db
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                bound = db.execute(
+                    "SELECT uid FROM sso_identities WHERE issuer=? AND subject=?", (issuer, subject)
+                ).fetchone()
+                row = (
+                    db.execute(f"SELECT {_USER_COLS} FROM users WHERE uid=?", (bound[0],)).fetchone()  # noqa: S608
+                    if bound
+                    else None
+                )
+                if bound and row is None:  # its account was deleted: the identity starts again
+                    db.execute("DELETE FROM sso_identities WHERE issuer=? AND subject=?", (issuer, subject))
+                if row is not None:
+                    db.execute(
+                        "UPDATE sso_identities SET username_claim=?, email=?, last_seen_at=? "
+                        "WHERE issuer=? AND subject=?",
+                        (username, email, now, issuer, subject),
+                    )
+                    user = _user(row)
+                else:
+                    check_username(username)
+                    if db.execute("SELECT 1 FROM retired_usernames WHERE username=?", (username,)).fetchone():
+                        raise AuthError(f"the name '{username}' belonged to a deleted account and is never reused")
+                    if db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+                        raise AuthError(f"the name '{username}' already belongs to another account here; ask an admin")
+                    uid = secrets.token_hex(16)
+                    db.execute(
+                        "INSERT INTO users(username, role, pw, must_change, created_at, source, uid) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (username, role or "member", "sso", 0, now, f"sso:{provider}", uid),
+                    )
+                    db.execute(
+                        "INSERT INTO sso_identities(issuer, subject, uid, provider, username_claim, email, "
+                        "created_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (issuer, subject, uid, provider, username, email, now, now),
+                    )
+                    user = _user(db.execute(f"SELECT {_USER_COLS} FROM users WHERE uid=?", (uid,)).fetchone())  # noqa: S608
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        if role and role != user.role and not user.disabled:
+            return self.update_user(user.username, role=role)  # the last active admin rule still holds
+        return user
+
+    def sso_identities(self, username: str) -> list[dict[str, str]]:
+        """The identities bound to an account (for admins): issuer, subject and what they last said."""
+        user = self.get_user(username)
+        if not user:
+            return []
+        rows = self._q(
+            "SELECT issuer, subject, provider, username_claim, email, last_seen_at FROM sso_identities WHERE uid=?",
+            (user.uid,),
+        ).fetchall()
+        keys = ("issuer", "subject", "provider", "username_claim", "email", "last_seen_at")
+        return [dict(zip(keys, r, strict=True)) for r in rows]
 
     def _active_admins(self) -> int:
         return int(self._q("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0").fetchone()[0])
@@ -258,7 +395,9 @@ class Store:
             return None
         self._q("UPDATE tokens SET last_used_at=? WHERE id=?", (_now().isoformat(), row[0]))
         user = self.get_user(row[1])
-        return user if user and not user.disabled else None
+        # ADR-0052 (PR #221 review): an SSO account's access must end with the identity provider's say, so it
+        # holds no long-lived token; one made before this rule counts for nothing
+        return user if user and not user.disabled and user.source == "local" else None
 
     def revoke_token(self, tid: str, username: str | None = None) -> bool:
         sql, args = "DELETE FROM tokens WHERE id=?", [tid]

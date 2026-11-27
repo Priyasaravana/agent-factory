@@ -45,8 +45,13 @@ def _siem(reg: Any, live: _licence.Live) -> None:
     reg.provide("audit-file", "siem", audit_sink=GatedSink(siem.AuditFile(siem.default_dir()), "siem", live))
 
 
-# feature -> how it registers. Phase D adds sso, kms and compliance here.
-FEATURES: dict[str, Callable[[Any, _licence.Live], None]] = {"siem": _siem}
+def _sso(reg: Any, live: _licence.Live) -> None:
+    # sign-in itself runs in the auth service (agent_factory_licensed.sso); the engine shows the licence's state
+    reg.provide("sso", "sso")
+
+
+# feature -> how it registers. Phase D adds kms and compliance here.
+FEATURES: dict[str, Callable[[Any, _licence.Live], None]] = {"siem": _siem, "sso": _sso}
 
 
 class Enterprise:

@@ -127,6 +127,28 @@ export default function AccountPage() {
         Sign-in is not enabled on this factory (local mode).
       </p>
     );
+  // ADR-0052: an account that signs in through the identity provider has no password and no API tokens here
+  const sso = (auth.me.source ?? "local") !== "local";
+  if (sso)
+    return (
+      <div className="stack">
+        <section className="card">
+          <h2>Account</h2>
+          <p>
+            Signed in as <strong>{auth.me.username}</strong>{" "}
+            <span className="pill info">{auth.me.role}</span>{" "}
+            <span className="pill info">single sign-on</span>
+          </p>
+          <p className="muted small">
+            You sign in through your organisation's identity provider, so there
+            is no password to change here. API tokens are for local accounts
+            only: access through single sign-on ends with your session, and a
+            token would outlive your removal at the identity provider. Ask an
+            admin for a service account for scripts and CI.
+          </p>
+        </section>
+      </div>
+    );
   return (
     <div className="stack">
       <section className="card">

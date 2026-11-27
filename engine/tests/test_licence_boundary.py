@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 LICENSED = REPO / "licensed"
 SPDX = "SPDX-License-Identifier: LicenseRef-AgentFactory-Commercial"
@@ -56,10 +58,11 @@ def test_the_root_licence_maps_directories_to_licences():
     assert "END OF TERMS AND CONDITIONS" in text
 
 
-def test_the_core_image_is_built_without_licensed():
-    """Only the enterprise stage of the factory image copies licensed/; the core stage, and the default target,
-    never see it (the release job also proves it on the built images: `agent-factory edition --require`)."""
-    df = (REPO / "images" / "factory" / "Dockerfile").read_text()
+@pytest.mark.parametrize("image", ["factory", "auth"])
+def test_the_core_image_is_built_without_licensed(image):
+    """Only the enterprise stage of each image copies licensed/; the core stage, and the default target, never see
+    it (the release job also proves it on the built images)."""
+    df = (REPO / "images" / image / "Dockerfile").read_text()
     stages = re.split(r"^FROM\s", df, flags=re.M)[1:]
     named = {re.match(r"\S+(?:\s+AS\s+(\S+))?", s, re.I).group(1) or "": s for s in stages}  # type: ignore[union-attr]
     assert "core" in named and "enterprise" in named
