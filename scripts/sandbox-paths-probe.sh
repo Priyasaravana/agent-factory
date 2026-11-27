@@ -25,7 +25,7 @@ ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{
 # reach WHERE-ARGS... -- URL  → open|closed, from a throw-away container inside dind
 reach() {
   local args=(); while [ "$1" != -- ]; do args+=("$1"); shift; done; shift
-  if dind docker run --rm "${args[@]}" "$IMAGE" curl -s -o /dev/null --max-time 6 "$1" >/dev/null 2>&1; then echo open; else echo closed; fi
+  if dind docker run --rm ${args[@]+"${args[@]}"} "$IMAGE" curl -s -o /dev/null --max-time 6 "$1" >/dev/null 2>&1; then echo open; else echo closed; fi
 }
 
 [ -n "$IMAGE" ] || IMAGE=$(dind docker images agent-factory-sandbox --format '{{.Repository}}:{{.Tag}}' | tr -d '\r' | head -1)

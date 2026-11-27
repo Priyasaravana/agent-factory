@@ -1,10 +1,11 @@
-.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade config-split test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline
+.PHONY: help init up up-live down logs ps reset-cluster clean-docker local-ingress reset-admin apps app-login app-password sandbox-check privilege-check backup restore upgrade config-split test lint web-build openapi skills-sync check verify test-changed test-quiet mypy-new mypy-baseline secrets-files baselines
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
 init: ## create .env from the example
 	@test -f .env || cp .env.example .env && echo "edit .env, then: make up"
+	@mkdir -m 700 -p .secrets   # token files, mounted read-only at /run/secrets (S-06)
 
 up: init ## start the factory (mode from .env)
 	python3 scripts/pin-images.py --check-compose
@@ -99,6 +100,17 @@ lint:
 skills-sync: ## copy the engineering standards skills from plugin/skills to .claude/skills (ADR-0032)
 	@for d in .claude/skills/*/; do n=$$(basename $$d); cp plugin/skills/$$n/SKILL.md .claude/skills/$$n/SKILL.md; done
 	@echo "synced: $$(ls .claude/skills | tr '\n' ' ')"
+
+secrets-files: ## move tokens out of .env into .secrets/ files, mounted read-only (S-06, once)
+	python3 scripts/secrets-to-files.py --root .
+
+baselines: ## record the G0 baselines from the running factory into docs/outcomes.md (phase A, once)
+	@mkdir -p .cache
+	docker compose exec -T -u factory factory agent-factory baselines --into - \
+	  --install "$${BASELINES_INSTALL:-reference install}" --version "$$(git rev-parse --short HEAD)" \
+	  < docs/outcomes.md > .cache/outcomes.md
+	mv .cache/outcomes.md docs/outcomes.md
+	@git --no-pager diff --stat -- docs/outcomes.md
 
 config-split: ## move your edits in .agent-factory/config.yaml into the gitignored config.local.yaml (once)
 	@mkdir -p .cache

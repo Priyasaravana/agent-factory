@@ -117,6 +117,23 @@ def test_the_revision_must_be_in_the_history_with_the_recorded_image():
     assert rollback.history_problems(_release(), rows, "app:2") == ["revision 3 runs app:2, not app:1"]
 
 
+def test_a_helm_operation_cut_off_half_way_is_named_with_its_remedy():
+    """Phase A drift check (2026-11-22): a re-apply run inside a request that was dropped can leave Helm's newest
+    revision pending; every later `helm rollback` then fails with Helm's generic "another operation is in progress".
+    The engine refuses before running Helm, and says what a person does about it."""
+    rows = [
+        {"revision": 3, "status": "superseded", "description": "Upgrade complete"},
+        {"revision": 4, "status": "pending-rollback", "description": "Rollback to 3"},
+    ]
+    [why] = rollback.history_problems(_release(), rows, "app:1")
+    assert "newest revision 4 of app is 'pending-rollback'" in why and "helm rollback app 3 -n app-app --wait" in why
+    for status in ("pending-install", "pending-upgrade"):
+        rows[-1]["status"] = status
+        assert rollback.history_problems(_release(), rows, "app:1"), status
+    rows[-1]["status"] = "failed"  # a failed newest revision is ordinary: the rollback goes ahead
+    assert rollback.history_problems(_release(), rows, "app:1") == []
+
+
 SIDECAR = f"docker.io/istio/proxyv2:1.24.0=docker.io/istio/proxyv2@sha256:{'f' * 64}"
 
 

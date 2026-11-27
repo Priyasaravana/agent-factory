@@ -704,6 +704,9 @@ class OutcomesView(BaseModel):
     # cost and effort
     cost_total_usd: float
     cost_per_delivery_usd: float | None = None
+    # the model gateway's meter for the same changes (ADR-0036); 0 without a gateway (G0: both meters)
+    gateway_cost_total_usd: float = 0.0
+    gateway_cost_per_delivery_usd: float | None = None
     fix_loops_per_delivery: float | None = None
     # where the time goes
     time_split: TimeSplit
