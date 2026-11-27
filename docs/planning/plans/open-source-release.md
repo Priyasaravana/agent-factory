@@ -3,8 +3,8 @@
 Status: release date **decided by Saravana 2026-11-21**: v0.1.0 public by **2026-12-31**. Built by AI, reviewed by
 AI; Saravana validates the outcome of each step. SaaS is **design only** in December (decided 2026-11-21). First
 paid features in December: SSO (OIDC/SAML), audit export to a SIEM, evidence signed with the customer's KMS, and a
-compliance report pack (decided 2026-11-21). How the code is split is **recommended** below (Saravana asked for a suggestion 2026-11-21); he confirms it before
-phase C starts. The phases and their "Done when" are in the roadmap's "Next, in order" (A–E).
+compliance report pack (decided 2026-11-21). How the code is split was recommended below (Saravana asked for a suggestion 2026-11-21) and **confirmed by him
+2026-11-26**, with a custom commercial licence for `licensed/` ([ADR-0051](../../adr/0051-open-core-seam.md)). The phases and their "Done when" are in the roadmap's "Next, in order" (A–E).
 Vision and goals: [../vision.md](../vision.md).
 
 ## How to split the code (proposed 2026-11-21)
@@ -58,11 +58,21 @@ engine/  web/  packs/   Apache-2.0 core
 
 ### SaaS
 - **December:** design only (this page links the design doc when it is written).
-- **Product code for SaaS** (tenancy, metering from the gateway meters) lives in the same repo, under `licensed/`.
+- **Tenancy is enforced by the core, never by `licensed/`** (PR #220 review, [ADR-0051 §9](../../adr/0051-open-core-seam.md)):
+  the core establishes the principal, checks membership, binds the active tenant to every request and job, and
+  enforces who owns each product, change, evidence folder, secret and job; in a hosted deployment a request or job
+  without a tenant is denied, and a tenant's signer or audit destination never falls back to another's or the
+  platform's. `licensed/` provides what plugs into that: federation (SSO), provisioning (SCIM), metering from the
+  gateway meters, SIEM and KMS integrations.
 - **A private `ops` repo** holds only what runs the service: infrastructure as code, tenant provisioning, secret
   references, runbooks, status page. It is deployment, not product.
 - **First hosted offer:** one isolated factory per client, run by the consulting practice; multi-tenant
-  self-serve is 2027. Agents execute customer code, so tenants never share a factory.
+  self-serve is 2027. Agents execute customer code, so tenants never share a factory. The path to multi-tenant
+  SaaS is a shared control plane that signs people in and routes them to their customer's factory (separate
+  state, credentials and execution), not tenants inside one factory.
+- **Gate before self-service sign-up:** a two-tenant test proves that one tenant's admin can't read or change
+  another tenant's products, evidence, secrets or jobs, and that removing someone from one tenant leaves their
+  other memberships intact.
 
 ## The repo is already public
 - **No LICENSE today:** the code is public but "all rights reserved", so nobody may use it yet.

@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
-from agent_factory import actions
+from agent_factory import actions, extensions
 from agent_factory.agents import AgentRunner, ClaudeAgentRunner, FakeAgentRunner
 from agent_factory.config import FactoryConfig, SandboxConfig, load_factory_config
 from agent_factory.engine.pipeline import ChangeManager, FactoryError, InvalidRequestError, RefusedError
@@ -105,6 +105,10 @@ def build_factory(
         )
     data_dir = Path(settings.data_dir or cfg.factory.data_dir)
     home = Path(settings.factory_home)
+    # installed extensions (ADR-0051): none in the core image; the licensed edition's, by its key
+    reg = extensions.activate(extensions.load())
+    if reg.loaded:
+        log.info("edition %s: %s", reg.edition, ", ".join(f"{e.name} {e.status}" for e in reg.loaded))
     store = store or SqliteStateStore(data_dir / "factory.db")
     live = settings.factory_mode == "live"
     executor = executor or (LocalExecutor() if live else FakeExecutor())

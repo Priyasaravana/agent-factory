@@ -63,9 +63,13 @@ services:
     build:
       context: .
       dockerfile: images/factory/Dockerfile
+      # ADR-0051: core (Apache-2.0) unless FACTORY_EDITION=enterprise; the licence key is the mounted
+      # secret file .secrets/agent_factory_licence (AGENT_FACTORY_LICENCE_FILE's default)
+      target: ${FACTORY_EDITION:-core}
     env_file: .env
     environment:
       DOCKER_HOST: tcp://docker:2376     # must match the dind cert SAN (see alias above)
+      AGENT_FACTORY_EVIDENCE_SIGNER: ${AGENT_FACTORY_EVIDENCE_SIGNER:-local}  # ADR-0051: a named signer fails closed
       DOCKER_TLS_VERIFY: "1"
       DIND_HOST: dind
       AUTH_MODE: gateway                 # trust only the identity the gateway forwards

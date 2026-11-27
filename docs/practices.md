@@ -57,6 +57,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## 4. Supply chain: SLSA and OpenSSF Scorecard
 - **Generated images:** ✅ SBOM (syft) + provenance record in the package station · ✅ image CVEs read as findings, routed by origin (app bump to the developer, base image or no fix to a person), recorded in the work ledger with accepted risks that expire (ADR-0042) · ⬜ scheduled rescans of live images · ⬜ signature (cosign) once images go to a registry.
+- **Factory releases (ADR-0051):** ✅ core and enterprise images from one tag, each proved to be its edition, given an SPDX SBOM (syft) and signed keyless with cosign, the SBOM attested · ⬜ auth, web and sandbox images in the release (phase E).
 - **Factory repo:** ✅ OpenSSF Scorecard in CI (weekly + on main), least-privilege workflow tokens, Dependabot for uv, npm, Actions and Docker (Python base images patch-only) · ✅ CI builds and tests the shipped images and runs a dry-run end-to-end smoke test (ADR-0016) · ✅ branch protection: a ruleset on main requires the `engine`, `auth`, `web`, `golden-path`, `images` and `e2e` checks · ⬜ pin Actions to commit SHAs (they use version tags).
 
 ## 5. Agent engineering
@@ -67,7 +68,7 @@ Maps directly to our agents. See [security/threat-model.md](security/threat-mode
 
 ## 6. Enterprise governance (when a company adopts it)
 - NIST SSDF (secure development practices) and ISO/IEC 42001 (AI management system) are the frameworks auditors will ask about.
-- Our audit log, versioned workflows, approvals and evidence records are the raw material. ⬜ Map them when a real customer needs it; don't build for it now.
+- Our audit log, versioned workflows, approvals and evidence records are the raw material. ✅ The licensed edition exports every change's creation and status changes as a hash-chained JSON-lines audit log a SIEM agent tails (ADR-0051, feature `siem`); ⬜ direct delivery to a SIEM (phase D). ⬜ Map them when a real customer needs it; don't build for it now.
 
 ## 7. Quality pillars (ADR-0024)
 

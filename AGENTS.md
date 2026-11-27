@@ -366,6 +366,19 @@
   `images`): every action pinned to a commit with its version in a comment; `.gitleaks.toml` allows exact
   values only, never paths or rules (`tests/test_ci_gates.py`). Security headers are one snippet,
   `web/security-headers.conf`, included again in any nginx location with its own `add_header` (S-10).
+- Open core (ADR-0051): everything outside `licensed/` is Apache-2.0 and never imports it
+  (`tests/test_licence_boundary.py`: imports, package deps, SPDX headers in `licensed/`, the core image stage). Paid code
+  plugs in only through `extensions.py`'s entry-point group `agent_factory.extensions` at the named `POINTS`
+  (`evidence_signer`, `audit_sink`, `report_pack`, `ui_slot`); a feature needing a new point adds it in core
+  first. Safety (floor, sandbox, guardrails, sealing, signing checks, verifier, local sign-in, MFA) is never a point,
+  and neither is tenancy: one factory serves one customer, and tenancy is enforced by the core when it comes
+  (ADR-0051 §9). Registration is staged and published whole. An extension's signer is used only when named
+  (`AGENT_FACTORY_EVIDENCE_SIGNER`) and fails closed (`SignerUnavailable`), never falling back to the local key.
+  Licensed components check `licence.Live` before each use, never only at start.
+  The licence key is checked only in `licensed/` (`agent_factory_licensed.licence`, offline ed25519, issuers in
+  `issuers.txt`); every source file there starts with `SPDX-License-Identifier: LicenseRef-AgentFactory-Commercial`.
+  The factory image's default target is `core`; `--target enterprise` adds `licensed/` with `--no-deps`. Tests for
+  `licensed/` live in `licensed/tests/` (`scripts/check licensed`).
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.

@@ -2276,6 +2276,28 @@
         }
       }
     },
+    "/api/edition": {
+      "get": {
+        "tags": [
+          "factory"
+        ],
+        "summary": "Which edition is running (core or enterprise), what its licence grants and when it ends, and which extensions loaded or were refused, with the reason (ADR-0051)",
+        "description": "Which edition is running (core or enterprise), what its licence grants and when it ends, and which extensions loaded or were refused, with the reason (ADR-0051)",
+        "operationId": "get_edition",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditionView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/changes/{change_id}/evidence/bundle": {
       "get": {
         "tags": [
@@ -8476,6 +8498,44 @@
         "type": "object",
         "title": "DurationStat"
       },
+      "EditionView": {
+        "properties": {
+          "edition": {
+            "type": "string",
+            "title": "Edition",
+            "default": "core"
+          },
+          "licence": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Licence"
+          },
+          "extensions": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionView"
+            },
+            "type": "array",
+            "title": "Extensions"
+          },
+          "ui_slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Ui Slots"
+          }
+        },
+        "type": "object",
+        "title": "EditionView",
+        "description": "Which edition is running (core or enterprise), what its licence says, and which extensions loaded.\nNever any key material: the licence's holder, features and expiry only."
+      },
       "EntryArtifactView": {
         "properties": {
           "ref": {
@@ -9289,6 +9349,42 @@
         ],
         "title": "EvidenceView",
         "description": "A change's sealed evidence (ADR-0023) and whether it still matches its seal."
+      },
+      "ExtensionView": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "feature": {
+            "type": "string",
+            "title": "Feature"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "feature",
+          "status"
+        ],
+        "title": "ExtensionView",
+        "description": "One extension, or one feature the licensed edition offered, and what became of it (ADR-0051)."
       },
       "Feedback": {
         "properties": {

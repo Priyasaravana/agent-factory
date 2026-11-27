@@ -4,6 +4,23 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-26)
+- **Phase C, the open core seam, in review on `feat/open-core-seam`** ([ADR-0051](../adr/0051-open-core-seam.md),
+  proposed; split confirmed by Saravana 2026-11-26). Code map: root `LICENSE` (directory map + Apache-2.0);
+  `licensed/` (own `LICENSE` draft, `NOTICE`, package `agent_factory_licensed`: `licence/` the offline key and
+  `issuers.txt`, `siem/` the hash-chained audit file, `__init__` the one entry point; tests in `licensed/tests/`,
+  `scripts/check licensed`, CI job `licensed`); core `extensions.py` (`Registry`, `load`, `active`), wired in
+  `app_factory.build_factory`, `signing.signer_for`, `state/sqlite.py` (audit events), `GET /api/edition`,
+  `agent-factory edition [--require]`, `web/src/components/EditionCard.tsx`; Dockerfile targets `core` / `enterprise`,
+  compose `FACTORY_EDITION`; `.github/workflows/release.yml`. Boundary: `tests/test_licence_boundary.py`.
+  **On the Mac after merging (Saravana):** `make licence-issuer` once (the private key goes to
+  `~/.agent-factory-issuer/`, back it up offline; never commit it), paste the printed line into
+  `licensed/src/agent_factory_licensed/licence/issuers.txt` and commit it on a branch; then `make licence-issue
+  LICENSEE="Saravana test" FEATURES=siem EXPIRES=2027-01-31 > .secrets/agent_factory_licence`, set
+  `FACTORY_EDITION=enterprise` in `.env`, `make upgrade`, and check Integrations → Edition says licensed with `siem`
+  loaded; let a change run and see `.factory-data/audit/audit-<day>.jsonl` grow; then put a wrong key in the file,
+  restart, and see `siem` refused. That is phase C's "Done when" live. Tag `v0.1.0-rc0` once to try `release.yml`.
+  Review changes (2026-11-27): staged registration (`Registry._stage`), `licence.Live` + `GatedSink`, the named signer
+  (`signing.SIGNER_ENV`, `SignerUnavailable`, `trusted_keys`), the tenancy point removed (ADR-0051 §9).
 - **2026-11-26, planning only:** telemetry (O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md))
   slotted in phase C, then revised for the review of #218: telemetry egress is engine-owned and read back, an
   adapter supports production only once its live enforcement check passes, Test connection reports each hop it

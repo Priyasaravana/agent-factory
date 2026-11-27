@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import struct
 from dataclasses import dataclass
@@ -35,6 +36,8 @@ from typing import Protocol
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+log = logging.getLogger(__name__)
 
 NAMESPACE = "agent-factory-evidence"
 IDENTITY = "agent-factory-evidence"  # the principal in an allowed_signers line
@@ -317,5 +320,34 @@ class LocalSigner:
         return old, fingerprint(self.public_blob())
 
 
+SIGNER_ENV = "AGENT_FACTORY_EVIDENCE_SIGNER"
+
+
+class SignerUnavailable(RuntimeError):
+    """The install names an evidence signer that isn't loaded (licence, set-up, a failing extension)."""
+
+
 def signer_for(data_dir: Path | str) -> Signer:
-    return LocalSigner(data_dir)
+    """The local key, unless the install names another signer in `AGENT_FACTORY_EVIDENCE_SIGNER` (ADR-0051: a
+    customer KMS in the licensed edition). A named signer that isn't loaded raises: sealing fails visibly and
+    is never signed with the local key instead. An installed extension can't swap the signer unless named.
+    Verifying never changes: `check` against the signer's trusted keys."""
+    from agent_factory import extensions  # late: extensions imports Signer from here
+
+    name = os.environ.get(SIGNER_ENV, "").strip() or "local"
+    if name == "local":
+        return LocalSigner(data_dir)
+    signer = extensions.active().signer(data_dir, name)
+    if signer is None:
+        raise SignerUnavailable(f"evidence signer {name!r} is configured but not loaded (see Settings → Edition)")
+    return signer
+
+
+def trusted_keys(data_dir: Path | str) -> set[bytes]:
+    """The keys evidence is checked against. With the named signer unavailable there are none: evidence it
+    signed reads as not verified (with the reason), never as checked against some other key."""
+    try:
+        return signer_for(data_dir).trusted()
+    except SignerUnavailable:
+        log.warning("evidence signer unavailable: signatures can't be checked until it loads")
+        return set()

@@ -7,3 +7,6 @@
 .factory-data
 .cache
 .secrets
+# licensed/ (ADR-0051): only its package source enters the enterprise image
+licensed/.venv
+licensed/tests

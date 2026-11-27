@@ -924,6 +924,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/edition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which edition is running (core or enterprise), what its licence grants and when it ends, and which extensions loaded or were refused, with the reason (ADR-0051)
+         * @description Which edition is running (core or enterprise), what its licence grants and when it ends, and which extensions loaded or were refused, with the reason (ADR-0051)
+         */
+        get: operations["get_edition"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/changes/{change_id}/evidence/bundle": {
         parameters: {
             query?: never;
@@ -3403,6 +3423,28 @@ export interface components {
             n: number;
         };
         /**
+         * EditionView
+         * @description Which edition is running (core or enterprise), what its licence says, and which extensions loaded.
+         *     Never any key material: the licence's holder, features and expiry only.
+         */
+        EditionView: {
+            /**
+             * Edition
+             * @default core
+             */
+            edition: string;
+            /** Licence */
+            licence?: {
+                [key: string]: unknown;
+            } | null;
+            /** Extensions */
+            extensions?: components["schemas"]["ExtensionView"][];
+            /** Ui Slots */
+            ui_slots?: {
+                [key: string]: string;
+            };
+        };
+        /**
          * EntryArtifactView
          * @description An artifact a lane starts from: the factory makes the request and the code; anything else
          *     comes from the org's own tools with each change (ADR-0039 §5).
@@ -3717,6 +3759,25 @@ export interface components {
             signed_by?: string | null;
             /** Signature Problem */
             signature_problem?: string | null;
+        };
+        /**
+         * ExtensionView
+         * @description One extension, or one feature the licensed edition offered, and what became of it (ADR-0051).
+         */
+        ExtensionView: {
+            /** Name */
+            name: string;
+            /** Feature */
+            feature: string;
+            /** Status */
+            status: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Points */
+            points?: string[];
         };
         /** Feedback */
         Feedback: {
@@ -8136,6 +8197,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceKeyView"];
+                };
+            };
+        };
+    };
+    get_edition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditionView"];
                 };
             };
         };

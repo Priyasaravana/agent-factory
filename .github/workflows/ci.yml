@@ -33,6 +33,15 @@ jobs:
       - run: cd auth && uv run --python 3.12 --extra dev ruff check src tests
       - run: cd auth && uv run --python 3.12 --extra dev pytest -q
 
+  licensed:
+    # the licensed edition (ADR-0051): its own tests, against the core it plugs into
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: cd licensed && uv run --python 3.12 --extra dev ruff check src tests
+      - run: cd licensed && uv run --python 3.12 --extra dev ruff format --check src tests
+      - run: cd licensed && uv run --python 3.12 --extra dev pytest -q
   web:
     runs-on: ubuntu-latest
     steps:
@@ -120,8 +129,27 @@ jobs:
       - name: build the factory, auth and web images
         run: |
           docker build -f images/factory/Dockerfile -t af-factory:ci .
+          docker build -f images/factory/Dockerfile --target enterprise -t af-factory-enterprise:ci .
           docker build -f images/auth/Dockerfile -t af-auth:ci .
           docker build -t af-web:ci web
+      - name: one Dockerfile, two editions; core never holds licensed code (ADR-0051)
+        run: |
+          # the core builds from a checkout with licensed/ removed: it never needs it
+          git archive --format=tar HEAD | (mkdir /tmp/core-only && tar -x -C /tmp/core-only)
+          rm -rf /tmp/core-only/licensed
+          docker build -f /tmp/core-only/images/factory/Dockerfile -t af-factory-core-only:ci /tmp/core-only
+          docker run --rm --entrypoint agent-factory af-factory-core-only:ci edition --require core
+          docker run --rm --entrypoint agent-factory af-factory:ci edition --require core
+          ! docker run --rm --entrypoint python3 af-factory:ci -c "import agent_factory_licensed" 2>/dev/null
+          ! docker run --rm --entrypoint sh af-factory:ci -c "test -e /opt/factory/licensed"
+          # the enterprise image with no key, and with a key no trusted issuer signed: features refused
+          docker run --rm --entrypoint agent-factory af-factory-enterprise:ci edition --require enterprise \
+            | tee /tmp/no-key.json
+          docker run --rm --entrypoint agent-factory -e AGENT_FACTORY_LICENCE=AFL1.e30.AAAA \
+            af-factory-enterprise:ci edition --require enterprise | tee /tmp/bad-key.json
+          for f in /tmp/no-key.json /tmp/bad-key.json; do
+            jq -e '.licence.valid == false and ([.extensions[] | select(.status == "loaded")] | length == 0)' "$f"
+          done
       - name: engine tests on the Python the factory image ships
         run: |
           # as the image's own user (uid 10001), on a copy: the checkout stays read-only

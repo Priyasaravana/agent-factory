@@ -220,7 +220,7 @@ def verify_seal(data_dir: Path, change_id: str, seal: dict[str, Any] | None) -> 
         Path(data_dir) / "artifacts" / change_id,
         seal.get("sha256") if seal else None,
         seal.get("signed_by") if seal else None,
-        signing.signer_for(data_dir).trusted(),
+        signing.trusted_keys(data_dir),
     )
 
 

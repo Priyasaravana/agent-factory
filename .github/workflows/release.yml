@@ -1,0 +1,87 @@
+name: release
+# Two editions from one tag (ADR-0051): ghcr.io/<owner>/agent-factory (core, Apache-2.0) and
+# ghcr.io/<owner>/agent-factory-enterprise (core plus licensed/). Each is proved to be its edition, then
+# pushed, given an SPDX SBOM, and signed keyless with cosign (GitHub's OIDC identity, no key to keep); the
+# SBOM is attached as a signed attestation. Check one with:
+#   cosign verify ghcr.io/<owner>/agent-factory:<tag> \
+#     --certificate-identity-regexp 'https://github.com/<owner>/agent-factory/.github/workflows/release.yml@refs/tags/v.*' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+# The auth, web and sandbox images join the release in phase E (rehearsal).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "push and sign (off: build and check only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # keyless signing
+    env:
+      PUSH: ${{ github.event_name == 'push' || inputs.push }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: names and tag
+        run: |
+          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          tag=${GITHUB_REF_NAME}
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || tag="dev-${GITHUB_SHA::12}"
+          echo "CORE=ghcr.io/$owner/agent-factory:$tag" >> "$GITHUB_ENV"
+          echo "ENTERPRISE=ghcr.io/$owner/agent-factory-enterprise:$tag" >> "$GITHUB_ENV"
+      - name: build both editions from the same source
+        run: |
+          docker build -f images/factory/Dockerfile --target core -t "$CORE" .
+          docker build -f images/factory/Dockerfile --target enterprise -t "$ENTERPRISE" .
+      - name: each image is the edition it says (core holds no licensed code)
+        run: |
+          docker run --rm --entrypoint agent-factory "$CORE" edition --require core
+          ! docker run --rm --entrypoint python3 "$CORE" -c "import agent_factory_licensed" 2>/dev/null
+          docker run --rm --entrypoint agent-factory "$ENTERPRISE" edition --require enterprise
+      - name: push
+        if: env.PUSH == 'true'
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for img in "$CORE" "$ENTERPRISE"; do
+            docker push "$img"
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$img")
+            echo "$img -> $digest"
+            echo "${img%%:*}@${digest#*@}" >> /tmp/digests
+          done
+      - name: SBOM of the core image
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
+        with:
+          image: ${{ env.CORE }}
+          format: spdx-json
+          output-file: /tmp/sbom-core.spdx.json
+          upload-artifact: true
+      - name: SBOM of the enterprise image
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
+        with:
+          image: ${{ env.ENTERPRISE }}
+          format: spdx-json
+          output-file: /tmp/sbom-enterprise.spdx.json
+          upload-artifact: true
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+        if: env.PUSH == 'true'
+      - name: sign both images and attest their SBOMs (by digest, never by tag)
+        if: env.PUSH == 'true'
+        run: |
+          core=$(grep "/agent-factory@" /tmp/digests)
+          ent=$(grep "/agent-factory-enterprise@" /tmp/digests)
+          cosign sign --yes "$core"
+          cosign sign --yes "$ent"
+          cosign attest --yes --type spdxjson --predicate /tmp/sbom-core.spdx.json "$core"
+          cosign attest --yes --type spdxjson --predicate /tmp/sbom-enterprise.spdx.json "$ent"
