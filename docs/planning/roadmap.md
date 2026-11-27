@@ -650,7 +650,9 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   redaction boundary, both collector modes with engine-owned egress (read back against the expected policy, and
   supported for production per adapter only once its live enforcement check passes), the standard HTTP duration
   metric delivered at each pack's own path, the setup card with a Test connection that reports each hop it proved,
-  then a live validation (O7, Saravana). About 19 h of AI build and 5.5 h of checks (revised for the review of #218).
+  then a live validation (O7, Saravana). Every signal carries a trusted factory and
+  product id, readback is isolated by the backend, and readback never touches objects the factory doesn't own.
+  About 20.5 h of AI build and 6 h of checks (revised for the two reviews of #218).
 - **Done when:** the core image builds and passes CI without `licensed/`; the enterprise image loads an extension
   with a valid key and refuses it with an invalid one; O7's live validation passes (a log line's trace id matches
   the evidence manifest, Test connection reaches "Verified at destination" and names the backend hop when it fails,

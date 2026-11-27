@@ -7,7 +7,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 - **2026-11-26, planning only:** telemetry (O1–O7 of [plans/telemetry-standards.md](plans/telemetry-standards.md))
   slotted in phase C, then revised for the review of #218: telemetry egress is engine-owned and read back, an
   adapter supports production only once its live enforcement check passes, Test connection reports each hop it
-  proved, and metrics are scraped at each pack's own path. Now about 19 h of AI build. Nothing is built.
+  proved, and metrics are scraped at each pack's own path. Revised again 2026-11-27 for the tenant boundary (§3a:
+  trusted factory and product ids, backend-enforced isolation, a two-factory test) and owner-scoped readback (held and
+  named, never deleted). Now about 20.5 h of AI build. Nothing is built.
 - **S-06 (#214, `security/s06-secret-files`)** (the last of phase A item 4). Code: `secret_refs.EnvBackend`
   (`NAME_FILE`), `GitHubAppBackend` (`github-app://`, JWT RS256 from the app's key file, cached in memory until ten
   minutes before expiry, no redirects), `scripts/secrets-to-files.py` / `make secrets-files`, the `.secrets` mount,
