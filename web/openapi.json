@@ -10736,6 +10736,22 @@
             ],
             "title": "Cost Per Delivery Usd"
           },
+          "gateway_cost_total_usd": {
+            "type": "number",
+            "title": "Gateway Cost Total Usd",
+            "default": 0.0
+          },
+          "gateway_cost_per_delivery_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Cost Per Delivery Usd"
+          },
           "fix_loops_per_delivery": {
             "anyOf": [
               {

@@ -151,6 +151,16 @@ is not a person on the network: it is code an agent wrote or a package it instal
 - Fix: pull forward the smallest slice: `file://` references from mounted secret files (already
   supported by the resolver) as the documented default, and short-lived GitHub App installation tokens
   in place of long-lived fine-grained ones. ~1 day; the store itself can stay after J5.
+- **Status (2026-11-25, `security/s06-secret-files`): fixed, in review.** Tokens are files by default: `env://NAME`
+  reads the file `NAME_FILE` names (Docker's convention), `.env.example` ships `*_FILE=/run/secrets/…` for every
+  token, compose mounts the gitignored `.secrets/` read-only at `/run/secrets` (never in a build, `.dockerignore`),
+  and `make secrets-files` moves an install's existing values out of `.env` once (old file kept 0600 in `backups/`;
+  an existing different file is never overwritten). `github-app://<app>/<installation>[#repo,…]` mints a GitHub App
+  installation token per use (an hour; reused until ten minutes before expiry, in memory only), signed with the
+  app's private key from a mounted file, over https with no redirects, optionally narrowed to named repositories.
+  Tests: `tests/test_secret_files.py`. Not covered: the model credentials (`CLAUDE_CODE_OAUTH_TOKEN`,
+  `ANTHROPIC_API_KEY`) and `LITELLM_MASTER_KEY` are still read from the environment by the agent runner and the
+  gateway; the secret store (ADR-0038) stays after v0.1.0.
 
 **S-07 · Images are not built from locked or verified inputs**
 - Evidence: `images/factory/Dockerfile:46` and `images/auth/Dockerfile:10` run `uv pip install .`,

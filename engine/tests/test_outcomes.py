@@ -125,6 +125,19 @@ def test_cost_and_effort():
     assert o.cost_total_usd == 3.75, "all spend in the window, failed runs included; OLD excluded"
     assert o.cost_per_delivery_usd == 1.875
     assert o.fix_loops_per_delivery == 2.0
+    assert o.gateway_cost_total_usd == 0.0 and o.gateway_cost_per_delivery_usd is None, "no gateway, no meter"
+
+
+def test_the_gateway_meter_sits_beside_the_cli_meter():
+    f = _facts()
+    for c in f.changes:
+        c.gateway_spend_usd = round(c.cost_usd * 1.1, 4)  # the gateway prices the same calls a little higher
+    o = compute(f)
+    assert o.cost_total_usd == 3.75, "Outcomes still use the CLI's meter"
+    assert o.gateway_cost_total_usd == round(
+        sum(round(c.cost_usd * 1.1, 4) for c in f.changes if o.since <= c.created_at <= NOW), 4
+    )
+    assert o.gateway_cost_per_delivery_usd == round(o.gateway_cost_total_usd / 2, 4)
 
 
 def test_where_the_time_goes():

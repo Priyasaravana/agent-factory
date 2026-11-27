@@ -199,10 +199,19 @@ def one_digest(pods_output: str, image: str) -> tuple[str | None, str]:
 def history_problems(release: Release, rows: list[dict[str, Any]], image_at_revision: str | None) -> list[str]:
     """The recorded revision must be in the release history, restorable, and carry the recorded
     image. Pure."""
+    out = []
+    # a Helm operation cut off half-way (the process killed, a request dropped) leaves its revision pending, and
+    # every later rollback fails with "another operation is in progress": say so, with the remedy, never retry
+    newest = max(rows, key=lambda r: int(str(r["revision"]))) if rows else None
+    if newest is not None and str(newest["status"]).startswith("pending"):
+        out.append(
+            f"Helm's newest revision {newest['revision']} of {release.helm_release} is '{newest['status']}': "
+            f"an earlier Helm operation was cut off, so Helm refuses another until a person clears it on the cluster "
+            f"(helm rollback {release.helm_release} {release.revision} -n {release.namespace} --wait)"
+        )
     row = next((r for r in rows if r["revision"] == release.revision), None)
     if row is None:
-        return [f"revision {release.revision} is not in the release history of {release.helm_release}"]
-    out = []
+        return [*out, f"revision {release.revision} is not in the release history of {release.helm_release}"]
     if row["status"] not in RESTORABLE:
         out.append(f"revision {release.revision} is '{row['status']}', not a release that ran")
     if image_at_revision != release.image:

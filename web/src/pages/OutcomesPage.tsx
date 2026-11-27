@@ -149,8 +149,12 @@ function Kpis({ o }: { o: Outcomes }) {
       <Stat
         label="Cost per delivered change"
         value={usd(o.cost_per_delivery_usd)}
-        sub={`${usd(o.cost_total_usd)} spent in total`}
-        help="All model spend of iterations started in this window (failed ones included) divided by deliveries."
+        sub={
+          o.gateway_cost_per_delivery_usd != null
+            ? `${usd(o.cost_total_usd)} spent in total · gateway meter ${usd(o.gateway_cost_per_delivery_usd)}`
+            : `${usd(o.cost_total_usd)} spent in total`
+        }
+        help="All model spend of iterations started in this window (failed ones included) divided by deliveries, on the agent CLI's meter. With a model gateway, its own meter for the same calls is shown beside it: the two should agree."
       />
       <Stat
         label="Live apps at Level 3"

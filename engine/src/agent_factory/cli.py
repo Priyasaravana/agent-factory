@@ -90,6 +90,14 @@ def main() -> None:
     fd.add_argument(
         "--note", default="", help="where it was restored to and what was verified (at least 20 characters)"
     )
+    bl = sub.add_parser(
+        "baselines",
+        help="the G0 baselines from this install's store, as docs/outcomes.md's section (make baselines)",
+    )
+    bl.add_argument("--days", type=int, default=365, help="the window (default: a year, so every live run so far)")
+    bl.add_argument("--install", default="", help="where it was taken, e.g. 'reference install (Mac)'")
+    bl.add_argument("--version", default="", help="the factory's commit (make baselines passes git's)")
+    bl.add_argument("--into", default="", help="'-': read docs/outcomes.md on stdin, write it back on stdout")
     ek = sub.add_parser(
         "evidence-key",
         help="the key that signs sealed evidence (ADR-0050): show it to publish, or rotate it",
@@ -135,6 +143,8 @@ def main() -> None:
         _apps(args.slug, args.password, args.password_only)
     elif args.cmd == "skills":
         _skills_cache(Path(args.out))
+    elif args.cmd == "baselines":
+        _baselines(args.days, args.install, args.version, args.into)
     elif args.cmd == "factory-drill":
         _factory_drill(args.result, args.by, args.note)
     elif args.cmd == "evidence-key":
@@ -145,6 +155,25 @@ def main() -> None:
         _sandbox_context(Path(args.out))
     elif args.cmd == "sandbox":
         _sandbox_check()
+
+
+def _baselines(days: int, install: str, version: str, into: str) -> None:
+    """Print the baselines section (vision G0), or, with --into -, docs/outcomes.md with it replaced."""
+    from datetime import UTC, datetime
+
+    from agent_factory import baselines
+    from agent_factory.config import load_factory_config
+    from agent_factory.outcomes import outcomes
+    from agent_factory.settings import Settings
+    from agent_factory.state import SqliteStateStore
+
+    s = Settings()
+    data_dir = Path(s.data_dir or load_factory_config(s).factory.data_dir)
+    view = outcomes(SqliteStateStore(data_dir / "factory.db"), days=days)
+    text = baselines.section(
+        view, install=install or "this install", version=version or "unknown", taken=datetime.now(UTC)
+    )
+    sys.stdout.write(baselines.write_into(sys.stdin.read(), text) if into == "-" else text)
 
 
 def _factory_drill(result: str, by: str, note: str) -> None:
