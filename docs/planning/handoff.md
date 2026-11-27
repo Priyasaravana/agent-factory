@@ -10,6 +10,14 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   proved, and metrics are scraped at each pack's own path. Revised again 2026-11-27 for the tenant boundary (§3a:
   trusted factory and product ids, backend-enforced isolation, a two-factory test) and owner-scoped readback (held and
   named, never deleted). Now about 20.5 h of AI build. Nothing is built.
+- **2026-11-26, planning only:** the UI design review and redesign plan, [plans/ui-redesign.md](plans/ui-redesign.md),
+  slotted in phase D by Saravana, with three mocked-up directions on a private Design canvas linked from the plan.
+  **Waiting on Saravana:** the direction and the six questions at the end of that page. Nothing is built.
+  Revised the same day for the review of #219: a recommended mix (Guided first product, Quiet daily, Console detail on
+  demand), the product page as the signature feature, an admin-only Factory settings API contract (UI-44), and a
+  Phase D gate of its own for the UI with a real operating-task rehearsal.
+  Revised again 2026-11-27 for the tenant boundary: every read the UI makes is scoped to one factory by the server
+  (Settings, Home, Insights, product, evidence and trace links), caches keyed to it, a two-factory test.
 - **S-06 (#214, `security/s06-secret-files`)** (the last of phase A item 4). Code: `secret_refs.EnvBackend`
   (`NAME_FILE`), `GitHubAppBackend` (`github-app://`, JWT RS256 from the app's key file, cached in memory until ten
   minutes before expiry, no redirects), `scripts/secrets-to-files.py` / `make secrets-files`, the `.secrets` mount,
