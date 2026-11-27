@@ -20,7 +20,8 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `sso_identities` (`Store.sso_user(provider, issuer, subject, …)`), `Identity.issuer/subject`, the token refusal
   (`create_token`, `token_user`), `SSO_PENDING_PER_SOURCE` and nginx `location ^~ /auth/sso/`, `_clean`,
   `OidcProvider.available` from `licence.Live`. Also check: rename yourself at the provider and sign in again (same
-  account), and that Account → API tokens refuses an SSO account.
+  account), and that Account → API tokens refuses an SSO account. Second review (2026-11-27): `retired_usernames`
+  (`Store.delete_user`, `is_retired`; refused in `create_user` and `sso_user`), nginx `location = /auth/sso`.
 - **Phase C, the open core seam, in review on `feat/open-core-seam`** ([ADR-0051](../adr/0051-open-core-seam.md),
   proposed; split confirmed by Saravana 2026-11-26). Code map: root `LICENSE` (directory map + Apache-2.0);
   `licensed/` (own `LICENSE` draft, `NOTICE`, package `agent_factory_licensed`: `licence/` the offline key and

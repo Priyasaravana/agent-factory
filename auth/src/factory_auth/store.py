@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS tokens (
   id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, username TEXT NOT NULL, name TEXT NOT NULL,
   created_at TEXT NOT NULL, last_used_at TEXT);
+CREATE TABLE IF NOT EXISTS retired_usernames (
+  username TEXT PRIMARY KEY, uid TEXT, retired_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sso_identities (
   issuer TEXT NOT NULL, subject TEXT NOT NULL, uid TEXT NOT NULL, provider TEXT NOT NULL,
   username_claim TEXT, email TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
@@ -176,6 +178,7 @@ class Store:
         check_password_policy(password)
         if self.get_user(username):
             raise AuthError(f"user '{username}' already exists")
+        self._refuse_retired(username)
         self._q(
             "INSERT INTO users(username, role, pw, must_change, created_at, uid) VALUES (?,?,?,?,?,?)",
             (username, role, hash_password(password), int(must_change), _now().isoformat(), secrets.token_hex(16)),
@@ -224,7 +227,23 @@ class Store:
         self.revoke_sessions(username)
         self._q("DELETE FROM tokens WHERE username=?", (username,))
         self._q("DELETE FROM sso_identities WHERE uid=?", (user.uid,))
+        # The engine knows people by name (X-Auth-User): products they made, changes they asked for, who may steer.
+        # A deleted account's name is retired for good, so it can never point at someone else (PR #221 review).
+        self._q(
+            "INSERT OR REPLACE INTO retired_usernames(username, uid, retired_at) VALUES (?,?,?)",
+            (username, user.uid, _now().isoformat()),
+        )
         self._q("DELETE FROM users WHERE username=?", (username,))
+
+    def is_retired(self, username: str) -> bool:
+        return self._q("SELECT 1 FROM retired_usernames WHERE username=?", (username,)).fetchone() is not None
+
+    def _refuse_retired(self, username: str) -> None:
+        if self.is_retired(username):
+            raise AuthError(
+                f"'{username}' belonged to a deleted account; names are never reused, because the factory's products "
+                "and history refer to people by name"
+            )
 
     def sso_user(
         self,
@@ -268,6 +287,8 @@ class Store:
                     user = _user(row)
                 else:
                     check_username(username)
+                    if db.execute("SELECT 1 FROM retired_usernames WHERE username=?", (username,)).fetchone():
+                        raise AuthError(f"the name '{username}' belonged to a deleted account and is never reused")
                     if db.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
                         raise AuthError(f"the name '{username}' already belongs to another account here; ask an admin")
                     uid = secrets.token_hex(16)

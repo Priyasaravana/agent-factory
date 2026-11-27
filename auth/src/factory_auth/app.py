@@ -179,7 +179,8 @@ def _view(u: User) -> UserView:
 def _clean(text: object, limit: int = 200) -> str:
     """For the log and the audit trail: printable, one line, bounded (no forged log lines from a provider or a
     query string)."""
-    return "".join(c if c.isprintable() else "?" for c in str(text))[:limit]
+    one_line = str(text).replace("\r", " ").replace("\n", " ")
+    return "".join(c if c.isprintable() else "?" for c in one_line)[:limit]
 
 
 def _available(provider: object) -> bool:
@@ -375,7 +376,7 @@ def create_app(
         except extensions.SignInFailed as exc:
             return sso_failed(exc.code if exc.code in SSO_ERRORS else "invalid", None, f"{pid}: {exc}")
         except Exception as exc:
-            log.exception("sign-in provider %s failed", _clean(pid, 40))
+            log.exception("sign-in provider %s failed", provider.id)  # the registered id, not the URL's text
             return sso_failed("provider", None, f"{pid}: {type(exc).__name__}")
         try:
             user = st.sso_user(pid, ident.issuer, ident.subject, ident.username, ident.role, ident.email)

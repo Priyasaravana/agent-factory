@@ -30,6 +30,12 @@ local sign-in can't be switched off by an extension.
      identity. A first sign-in whose name the factory already has (a local account, or one bound to another
      identity) is refused: an identity provider can't take over `admin`, or anyone. An identity with no issuer or
      subject is refused; deleting an account deletes its bindings;
+   - **a deleted account's name is retired for good** (`retired_usernames`; PR #221's second review): the engine
+     knows people by name (`X-Auth-User`), so products they made, changes they asked for and who may steer are
+     recorded by name. A retired name is refused for a new local account and for any identity's first sign-in,
+     its former owner's included, so it can never point at someone else. Admins disable to pause someone; delete
+     is for good. This is the interim guarantee; carrying the account's `uid` through the gateway into the engine's
+     ownership checks replaces it before one sign-in serves several factories (ADR-0051 §9);
    - a disabled account stays out; the role follows the provider's groups when a mapping is set (the last-active-
      admin rule still holds), else the account keeps the role an admin gave it;
    - SSO accounts have no password (sign-in timing unchanged, `set_password` refused) and **no API tokens**:
@@ -39,7 +45,8 @@ local sign-in can't be switched off by an extension.
      accounts' tokens work as before;
    - **sign-in capacity is shared fairly**: nginx gives `/auth/sso/` the same per-address limit as `/auth/login`,
      and the auth service keeps at most 10 pending sign-ins per address (10,000 in all), so one source can't fill
-     the pool for everyone else;
+     the pool for everyone else; the provider list `/auth/sso` has its own exact location, so nginx never redirects
+     it (a redirect would leave the page's origin and the CSP would block it);
    - a failed sign-in sends the browser to `/login?sso_error=<code>` with one of six fixed codes the page turns into
      fixed text: nothing the identity provider said is shown; the detail goes to the audit log and server log as
      one printable, bounded line (no forged log lines).
@@ -70,7 +77,8 @@ local sign-in can't be switched off by an extension.
 - An account's name is fixed at its first sign-in; a rename at the provider shows on Admin as the identity's latest
   name, not as a new account.
 - The licence key is needed in two folders (`.secrets/` for the engine's Edition card, `.secrets/auth/` for sign-in).
-- **Not done here:** SAML (part 2 of SSO); SCIM provisioning and ending sessions when the provider removes someone;
+- **Not done here:** the account `uid` in the gateway headers and the engine's ownership records (the retired-name
+  rule holds until then); SAML (part 2 of SSO); SCIM provisioning and ending sessions when the provider removes someone;
   MFA for local accounts (core, S-14's open part); the other paid features (SIEM delivery, customer KMS signing,
   compliance pack).
 
@@ -81,6 +89,7 @@ Mapped to [practices.md](../practices.md) and the [threat model](../security/thr
 |---|---|
 | §7 Security: identity | OIDC code flow with PKCE, state and nonce (OAuth 2.0 Security BCP, RFC 9700); asymmetric ID token signatures only; issuer, audience and time checks; accounts bound to the stable `(iss, sub)` pair (OIDC Core §5.7). |
 | §7 Security: access ends | No long-lived tokens for SSO accounts; sessions bounded and idle-limited; a lapsed licence stops SSO while running. |
+| §7 Security: authorization | A name the engine grants rights to is never reissued: deleted accounts' names are retired, for local and SSO accounts alike. |
 | §7 Security: availability | Per-address limits at nginx and in the auth service keep one source from exhausting sign-in. |
 | §7 Security: fail closed | Unlicensed or unconfigured means no provider; any check that fails is a refused sign-in with a fixed message; a local name is never taken over. |
 | §7 Security: least privilege | The provider proves identity only; the core decides accounts and sessions; auth gets only its own secrets folder. |

@@ -96,6 +96,10 @@ def test_sign_in_and_the_webhook_are_rate_limited():
     assert "$cross_site_write" in locs["= /auth/login"], "the cross-site refusal stays on sign-in"
     # ADR-0052 (PR #221 review): single sign-on's starts and callbacks share the sign-in limit per address
     assert "limit_req zone=signin" in locs["^~ /auth/sso/"]
+    # the provider list is matched exactly: a prefix location alone makes nginx redirect /auth/sso to /auth/sso/,
+    # off the page's origin, and the CSP blocks the sign-in page's lookup (PR #221 review, the e2e failure)
+    assert "proxy_pass $auth;" in locs["= /auth/sso"] and "return" not in locs["= /auth/sso"]
+    assert "limit_req zone=signin" in locs["= /auth/sso"]
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in locs["^~ /auth/sso/"], "auth caps per address"
     assert "limit_req zone=webhook" in locs["= /api/hooks/github"]
     assert "limit_req_status 429;" in conf

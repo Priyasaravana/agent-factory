@@ -222,14 +222,27 @@ def test_an_identity_without_issuer_or_subject_is_refused(env):
     assert store.get_user("bob") is None
 
 
-def test_a_deleted_account_gets_a_new_one_on_its_next_sign_in(env):
+def test_a_deleted_accounts_name_is_never_given_to_anyone_again(env):
+    """PR #221 review: the engine grants product steering by name (X-Auth-User). Cara makes a product, her account
+    is deleted; neither a new identity with her name, nor her own identity coming back, nor an admin making a local
+    account called `cara` may become the `cara` who owns that product."""
     c, store, provider = env
     _sign_in(c, provider, _id("cara", sub="s-c"))
-    old = store.get_user("cara").uid
+    assert c.get("/auth/check").headers["X-Auth-User"] == "cara"  # the engine records her as the product's creator
     c.post("/auth/logout")
     store.delete_user("cara")
-    assert _sign_in(c, provider, _id("cara", sub="s-c")) == "/"
-    assert store.get_user("cara").uid != old
+    assert _sign_in(c, provider, _id("cara", sub="s-someone-else")).endswith("sso_error=account")
+    assert _sign_in(c, provider, _id("cara", sub="s-c")).endswith("sso_error=account")
+    assert c.get("/auth/check").status_code == 401
+    with pytest.raises(AuthError, match="never reused"):
+        store.create_user("cara", "a-long-enough-password", "member")
+    assert store.get_user("cara") is None and store.is_retired("cara")
+    # a local account's name is retired the same way
+    store.create_user("dan", "a-long-enough-password", "member")
+    store.delete_user("dan")
+    with pytest.raises(AuthError, match="never reused"):
+        store.create_user("dan", "a-long-enough-password", "admin")
+    assert _sign_in(c, provider, _id("dan", sub="s-dan")).endswith("sso_error=account")
 
 
 def test_accounts_from_before_sso_get_an_internal_id(tmp_path):
