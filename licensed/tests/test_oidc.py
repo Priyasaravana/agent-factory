@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -287,3 +287,44 @@ def test_the_package_is_found_by_the_auth_services_entry_point_group():
 
     eps = [ep for ep in metadata.entry_points(group=extensions.GROUP) if ep.name == "licensed"]
     assert eps and eps[0].load() is sso.auth_extension
+
+
+# ----------------------------------------------------------- PR #221 review --
+def test_the_account_follows_the_verified_subject_through_a_rename(site):
+    c, store, idp = site
+    r, _ = _round_trip(c, idp, sub="person-1", preferred_username="ana")
+    assert r.headers["location"] == "/"
+    assert store.sso_identities("ana")[0] | {"last_seen_at": ""} == {
+        "issuer": ISSUER,
+        "subject": "person-1",
+        "provider": "oidc",
+        "username_claim": "ana",
+        "email": "ana@corp.example",
+        "last_seen_at": "",
+    }
+    c.cookies.clear()
+    r, _ = _round_trip(c, idp, sub="person-1", preferred_username="ana.renamed")
+    assert r.headers["location"] == "/" and c.get("/auth/check").headers["X-Auth-User"] == "ana"
+    c.cookies.clear()
+    r, _ = _round_trip(c, idp, sub="person-2", preferred_username="ana")  # the name, reused for someone else
+    assert r.headers["location"] == "/login?sso_error=account"
+
+
+def test_sign_in_stops_when_the_licence_lapses_while_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("FACTORY_ADMIN_PASSWORD", "correct-horse-battery")
+    issuer = Ed25519PrivateKey.generate()
+    keys = {"k": licence.issue(issuer, "Acme", ["sso"], datetime.now(UTC).date() + timedelta(days=30))}
+    idp = FakeIdP()
+    reg = extensions.Registry()
+    AuthEnterprise(
+        lambda: licence.check(keys["k"], [licence._raw_public(issuer)]),
+        lambda: OidcConfig(issuer=ISSUER, client_id=CLIENT),
+        lambda cfg, licensed: OidcProvider(cfg, http=idp.http, licensed=licensed),
+        ttl=0,
+    ).register(reg)
+    app = create_app(Store(tmp_path / "a.db"), Settings(data_dir=tmp_path, public_url="http://localhost:8080"), reg)
+    c = TestClient(app, base_url="http://localhost:8080", follow_redirects=False)
+    assert c.get("/auth/sso").json() == [{"id": "oidc", "label": "Sign in with single sign-on"}]
+    keys["k"] = licence.issue(issuer, "Acme", ["sso"], date(2020, 1, 1), issued=date(2019, 1, 1))  # expired
+    assert c.get("/auth/sso").json() == [] and c.get("/auth/sso/oidc/start").status_code == 404
+    assert c.post("/auth/login", json={"username": "admin", "password": "correct-horse-battery"}).status_code == 200

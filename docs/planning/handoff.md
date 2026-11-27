@@ -16,7 +16,11 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   `.secrets/auth/agent_factory_licence` and the client secret to `.secrets/auth/auth_oidc_client_secret`; set
   `AUTH_PUBLIC_URL` (localhost works: `http://localhost:8080`), `AUTH_OIDC_ISSUER`, `AUTH_OIDC_CLIENT_ID`,
   `AUTH_OIDC_ADMIN_GROUPS`; `make upgrade`; sign in with the button; check Admin shows the SSO badge and the role
-  from the group; sign in as `admin` with the password still works.
+  from the group; sign in as `admin` with the password still works. Review changes (2026-11-27): `users.uid`,
+  `sso_identities` (`Store.sso_user(provider, issuer, subject, …)`), `Identity.issuer/subject`, the token refusal
+  (`create_token`, `token_user`), `SSO_PENDING_PER_SOURCE` and nginx `location ^~ /auth/sso/`, `_clean`,
+  `OidcProvider.available` from `licence.Live`. Also check: rename yourself at the provider and sign in again (same
+  account), and that Account → API tokens refuses an SSO account.
 - **Phase C, the open core seam, in review on `feat/open-core-seam`** ([ADR-0051](../adr/0051-open-core-seam.md),
   proposed; split confirmed by Saravana 2026-11-26). Code map: root `LICENSE` (directory map + Apache-2.0);
   `licensed/` (own `LICENSE` draft, `NOTICE`, package `agent_factory_licensed`: `licence/` the offline key and

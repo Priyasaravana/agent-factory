@@ -32,7 +32,8 @@ LOCKOUT_SECONDS = 60
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 SSO_STATE_COOKIE = "factory_sso_state"
 SSO_PENDING_SECONDS = 600
-SSO_PENDING_MAX = 1000
+SSO_PENDING_MAX = 10_000  # all sources together
+SSO_PENDING_PER_SOURCE = 10  # one address can't use up sign-in for everyone else (PR #221 review)
 # what the sign-in page may be told after a failed single sign-on: fixed codes, never the provider's text
 SSO_ERRORS = ("state", "provider", "denied", "account", "disabled", "invalid")
 
@@ -175,6 +176,20 @@ def _view(u: User) -> UserView:
 
 
 # --------------------------------------------------------------------- app --
+def _clean(text: object, limit: int = 200) -> str:
+    """For the log and the audit trail: printable, one line, bounded (no forged log lines from a provider or a
+    query string)."""
+    return "".join(c if c.isprintable() else "?" for c in str(text))[:limit]
+
+
+def _available(provider: object) -> bool:
+    check = getattr(provider, "available", None)
+    try:
+        return bool(check()) if callable(check) else True
+    except Exception:
+        return False  # a failing check means unavailable
+
+
 def create_app(
     store: Store | None = None, settings: Settings | None = None, registry: extensions.Registry | None = None
 ) -> FastAPI:
@@ -183,9 +198,9 @@ def create_app(
     bootstrap(st, s)
     throttle = Throttle()
     reg = registry if registry is not None else extensions.load()
-    # state -> (provider id, the provider's data, deadline); one process, so memory is enough: a restart only
-    # makes someone in the middle of signing in start again
-    pending: dict[str, tuple[str, dict, float]] = {}
+    # state -> (provider id, the provider's data, deadline, source address); one process, so memory is enough:
+    # a restart only makes someone in the middle of signing in start again
+    pending: dict[str, tuple[str, dict, float, str]] = {}
     app = FastAPI(title="Factory auth", docs_url="/auth/docs", openapi_url="/auth/openapi.json", redoc_url=None)
     app.state.store = st
 
@@ -286,7 +301,8 @@ def create_app(
         return f"{s.public_url}/auth/sso/{pid}/callback"
 
     def sso_failed(code: str, who: str | None, detail: str) -> RedirectResponse:
-        st.audit(who, f"single sign-on failed: {code}", detail[:200] or None)
+        detail = _clean(detail)
+        st.audit(who, f"single sign-on failed: {code}", detail or None)
         log.warning("single sign-on failed (%s): %s", code, detail)
         out = RedirectResponse(f"/login?sso_error={code}", status_code=303)
         out.delete_cookie(SSO_STATE_COOKIE, path="/auth/sso")
@@ -297,7 +313,7 @@ def create_app(
         """The sign-in page's buttons; empty on the core edition, or when no provider is licensed and set up."""
         if not s.public_url:
             return []
-        return [ProviderView(id=p.id, label=p.label) for p in reg.providers.values()]
+        return [ProviderView(id=p.id, label=p.label) for p in reg.providers.values() if _available(p)]
 
     @app.get("/auth/edition")
     def edition(_: Admin) -> EditionView:
@@ -312,16 +328,20 @@ def create_app(
     def sso_start(pid: str, request: Request) -> RedirectResponse:
         plain_http_refused(request)
         provider = reg.providers.get(pid)
-        if provider is None or not s.public_url:
+        if provider is None or not s.public_url or not _available(provider):
             raise HTTPException(404, "no such sign-in provider")
         now = time.monotonic()
-        for k in [k for k, (_, _, until) in pending.items() if until < now]:
+        for k in [k for k, v in pending.items() if v[2] < now]:
             pending.pop(k, None)
+        # nginx sets X-Forwarded-For to the client's address (it overwrites what the client sent)
+        source = request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")
+        if sum(1 for v in pending.values() if v[3] == source) >= SSO_PENDING_PER_SOURCE:
+            raise HTTPException(429, "too many sign-ins started from here; finish one or wait a few minutes")
         if len(pending) >= SSO_PENDING_MAX:
             raise HTTPException(429, "too many sign-ins in progress; try again in a few minutes")
         state = secrets.token_urlsafe(32)
         url, data = provider.start(redirect_uri(pid), state)
-        pending[state] = (pid, data, now + SSO_PENDING_SECONDS)
+        pending[state] = (pid, data, now + SSO_PENDING_SECONDS, source)
         out = RedirectResponse(url, status_code=303)
         # binds the callback to this browser (login CSRF): Lax is sent on the provider's top-level redirect back
         out.set_cookie(
@@ -342,11 +362,11 @@ def create_app(
         entry = pending.pop(state, None) if state else None
         if not cookie or not hmac.compare_digest(state.encode(), cookie.encode()) or entry is None:
             return sso_failed("state", None, "missing, unknown or replayed state, or another browser's")
-        got_pid, data, until = entry
+        got_pid, data, until, _source = entry
         if got_pid != pid or until < time.monotonic():
             return sso_failed("state", None, f"state for {got_pid}, used at {pid} or too late")
         provider = reg.providers.get(pid)
-        if provider is None:
+        if provider is None or not _available(provider):
             return sso_failed("provider", None, f"{pid} is no longer available")
         if "error" in params:
             return sso_failed("denied", None, f"{pid}: {params.get('error', '')[:60]}")
@@ -355,10 +375,10 @@ def create_app(
         except extensions.SignInFailed as exc:
             return sso_failed(exc.code if exc.code in SSO_ERRORS else "invalid", None, f"{pid}: {exc}")
         except Exception as exc:
-            log.exception("sign-in provider %s failed", pid)
+            log.exception("sign-in provider %s failed", _clean(pid, 40))
             return sso_failed("provider", None, f"{pid}: {type(exc).__name__}")
         try:
-            user = st.sso_user(ident.username, pid, ident.role)
+            user = st.sso_user(pid, ident.issuer, ident.subject, ident.username, ident.role, ident.email)
         except AuthError as exc:
             return sso_failed("account", ident.username, str(exc))
         if user.disabled:
@@ -420,6 +440,10 @@ def create_app(
             raise HTTPException(403, "create API tokens from a signed-in session")
         if user.must_change:
             raise HTTPException(403, "change your password first")
+        if user.source != "local":
+            # ADR-0052 (PR #221 review): access through the identity provider ends with its sessions; a token
+            # would outlive the person's removal there
+            raise HTTPException(403, "accounts that sign in with single sign-on can't make API tokens")
         tok, raw = st.create_token(user.username, body.name)
         st.audit(user.username, "created API token", tok.name)
         return NewTokenView(**asdict(tok), token=raw)

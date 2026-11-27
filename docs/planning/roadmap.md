@@ -682,6 +682,10 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   nonce, discovery and JWKS over https without redirects, RS256/PS256/ES256 only, group and domain mapping);
   auth image targets `core` / `enterprise`; sign-in page buttons; SSO badge on Admin. **Left:** SAML, then SIEM
   delivery, customer KMS signing and the compliance pack; the live check with a real identity provider (Saravana).
+  **Revised 2026-11-27 after the review:** accounts bound to the verified `(issuer, subject)` through an immutable
+  `uid` (rename keeps the account; a reused name or a replaced issuer never inherits it); no API tokens for SSO
+  accounts; `/auth/sso/` rate-limited per address in nginx and capped per address in auth; SSO stops when the
+  licence lapses while running; log lines cleaned (CodeQL).
 - **The factory UI, simple by default** (placed here by Saravana 2026-11-26; mockups first, the direction still his
   call): the design review in [plans/ui-redesign.md](plans/ui-redesign.md) (UI-01 to UI-60) and six web slices: the
   shell and a Simple / Advanced switch, home and New product, the product page, Insights, factory settings, the

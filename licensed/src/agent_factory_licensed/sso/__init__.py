@@ -25,12 +25,14 @@ class AuthEnterprise:
         self,
         check: Callable[[], _licence.Licence] = _licence.current,
         config: Callable[[], OidcConfig | None] = OidcConfig.from_env,
-        provider: Callable[[OidcConfig], Any] = OidcProvider,
+        provider: Callable[..., Any] = OidcProvider,
+        ttl: float = 600.0,
     ) -> None:
-        self._check, self._config, self._provider = check, config, provider
+        self._check, self._config, self._provider, self._ttl = check, config, provider, ttl
 
     def register(self, registry: Any) -> None:
-        lic = self._check()
+        live = _licence.Live(self._check, self._ttl)
+        lic = live.now()
         registry.set_edition("enterprise", lic.summary())
         if not lic.valid:
             registry.refuse("oidc", FEATURE, f"licence: {lic.problem}")
@@ -46,7 +48,8 @@ class AuthEnterprise:
         if cfg is None:
             registry.refuse("oidc", FEATURE, "not set up: AUTH_OIDC_ISSUER is empty")
             return
-        registry.provide("oidc", FEATURE, sign_in=self._provider(cfg))
+        # checked again before every listing, start and callback (PR #220/#221 review: expiry while running)
+        registry.provide("oidc", FEATURE, sign_in=self._provider(cfg, licensed=lambda: live.grants(FEATURE)))
 
 
 auth_extension = AuthEnterprise()

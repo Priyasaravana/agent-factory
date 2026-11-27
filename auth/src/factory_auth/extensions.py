@@ -41,6 +41,11 @@ class SignInFailed(Exception):
 
 @dataclass(frozen=True)
 class Identity:
+    """Who a provider proved someone is. The account is found by `(issuer, subject)` alone (OIDC Core §5.7);
+    `username` names the account on its first sign-in and is otherwise a profile attribute, like `email`."""
+
+    issuer: str
+    subject: str
     username: str
     role: Role | None  # None: keep the account's role (no group mapping configured)
     email: str | None = None
@@ -58,6 +63,8 @@ class SignInProvider(Protocol):
     def finish(self, params: dict[str, str], pending: dict[str, Any], redirect_uri: str) -> Identity:
         """Prove the identity from the callback's query; raise SignInFailed when it can't be proved."""
         ...
+
+    # Optional: `available() -> bool`, asked before listing and starting (a licence that lapsed while running).
 
 
 @dataclass

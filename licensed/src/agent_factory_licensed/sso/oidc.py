@@ -123,6 +123,7 @@ class OidcProvider:
     http: Http = _http
     id: str = "oidc"
     clock: Callable[[], float] = time.time
+    licensed: Callable[[], bool] = lambda: True  # the live licence check (agent_factory_licensed.sso)
     _meta: dict[str, Any] | None = field(default=None, repr=False)
     _jwks: dict[str, Any] | None = field(default=None, repr=False)
     _fetched: float = 0.0
@@ -130,6 +131,10 @@ class OidcProvider:
     @property
     def label(self) -> str:
         return self.config.label
+
+    def available(self) -> bool:
+        """Asked by the auth core before listing and starting: false once the licence lapses while running."""
+        return self.licensed()
 
     # -- provider documents (cached; refreshed once when a token names a key we don't have)
     def _get_json(self, url: str) -> dict[str, Any]:
@@ -187,7 +192,15 @@ class OidcProvider:
             raise SignInFailed("invalid", str(exc)) from exc
         username, role = self.decide(claims)
         email = claims.get("email") if isinstance(claims.get("email"), str) else None
-        return Identity(username=username, role=role, email=email, groups=tuple(_groups(claims, self.config)))
+        # the account is bound to (iss, sub), both verified by jwt.verify (OIDC Core §5.7); the name is a label
+        return Identity(
+            issuer=str(claims["iss"]),
+            subject=str(claims["sub"]),
+            username=username,
+            role=role,
+            email=email,
+            groups=tuple(_groups(claims, self.config)),
+        )
 
     def _exchange(self, code: str, pending: dict[str, Any], redirect_uri: str) -> dict[str, Any]:
         form = {
