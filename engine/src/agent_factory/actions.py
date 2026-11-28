@@ -34,7 +34,7 @@ from agent_factory.attention import pending_actions, product_actions
 from agent_factory.engine.pipeline import FEEDBACK_OPEN, FactoryError, InvalidRequestError
 from agent_factory.engine.workflows import WorkflowError
 from agent_factory.github import Fetched, GitHubError, fetch_dir
-from agent_factory.identity import current_identity
+from agent_factory.identity import current_identity, is_person
 from agent_factory.models import (
     AcceptInput,
     ActivateInput,
@@ -331,7 +331,7 @@ def list_products(f: Factory, include_archived: bool = False) -> list[Product]:
 async def create_product(f: Factory, body: CreateProductInput) -> ProductDetail:
     await _gate(f, body.blueprint, "product")
     product = f.manager.create_product(body)
-    product.created_by = current_identity().user
+    product.created_by, product.created_by_uid = current_identity().user, current_identity().uid or None
     f.store.save_product(product)
     f.manager.start_change(product)
     return get_product(f, product.id)
@@ -348,7 +348,7 @@ async def create_product(f: Factory, body: CreateProductInput) -> ProductDetail:
 async def onboard_repo(f: Factory, body: OnboardRepoInput) -> ProductDetail:
     await _gate(f, f.cfg.existing_repos.blueprint, "product")
     product = f.manager.onboard_repo(body)
-    product.created_by = current_identity().user
+    product.created_by, product.created_by_uid = current_identity().user, current_identity().uid or None
     f.store.save_product(product)
     f.manager.start_change(product)
     return get_product(f, product.id)
@@ -1507,7 +1507,8 @@ def _may_steer(f: Factory, product_id: str) -> None:
     product = f.store.get_product(product_id)
     if not product or who.is_admin or not product.created_by:
         return
-    if who.user not in (product.created_by, product.owner):
+    # the creator by account id when both ids are known (ADR-0052), else by name; the owner is named by name
+    if not (is_person(who, product.created_by, product.created_by_uid) or is_person(who, product.owner, None)):
         raise PermissionError("only the product's creator, its owner or an admin can do this")
 
 
@@ -1761,7 +1762,7 @@ async def approve_risk(f: Factory, change_id: str, body: RiskDecisionInput) -> C
     product = f.store.get_product(change.product_id)
     if product:
         await _gate(f, product.blueprint, "change")
-    return f.manager.approve_risk(change_id, current_identity().user, body.reason)
+    return f.manager.approve_risk(change_id, current_identity().user, body.reason, by_uid=current_identity().uid)
 
 
 @action(

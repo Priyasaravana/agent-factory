@@ -201,7 +201,8 @@ def test_the_account_is_bound_to_issuer_and_subject_not_the_name(env):
 
     # the same person, renamed at the identity provider: the same account, with its role
     assert _sign_in(c, provider, _id("ana.smith", sub="s-1", email="ana.smith@corp.example")) == "/"
-    assert c.get("/auth/check").headers["X-Auth-User"] == "ana"
+    renamed = c.get("/auth/check").headers
+    assert renamed["X-Auth-User"] == "ana" and renamed["X-Auth-Uid"] == ana.uid, "the engine sees the same uid"
     assert store.sso_identities("ana")[0]["username_claim"] == "ana.smith"
     assert store.get_user("ana.smith") is None and store.get_user("ana").uid == ana.uid
     c.cookies.clear()

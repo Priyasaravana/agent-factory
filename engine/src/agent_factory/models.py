@@ -173,6 +173,9 @@ class Product(BaseModel):
     repo_ref: str | None = None  # an existing repo's branch (ADR-0031)
     repo_source: str | None = None  # the repository source that reaches it (ADR-0047); None: chosen at next use
     created_by: str | None = None
+    # the creator's immutable account id (ADR-0052, `X-Auth-Uid`): when both it and the caller's are known, the id
+    # decides who the creator is (`identity.is_person`), never the name. None on products from before it was recorded.
+    created_by_uid: str | None = None
     # the named owner, accountable for incidents, upkeep and retirement (master plan principle 7, §3J);
     # None: its creator. An admin can reassign it.
     owner: str | None = None
@@ -320,6 +323,7 @@ class Change(BaseModel):
     kind: ChangeKind = ChangeKind.new
     source: ChangeSource = ChangeSource.ui
     requested_by: str | None = None
+    requested_by_uid: str | None = None  # the requester's immutable account id (ADR-0052), when known
     attempts: dict[str, int] = Field(default_factory=dict)
     loops: int = 0
     change_request: str | None = None  # what was asked for this iteration (feedback, bug report, upkeep)
@@ -562,6 +566,7 @@ class RiskHold(BaseModel):
     since: datetime
     findings: int
     requested_by: str | None = None  # who asked for the change (the product's creator)
+    requested_by_uid: str | None = None  # their immutable account id (ADR-0052), when known
 
 
 class RiskApproval(BaseModel):

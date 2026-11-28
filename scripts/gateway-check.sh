@@ -18,6 +18,8 @@ check "forged admin headers straight to the engine are refused" \
   "$(status --header 'X-Auth-User: probe' --header 'X-Auth-Role: admin' $ENGINE/api/products)" 401
 check "a wrong proof is refused" \
   "$(status --header 'X-Auth-User: probe' --header 'X-Auth-Role: admin' --header 'X-Gateway-Proof: wrong' $ENGINE/api/products)" 401
+check "a forged account id (ADR-0052) straight to the engine is refused" \
+  "$(status --header 'X-Auth-User: probe' --header 'X-Auth-Role: member' --header 'X-Auth-Uid: 00000000000000000000000000000000' $ENGINE/api/products)" 401
 check "the webhook is not read without the gateway" \
   "$(status --post-data '{}' --header 'X-GitHub-Event: ping' $ENGINE/api/hooks/github)" 401
 check "the engine's own health check still answers" "$(status $ENGINE/api/health)" 200

@@ -90,6 +90,19 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _requester_uid(requested_by: str | None, product: Product) -> str | None:
+    """The account id to record beside a change's requester (ADR-0052): the caller's when they are the requester,
+    the creator's when the factory starts a change on the creator's behalf, else none (a system requester)."""
+    from agent_factory.identity import current_identity
+
+    who = current_identity()
+    if requested_by is None or requested_by == who.user:
+        return who.uid or None
+    if requested_by == product.created_by:
+        return product.created_by_uid
+    return None
+
+
 def slugify(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return (s or "app")[:40].strip("-")
@@ -601,6 +614,7 @@ class ChangeManager:
             kind=kind,
             source=source,
             requested_by=requested_by or current_identity().user,
+            requested_by_uid=_requester_uid(requested_by, product),
             provided=dict(provided or {}),
             continues=continues,
             created_at=now,
@@ -928,14 +942,20 @@ class ChangeManager:
             raise FactoryError(f"change is '{change.status}', not waiting for a change-risk approval")
         return change, change.risk_hold
 
-    def approve_risk(self, change_id: str, by: str, reason: str, now: datetime | None = None) -> Change:
+    def approve_risk(
+        self, change_id: str, by: str, reason: str, now: datetime | None = None, by_uid: str = ""
+    ) -> Change:
         """A second admin accepts the risky changes with a reason (ADR-0027). The
         requester may approve their own only as break-glass: allowed by config, after
         the cooling-off delay, and flagged in the evidence."""
         change, hold = self._awaiting_risk(change_id)
         policy = self.cfg.change_risk
         now = now or _now()
-        own = bool(hold.requested_by) and by == hold.requested_by
+        # the requester's own approval, by name or by account id (ADR-0052): either one makes it their own, so a
+        # rename never turns a self-approval into a second person's
+        own = (bool(hold.requested_by) and by == hold.requested_by) or (
+            bool(hold.requested_by_uid) and bool(by_uid) and by_uid == hold.requested_by_uid
+        )
         if own:
             if not policy.break_glass:
                 raise FactoryError("you asked for this change, so another admin must approve it (break-glass is off)")
@@ -1993,6 +2013,7 @@ class ChangeManager:
                     since=_now(),
                     findings=result.approval_findings,
                     requested_by=product_now.created_by,
+                    requested_by_uid=product_now.created_by_uid,
                 )
                 change.last_failure = result.failure_evidence
                 change.summary = result.summary

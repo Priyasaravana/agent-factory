@@ -108,6 +108,14 @@ def test_the_gateway_proof_reaches_only_the_engine_and_nginx_each_with_its_own_c
     assert len(to_engine) == 2, "the API and the webhook"
     for block in to_engine:
         assert "proxy_set_header X-Gateway-Proof $gateway_proof;" in block, block.splitlines()[0]
+        # every identity header the engine reads is set by nginx in each block, never passed through (ADR-0052)
+        for header in ("X-Auth-User", "X-Auth-Role", "X-Auth-Uid"):
+            assert f"proxy_set_header {header} " in block, (header, block.splitlines()[0])
+    api = next(b for b in to_engine if b.startswith("/api/"))
+    assert "auth_request_set $auth_uid $upstream_http_x_auth_uid;" in api
+    assert "proxy_set_header X-Auth-Uid $auth_uid;" in api, "the account id comes only from the auth service"
+    hook = next(b for b in to_engine if b.startswith("= /api/hooks/github"))
+    assert 'proxy_set_header X-Auth-Uid "";' in hook, "the webhook has no caller"
     to_auth = [block for block in re.split(r"\n  location ", conf) if "proxy_pass $auth" in block]
     assert to_auth and not any("gateway_proof" in block for block in to_auth), "the auth service never gets it"
 

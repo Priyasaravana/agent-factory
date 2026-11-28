@@ -32,6 +32,8 @@ def test_bootstrap_admin_from_secret_reference(env):
     assert "HttpOnly" in cookie and "SameSite=lax" in cookie
     chk = c.get("/auth/check")
     assert chk.status_code == 200 and chk.headers["x-auth-user"] == "admin" and chk.headers["x-auth-role"] == "admin"
+    # the immutable account id travels with the name, so the engine can record it on what a person owns
+    assert chk.headers["x-auth-uid"] == store.get_user("admin").uid and len(chk.headers["x-auth-uid"]) == 32
 
 
 def test_generated_password_when_no_reference(tmp_path, monkeypatch):

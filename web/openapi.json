@@ -6709,6 +6709,17 @@
             ],
             "title": "Requested By"
           },
+          "requested_by_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Uid"
+          },
           "attempts": {
             "additionalProperties": {
               "type": "integer"
@@ -11686,6 +11697,17 @@
             ],
             "title": "Created By"
           },
+          "created_by_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Uid"
+          },
           "owner": {
             "anyOf": [
               {
@@ -13207,6 +13229,17 @@
               }
             ],
             "title": "Requested By"
+          },
+          "requested_by_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Uid"
           }
         },
         "type": "object",

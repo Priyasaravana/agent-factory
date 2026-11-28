@@ -229,6 +229,7 @@ class SqliteStateStore:
             product_id=change.product_id,
             to_status=ChangeStatus(change.status).value,
             requested_by=change.requested_by,
+            requested_by_uid=change.requested_by_uid,
         )
         return change
 
@@ -257,6 +258,7 @@ class SqliteStateStore:
                 from_status=ChangeStatus(row[0]).value if row else None,
                 to_status=ChangeStatus(change.status).value,
                 requested_by=change.requested_by,
+                requested_by_uid=change.requested_by_uid,
             )
 
     def _record_transition(self, change_id: str, old: ChangeStatus | None, new: ChangeStatus, ts: datetime) -> None:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,8 @@ PUBLIC_PATHS = {"/api/health", "/api/hooks/github"}
 UNPROVED_PATHS = {"/api/health"}
 PROOF_HEADER = "x-gateway-proof"
 PROOF_MIN_LENGTH = 32
+# the account's immutable id from the auth service (`X-Auth-Uid`, ADR-0052): opaque, short, no spaces
+UID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 class GatewayProofError(RuntimeError):
@@ -59,10 +62,24 @@ def proved(sent: str | None, proof: str) -> bool:
 class Identity:
     user: str
     role: str  # admin | member
+    # the account's immutable id (ADR-0052, `X-Auth-Uid`): "" when the gateway doesn't send one (AUTH_MODE=off,
+    # an older auth service). Recorded beside the name on what a person owns (`Product.created_by_uid`).
+    uid: str = ""
 
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+
+def is_person(who: Identity, name: str | None, uid: str | None) -> bool:
+    """Whether `who` is the person a record names (pure). When the record and the caller both carry the account's
+    immutable id, the id decides: a reused or renamed sign-in name never matches someone else's account. A record
+    from before ids were recorded, or a caller without one, is matched by name, as before."""
+    if not name:
+        return False
+    if uid and who.uid:
+        return hmac.compare_digest(uid.encode(), who.uid.encode())
+    return who.user == name
 
 
 ANONYMOUS = Identity("local", "admin")  # AUTH_MODE=off: single-user laptop
@@ -107,6 +124,7 @@ class IdentityMiddleware:
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         user, role = headers.get("x-auth-user"), headers.get("x-auth-role")
+        uid = headers.get("x-auth-uid") or ""
         path, method = scope["path"], scope["method"]
         if path not in UNPROVED_PATHS and not proved(headers.get(PROOF_HEADER), self.proof):
             # not from the gateway: no identity it claims counts, and the webhook isn't read either
@@ -114,6 +132,11 @@ class IdentityMiddleware:
             return
         if path in UNPROVED_PATHS:
             user = role = None  # the health check has no caller: never an identity from headers
+            uid = ""
+        if uid and not UID_PATTERN.fullmatch(uid):
+            # only the gateway sends it; a malformed one is a fault, never read as "no id" (which matches by name)
+            await _deny(send, 401, "sign in required")
+            return
         if path not in PUBLIC_PATHS:
             if not user or role not in {"admin", "member"}:
                 await _deny(send, 401, "sign in required")
@@ -122,7 +145,7 @@ class IdentityMiddleware:
                 await _deny(send, 403, "admin role required")
                 return
         # a public path without a signed-in caller is nobody, never the single-user dev admin
-        token = _current.set(Identity(user, role) if user and role else NOBODY)
+        token = _current.set(Identity(user, role, uid) if user and role else NOBODY)
         try:
             await self.app(scope, receive, send)
         finally:

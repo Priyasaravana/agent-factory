@@ -98,3 +98,67 @@ def test_the_proof_is_read_trimmed_and_compared_whole(tmp_path):
     assert proof == "a" * 64
     assert proved(proof, proof)
     assert not proved(None, proof) and not proved("", proof) and not proved("a" * 63, proof)
+
+
+# ------------------------------------------------ the account uid through the gateway (ADR-0052) --
+UID_A, UID_B = "a" * 32, "b" * 32
+
+
+async def test_the_account_uid_is_recorded_on_what_a_person_makes(make_factory):
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.post("/api/products", json=PRODUCT.model_dump(), headers={**MEMBER, "X-Auth-Uid": UID_A})
+        assert r.status_code == 201
+        product = f.store.get_product(r.json()["product"]["id"])
+        assert product.created_by == "priya" and product.created_by_uid == UID_A
+        change = f.store.get_change(product.latest_change_id)
+        assert change.requested_by == "priya" and change.requested_by_uid == UID_A
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_a_reused_name_with_another_uid_may_not_steer_and_an_older_record_still_matches_by_name(make_factory):
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    async with c:
+        r = await c.post("/api/products", json=PRODUCT.model_dump(), headers={**MEMBER, "X-Auth-Uid": UID_A})
+        pid = r.json()["product"]["id"]
+        archive = f"/api/products/{pid}/archive"
+        # someone else signed in under the same name (a reused or renamed account): the id decides
+        r = await c.post(archive, headers={**MEMBER, "X-Auth-Uid": UID_B})
+        assert r.status_code == 403, r.text
+        # a product recorded before ids were: matched by name, as before
+        product = f.store.get_product(pid)
+        product.created_by_uid = None
+        f.store.save_product(product)
+        assert (await c.post(archive, headers={**MEMBER, "X-Auth-Uid": UID_B})).status_code != 403
+    await ctx.__aexit__(None, None, None)
+
+
+async def test_the_uid_counts_only_with_the_proof_and_a_malformed_one_is_refused(make_factory):
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    async with c:
+        for bad in ("has space", "x" * 65, "semi;colon"):
+            r = await c.get("/api/products", headers={**MEMBER, "X-Auth-Uid": bad})
+            assert r.status_code == 401, bad
+        assert (await c.get("/api/products", headers={**MEMBER, "X-Auth-Uid": UID_A})).status_code == 200
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as direct:
+        r = await direct.get("/api/products", headers={**MEMBER, "X-Auth-Uid": UID_A})
+        assert r.status_code == 401, "an id without the gateway's proof is no identity"
+    await ctx.__aexit__(None, None, None)
+
+
+def test_is_person_prefers_the_uid_and_falls_back_to_the_name():
+    from agent_factory.identity import Identity, is_person
+
+    ana = Identity("ana", "member", UID_A)
+    assert is_person(ana, "ana", UID_A)
+    assert not is_person(ana, "ana", UID_B), "same name, another account"
+    assert is_person(ana, "ana.smith", UID_A), "renamed: the same account"
+    assert is_person(ana, "ana", None) and not is_person(ana, "bob", None)
+    assert is_person(Identity("ana", "member"), "ana", UID_A), "a caller without an id: by name"
+    assert not is_person(ana, None, UID_A), "no name recorded: nobody"

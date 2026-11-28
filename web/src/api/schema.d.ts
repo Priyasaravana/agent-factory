@@ -2702,6 +2702,8 @@ export interface components {
             source: components["schemas"]["ChangeSource"];
             /** Requested By */
             requested_by?: string | null;
+            /** Requested By Uid */
+            requested_by_uid?: string | null;
             /** Attempts */
             attempts?: {
                 [key: string]: number;
@@ -4839,6 +4841,8 @@ export interface components {
             repo_source?: string | null;
             /** Created By */
             created_by?: string | null;
+            /** Created By Uid */
+            created_by_uid?: string | null;
             /** Owner */
             owner?: string | null;
             /** Archived At */
@@ -5492,6 +5496,8 @@ export interface components {
             findings: number;
             /** Requested By */
             requested_by?: string | null;
+            /** Requested By Uid */
+            requested_by_uid?: string | null;
         };
         /** RoadmapRowView */
         RoadmapRowView: {

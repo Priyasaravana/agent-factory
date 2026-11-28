@@ -257,6 +257,9 @@ def create_app(
             raise HTTPException(403, "password change required")
         response.headers["X-Auth-User"] = user.username
         response.headers["X-Auth-Role"] = user.role
+        # the account's immutable id (ADR-0052): the engine records it beside the name on what a person owns, so a
+        # name that is ever reused (or an account renamed) never inherits someone else's products
+        response.headers["X-Auth-Uid"] = user.uid
         response.headers["X-Auth-Method"] = how
         return {"user": user.username, "role": user.role}
 
