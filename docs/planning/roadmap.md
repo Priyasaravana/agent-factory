@@ -826,6 +826,18 @@ Slice 0's three decisions are recorded in that page (2026-11-21).
 - `feat/j2-rollback` (2026-11-01): ADR-0046 (proposed) and J2 rollback slice 1, the last healthy release and rollback.
 
 ## 🗂 Backlog
+- **The factory beside a company's estate** (added 2026-11-27, research only, kept for reference): environments
+  (dev/test/stage/prod with different tools each), short-lived minted credentials, stations owned by teams or an
+  accountable person, product visibility by team, audit and encryption, and the factory never a single point of failure,
+  compared with Argo CD, Flux, Kargo, Humanitec, Harness, Spacelift, Backstage, Port and GitHub/GitLab environments, in
+  [plans/enterprise-integration.md](plans/enterprise-integration.md). Proposes cheap commitments before v0.1.0 (three
+  ADRs, three AGENTS.md invariants, audit fields in O1, a factory-off check in the rehearsal), phase T slices 1–2
+  widened, and two new phases after it (P environments and promotion, R continuity and runners). **Placement and the
+  eight decisions are Saravana's call.**
+- **Stack packs breadth** (added 2026-11-27, discussion of 2026-11-26, kept for reference): packs stay as the proof
+  layer; three tiers (certified, factory-drafted with a person publishing, best effort for team repos), a pack
+  authoring guide and `pack check` as the open-source lever, in [plans/stack-packs-breadth.md](plans/stack-packs-breadth.md).
+  **Which stacks and when are Saravana's call.**
 - **User experience and journeys** (added 2026-11-22, review only, nothing run; revised after the PR #192 review):
   six people walked step by step through main `70d3282` (open-source adopter, engineering leader, product owner,
   station teams, business owner / executive, CISO), each finding labelled observed, code-confirmed or inferred, in
