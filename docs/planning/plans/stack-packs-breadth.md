@@ -47,7 +47,8 @@ disadvantage?
    without giving up the evidence: adding a stack is already adding a folder.
 3. **Any stack, best effort, for team repos.** Detection already gives guidance (ADR-0041 §5). With no matching pack,
    take the verify command from the repo's own CI and say plainly in the evidence what wasn't proven, instead of
-   refusing.
+   refusing. This tier is for assessment and work in progress only: a Change on it stays FAILED or HELD, and never
+   reports a successful delivery or a readiness tier, until the mandatory evidence exists (root `AGENTS.md`).
 
 **Packs are also the open-source lever.** Ship a pack authoring guide and an `agent-factory pack check` command with
 v0.1.0, so the community adds packs the way Terraform providers and Backstage templates grew.
