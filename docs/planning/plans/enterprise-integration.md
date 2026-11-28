@@ -124,15 +124,16 @@ On 2026-11-27, Phase C closes on 4 December, D on 14 December, and the rehearsal
 |---|---|---|
 | A (close out) | Close S-06 with `file://` as the documented default and `.env` used for development only; fix S-16 (token in git URL) if still open | It is already in A; the public release must not ship a plaintext-`.env` default |
 | B (done) | No change. ADR-0050's signing key path should be written so it can later be held in KMS | D's KMS signing builds on it |
-| C (by 4 Dec) | Make the O1 log contract carry the audit fields (`actor{type,id,on_behalf_of}`, `scope{org,product,change}`, `outcome`, `trace_id`) even if export comes later; add `org_id` to the extension seam's tenancy hooks; write **three ADRs**: environments and promotion (Kargo-style chain, gitops/handoff/runner/direct adapters), credentials as mints (factory OIDC issuer, GitHub App, no static fallback), and factory continuity (the factory-off invariant and its drill) | ADRs are hours; the O1 schema is far cheaper to set now than to migrate later; the seam is the boundary paid features plug into |
+| C (by 4 Dec) | Make the O1 log contract carry the audit fields (`actor{type,id,on_behalf_of}`, `scope{org,product,change}`, `outcome`, `trace_id`) even if export comes later; add `org_id` to the extension seam's tenancy hooks; write **three ADRs**: environments and promotion (Kargo-style chain, gitops/handoff/runner/direct adapters), credentials as mints (factory OIDC issuer, GitHub App, no static fallback), and factory continuity (the factory-off invariant, its drill, and the rule that no rollback path waits on the factory) | ADRs are hours; the O1 schema is far cheaper to set now than to migrate later; the seam is the boundary paid features plug into |
 | D (by 14 Dec) | SSO: keep IdP group claims in `auth/` (no mapping yet); KMS: one key abstraction that covers signing now and envelope encryption later; SIEM export: emit the O1/OCSF shape with a dedupe id and "stream unhealthy" events; decide the viewer role (about 1 day; slip it if D is tight) | Each one reuses work already in D and avoids a second schema |
-| E (rehearsal 20 Dec, public 31 Dec) | Add a **factory-off check** to the rehearsal: stop the factory stack and confirm that a product on a non-`local` cluster still serves, pods reschedule (image from a non-factory registry), and the repo's own CI still builds; ship `catalog-info.yaml` in both pack templates if there is room; SECURITY.md states TLS-in-front as a requirement until native TLS lands | It shows the invariant in public instead of just claiming it; `catalog-info.yaml` is a template file, not engine work |
+| E (rehearsal 20 Dec, public 31 Dec) | Add a **factory-off check** to the rehearsal: stop the factory stack and confirm that a product on a non-`local` cluster still serves, pods reschedule (image from a non-factory registry), the repo's own CI still builds, and an operator rolls back to the previous release without the factory (on `direct`, `helm rollback` with the customer's own kubeconfig, which also tests that charts re-apply without engine-injected values); ship `catalog-info.yaml` in both pack templates if there is room; SECURITY.md states TLS-in-front as a requirement until native TLS lands | It shows the invariant in public instead of just claiming it; `catalog-info.yaml` is a template file, not engine work |
 
 Three invariants belong in AGENTS.md before release. They are written rules with tests pending, so they bind later work without building anything now:
 
 1. **No credential is stored where it could be minted.** `ctx.secret` never falls back from a mint to a stored value, and the gateway already follows this rule.
 2. **Every route and side channel has a read classification.** It mirrors `tests/test_access.py`; until phase T it is "all members", but the classification exists.
-3. **The factory is never in an app's runtime path, and nothing about a non-`local` product needs the factory to keep serving.** That covers registry, secrets, ingress, auth and monitoring. `local.off_the_factory_site` already applies this rule to hostnames.
+3. **The factory is never in an app's runtime path, and nothing about a non-`local` product needs the factory to keep serving.** That covers registry, secrets, ingress, auth and monitoring, and rollback: every environment the factory gates keeps a
+   customer-controlled, audited rollback path that does not wait on the factory. `local.off_the_factory_site` already applies this rule to hostnames.
 
 After v0.1.0, phase T should be **reordered and widened rather than replaced**:
 
@@ -144,7 +145,23 @@ After v0.1.0, phase T should be **reordered and widened rather than replaced**:
 Then two new phases:
 
 - **Phase P, environments and promotion** (after T slice 1, because environment-scoped credentials need the broker). It covers ordered environments per product, the Kargo-style chain on top of ADR-0046's digest promotion, gates per environment that reuse the team model, the `gitops` adapter (Argo CD or Flux reading an environment repo), and `handoff` mode, with the factory registered as a GitHub custom deployment protection rule.
-- **Phase R, continuity and runners.** It covers the outbound long-poll runner for private networks, Postgres and more than one concurrent change, the healthy-release record mirrored into Git (so rollback works without the factory), product backups written to customer storage, and the factory restore drill against RPO and RTO of one hour or less.
+  **Rollback must not wait on the factory.** A custom protection rule waits up to 30 days for the factory's answer and
+  then fails the job, so a rollback into the same gated environment would be blocked by the very outage it is meant to
+  survive, and admin bypass is not a plan (an environment may forbid it, and nothing limits what a bypassed job ships)
+  ([GitHub protection rules](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/configure-custom-protection-rules)).
+  Handoff mode therefore ships a **customer-controlled rollback path**: a separate rollback environment per gated
+  environment (say `prod-rollback`), same target, *without* the factory's rule, guarded by the customer's own required
+  reviewers and restricted to one rollback workflow on a protected branch. That workflow can only redeploy a digest
+  listed in the healthy-release record mirrored into Git (phase R), so it rolls back and never ships new code. The audit
+  is the customer's: GitHub's deployment history plus the reviewer's approval. When the factory returns it reads those
+  deployments and records each one as an out-of-band rollback on the product (ledger and evidence), never as a
+  factory change. The `gitops` adapter has the same trap: the factory must not be a required status check on the
+  environment repo's revert path, which stays under the customer's branch protection.
+- **Phase R, continuity and runners.** It covers the outbound long-poll runner for private networks, Postgres and more than one concurrent change, the healthy-release record mirrored into Git (so rollback works without the factory, through the customer-controlled
+  rollback path from phase P), product backups written to customer storage, and the factory restore drill against RPO and RTO of one hour or less. The factory-off drill grows with it: with the
+  factory stopped, an operator performs a real rollback through each adapter's customer path (handoff: the rollback
+  environment; gitops: a `git revert`), the app ends on the previous healthy digest, and the factory, once back,
+  records the rollback it did not make.
 
 Phase I keeps its place. Its outcome metrics should add the 2026 DORA definitions, including **deployment rework rate** and failed deployment recovery time ([DORA guide](https://dora.dev/guides/dora-metrics/)).
 

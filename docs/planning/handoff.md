@@ -58,6 +58,9 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
   [plans/enterprise-integration.md](plans/enterprise-integration.md) (environments, minted credentials, teams and
   visibility, audit, continuity; proposed phases P and R) and [plans/stack-packs-breadth.md](plans/stack-packs-breadth.md)
   (three tiers of packs). Both are in the roadmap backlog; their questions are Saravana's call.
+  Revised 2026-11-28 for the review of #222: the best-effort pack tier stays FAILED or HELD without evidence, and
+  every environment the factory gates keeps a customer-controlled rollback path that never waits on the factory
+  (handoff's rollback environment, gitops' revert), with a real rollback in the factory-off drills.
 - **S-06 (#214, `security/s06-secret-files`)** (the last of phase A item 4). Code: `secret_refs.EnvBackend`
   (`NAME_FILE`), `GitHubAppBackend` (`github-app://`, JWT RS256 from the app's key file, cached in memory until ten
   minutes before expiry, no redirects), `scripts/secrets-to-files.py` / `make secrets-files`, the `.secrets` mount,
