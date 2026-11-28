@@ -6257,6 +6257,95 @@
         "title": "AttentionItem",
         "description": "A pending action with the product and change it belongs to (`GET /api/attention`)."
       },
+      "AuditDeliveryView": {
+        "properties": {
+          "sink": {
+            "type": "string",
+            "title": "Sink"
+          },
+          "destination": {
+            "type": "string",
+            "title": "Destination",
+            "default": ""
+          },
+          "transport": {
+            "type": "string",
+            "title": "Transport",
+            "default": ""
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": ""
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "delivered": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered"
+          },
+          "failures": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failures"
+          },
+          "lag": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag"
+          },
+          "last_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seq"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sink"
+        ],
+        "title": "AuditDeliveryView",
+        "description": "Where the audit log goes and how delivery stands (ADR-0053): never a credential or event content."
+      },
       "AvailabilityInput": {
         "properties": {
           "success": {
@@ -8541,6 +8630,13 @@
             },
             "type": "object",
             "title": "Ui Slots"
+          },
+          "audit": {
+            "items": {
+              "$ref": "#/components/schemas/AuditDeliveryView"
+            },
+            "type": "array",
+            "title": "Audit"
           }
         },
         "type": "object",

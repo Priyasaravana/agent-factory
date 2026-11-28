@@ -19,6 +19,7 @@ licensed = "agent_factory_licensed.sso:auth_extension"
 
 [project.scripts]
 agent-factory-licence = "agent_factory_licensed.licence:main"
+agent-factory-siem = "agent_factory_licensed.siem:main"
 
 [tool.uv.sources]
 agent-factory = { path = "../engine", editable = true }

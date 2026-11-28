@@ -392,3 +392,12 @@
 - Record significant decisions as ADRs in `docs/adr/`. Every ADR has a **Best practices** section mapping the decision to
   `docs/practices.md` (from ADR-0041 on); update practices.md in the same change when a decision
   closes or opens an item there.
+- SIEM delivery and the account id (ADR-0053): the `siem` audit file is the record and the queue; each destination
+  (`licensed/…/siem/delivery.py`: HTTPS NDJSON or Splunk HEC, syslog over TLS) has a cursor and ships lines byte for
+  byte, at least once, in order, in its own thread, asking `licence.Live` before every batch; a failure is counted
+  and retried, never in a change's way, and its reason is a status code or exception type, never a body or token.
+  `agent-factory-siem verify` checks an export's chain. A sink may report `status()` (`Registry.audit_status`, shown
+  on the Edition card). The engine reads `X-Auth-Uid` only with the gateway proof; records that name a person keep
+  the id beside the name (`created_by_uid`, `requested_by_uid`), and checks of "is this the same person" go through
+  `identity.is_person`, never a bare name comparison. Tests in `licensed/tests/test_siem_delivery.py` and
+  `engine/tests/test_identity.py`.

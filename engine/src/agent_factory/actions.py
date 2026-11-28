@@ -47,6 +47,7 @@ from agent_factory.models import (
     AssessmentView,
     AssignWorkflowInput,
     AttentionItem,
+    AuditDeliveryView,
     AvailabilityInput,
     AvailabilityTarget,
     BlueprintUse,
@@ -1681,6 +1682,7 @@ def get_edition(f: Factory) -> EditionView:
         licence=reg.licence_now(),
         extensions=[ExtensionView(**vars(e)) for e in reg.loaded],
         ui_slots=dict(reg.ui_slots),
+        audit=[AuditDeliveryView.model_validate(r) for r in reg.audit_status()],
     )
 
 

@@ -4,6 +4,18 @@ Read [README.md](README.md) and [roadmap.md](roadmap.md) first. This page holds 
 (replace it at the end of every session) and **how we work** (keep it; add lessons as they're learned).
 
 ## Current state (2026-11-26)
+- **Phase D part 2, SIEM delivery and the account uid, in review on `feat/siem-export`** (2026-11-28;
+  [ADR-0053](../adr/0053-siem-delivery.md), proposed; numbering may need a bump if a parallel branch takes 0053).
+  Code map: `licensed/…/siem/delivery.py` (`Forwarder`: cursor in `<audit>/.delivery/`, lock, `deliver_once`,
+  backoff, `status`; `HttpsTransport` ndjson | splunk-hec; `SyslogTlsTransport`; `pending`; `transports_from_env`),
+  `siem/__init__` (`Export` sink, `audit_line`, `verify_export`, CLI `agent-factory-siem verify|verify-record|status`),
+  `agent_factory_licensed._siem` (destinations from `.env`, `siem-delivery` loaded or refused with the reason);
+  core `extensions.Registry.audit_status`, `EditionView.audit` (`AuditDeliveryView`), `EditionCard` "Audit export".
+  uid: `factory_auth` `/auth/check` `X-Auth-Uid`; nginx `$auth_uid`; `identity.Identity.uid`, `UID_PATTERN`,
+  `is_person`; `Product.created_by_uid`, `Change.requested_by_uid`, `RiskHold.requested_by_uid`,
+  `pipeline._requester_uid`, `approve_risk(by_uid=)`, `actions._may_steer`. Tests: `licensed/tests/test_siem_delivery.py`
+  (real TLS servers for HTTPS and syslog), `engine/tests/test_identity.py`, `test_extensions.py`,
+  `test_least_privilege.py`, auth `test_auth.py` / `test_sso.py`. **Live check (Saravana):** in the PR.
 - **Phase D part 1, SSO with OIDC, in review on `feat/sso-oidc`** (stacked on `feat/open-core-seam`: merge that
   first; [ADR-0052](../adr/0052-single-sign-on.md), proposed). Code map: `auth/src/factory_auth/extensions.py`
   (seam), `app.py` (`/auth/sso`, `/auth/sso/{id}/start|callback`, `/auth/edition`, `Settings.public_url`),

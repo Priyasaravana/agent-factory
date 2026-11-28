@@ -14,11 +14,13 @@ registry's methods: `set_edition`, `provide`, `refuse`.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from typing import Any
 
 from agent_factory_licensed import licence as _licence
 from agent_factory_licensed import siem
+from agent_factory_licensed.siem import delivery
 
 EDITION = "enterprise"
 log = logging.getLogger(__name__)
@@ -40,9 +42,34 @@ class GatedSink:
         self._stopped = False
         self.sink.emit(event)
 
+    def status(self) -> list[dict[str, object]]:
+        """What the sink reports (`Registry.audit_status`); when the licence has lapsed, says so first."""
+        rows = list(self.sink.status()) if hasattr(self.sink, "status") else []
+        if not self.live.grants(self.feature):
+            rows = [{**r, "state": "paused", "detail": self.live.why_not(self.feature)} for r in rows]
+        return rows
 
-def _siem(reg: Any, live: _licence.Live) -> None:
-    reg.provide("audit-file", "siem", audit_sink=GatedSink(siem.AuditFile(siem.default_dir()), "siem", live))
+
+def _siem(reg: Any, live: _licence.Live, env: dict[str, str] | None = None) -> None:
+    env = dict(os.environ) if env is None else env
+    folder = siem.default_dir(env)
+    forwarders: list[delivery.Forwarder] = []
+    problem = ""
+    try:
+        start = delivery.start_from_env(env)
+        forwarders = [
+            delivery.Forwarder(folder, t, lambda: live.grants("siem"), lambda: live.why_not("siem"), start)
+            for t in delivery.transports_from_env(env)
+        ]
+    except (ValueError, OSError) as exc:  # a mistyped destination: the record is still written, delivery refused
+        problem = str(exc)
+    export = siem.Export(siem.AuditFile(folder), forwarders)
+    reg.provide("audit-file", "siem", audit_sink=GatedSink(export, "siem", live))
+    if problem:
+        reg.refuse("siem-delivery", "siem", f"delivery settings: {problem}")
+    elif forwarders:
+        reg.provide("siem-delivery", "siem")
+        export.start()  # delivery threads, daemon: they read the record and never block an event
 
 
 def _sso(reg: Any, live: _licence.Live) -> None:

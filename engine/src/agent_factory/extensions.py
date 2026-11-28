@@ -13,7 +13,8 @@ Points:
   back to the local key (`signing.signer_for`). Verifying stays in core: whatever signs must produce an SSHSIG
   that `signing.check` accepts, and its keys are the trusted set.
 - `audit_sink`: receives the factory's audit events (SIEM export, phase D). Core emits; a sink that
-  fails is logged and never stops the factory.
+  fails is logged and never stops the factory. A sink may also report `status()` (one row per destination: where it
+  delivers, its state, counts and lag; never a credential), shown on Settings → Edition (ADR-0053).
 - `report_pack`: renders a report from a change's sealed evidence (compliance pack, phase D).
 - `ui_slot`: a named place in the factory UI an extension fills (shown on Settings → Edition).
 
@@ -52,6 +53,8 @@ class Refused(Exception):
 
 class AuditSink(Protocol):
     def emit(self, event: dict[str, Any]) -> None: ...
+
+    # optional: `status() -> list[dict[str, Any]]`, read by `Registry.audit_status`
 
 
 class ReportPack(Protocol):
@@ -173,6 +176,21 @@ class Registry:
                 sink.emit(event)
             except Exception:  # noqa: BLE001 — an export failing must never stop a change
                 log.exception("audit sink %s failed on %s", name, kind)
+
+    def audit_status(self) -> list[dict[str, Any]]:
+        """Each audit sink's delivery rows, with the sink's name. Never raises: a sink that can't say is reported
+        as unknown, so a broken extension never breaks Settings."""
+        rows: list[dict[str, Any]] = []
+        for name, sink in self.audit_sinks:
+            status = getattr(sink, "status", None)
+            if status is None:
+                continue
+            try:
+                got = status()
+                rows.extend({"sink": name, **dict(r)} for r in got)
+            except Exception as exc:  # noqa: BLE001
+                rows.append({"sink": name, "state": "unknown", "detail": f"status failed: {type(exc).__name__}"})
+        return rows
 
 
 def _entry_points() -> Iterable[Any]:

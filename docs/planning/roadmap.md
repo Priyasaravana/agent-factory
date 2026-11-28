@@ -689,6 +689,16 @@ hours: each phase is one or a few PRs, built and reviewed by AI, and ends with a
   for good (the engine grants steering by name), `= /auth/sso` matched exactly in nginx (the e2e CSP failure),
   the provider's registered id in the log (CodeQL). **Next, before one sign-in serves several factories:** the
   account `uid` through the gateway headers into the engine's ownership records.
+  🟡 **Part 2, SIEM delivery and the account uid, built 2026-11-28 on `feat/siem-export`**
+  ([ADR-0053](../adr/0053-siem-delivery.md), proposed): the audit file is the record and the queue; per destination a
+  cursor and a forwarder thread ship the lines byte for byte to an HTTPS collector (NDJSON or Splunk HEC) or syslog
+  over TLS (RFC 5424/5425), at least once, in order, retried with capped backoff, the licence asked before every
+  batch, one process per destination; `agent-factory-siem verify` checks an export's chain at the destination;
+  delivery state, counts and lag on Settings → Edition (`audit_sink.status()`, `GET /api/edition` `audit`). The uid:
+  `X-Auth-Uid` from auth through nginx, honoured only with the proof; `Product.created_by_uid`,
+  `Change.requested_by_uid`, risk holds and audit events; steering by id when both are known (`identity.is_person`).
+  **Left:** the live check with a real collector (Saravana); the owner's id (named by name); SAML, customer KMS
+  signing and the compliance pack.
 - **The factory UI, simple by default** (placed here by Saravana 2026-11-26; mockups first, the direction still his
   call): the design review in [plans/ui-redesign.md](plans/ui-redesign.md) (UI-01 to UI-60) and six web slices: the
   shell and a Simple / Advanced switch, home and New product, the product page, Insights, factory settings, the

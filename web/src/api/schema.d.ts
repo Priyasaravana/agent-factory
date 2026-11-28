@@ -2539,6 +2539,44 @@ export interface components {
             iteration: number;
         };
         /**
+         * AuditDeliveryView
+         * @description Where the audit log goes and how delivery stands (ADR-0053): never a credential or event content.
+         */
+        AuditDeliveryView: {
+            /** Sink */
+            sink: string;
+            /**
+             * Destination
+             * @default
+             */
+            destination: string;
+            /**
+             * Transport
+             * @default
+             */
+            transport: string;
+            /**
+             * State
+             * @default
+             */
+            state: string;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Delivered */
+            delivered?: number | null;
+            /** Failures */
+            failures?: number | null;
+            /** Lag */
+            lag?: number | null;
+            /** Last Seq */
+            last_seq?: number | null;
+            /** Last Ok At */
+            last_ok_at?: string | null;
+        };
+        /**
          * AvailabilityInput
          * @description Tighten the product's availability target: the share of health checks that must answer,
          *     and optionally the share of requests that may fail with a server error.
@@ -3445,6 +3483,8 @@ export interface components {
             ui_slots?: {
                 [key: string]: string;
             };
+            /** Audit */
+            audit?: components["schemas"]["AuditDeliveryView"][];
         };
         /**
          * EntryArtifactView

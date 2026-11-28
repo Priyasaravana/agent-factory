@@ -221,6 +221,7 @@ def test_every_change_created_and_every_status_change_reaches_the_audit_sinks():
             iteration=1,
             status=ChangeStatus.queued,
             requested_by="ana",
+            requested_by_uid="u-ana",
             created_at=now,
             updated_at=now,
         )
@@ -233,6 +234,38 @@ def test_every_change_created_and_every_status_change_reaches_the_audit_sinks():
         ("change.status", "queued", "running"),
     ]
     assert all(e["change_id"] == "c1" and e["product_id"] == "p1" and e["requested_by"] == "ana" for e in sink.events)
+    assert all(e["requested_by_uid"] == "u-ana" for e in sink.events), "the account id travels with the name (ADR-0052)"
+
+
+async def test_the_edition_view_shows_each_audit_destination_and_never_a_credential(make_factory):
+    class Delivering(_Sink):
+        def status(self):
+            return [
+                {
+                    "destination": "https://siem.test/ingest",
+                    "transport": "https",
+                    "state": "failing",
+                    "detail": "HTTP 503",
+                    "delivered": 4,
+                    "failures": 2,
+                    "lag": 3,
+                    "token": "never-shown",
+                }
+            ]
+
+    f = make_factory()
+    f.settings.auth_mode = "gateway"
+    app, ctx, c = await _client(f)
+    reg = extensions.activate(extensions.Registry())
+    reg.provide("audit-file", "siem", audit_sink=Delivering())
+    reg.provide("plain", "siem", audit_sink=_Sink())  # no status: not listed
+    async with c:
+        r = (await c.get("/api/edition", headers=MEMBER)).json()
+    await ctx.__aexit__(None, None, None)
+    assert len(r["audit"]) == 1
+    row = r["audit"][0]
+    assert (row["sink"], row["state"], row["failures"], row["lag"]) == ("audit-file", "failing", 2, 3)
+    assert "token" not in row and "never-shown" not in str(r), "only the view's fields leave the engine"
 
 
 async def test_the_api_says_core_when_nothing_is_installed(make_factory):
@@ -241,7 +274,7 @@ async def test_the_api_says_core_when_nothing_is_installed(make_factory):
     app, ctx, c = await _client(f)
     async with c:
         r = (await c.get("/api/edition", headers=MEMBER)).json()
-        assert r == {"edition": "core", "licence": None, "extensions": [], "ui_slots": {}}
+        assert r == {"edition": "core", "licence": None, "extensions": [], "ui_slots": {}, "audit": []}
         # and the journey still runs on core: no extension is needed to deliver
         product = (await c.post("/api/products", json=PRODUCT.model_dump(), headers=MEMBER)).json()["product"]
         assert await wait_run(f, product["latest_change_id"]) == ChangeStatus.awaiting_feedback

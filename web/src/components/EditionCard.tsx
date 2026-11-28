@@ -12,6 +12,19 @@ import {
 
 // ADR-0051: which edition runs, what its licence grants and which extensions loaded. Read-only: the key is a
 // mounted file (.secrets/agent_factory_licence), never entered in the UI.
+// ADR-0053: audit delivery to a SIEM. The record is always written; a destination that fails is retried and
+// counted here, never in a change's way.
+const DELIVERY_TONE: Record<string, "ok" | "warn" | "bad"> = {
+  writing: "ok",
+  "up to date": "ok",
+  delivering: "ok",
+  behind: "warn",
+  paused: "warn",
+  elsewhere: "warn",
+  failing: "bad",
+  unknown: "bad",
+};
+
 const STATUS_TONE: Record<string, "ok" | "warn" | "bad"> = {
   loaded: "ok",
   refused: "warn",
@@ -36,6 +49,7 @@ export function EditionCard() {
   if (!q.data) return null;
   const { edition } = q.data;
   const extensions = q.data.extensions ?? [];
+  const audit = q.data.audit ?? [];
   const lic = (q.data.licence ?? null) as Licence | null;
   const enterprise = edition === "enterprise";
 
@@ -127,6 +141,50 @@ export function EditionCard() {
                 ))}
               </tbody>
             </table>
+          )}
+          {audit.length > 0 && (
+            <div className="grid gap-2" data-testid="audit-delivery">
+              <h4 className="m-0 text-sm font-semibold">Audit export</h4>
+              <table className="wide">
+                <thead>
+                  <tr>
+                    <td>destination</td>
+                    <td>state</td>
+                    <td>delivered</td>
+                    <td>waiting</td>
+                    <td>last delivered</td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {audit.map((a) => (
+                    <tr key={`${a.sink}-${a.destination}`}>
+                      <td>
+                        <strong>{a.destination}</strong>
+                        <div className="small muted">{a.transport}</div>
+                      </td>
+                      <td>
+                        <Badge tone={DELIVERY_TONE[a.state ?? ""] ?? "muted"}>
+                          {a.state}
+                        </Badge>
+                        {a.detail && (
+                          <div className="small muted">{a.detail}</div>
+                        )}
+                      </td>
+                      <td>
+                        {a.delivered ?? "—"}
+                        {a.failures ? (
+                          <div className="small text-warn">
+                            {a.failures} failed attempt(s)
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>{a.lag ?? "—"}</td>
+                      <td>{a.last_ok_at ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       )}

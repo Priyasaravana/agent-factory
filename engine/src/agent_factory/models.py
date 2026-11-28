@@ -1083,6 +1083,21 @@ class ExtensionView(BaseModel):
     points: list[str] = Field(default_factory=list)
 
 
+class AuditDeliveryView(BaseModel):
+    """Where the audit log goes and how delivery stands (ADR-0053): never a credential or event content."""
+
+    sink: str
+    destination: str = ""
+    transport: str = ""  # file | https | syslog
+    state: str = ""  # writing | up to date | delivering | behind | failing | paused | elsewhere | unknown
+    detail: str = ""
+    delivered: int | None = None
+    failures: int | None = None
+    lag: int | None = None  # events in the record not yet acknowledged by the destination
+    last_seq: int | None = None
+    last_ok_at: str | None = None
+
+
 class EditionView(BaseModel):
     """Which edition is running (core or enterprise), what its licence says, and which extensions loaded.
     Never any key material: the licence's holder, features and expiry only."""
@@ -1091,6 +1106,7 @@ class EditionView(BaseModel):
     licence: dict[str, Any] | None = None
     extensions: list[ExtensionView] = Field(default_factory=list)
     ui_slots: dict[str, str] = Field(default_factory=dict)
+    audit: list[AuditDeliveryView] = Field(default_factory=list)  # audit export rows (ADR-0053); empty in core
 
 
 class EvalCaseResult(BaseModel):
